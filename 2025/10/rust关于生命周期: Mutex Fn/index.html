@@ -1,0 +1,180 @@
+<!doctype html>
+<html class="not-ready lg:text-base overflow-y-scroll scroll-pt-14" lang="en">
+
+<head prefix="og: https://ogp.me/ns# article: https://ogp.me/ns/article#">
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+  <meta name="generator" content="Zola" />
+  <title>rust关于生命周期: Mutex Fn</title>
+  <meta property="og:title" content="rust关于生命周期: Mutex Fn" />
+  <meta property="og:url" content="https://blog.moxuetianya.com/2025/10/rust关于生命周期: Mutex Fn/" />
+  <link rel="canonical" href="https://blog.moxuetianya.com/2025/10/rust关于生命周期: Mutex Fn/" />
+  <meta property="og:type" content="article" />
+  <meta property="article:published_time" content="2025-10-09T16:23:32+08:00" />
+  <meta property="article:tag" content="rust" />
+  <!-- Begin Head inject -->
+  
+  <!-- End Head inject -->
+  <link rel="stylesheet" href="https://blog.moxuetianya.com/main.min.css?h=fc65ba308cf36d3ba82c" />
+  <style>
+  :root{--bg: #f4f4f5; --header: #e4e4e7; color-scheme: light;}
+  :root.dark{--bg: #18181b; --header: #27272a; color-scheme: dark;}
+  </style>
+  <meta name="theme-color" data-light="#e4e4e7" data-dark="#27272a" content="#e4e4e7" />
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="https://blog.moxuetianya.com/favicon.ico" />
+  <link rel="apple-touch-icon" type="image/png" href="https://blog.moxuetianya.com/apple-touch-icon.png?h=58bee300054c5308feb3" />
+  <link rel="icon" type="image/png" href="https://blog.moxuetianya.com/android-icon.png?h=8d80ec95446bd2c36826" />
+  <script src="https://blog.moxuetianya.com/js/linkita.min.js?h=1dd3ed42fc674277bc34"></script>
+  <script src="https://blog.moxuetianya.com/js/linkita-search.min.js?h=698547b4b081d012c661"></script>
+  <!-- Begin Head End inject -->
+  
+  <!-- End Head End inject -->
+</head>
+
+<body class="text-black duration-100 ease-out bg-[var(--bg)] dark:text-white">
+  <!-- Header -->
+<header class="bg-[var(--header)] fixed top-0 z-40 mx-auto min-h-[3.25rem] w-full header-icons">
+  <div class="mx-auto w-full max-w-4xl p-2.5 lg:flex lg:justify-between">
+    <div class="flex justify-between">
+      <div class="flex items-center min-h-8">
+        <button type="button" title="Go to home page" accesskey="!"
+          onclick="window.location.href='https://blog.moxuetianya.com/';"
+          class="btn-home h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover [background-image:var(--icon-home)] dark:invert"
+        ></button>
+        <button type="button" title="Switch color scheme" accesskey="$"
+          onclick="window.linkita.toggleDarkMode();" ondblclick="window.linkita.resetDarkMode();"
+          class="btn-dark ml-4 h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover dark:invert [background-image:var(--icon-theme-dark)] dark:[background-image:var(--icon-theme-light)]"
+        ></button>
+        <button type="button" title="Search" accesskey="/"
+          onclick="window.linkita.toggleSearch();"
+          class="btn-search ml-4 h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover [background-image:var(--icon-search)] dark:invert"
+        ></button>
+        <script>window.linkita.initSearchButton({ scripts: ["https://blog.moxuetianya.com/elasticlunr.min.js", "https://blog.moxuetianya.com/search_index.en.js"] });</script>
+      </div>
+    </div>
+  </div>
+</header>
+
+  <!-- Begin Body Start inject -->
+  
+  <!-- End Body Start inject -->
+  <main class="prose prose-neutral relative mx-auto min-h-[calc(100%-4rem)]
+    max-w-3xl break-words px-4 pb-12 pt-28 lg:pt-32 dark:prose-invert prose-pre:rounded-lg prose-img:rounded-lg">
+      <!-- Search -->
+<div id="linkita-search-wrapper" class="hidden">
+  <ul id="linkita-search-results"></ul>
+</div>
+
+    
+<article>
+  <!-- Begin Page Start inject -->
+  
+  <!-- End Page Start inject -->
+
+  <header class="mb-16">
+    <h1 class="!my-0 pb-2.5">rust关于生命周期: Mutex Fn</h1>
+    <!-- Page Info -->
+<div class="text-sm antialiased opacity-80"><time
+      datetime="2025-10-09T16:23:32+08:00">2025-10-09</time><span
+        class="mx-1">&middot;</span><time
+    datetime="PT0H1M0S">1&nbsp;min</time>
+</div>
+
+  </header>
+  <!-- TOC -->
+<div class="block-bg mb-12 rounded-lg p-2 text-lg">
+  <details>
+    <summary class="select-none py-0.5 lg:py-1 pl-4" accesskey="=">
+      <span class="cursor-pointer">Table of Contents</span>
+    </summary>
+    <div class="px-2">
+      <ul>
+        <li>
+          <a class="no-underline hover:underline" href="https://blog.moxuetianya.com/2025/10/rust关于生命周期: Mutex Fn/#yu-dao-de-wen-ti">遇到的问题</a>
+        </li>
+      </ul>
+    </div>
+  </details>
+</div>
+
+  <!-- Content -->
+  <section><h1 id="yu-dao-de-wen-ti">遇到的问题</h1>
+<pre data-lang="rust" style="background-color:#2b303b;color:#c0c5ce;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#b48ead;">let mut</span><span> b = SslConnector::builder(SslMethod::tls_client()).</span><span style="color:#96b5b4;">map_err</span><span>(|</span><span style="color:#bf616a;">e</span><span>|e.</span><span style="color:#96b5b4;">to_string</span><span>())?;
+</span><span>b.</span><span style="color:#96b5b4;">set_verify</span><span>(SslVerifyMode::</span><span style="color:#d08770;">NONE</span><span>);
+</span><span style="color:#b48ead;">if let </span><span>Some(file) = &amp;config.sshkeylogfile {
+</span><span>    </span><span style="color:#b48ead;">let</span><span> file = OpenOptions::new()
+</span><span>        .</span><span style="color:#96b5b4;">create</span><span>(</span><span style="color:#d08770;">true</span><span>)
+</span><span>        .</span><span style="color:#96b5b4;">append</span><span>(</span><span style="color:#d08770;">true</span><span>)
+</span><span>        .</span><span style="color:#96b5b4;">open</span><span>(file)
+</span><span>        .</span><span style="color:#96b5b4;">map_err</span><span>(|</span><span style="color:#bf616a;">e</span><span>|e.</span><span style="color:#96b5b4;">to_string</span><span>())?;
+</span><span>    </span><span style="color:#b48ead;">let</span><span> file = Mutex::new(file);
+</span><span>
+</span><span>    </span><span style="color:#65737e;">// 重点这里： 
+</span><span>    </span><span style="color:#65737e;">// 1. 即需要move将file的生命周期延长
+</span><span>    </span><span style="color:#65737e;">// 2. 又需要file.lock().unwrap() 这样使用捕获的变量， 这样才能多次调用
+</span><span>    </span><span style="color:#65737e;">// 可以理解为 struct Fn { file: TFile }, Fn 结构通过move保存了值类型file， 同时使用Mutex保证了内部可变性？？？
+</span><span>    b.</span><span style="color:#96b5b4;">set_keylog_callback</span><span>(</span><span style="color:#b48ead;">move </span><span>|_ssl, </span><span style="color:#b48ead;">str</span><span>| {
+</span><span>        </span><span style="color:#65737e;">// let file = file; // 这样调用一次就消耗了file,不能多次调用这个回调
+</span><span>        </span><span style="color:#b48ead;">let mut</span><span> file = file.</span><span style="color:#96b5b4;">lock</span><span>().</span><span style="color:#96b5b4;">unwrap</span><span>();
+</span><span>        </span><span style="color:#b48ead;">let </span><span>_ = file.</span><span style="color:#96b5b4;">write_all</span><span>(</span><span style="color:#b48ead;">str</span><span>.</span><span style="color:#96b5b4;">as_bytes</span><span>());
+</span><span>        </span><span style="color:#b48ead;">let </span><span>_ = file.</span><span style="color:#96b5b4;">write_all</span><span>(</span><span style="color:#b48ead;">b</span><span>&quot;</span><span style="color:#96b5b4;">\n</span><span>&quot;);
+</span><span>    });
+</span><span>}
+</span></code></pre>
+</section>
+  <hr />
+  <!-- Post Taxonomies -->
+<footer class="mt-12 flex flex-col" tabindex="-1" accesskey="_">
+  <div class="mb-2 flex flex-wrap">
+    <span class="block-bg mb-1.5 mr-1.5 rounded-lg px-5 py-1.5">Tags</span>
+    
+    <a
+      class="block-bg block-hover mb-1.5 mr-1.5 rounded-lg px-5 py-1.5 no-underline"
+      href="https://blog.moxuetianya.com/tags/rust/">rust</a>
+    
+  </div>
+</footer>
+
+  <!-- Post Nav -->
+<nav class="block-bg mt-12 flex flex-wrap rounded-lg text-lg">
+  <a
+    class="block-hover-mask flex min-w-[50%] grow items-center rounded-l-md p-6 pr-3 font-semibold no-underline"
+    href="https://blog.moxuetianya.com/2025/10/cockpit管理qemu虚拟机/" accesskey=","
+    ><span class="mr-1.5">&#8249;</span><span>cockpit管理qemu虚拟机</span></a>
+  <a
+    class="block-hover-mask ml-auto flex min-w-[50%] grow items-center justify-end rounded-r-md p-6 pl-3 font-semibold no-underline"
+    href="https://blog.moxuetianya.com/2025/10/linux 录屏并视频剪辑进行标注/" accesskey="."
+    ><span>linux 录屏并视频剪辑进行标注</span><span class="ml-1.5">&#8250;</span></a>
+</nav>
+
+  <!-- Begin Page End inject -->
+  
+  <!-- End Page End inject -->
+</article>
+
+  </main>
+  <!-- Footer -->
+<footer class="mx-auto flex lg:mt-5 max-w-3xl flex-wrap items-center px-4 py-3 text-sm opacity-60">
+  <div class="mr-auto basis-full lg:basis-1/2">
+  © <time datetime="2025">2025</time> moxuetianya
+  </div>
+  <div class="flex basis-full lg:basis-1/2 lg:justify-end">
+    <span class="mr-6 lg:ml-6">
+      <a class="link" href="https://www.getzola.org/" target="_blank">Powered by Zola</a>
+    </span>
+    <a class="link" href="https://www.getzola.org/themes/linkita/" target="_blank">&#9998; Linkita</a>
+  </div>
+  <!-- Begin Footer inject -->
+  
+  <!-- End Footer inject -->
+</footer>
+
+  
+
+  <!-- Begin Body End inject -->
+  
+  <!-- End Body End inject -->
+</body>
+
+</html>
