@@ -1,0 +1,365 @@
+<!doctype html>
+<html class="not-ready lg:text-base overflow-y-scroll scroll-pt-14" lang="en">
+
+<head prefix="og: https://ogp.me/ns# article: https://ogp.me/ns/article#">
+  <meta charset="utf-8" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+  <meta name="generator" content="Zola" />
+  <title>rustc-wrapper(linker)解决cargo并行链接OOM问题</title>
+  <meta property="og:title" content="rustc-wrapper(linker)解决cargo并行链接OOM问题" />
+  <meta property="og:url" content="https://blog.moxuetianya.com/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/" />
+  <link rel="canonical" href="https://blog.moxuetianya.com/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/" />
+  <meta property="og:type" content="article" />
+  <meta property="article:published_time" content="2025-10-31T09:52:15+08:00" />
+  <meta property="article:tag" content="cargo" />
+  <meta property="article:tag" content="rustc" />
+  <meta property="article:tag" content="linker" />
+  <meta property="article:tag" content="ld" />
+  <!-- Begin Head inject -->
+  
+  <!-- End Head inject -->
+  <link rel="stylesheet" href="https://blog.moxuetianya.com/main.min.css?h=fc65ba308cf36d3ba82c" />
+  <style>
+  :root{--bg: #f4f4f5; --header: #e4e4e7; color-scheme: light;}
+  :root.dark{--bg: #18181b; --header: #27272a; color-scheme: dark;}
+  </style>
+  <meta name="theme-color" data-light="#e4e4e7" data-dark="#27272a" content="#e4e4e7" />
+  <link rel="icon" type="image/x-icon" sizes="16x16" href="https://blog.moxuetianya.com/favicon.ico" />
+  <link rel="apple-touch-icon" type="image/png" href="https://blog.moxuetianya.com/apple-touch-icon.png?h=58bee300054c5308feb3" />
+  <link rel="icon" type="image/png" href="https://blog.moxuetianya.com/android-icon.png?h=8d80ec95446bd2c36826" />
+  <script src="https://blog.moxuetianya.com/js/linkita.min.js?h=1dd3ed42fc674277bc34"></script>
+  <script src="https://blog.moxuetianya.com/js/linkita-search.min.js?h=698547b4b081d012c661"></script>
+  <!-- Begin Head End inject -->
+  
+  <!-- End Head End inject -->
+</head>
+
+<body class="text-black duration-100 ease-out bg-[var(--bg)] dark:text-white">
+  <!-- Header -->
+<header class="bg-[var(--header)] fixed top-0 z-40 mx-auto min-h-[3.25rem] w-full header-icons">
+  <div class="mx-auto w-full max-w-4xl p-2.5 lg:flex lg:justify-between">
+    <div class="flex justify-between">
+      <div class="flex items-center min-h-8">
+        <button type="button" title="Go to home page" accesskey="!"
+          onclick="window.location.href='https://blog.moxuetianya.com/';"
+          class="btn-home h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover [background-image:var(--icon-home)] dark:invert"
+        ></button>
+        <button type="button" title="Switch color scheme" accesskey="$"
+          onclick="window.linkita.toggleDarkMode();" ondblclick="window.linkita.resetDarkMode();"
+          class="btn-dark ml-4 h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover dark:invert [background-image:var(--icon-theme-dark)] dark:[background-image:var(--icon-theme-light)]"
+        ></button>
+        <button type="button" title="Search" accesskey="/"
+          onclick="window.linkita.toggleSearch();"
+          class="btn-search ml-4 h-6 w-6 shrink-0 cursor-pointer text-[0] bg-center bg-no-repeat bg-cover [background-image:var(--icon-search)] dark:invert"
+        ></button>
+        <script>window.linkita.initSearchButton({ scripts: ["https://blog.moxuetianya.com/elasticlunr.min.js", "https://blog.moxuetianya.com/search_index.en.js"] });</script>
+      </div>
+    </div>
+  </div>
+</header>
+
+  <!-- Begin Body Start inject -->
+  
+  <!-- End Body Start inject -->
+  <main class="prose prose-neutral relative mx-auto min-h-[calc(100%-4rem)]
+    max-w-3xl break-words px-4 pb-12 pt-28 lg:pt-32 dark:prose-invert prose-pre:rounded-lg prose-img:rounded-lg">
+      <!-- Search -->
+<div id="linkita-search-wrapper" class="hidden">
+  <ul id="linkita-search-results"></ul>
+</div>
+
+    
+<article>
+  <!-- Begin Page Start inject -->
+  
+  <!-- End Page Start inject -->
+
+  <header class="mb-16">
+    <h1 class="!my-0 pb-2.5">rustc-wrapper(linker)解决cargo并行链接OOM问题</h1>
+    <!-- Page Info -->
+<div class="text-sm antialiased opacity-80"><time
+      datetime="2025-10-31T09:52:15+08:00">2025-10-31</time><span
+        class="mx-1">&middot;</span><time
+    datetime="PT0H1M0S">1&nbsp;min</time>
+</div>
+
+  </header>
+  <!-- TOC -->
+<div class="block-bg mb-12 rounded-lg p-2 text-lg">
+  <details>
+    <summary class="select-none py-0.5 lg:py-1 pl-4" accesskey="=">
+      <span class="cursor-pointer">Table of Contents</span>
+    </summary>
+    <div class="px-2">
+      <ul>
+        <li>
+          <a class="no-underline hover:underline" href="https://blog.moxuetianya.com/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/#bao-zhuan-linkerde-fang-shi">包转linker的方式</a>
+        </li>
+        <li>
+          <a class="no-underline hover:underline" href="https://blog.moxuetianya.com/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/#bao-zhuang-rustcjin-xing-bian-yi">包装rustc进行编译</a>
+        </li>
+      </ul>
+    </div>
+  </details>
+</div>
+
+  <!-- Content -->
+  <section><h1 id="bao-zhuan-linkerde-fang-shi">包转linker的方式</h1>
+<p>ld_wrapper.sh
+并没有验证通过ORZ?</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;">#!/bin/bash
+</span><span style="color:#65737e;"># 通用链接器包装器 - ld_generic_wrapper.sh
+</span><span>
+</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span>=&quot;</span><span style="color:#a3be8c;">0.10</span><span>&quot;          </span><span style="color:#65737e;"># 内存压力阈值（10%）
+</span><span style="color:#bf616a;">MAX_WAIT_TIME</span><span>=</span><span style="color:#a3be8c;">600                  </span><span style="color:#65737e;"># 最大等待时间（秒）
+</span><span style="color:#bf616a;">MIN_WAIT_TIME</span><span>=</span><span style="color:#a3be8c;">5                    </span><span style="color:#65737e;"># 最小等待时间（秒） 
+</span><span style="color:#bf616a;">MAX_RETRIES</span><span>=</span><span style="color:#a3be8c;">100                    </span><span style="color:#65737e;"># 最大重试次数
+</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>=&quot;</span><span style="color:#a3be8c;">/sys/fs/cgroup/user.slice/user-</span><span>$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">id -u</span><span style="color:#a3be8c;">).slice/memory.pressure</span><span>&quot;
+</span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/ld</span><span>&quot;              </span><span style="color:#65737e;"># 真实链接器路径，可根据需要修改
+</span><span style="color:#bf616a;">LOG_FILE</span><span>=&quot;</span><span style="color:#a3be8c;">/tmp/linker_wrapper.log</span><span>&quot; </span><span style="color:#65737e;"># 日志文件路径
+</span><span>
+</span><span style="color:#65737e;"># 检测真实链接器
+</span><span style="color:#8fa1b3;">detect_real_linker</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">wrapper_name</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">basename </span><span>&quot;$</span><span style="color:#bf616a;">0</span><span>&quot;</span><span style="color:#a3be8c;">)
+</span><span>    </span><span style="color:#b48ead;">case </span><span>&quot;$</span><span style="color:#bf616a;">wrapper_name</span><span>&quot; </span><span style="color:#b48ead;">in
+</span><span>        *ld*</span><span style="color:#b48ead;">)
+</span><span>            </span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/ld</span><span>&quot;
+</span><span>            ;;
+</span><span>        *lld*</span><span style="color:#b48ead;">)
+</span><span>            </span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/lld</span><span>&quot;
+</span><span>            ;;
+</span><span>        *gold*</span><span style="color:#b48ead;">)
+</span><span>            </span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/gold</span><span>&quot;
+</span><span>            ;;
+</span><span>        *</span><span style="color:#b48ead;">)
+</span><span>            </span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/ld</span><span>&quot;
+</span><span>            ;;
+</span><span>    </span><span style="color:#b48ead;">esac
+</span><span>    
+</span><span>    </span><span style="color:#65737e;"># 检查链接器是否存在
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span>! </span><span style="color:#bf616a;">-x </span><span>&quot;$</span><span style="color:#bf616a;">REAL_LD</span><span>&quot; </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>        </span><span style="color:#65737e;"># 尝试在PATH中查找
+</span><span>        </span><span style="color:#bf616a;">REAL_LD</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">which </span><span>&quot;$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">wrapper_name</span><span>#</span><span style="color:#a3be8c;">wrapper_}</span><span>&quot;</span><span style="color:#a3be8c;">) </span><span>|| </span><span style="color:#bf616a;">REAL_LD</span><span>=&quot;</span><span style="color:#a3be8c;">/usr/bin/ld</span><span>&quot;
+</span><span>    </span><span style="color:#b48ead;">fi
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;"># 日志函数
+</span><span style="color:#8fa1b3;">log_message</span><span>() {
+</span><span>    </span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">date </span><span>&#39;</span><span style="color:#a3be8c;">+%Y-%m-%d %H:%M:%S</span><span>&#39;</span><span style="color:#a3be8c;">) - </span><span>$</span><span style="color:#bf616a;">1</span><span>&quot; &gt;&gt; &quot;$</span><span style="color:#bf616a;">LOG_FILE</span><span>&quot;
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;"># 其余函数与之前相同...
+</span><span style="color:#8fa1b3;">get_some_avg10</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">pressure_file</span><span>=$</span><span style="color:#bf616a;">1
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span style="color:#bf616a;">-f </span><span>&quot;$</span><span style="color:#bf616a;">pressure_file</span><span>&quot; </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>        </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">line</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">grep </span><span>&quot;</span><span style="color:#a3be8c;">^some</span><span>&quot; &quot;$</span><span style="color:#bf616a;">pressure_file</span><span>&quot;</span><span style="color:#a3be8c;">)
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span>$</span><span style="color:#bf616a;">line </span><span>=~ avg10=(</span><span style="color:#b48ead;">[</span><span>0-9.</span><span style="color:#b48ead;">]</span><span>+) </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>            </span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">BASH_REMATCH[</span><span style="color:#d08770;">1</span><span style="color:#bf616a;">]</span><span style="color:#a3be8c;">}</span><span>&quot;
+</span><span>            </span><span style="color:#b48ead;">return</span><span> 0
+</span><span>        </span><span style="color:#b48ead;">fi
+</span><span>    </span><span style="color:#b48ead;">fi
+</span><span>    </span><span style="color:#96b5b4;">echo </span><span>&quot;</span><span style="color:#a3be8c;">0.00</span><span>&quot;
+</span><span>}
+</span><span>
+</span><span style="color:#8fa1b3;">wait_for_low_memory_pressure</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">retry_count</span><span>=</span><span style="color:#a3be8c;">0
+</span><span>    </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">current_pressure
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">while </span><span style="color:#96b5b4;">[[ </span><span>$</span><span style="color:#bf616a;">retry_count -lt </span><span>$</span><span style="color:#bf616a;">MAX_RETRIES </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">do
+</span><span>        </span><span style="color:#bf616a;">current_pressure</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">get_some_avg10 </span><span>&quot;$</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>&quot;</span><span style="color:#a3be8c;">)
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># 使用bc进行浮点数比较
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">command </span><span style="color:#bf616a;">-v</span><span> bc &gt;/dev/null </span><span style="color:#d08770;">2</span><span>&gt;&amp;</span><span style="color:#d08770;">1</span><span>; </span><span style="color:#b48ead;">then
+</span><span>            </span><span style="color:#65737e;"># 如果有bc，进行精确比较
+</span><span>            </span><span style="color:#b48ead;">if </span><span>(( $(</span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> &lt; </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span>&quot; | </span><span style="color:#bf616a;">bc -l</span><span>) )); </span><span style="color:#b48ead;">then
+</span><span>                </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">内存压力正常 (</span><span>$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> &lt; </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">)，开始执行链接</span><span>&quot;
+</span><span>                </span><span style="color:#b48ead;">return</span><span> 0
+</span><span>            </span><span style="color:#b48ead;">fi
+</span><span>        </span><span style="color:#b48ead;">else
+</span><span>            </span><span style="color:#65737e;"># 如果没有bc，使用bash内置的数值比较（假设压力值小于10）
+</span><span>            </span><span style="color:#b48ead;">if </span><span>(( $(</span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;">} &lt; </span><span>$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">}</span><span>&quot; | </span><span style="color:#bf616a;">tr -d </span><span>&#39;</span><span style="color:#a3be8c;">.</span><span>&#39; | </span><span style="color:#bf616a;">head -c3</span><span>) &lt; $(</span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">}</span><span>&quot; | </span><span style="color:#bf616a;">tr -d </span><span>&#39;</span><span style="color:#a3be8c;">.</span><span>&#39; | </span><span style="color:#bf616a;">head -c3</span><span>) )); </span><span style="color:#b48ead;">then
+</span><span>                </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">内存压力正常 (</span><span>$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> &lt; </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">)，开始执行链接</span><span>&quot;
+</span><span>                </span><span style="color:#b48ead;">return</span><span> 0
+</span><span>            </span><span style="color:#b48ead;">fi
+</span><span>        </span><span style="color:#b48ead;">fi
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># 计算随机等待时间
+</span><span>        </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">wait_time</span><span>=$</span><span style="color:#a3be8c;">(( MIN_WAIT_TIME </span><span>+</span><span style="color:#a3be8c;"> RANDOM </span><span>% </span><span style="color:#a3be8c;">(MAX_WAIT_TIME </span><span>-</span><span style="color:#a3be8c;"> MIN_WAIT_TIME </span><span>+ </span><span style="color:#d08770;">1</span><span style="color:#a3be8c;">) ))
+</span><span>        
+</span><span>        </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">内存压力过高: </span><span>$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> (阈值: </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">), 等待 </span><span>$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">wait_time</span><span style="color:#a3be8c;">}秒后重试 (尝试: </span><span>$</span><span style="color:#a3be8c;">((retry_count </span><span>+ </span><span style="color:#d08770;">1</span><span style="color:#a3be8c;">))/</span><span>$</span><span style="color:#bf616a;">MAX_RETRIES</span><span style="color:#a3be8c;">)</span><span>&quot;
+</span><span>        
+</span><span>        </span><span style="color:#65737e;"># 等待
+</span><span>        </span><span style="color:#bf616a;">sleep </span><span>$</span><span style="color:#bf616a;">wait_time
+</span><span>        
+</span><span>        ((retry_count++))
+</span><span>    </span><span style="color:#b48ead;">done
+</span><span>    
+</span><span>    </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">错误: 达到最大重试次数 (</span><span>$</span><span style="color:#bf616a;">MAX_RETRIES</span><span style="color:#a3be8c;">)，内存压力仍过高: </span><span>$</span><span style="color:#bf616a;">current_pressure</span><span>&quot;
+</span><span>    </span><span style="color:#b48ead;">return</span><span> 1
+</span><span>}
+</span><span>
+</span><span style="color:#8fa1b3;">main</span><span>() {
+</span><span>    </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">链接器包装器被调用，参数: </span><span>$</span><span style="color:#bf616a;">*</span><span>&quot;
+</span><span>
+</span><span>    </span><span style="color:#bf616a;">detect_real_linker
+</span><span>    </span><span style="color:#bf616a;">log_message </span><span>&quot;$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">date</span><span style="color:#a3be8c;">) - 链接器包装器调用: </span><span>$</span><span style="color:#bf616a;">REAL_LD</span><span style="color:#a3be8c;">, 参数: </span><span>$</span><span style="color:#bf616a;">*</span><span>&quot; &gt;&gt; &quot;$</span><span style="color:#bf616a;">LOG_FILE</span><span>&quot;
+</span><span>    
+</span><span>    </span><span style="color:#b48ead;">if </span><span>! </span><span style="color:#bf616a;">wait_for_low_memory_pressure</span><span>; </span><span style="color:#b48ead;">then
+</span><span>        </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">错误: 内存压力持续过高</span><span>&quot; &gt;&amp;</span><span style="color:#d08770;">2
+</span><span>        </span><span style="color:#b48ead;">return</span><span> 1
+</span><span>    </span><span style="color:#b48ead;">fi
+</span><span>    
+</span><span>    </span><span style="color:#bf616a;">log_message </span><span>&quot;</span><span style="color:#a3be8c;">执行真实链接器: </span><span>$</span><span style="color:#bf616a;">REAL_LD </span><span>$</span><span style="color:#bf616a;">*</span><span>&quot;
+</span><span>    </span><span style="color:#96b5b4;">exec </span><span>&quot;$</span><span style="color:#bf616a;">REAL_LD</span><span>&quot; &quot;$</span><span style="color:#bf616a;">@</span><span>&quot;
+</span><span>}
+</span><span>
+</span><span style="color:#bf616a;">main </span><span>&quot;$</span><span style="color:#bf616a;">@</span><span>&quot;
+</span></code></pre>
+<p>修改cargo编译使用的链接器</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># 临时生效： 使脚本可执行
+</span><span style="color:#bf616a;">chmod</span><span> +x /path/to/ld_wrapper.sh
+</span><span>
+</span><span style="color:#65737e;"># 配置RUSTFLAGS环境变量
+</span><span style="color:#b48ead;">export </span><span style="color:#bf616a;">RUSTFLAGS</span><span>=&quot;</span><span style="color:#a3be8c;">-C link-arg=-fuse-ld=/path/to/ld_wrapper.sh</span><span>&quot;
+</span><span style="color:#bf616a;">cargo</span><span> build
+</span><span style="color:#65737e;"># 或者配置
+</span><span style="color:#b48ead;">export </span><span style="color:#bf616a;">CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">realpath</span><span style="color:#a3be8c;"> /path/to/wrap-ld.sh)
+</span><span>
+</span><span style="color:#65737e;"># 创建符号链接
+</span><span style="color:#bf616a;">ln -s</span><span> /path/to/ld_generic_wrapper.sh /path/to/wrapper_ld
+</span><span style="color:#bf616a;">ln -s</span><span> /path/to/ld_generic_wrapper.sh /path/to/wrapper_lld
+</span><span style="color:#bf616a;">ln -s</span><span> /path/to/ld_generic_wrapper.sh /path/to/wrapper_gold
+</span><span>
+</span><span style="color:#65737e;"># 在cargo配置中使用
+</span><span style="color:#bf616a;">[target.x86_64-unknown-linux-gnu]
+</span><span style="color:#bf616a;">linker</span><span> = &quot;</span><span style="color:#a3be8c;">/path/to/wrapper_ld</span><span>&quot;
+</span><span>
+</span><span style="color:#65737e;"># 实时查看日志
+</span><span style="color:#bf616a;">tail -f</span><span> /tmp/ld_wrapper.log
+</span><span>
+</span><span style="color:#65737e;"># 监控内存压力变化
+</span><span style="color:#bf616a;">watch -n</span><span> 1 &#39;</span><span style="color:#a3be8c;">cat /sys/fs/cgroup/user.slice/user-$(id -u).slice/memory.pressure</span><span>&#39;
+</span><span>
+</span><span style="color:#65737e;"># 检查链接进程
+</span><span style="color:#bf616a;">ps</span><span> aux | </span><span style="color:#bf616a;">grep</span><span> ld_wrapper
+</span></code></pre>
+<h1 id="bao-zhuang-rustcjin-xing-bian-yi">包装rustc进行编译</h1>
+<p>使用rustc-wrapper.sh</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;">#!/bin/bash
+</span><span style="color:#bf616a;">RUSTC_BIN</span><span>=&quot;$</span><span style="color:#bf616a;">1</span><span>&quot;
+</span><span style="color:#96b5b4;">shift
+</span><span>
+</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span>=&quot;</span><span style="color:#a3be8c;">0.10</span><span>&quot;
+</span><span style="color:#bf616a;">MAX_WAIT_TIME</span><span>=</span><span style="color:#a3be8c;">60
+</span><span style="color:#bf616a;">MIN_WAIT_TIME</span><span>=</span><span style="color:#a3be8c;">5
+</span><span style="color:#bf616a;">MAX_RETRIES</span><span>=</span><span style="color:#a3be8c;">60
+</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>=&quot;</span><span style="color:#a3be8c;">/sys/fs/cgroup/user.slice/user-</span><span>$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">id -u</span><span style="color:#a3be8c;">).slice/memory.pressure</span><span>&quot;
+</span><span>
+</span><span style="color:#8fa1b3;">get_some_avg10</span><span>() {
+</span><span>    </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span style="color:#bf616a;">-f </span><span>&quot;$</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>&quot; </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>        </span><span style="color:#b48ead;">local </span><span style="color:#bf616a;">line</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">grep </span><span>&quot;</span><span style="color:#a3be8c;">^some</span><span>&quot; &quot;$</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>&quot;</span><span style="color:#a3be8c;">)
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span>$</span><span style="color:#bf616a;">line </span><span>=~ avg10=(</span><span style="color:#b48ead;">[</span><span>0-9.</span><span style="color:#b48ead;">]</span><span>+) </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>            </span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">BASH_REMATCH[</span><span style="color:#d08770;">1</span><span style="color:#bf616a;">]</span><span style="color:#a3be8c;">}</span><span>&quot;
+</span><span>            </span><span style="color:#b48ead;">return</span><span> 0
+</span><span>        </span><span style="color:#b48ead;">fi
+</span><span>    </span><span style="color:#b48ead;">fi
+</span><span>    </span><span style="color:#65737e;"># 默认返回 0.00，表示没有压力
+</span><span>    </span><span style="color:#96b5b4;">echo </span><span>&quot;</span><span style="color:#a3be8c;">0.00</span><span>&quot;
+</span><span>}
+</span><span>
+</span><span style="color:#65737e;"># 检查是否为链接阶段：包含 --crate-type=bin 或 cdylib，且不包含 --print（避免干扰 Cargo 查询）
+</span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">[[ </span><span>&quot;$</span><span style="color:#bf616a;">*</span><span>&quot; == *&quot;</span><span style="color:#a3be8c;">--crate-type bin</span><span>&quot;* || &quot;$</span><span style="color:#bf616a;">*</span><span>&quot; == *&quot;</span><span style="color:#a3be8c;">--crate-type cdylib</span><span>&quot;* </span><span style="color:#96b5b4;">]] </span><span>&amp;&amp; </span><span style="color:#96b5b4;">[[ </span><span>&quot;$</span><span style="color:#bf616a;">*</span><span>&quot; != *&quot;</span><span style="color:#a3be8c;">--print</span><span>&quot;* </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">then
+</span><span>    </span><span style="color:#96b5b4;">echo </span><span>&#39;</span><span style="color:#a3be8c;">****************Linker stage ...****************</span><span>&#39;
+</span><span>    </span><span style="color:#bf616a;">retry_count</span><span>=</span><span style="color:#a3be8c;">0
+</span><span>    </span><span style="color:#b48ead;">while </span><span style="color:#96b5b4;">[[ </span><span>$</span><span style="color:#bf616a;">retry_count -lt</span><span> 100 </span><span style="color:#96b5b4;">]]</span><span>; </span><span style="color:#b48ead;">do
+</span><span>        </span><span style="color:#bf616a;">current_pressure</span><span>=$</span><span style="color:#a3be8c;">(</span><span style="color:#bf616a;">get_some_avg10 </span><span>&quot;$</span><span style="color:#bf616a;">PRESSURE_FILE</span><span>&quot;</span><span style="color:#a3be8c;">)
+</span><span>        </span><span style="color:#65737e;"># 使用bc进行浮点数比较
+</span><span>        </span><span style="color:#b48ead;">if </span><span style="color:#96b5b4;">command </span><span style="color:#bf616a;">-v</span><span> bc &gt;/dev/null </span><span style="color:#d08770;">2</span><span>&gt;&amp;</span><span style="color:#d08770;">1</span><span>; </span><span style="color:#b48ead;">then
+</span><span>            </span><span style="color:#b48ead;">if </span><span>(( $(</span><span style="color:#96b5b4;">echo </span><span>&quot;$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> &lt; </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span>&quot; | </span><span style="color:#bf616a;">bc -l</span><span>) )); </span><span style="color:#b48ead;">then
+</span><span>                </span><span style="color:#96b5b4;">echo </span><span>&quot;</span><span style="color:#a3be8c;">****************内存压力正常 (</span><span>$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> &lt; </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">)，开始执行 rustc****************</span><span>&quot;
+</span><span>		</span><span style="color:#b48ead;">break
+</span><span>            </span><span style="color:#b48ead;">fi
+</span><span>        </span><span style="color:#b48ead;">else
+</span><span>                </span><span style="color:#96b5b4;">echo </span><span>&quot;</span><span style="color:#a3be8c;">****************必须安装bc工具计算浮点运算****************</span><span>&quot;
+</span><span>		</span><span style="color:#96b5b4;">exit</span><span> 1
+</span><span>        </span><span style="color:#b48ead;">fi
+</span><span>
+</span><span>        </span><span style="color:#65737e;"># 计算随机等待时间
+</span><span>        </span><span style="color:#bf616a;">wait_time</span><span>=$</span><span style="color:#a3be8c;">(( MIN_WAIT_TIME </span><span>+</span><span style="color:#a3be8c;"> RANDOM </span><span>% </span><span style="color:#a3be8c;">(MAX_WAIT_TIME </span><span>-</span><span style="color:#a3be8c;"> MIN_WAIT_TIME </span><span>+ </span><span style="color:#d08770;">1</span><span style="color:#a3be8c;">) ))
+</span><span>        </span><span style="color:#96b5b4;">echo </span><span>&quot;</span><span style="color:#a3be8c;">****************内存压力过高: </span><span>$</span><span style="color:#bf616a;">current_pressure</span><span style="color:#a3be8c;"> (阈值: </span><span>$</span><span style="color:#bf616a;">PRESSURE_THRESHOLD</span><span style="color:#a3be8c;">), 等待 </span><span>$</span><span style="color:#a3be8c;">{</span><span style="color:#bf616a;">wait_time</span><span style="color:#a3be8c;">}秒后重试 (尝试: </span><span>$</span><span style="color:#a3be8c;">((retry_count </span><span>+ </span><span style="color:#d08770;">1</span><span style="color:#a3be8c;">))/</span><span>$</span><span style="color:#bf616a;">MAX_RETRIES</span><span style="color:#a3be8c;">)****************</span><span>&quot;
+</span><span>        </span><span style="color:#bf616a;">sleep </span><span>$</span><span style="color:#bf616a;">wait_time
+</span><span>        ((retry_count++))
+</span><span>    </span><span style="color:#b48ead;">done
+</span><span style="color:#b48ead;">fi
+</span><span>
+</span><span style="color:#96b5b4;">exec </span><span>&quot;$</span><span style="color:#bf616a;">RUSTC_BIN</span><span>&quot; &quot;$</span><span style="color:#bf616a;">@</span><span>&quot;
+</span></code></pre>
+</section>
+  <hr />
+  <!-- Post Taxonomies -->
+<footer class="mt-12 flex flex-col" tabindex="-1" accesskey="_">
+  <div class="mb-2 flex flex-wrap">
+    <span class="block-bg mb-1.5 mr-1.5 rounded-lg px-5 py-1.5">Tags</span>
+    
+    <a
+      class="block-bg block-hover mb-1.5 mr-1.5 rounded-lg px-5 py-1.5 no-underline"
+      href="https://blog.moxuetianya.com/tags/cargo/">cargo</a>
+    
+    <a
+      class="block-bg block-hover mb-1.5 mr-1.5 rounded-lg px-5 py-1.5 no-underline"
+      href="https://blog.moxuetianya.com/tags/rustc/">rustc</a>
+    
+    <a
+      class="block-bg block-hover mb-1.5 mr-1.5 rounded-lg px-5 py-1.5 no-underline"
+      href="https://blog.moxuetianya.com/tags/linker/">linker</a>
+    
+    <a
+      class="block-bg block-hover mb-1.5 mr-1.5 rounded-lg px-5 py-1.5 no-underline"
+      href="https://blog.moxuetianya.com/tags/ld/">ld</a>
+    
+  </div>
+</footer>
+
+  <!-- Post Nav -->
+<nav class="block-bg mt-12 flex flex-wrap rounded-lg text-lg">
+  <a
+    class="block-hover-mask flex min-w-[50%] grow items-center rounded-l-md p-6 pr-3 font-semibold no-underline"
+    href="https://blog.moxuetianya.com/2025/11/从pve切换到libvirt 问题排查/" accesskey=","
+    ><span class="mr-1.5">&#8249;</span><span>从pve切换到libvirt 问题排查</span></a>
+  <a
+    class="block-hover-mask ml-auto flex min-w-[50%] grow items-center justify-end rounded-r-md p-6 pl-3 font-semibold no-underline"
+    href="https://blog.moxuetianya.com/2025/10/wait-online when any-interface ready/" accesskey="."
+    ><span>wait-online when any-interface ready</span><span class="ml-1.5">&#8250;</span></a>
+</nav>
+
+  <!-- Begin Page End inject -->
+  
+  <!-- End Page End inject -->
+</article>
+
+  </main>
+  <!-- Footer -->
+<footer class="mx-auto flex lg:mt-5 max-w-3xl flex-wrap items-center px-4 py-3 text-sm opacity-60">
+  <div class="mr-auto basis-full lg:basis-1/2">
+  © <time datetime="2025">2025</time> moxuetianya
+  </div>
+  <div class="flex basis-full lg:basis-1/2 lg:justify-end">
+    <span class="mr-6 lg:ml-6">
+      <a class="link" href="https://www.getzola.org/" target="_blank">Powered by Zola</a>
+    </span>
+    <a class="link" href="https://www.getzola.org/themes/linkita/" target="_blank">&#9998; Linkita</a>
+  </div>
+  <!-- Begin Footer inject -->
+  
+  <!-- End Footer inject -->
+</footer>
+
+  
+
+  <!-- Begin Body End inject -->
+  
+  <!-- End Body End inject -->
+</body>
+
+</html>
