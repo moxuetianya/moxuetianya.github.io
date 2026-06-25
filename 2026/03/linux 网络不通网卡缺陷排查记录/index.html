@@ -1,0 +1,187 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=93df6f1e4ed2acf7a26e" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>linux 网络不通网卡缺陷排查记录 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="linux 网络不通网卡缺陷排查记录 | 墨雪天琊" />
+  <meta name="twitter:title" content="linux 网络不通网卡缺陷排查记录 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-03-20" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=7ca5a0bdf0e712f01b02"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/">linux 网络不通网卡缺陷排查记录</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 三月 20, 2026 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/network/">network</a> </span>
+
+    
+
+
+<h1 id="xian-xiang">现象</h1>
+<p>查看<code>ip route</code> <code>ip link</code> <code>ip -4 addr</code> <code>bridge show</code> 等多个命令，没有发现明显问题
+怀疑是linux网桥导致的问题，后面发现是物理网卡hung了</p>
+<h1 id="cha-kan-dmesg">查看dmesg</h1>
+<p>sudo dmesg -w</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>[318451.739250] e1000e 0000:00:1f.6 enp0s31f6: Detected Hardware Unit Hang:</span></span>
+<span class="giallo-l"><span>                  TDH                  &lt;ed&gt;</span></span>
+<span class="giallo-l"><span>                  TDT                  &lt;10&gt;</span></span>
+<span class="giallo-l"><span>                  next_to_use          &lt;10&gt;</span></span>
+<span class="giallo-l"><span>                  next_to_clean        &lt;ec&gt;</span></span>
+<span class="giallo-l"><span>                buffer_info[next_to_clean]:</span></span>
+<span class="giallo-l"><span>                  time_stamp           &lt;110b9fd62&gt;</span></span>
+<span class="giallo-l"><span>                  next_to_watch        &lt;ed&gt;</span></span>
+<span class="giallo-l"><span>                  jiffies              &lt;112f6a400&gt;</span></span>
+<span class="giallo-l"><span>                  next_to_watch.status &lt;0&gt;</span></span>
+<span class="giallo-l"><span>                MAC Status             &lt;40080083&gt;</span></span>
+<span class="giallo-l"><span>                PHY Status             &lt;796d&gt;</span></span>
+<span class="giallo-l"><span>                PHY 1000BASE-T Status  &lt;3800&gt;</span></span>
+<span class="giallo-l"><span>                PHY Extended Status    &lt;3000&gt;</span></span>
+<span class="giallo-l"><span>                PCI Status             &lt;10&gt;</span></span>
+<span class="giallo-l"></span></code></pre><h1 id="zhen-duan-jie-guo-he-xin-zhen-duan">诊断结果 核心诊断</h1>
+<ul>
+<li>硬件型号：Intel I219-LM (rev 11)。这是 Dell OptiPlex 7090 等商用机常见的板载网卡。</li>
+<li>内核版本：6.17.0-19-generic。这是一个非常新的内核（Ubuntu 24.04 的 HWE 边缘或开发版内核）。</li>
+<li>故障原因：新版内核中的 e1000e 驱动与 I219-LM (rev 11) 存在兼容性问题。</li>
+<li>Intel I219 系列网卡在 Linux 下以“挑剔”著称，经常在新内核中出现 Hardware Unit Hang。</li>
+<li>错误日志显示驱动检测到发送/接收队列死锁，这通常是因为新内核的电源管理策略（ASPM）或中断处理逻辑与该特定修订版（rev 11）的硬件不匹配导致的。</li>
+</ul>
+<h1 id="jie-jue-fang-an">解决方案</h1>
+<h2 id="lin-shi-ce-shi-wu-xu-zhong-qi-yun-xing-yi-xia-ming-ling-guan-bi-gai-wang-qia-de-aspm-zhu-dong-zhuang-tai-dian-yuan-guan-li">临时测试（无需重启）： 运行以下命令关闭该网卡的 ASPM（主动状态电源管理）：</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注意：需要 root 权限</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> setpci</span><span style="color: #F97E72;"> -s</span><span> 00:1f.6 0x50.B=</span><span style="color: #F97E72;">0x00</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 如果命令提示找不到 setpci，请先安装：</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install pciutils</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">执行完上述命令后，重置网卡：</span></span>
+<span class="giallo-l"><span>```</span><span style="color: #FE4450;"> bash</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ip link set enp0s31f6 down</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ip link set enp0s31f6 up</span></span></code></pre><h2 id="yong-jiu-sheng-xiao-xiu-gai-grub">永久生效（修改 GRUB）：</h2>
+<ul>
+<li>如果临时测试有效，需要修改启动参数永久生效：</li>
+<li>sudo nano /etc/default/grub</li>
+<li>找到 GRUB_CMDLINE_LINUX_DEFAULT 这一行，在引号内添加 pcie_aspm=off。</li>
+<li>GRUB_CMDLINE_LINUX_DEFAULT="quiet splash pcie_aspm=off"</li>
+<li>保存退出后，更新 GRUB 并重启：</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> update-grub</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> reboot</span></span></code></pre><h2 id="jin-yong-te-ding-de-wang-qia-jie-neng-gong-neng">禁用特定的网卡节能功能</h2>
+<p>如果方案一无效，尝试通过 ethtool 禁用网卡内部的节能选项。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install ethtool</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ethtool enp0s31f6</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;Wake-on|Energy&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 关闭 Wake-on-LAN</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ethtool</span><span style="color: #F97E72;"> -s</span><span> enp0s31f6 wol d</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 关闭 Energy Efficient Ethernet (EEE) - 这对 I219 很重要</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ethtool</span><span style="color: #F97E72;"> --set-eee</span><span> enp0s31f6 eee off</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注：如果 --set-eee 提示不支持，可以忽略该行。</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 为了让这些设置在重启后依然有效，你可以创建一个 systemd 服务或将其放入 /etc/network/interfaces (如果是旧版 networking) 或 Netplan 的配置中。</span></span></code></pre>
+<p>快速临时测试脚本：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ip link set enp0s31f6 down</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ethtool</span><span style="color: #F97E72;"> -s</span><span> enp0s31f6 wol d</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ethtool</span><span style="color: #F97E72;"> --set-eee</span><span> enp0s31f6 eee off</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> ip link set enp0s31f6 up</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/03/启动libvirt失败/">&#8249; 启动libvirt失败</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/03/sshd 安全加固/"> sshd 安全加固 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#cha-kan-dmesg">查看dmesg</a>
+        </div>
+        <div>
+          <a href="#zhen-duan-jie-guo-he-xin-zhen-duan">诊断结果 核心诊断</a>
+        </div>
+        <div>
+          <a href="#jie-jue-fang-an">解决方案</a>
+        </div>
+        <div class="hpad">
+          <a href="#lin-shi-ce-shi-wu-xu-zhong-qi-yun-xing-yi-xia-ming-ling-guan-bi-gai-wang-qia-de-aspm-zhu-dong-zhuang-tai-dian-yuan-guan-li"><small>- 临时测试（无需重启）： 运行以下命令关闭该网卡的 ASPM（主动状态电源管理）：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yong-jiu-sheng-xiao-xiu-gai-grub"><small>- 永久生效（修改 GRUB）：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jin-yong-te-ding-de-wang-qia-jie-neng-gong-neng"><small>- 禁用特定的网卡节能功能</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

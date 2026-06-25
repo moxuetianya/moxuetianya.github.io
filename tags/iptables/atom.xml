@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - iptables</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/iptables/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-06-13T02:30:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/iptables/atom.xml</id>
+    <entry xml:lang="en">
+        <title>QEMU 虚拟机无法访问网关&#x2F;公网排查</title>
+        <published>2026-06-13T02:30:00+08:00</published>
+        <updated>2026-06-13T02:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"/>
+        <id>https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/">&lt;h1 id=&quot;qemu-xu-ni-ji-wu-fa-fang-wen-wang-guan-gong-wang-pai-cha-wen-dang&quot;&gt;QEMU 虚拟机无法访问网关&#x2F;公网 排查文档&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU 虚拟机（libvirt）无法 ping 通网关 &lt;code&gt;192.168.2.1&lt;&#x2F;code&gt;，也无法访问公网。宿主机网络正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;huan-jing-xin-xi&quot;&gt;环境信息&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.100&#x2F;24&lt;&#x2F;code&gt; (vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网关&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.1&lt;&#x2F;code&gt; (MAC: &lt;code&gt;74:45:2d:96:7f:cc&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.156&lt;&#x2F;code&gt; (MAC: &lt;code&gt;52:54:00:3c:13:73&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理网卡&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eno1&lt;&#x2F;code&gt; (桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟网桥&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vmbr0&lt;&#x2F;code&gt; (含 eno1 + vnet0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TAP 设备&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vnet0&lt;&#x2F;code&gt; (VM 接口，桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟化&lt;&#x2F;td&gt;&lt;td&gt;QEMU&#x2F;KVM (libvirt 管理)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-que-ren-su-zhu-ji-wang-luo-zheng-chang&quot;&gt;1. 确认宿主机网络正常&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ping&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 2 192.168.2.1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 结果：正常，0% 丢包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;2-que-ren-wang-qiao-tuo-bu-zheng-que&quot;&gt;2. 确认网桥拓扑正确&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;brctl&lt;&#x2F;span&gt;&lt;span&gt; show vmbr0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# vmbr0:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#   eno1    (物理网卡)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#   vnet0   (虚拟机 TAP 接口)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;3-zai-vmbr0-shang-zhua-bao-fa-xian-vm-fa-chu-de-icmp-qing-qiu&quot;&gt;3. 在 vmbr0 上抓包 — 发现 VM 发出的 ICMP 请求&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; vmbr0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:28:13.582982 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc, ethertype IPv4 (0x0800), length 98: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request, id 10485, seq 68, length 64&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 发出的包到达了网桥 vmbr0，但没有收到任何 reply。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-zai-wu-li-wang-qia-eno1-shang-zhua-bao-fa-xian-bao-mei-you-dao-da-wu-li-jie-kou&quot;&gt;4. 在物理网卡 eno1 上抓包 — 发现包没有到达物理接口&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp and host&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 192.168.2.156&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 结果：0 packets captured&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 的 ICMP 请求在 vmbr0 到 eno1 之间被丢弃了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-jian-cha-bridge-netfilter-she-zhi-fa-xian-guan-jian-wen-ti&quot;&gt;5. 检查 bridge netfilter 设置 — 发现关键问题&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sysctl&lt;&#x2F;span&gt;&lt;span&gt; net.bridge.bridge-nf-call-iptables&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# net.bridge.bridge-nf-call-iptables = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：&lt;&#x2F;strong&gt; &lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt; 意味着桥接的 L2 流量也会经过 iptables 处理。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然 &lt;code&gt;&#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;code&gt; 中配置的是 &lt;code&gt;=0&lt;&#x2F;code&gt;，但 Docker 启动时会将其设为 &lt;code&gt;1&lt;&#x2F;code&gt;（Docker 依赖此设置来实现容器网络隔离和端口映射）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-jian-cha-iptables-forward-lian-que-ren-diu-bao-dian&quot;&gt;6. 检查 iptables FORWARD 链 — 确认丢包点&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -v&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Chain FORWARD (policy DROP 3727K packets, 1454M bytes)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; pkts bytes target     prot opt in     out     source               destination&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  229 24446 ACCEPT     all  --  vmbr0  tun0    192.168.2.0&#x2F;24       192.168.4.0&#x2F;22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  477  513K ACCEPT     all  --  tun0   vmbr0   192.168.4.0&#x2F;22       192.168.2.0&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因确认：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;FORWARD 链默认策略为 &lt;code&gt;DROP&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仅有的两条涉及 vmbr0 的规则只允许 &lt;code&gt;vmbr0 &amp;lt;-&amp;gt; tun0&lt;&#x2F;code&gt; 的 VPN 流量（192.168.2.0&#x2F;24 &amp;lt;-&amp;gt; 192.168.4.0&#x2F;22）&lt;&#x2F;li&gt;
+&lt;li&gt;没有规则允许 vmbr0 的普通桥接流量（如 VM -&amp;gt; 网关）&lt;&#x2F;li&gt;
+&lt;li&gt;因此 VM 发出的包在到达网桥后被 iptables DROP 掉，无法到达物理网卡 eno1&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;shu-ju-liu-shi-yi&quot;&gt;数据流示意&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;VM (192.168.2.156)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼ ICMP echo request&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; vnet0 ─── vmbr0 ─── ✗ iptables FORWARD DROP ─── eno1 (物理网卡)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                       (无匹配规则)                │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                                                   ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                                             Gateway (192.168.2.1)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;li-ji-xiu-fu&quot;&gt;立即修复&lt;&#x2F;h3&gt;
+&lt;p&gt;添加规则允许桥接流量通过 iptables：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -I&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -m&lt;&#x2F;span&gt;&lt;span&gt; physdev&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --physdev-is-bridged -j&lt;&#x2F;span&gt;&lt;span&gt; ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-m physdev --physdev-is-bridged&lt;&#x2F;code&gt; 精确匹配经过桥接转发的流量&lt;&#x2F;li&gt;
+&lt;li&gt;将该规则插入 FORWARD 链首部，优先于 Docker 的链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chi-jiu-hua&quot;&gt;持久化&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;netfilter-persistent&lt;&#x2F;span&gt;&lt;span&gt; save&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该命令将当前 iptables 规则保存到 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;，重启后自动恢复。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -v&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Chain FORWARD (policy DROP)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; pkts bytes target     prot opt in     out     source               destination&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  155 44480 ACCEPT     all  --  *      *       0.0.0.0&#x2F;0            0.0.0.0&#x2F;0            PHYSDEV match --physdev-is-bridged&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:30:08.217904 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:30:08.218266 74:45:2d:96:7f:cc &amp;gt; 52:54:00:3c:13:73: 192.168.2.1 &amp;gt; 192.168.2.156: ICMP echo reply&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 ICMP 请求和网关的回复均已正常到达物理网卡，问题解决。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h2&gt;
+&lt;p&gt;如果不想依赖 iptables 规则，也可以禁用 bridge netfilter：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.bridge.bridge-nf-call-iptables=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但此方案会导致 Docker 的端口映射和容器间隔离失效，&lt;strong&gt;不推荐&lt;&#x2F;strong&gt;在有 Docker 运行的环境中采用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-jian-ming-ling-su-cha&quot;&gt;关键命令速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;查看网桥成员&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl show&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 bridge netfilter 状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sysctl net.bridge.bridge-nf-call-iptables&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 iptables FORWARD 链&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网桥上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i vmbr0 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理接口上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i eno1 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;保存 iptables 规则&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+</feed>

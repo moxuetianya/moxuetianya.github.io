@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ballooning</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ballooning/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-10-29T10:51:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/ballooning/atom.xml</id>
+    <entry xml:lang="en">
+        <title>libvirt 虚拟机内存管理</title>
+        <published>2025-10-29T10:51:16+08:00</published>
+        <updated>2025-10-29T10:51:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/"/>
+        <id>https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/">&lt;h1 id=&quot;libvirt-windowsxu-ni-ji-nei-cun-zhan-yong-guo-gao&quot;&gt;libvirt windows虚拟机内存占用过高&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xu-ni-ji-nei-cun-ce-lue&quot;&gt;虚拟机内存策略&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;QEMU 在虚拟机启动时，一次性分配固定的内存。
+这部分内存被 预留并映射到宿主机进程（qemu-system-x86_64）。
+从宿主机的角度看，这些内存都是“被占用的”。
+即使 Windows 内部只使用很少，也不会被宿主机回收。&lt;&#x2F;li&gt;
+&lt;li&gt;💡 换句话说：
+没有 balloon 驱动 = 没有动态回收机制。
+QEMU 不知道 Windows 里面的内存使用情况，它只能把所有内存都“留给”虚拟机进程。&lt;&#x2F;li&gt;
+&lt;li&gt;Windows 内存管理的特性加剧了现象
+Windows 客户机即便空闲，也会：
+启动缓存与系统文件预取；
+启动 SuperFetch &#x2F; SysMain；
+各种服务预分配内存池；
+内核会尽量“占用”空闲内存以提高 I&#x2F;O 性能（File Cache）。
+因此在任务管理器中看似“使用很多内存”，其实很多是 可释放缓存（Standby Memory）。
+但宿主机（Linux + libvirt）看不到“哪些是可回收的”，于是整块都算“已用内存”。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ballooning-ru-he-jie-jue-zhe-ge-wen-ti&quot;&gt;Ballooning 如何解决这个问题？&lt;&#x2F;h2&gt;
+&lt;p&gt;Ballooning 的作用是 建立 Guest 与 Host 之间的内存使用反馈通道：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;Guest 内 balloon 驱动 作为一个“伪设备”，可以向 Windows 内存管理器 申请分配内存（就像一个普通程序申请内存一样）；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Windows 会从其空闲内存池中分配给 balloon 驱动；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;但 balloon 驱动 不会真正使用这些内存，只是“持有”它；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;由于这部分内存被 balloon 占用，QEMU 就知道：Guest 实际可用内存减少了，可以将对应物理页从宿主机释放；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;宿主机内存压力大时，libvirt 可通过 virsh setmem 命令 增大 balloon 大小，从而“回收”虚拟机内存。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Linux 虚拟机也一样：没有 balloon 驱动（如 virtio_balloon 模块未加载），同样会高占内存；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;现代替代方案：virtio-mem（动态内存插拔）比 balloon 更灵活，但 Windows 支持有限，balloon 仍是主流；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;内存共享（KSM）不能替代 balloon：KSM 只能合并完全相同的内存页（如多个 Win10 虚拟机的系统 DLL），对私有数据无效。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;libvirt-qemu-zhi-chi-windows-xu-ni-ji-de-nei-cun-ballooning-dong-tai-nei-cun-guan-li&quot;&gt;libvirt&#x2F;QEMU 支持 Windows 虚拟机的内存 ballooning（动态内存管理）&lt;&#x2F;h2&gt;
+&lt;p&gt;需要在 宿主机与客户机两边都正确配置&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;windows 虚拟机上安装 virtio-win-xxx.iso 中的ballooning(其他的可以不安装，容易引起问题)&lt;&#x2F;li&gt;
+&lt;li&gt;配置虚拟机配置&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;xml&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;memballoon&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; model&lt;&#x2F;span&gt;&lt;span&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;virtio&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;  &amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;stats&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; period&lt;&#x2F;span&gt;&lt;span&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;10&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;&#x2F;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;&amp;lt;&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;memballoon&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>

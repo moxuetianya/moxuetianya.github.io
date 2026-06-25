@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - pcap</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/pcap/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-08-12T18:53:51+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/pcap/atom.xml</id>
+    <entry xml:lang="en">
+        <title>使用tshark进行pcap和pcapng的转换</title>
+        <published>2025-08-12T18:53:51+08:00</published>
+        <updated>2025-08-12T18:53:51+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/08/pcap和pcapng的转换/"/>
+        <id>https://moxuetianya.github.io/2025/08/pcap和pcapng的转换/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/08/pcap和pcapng的转换/">&lt;h1 id=&quot;tshark-jian-jie&quot;&gt;tshark 简介&lt;&#x2F;h1&gt;
+&lt;p&gt;tshark就是wireshark的命令行之一。WireShark的功能基本都有，还能组合grep&#x2F;awk等编程处理分析抓包文件。&lt;&#x2F;p&gt;
+&lt;p&gt;TShark是一个网络分析工具。它能帮你在实时网络中捕获数据包，或是从预先保存好的捕获文件中读取数据包，或是打印出这些数据包的解码形式到标准输出，再或是把数据包写入到一个文件中。TShark的本地捕获文件格式是pcapng格式，这种pcapng格式也被wireshark和多种其他工具使用。&lt;&#x2F;p&gt;
+&lt;p&gt;Wireshark除了能够手动的分析报文之外，还额外的提供了几个命令行工具，方便开发者日常的报文处理需求，比如批量的合并以及编辑报文。这几个命令都是安装wireshark之后能够直接使用的，同时有的有对应的wireshark GUI 的操作。这些命令分别有tshark、tcpdump、capinfos、dumpcap、text2cap、editcap、reordercap、rawshark、mergecap、pcapfix(需单独安装)。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;tshark：基于终端的Wireshark&lt;&#x2F;li&gt;
+&lt;li&gt;tcpdump：使用“tcpdump”捕获以便使用Wireshark查看&lt;&#x2F;li&gt;
+&lt;li&gt;dumpcap：捕获“dumpcap”以便使用Wireshark查看&lt;&#x2F;li&gt;
+&lt;li&gt;capinfos：打印有关捕获文件的信息&lt;&#x2F;li&gt;
+&lt;li&gt;rawshark：转储和分析网络流量。&lt;&#x2F;li&gt;
+&lt;li&gt;editcap：编辑捕获文件&lt;&#x2F;li&gt;
+&lt;li&gt;mergecap：将多个捕获文件合并为一个&lt;&#x2F;li&gt;
+&lt;li&gt;text2pcap：将ASCII hexdumps转换为网络捕获&lt;&#x2F;li&gt;
+&lt;li&gt;reordercap：重新排序捕获文件&lt;&#x2F;li&gt;
+&lt;li&gt;pcapfix: 修复pcap文件&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;pcap&quot;&gt;pcap&lt;&#x2F;h1&gt;
+&lt;p&gt;Wireshark默认的存储方式是pcap格式，最新版本的wireshark默认存储方式是pcapng。ng是next generation 的缩写，pcap和pcapng格式文件有是存在一定的差异。&lt;&#x2F;p&gt;
+&lt;p&gt;pcap报文文件结构示意图 https:&#x2F;&#x2F;img1.kiosk007.top&#x2F;static&#x2F;images&#x2F;tshark&#x2F;pcap_file_format.png&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Global Header是整个文件的文件头，包含文件格式标识，pcap格式版本号等文件指示信息。&lt;&#x2F;li&gt;
+&lt;li&gt;Packet Header是每一片数据报文的头部信息，这些信息都是在形成pcap 报文的过程中由抓包软件wireshark添加的额外信息，例如报文捕获时间等。&lt;&#x2F;li&gt;
+&lt;li&gt;Packet Data是抓取通信过程中的实际数据，包括协议数据和内容数据。&lt;&#x2F;li&gt;
+&lt;li&gt;Wireshark 中对 Global Header 的定义&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;typedef struct&lt;&#x2F;span&gt;&lt;span&gt; pcap_hdr_s {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 magic_number;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   &#x2F;* magic number *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint16 version_major;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  &#x2F;* major version number *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint16 version_minor;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  &#x2F;* minor version number *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    gint32  thiszone;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;       &#x2F;* GMT to local correction *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 sigfigs;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;        &#x2F;* accuracy of timestamps *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 snaplen;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;        &#x2F;* max length of captured packets, in octets *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 network;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;        &#x2F;* data link type *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; pcap_hdr_t&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Wireshark 中对 Packet Header 的定义&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;typedef struct&lt;&#x2F;span&gt;&lt;span&gt; pcaprec_hdr_s {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 ts_sec;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;         &#x2F;* timestamp seconds *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 ts_usec;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;        &#x2F;* timestamp microseconds *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 incl_len;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;       &#x2F;* number of octets of packet saved in file *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    guint32 orig_len;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;       &#x2F;* actual length of packet *&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; pcaprec_hdr_t&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;tshark-zhuan-huan-pcapng-wei-pcap&quot;&gt;tshark 转换pcapng 为pcap&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -F&lt;&#x2F;span&gt;&lt;span&gt; pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; origin.pcapng&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; output.pcap&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;tshark-zhong-de-chang-yong-can-shu&quot;&gt;tshark 中的常用参数&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;-o ${key:value} : 配置首选项中的settings, 一般可配置显示时间戳、是否相关seq number，或者TLS、WPA 解密等。
+&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;08&#x2F;pcap%E5%92%8Cpcapng%E7%9A%84%E8%BD%AC%E6%8D%A2&#x2F;2025-08-13-09-43-10.png&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;-z ${statistics} : 集各种类型的统计信息, 这里面有一些信息是很有用的，如专家信息、时序统计飞行中的报文、时序丢包都需要这个参数
+&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;08&#x2F;pcap%E5%92%8Cpcapng%E7%9A%84%E8%BD%AC%E6%8D%A2&#x2F;2025-08-13-09-45-04.png&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;其他参数介绍&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 抓包接口类&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-i 设置抓包的网络接口，不设置则默认为第一个非自环接口。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-D 列出当前存在的网络接口。在不了解OS所控制的网络设备时，一般先用“tshark -D”查看网络接口的编号以供-i参数使用。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-f 设定抓包过滤表达式（capture filter expression）。抓包过滤表达式的写法雷同于tcpdump&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-s 设置每个抓包的大小，默认为65535，多于这个大小的数据将不会被程序记入内存、写入文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-p 设置网络接口以非混合模式工作，即只关心和本机有关的流量&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 停止抓包参数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-c 抓取的packet数，在处理一定数量的packet后，停止抓取，程序退出。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-a 设置tshark抓包停止向文件书写的条件，事实上是tshark在正常启动之后停止工作并返回的条件。条件写为test:value的形式，如“-a duration:5”表示tshark启动后在5秒内抓包然后停止；“-a filesize:10”表示tshark在输出文件达到10kB后停止；“-a files:n”表示tshark在写满n个文件后停止。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 处理类&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-R 设置读取（显示）过滤表达式（read filter expression）。不符合此表达式的流量同样不会被写入文件。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-n 禁止所有地址名字解析（默认为允许所有）。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-N 启用某一层的地址名字解析。“m”代表MAC层，“n”代表网络层，“t”代表传输层，“C”代表当前异步DNS查找。如果-n和-N参数同时存在，-n将被忽略。如果-n和-N参数都不写，则默认打开所有地址名字解析。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-d 将指定的数据按有关协议解包输出。如要将tcp 8888端口的流量按http解包，应该写为“-d tcp.port==8888,http”。注意选择子和解包协议之间不能留空格。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 输出类&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-w 设置raw数据的输出文件。这个参数不设置，tshark将会把解码结果输出到stdout。“-w-”表示把raw输出到stdout。如果要把解码结果输出到文件，使用重定向“&amp;gt;”而不要-w参数。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-F 设置输出raw数据的格式，默认为libpcap。“tshark -F”会列出所有支持的raw格式。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-V 设置将解码结果的细节输出，否则解码结果仅显示一个packet一行的summary。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-x 设置在解码输出结果中，每个packet后面以HEX dump的方式显示具体数据。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-T 设置解码结果输出的格式，包括text,ps,psml和pdml，默认为text。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-E: -E &amp;lt;fieldsoption&amp;gt;=&amp;lt;value&amp;gt;如果-T fields选项指定，使用-E来设置一些属性，比如&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;　　　　header=y|n&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;　　　　separator=&#x2F;t|&#x2F;s|&amp;lt;char&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;　　　　occurrence=f|l|a&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;　　　　aggregator=,|&#x2F;s|&amp;lt;char&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-t 设置解码结果的时间格式。“ad”表示带日期的绝对时间，“a”表示不带日期的绝对时间，“r”表示从第一个包到现在的相对时间，“d”表示两个相邻包之间的增量时间（delta）。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-S 在向raw文件输出的同时，将解码结果打印到控制台。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-l 在处理每个包时即时刷新输出。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-X 扩展项。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-q 设置安静的stdout输出（例如做统计时）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-z 设置统计参数。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 其他&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-h 显示命令行帮助。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-v 显示tshark的版本信息。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-o 重载选项&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;tshark-da-yin-pcap&quot;&gt;tshark 打印pcap&lt;&#x2F;h1&gt;
+&lt;p&gt;我们通过tcpdump或者wireshark抓到 pcap 文件，接下来就可以利用 tshark 这个强大的命令行工具进行抓包。其中 -o的几个选项可以指定 ssl 解密（需要sslkeylog），-T 指定输出格式，-e 指定都需要输出哪些字段（字段列表参考 https:&#x2F;&#x2F;www.wireshark.org&#x2F;docs&#x2F;dfref&#x2F;）。输出是将每个Package中指定的字段输出。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; ssl.keylog_file:.&#x2F;sslkeylog.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-o&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;ssl.desegment_ssl_records: TRUE&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-o&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;ssl.desegment_ssl_application_data: TRUE&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e ssl.handshake.ciphersuite&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \ &lt;&#x2F;span&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-e&lt;&#x2F;span&gt;&lt;span&gt; tcp.analysis.zero_window&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e http.host&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e dns.time&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e tcp.flags.urg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e http.request.line&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e dns.qry.name&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e ip.version&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e tcp.analysis.window_full&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e ipv6.dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e http.request.version&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e udp.dstport&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e dns.flags.response&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;....&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-T json&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;.&#x2F;capturedump.pcap&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其他样例&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;打印http协议流相关信息&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s 512 -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -f&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;tcp dst port 80&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Y&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;http.host and http.request.uri&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; http.host&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; http.request.uri&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;实时打印当前mysql查询语句&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s 512 -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -f&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;tcp dst port 3306&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Y&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;mysql.query&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.query&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;解析MySQL协议&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;mysql-compress.cap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; tcp.calculate_timestamps:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-T fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.caps.cp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; frame.number&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e frame.time_epoch&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -e&lt;&#x2F;span&gt;&lt;span&gt; frame.time_delta_displayed&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;  \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e ip.src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; tcp.srcport&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; tcp.dstport&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; ip.dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e tcp.time_delta&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; frame.time_delta_displayed&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;-e tcp.stream&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; tcp.len&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.query&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;抓取详细SQL语句,&lt;&#x2F;span&gt;&lt;span&gt; 快速确认client发过来的具体SQL内容：&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; any&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;port 3306&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s 0 -l -w&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strings&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d&lt;&#x2F;span&gt;&lt;span&gt; tcp.port==3306,mysql&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.query&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;port 3306&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;dfaf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Y&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;ip.addr==11.163.182.137&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d&lt;&#x2F;span&gt;&lt;span&gt; tcp.port==3306,mysql&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.query&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;port 3306&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Y&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;tcp.srcport==62877&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d&lt;&#x2F;span&gt;&lt;span&gt; tcp.port==3001,mysql&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; fields&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; tcp.srcport&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; mysql.query&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;port 3001&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;cha-kan-qing-qiu-mu-biao-xin-xi&quot;&gt;查看请求目标信息&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;gui.column.format:&amp;quot;Source Net Addr&amp;quot;,&amp;quot;%uns&amp;quot;,&amp;quot;Dest Net Addr&amp;quot;, &amp;quot;%und&amp;quot;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Y&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;ip&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sort&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; uniq&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;cha-kan-diu-bao-dai-kuan-tun-tu-yan-chi&quot;&gt;查看丢包、带宽、吞吐、延迟&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;&lt;&#x2F;span&gt;&lt;span&gt; 统计 ip 情况&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -q -z&lt;&#x2F;span&gt;&lt;span&gt; conv,ip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;&lt;&#x2F;span&gt;&lt;span&gt; 跟踪一条流打印 16进制数据&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -q -z&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;follow,tcp,hex,0&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ji-suan-diu-bao-qing-kuang&quot;&gt;计算丢包情况&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span&gt; wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -q&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -z&lt;&#x2F;span&gt;&lt;span&gt; io,stat,1,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;COUNT(tcp.analysis.retransmission) tcp.analysis.retransmission&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;COUNT(tcp.analysis.fast_retransmission) tcp.analysis.fast_retransmission&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;COUNT(tcp.analysis.duplicate_ack) tcp.analysis.duplicate_ack&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;COUNT(tcp.analysis.lost_segment) tcp.analysis.lost_segment&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ji-suan-shang-xing-dai-kuan&quot;&gt;计算上行带宽&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; tcp.desegment_tcp_streams:TRUE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -q -r&lt;&#x2F;span&gt;&lt;span&gt;  .&#x2F;wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -z&lt;&#x2F;span&gt;&lt;span&gt; io,stat,99999999,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;BYTES()(ip.src!=10.0.0.0&#x2F;8 and ip.src!=172.16.0.0&#x2F;12 and ip.src!=192.168.0.0&#x2F;16)&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ji-suan-tcp-rtt&quot;&gt;计算 TCP RTT&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; tcp.desegment_tcp_streams:TRUE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -q -r&lt;&#x2F;span&gt;&lt;span&gt;  .&#x2F;wechat.pcap&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -z&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  io,stat,99999999,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;AVG(tcp.analysis.ack_rtt)tcp.analysis.ack_rtt&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fen-xi-tcp-stream-id-wei-0-de-chuan-shu-dai-kuan&quot;&gt;分析 tcp.stream id 为 0 的传输带宽&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tshark&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; tcp.desegment_tcp_streams:FALSE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -q -r&lt;&#x2F;span&gt;&lt;span&gt; wechat.pcapng&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -z&lt;&#x2F;span&gt;&lt;span&gt; io,stat,1,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;BYTES()tcp.stream==0&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;can-kao&quot;&gt;参考&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener external&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;kiosk007.top&#x2F;post&#x2F;%E7%8E%A9%E8%BD%AC-tshark-%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%B7%A5%E5%85%B7&#x2F;&quot;&gt;玩转tshark命令行工具&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

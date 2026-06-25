@@ -1,0 +1,309 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=93df6f1e4ed2acf7a26e" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>qemu-img 管理虚拟机硬盘 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="qemu-img 管理虚拟机硬盘 | 墨雪天琊" />
+  <meta name="twitter:title" content="qemu-img 管理虚拟机硬盘 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-11-22" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=7ca5a0bdf0e712f01b02"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/">qemu-img 管理虚拟机硬盘</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 22, 2025 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/qemu-img/">qemu-img</a> </span>
+
+    
+
+
+<h1 id="xu-ni-ji-kuai-zhao-lian-snapshot-chains">虚拟机快照链(snapshot chains)</h1>
+<ul>
+<li>虚拟机快照保存了虚拟机在某个指定时间点的状态(包括操作系统和所有的程序),</li>
+<li>利用快照,我们可以恢复虚拟机到某个以前的状态,比如测试软件的时候经常需要回滚系统。</li>
+<li>快照链就是多个快照组成的关系链,这些快照按照创建时间排列成链,</li>
+<li>像下面这样,本文章要解释的就是怎么创建这条链,链中快照的相互关系,缩短链,以及如何利用这条链回滚我们的虚拟机到某个状态</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>base-image&lt;--guest1&lt;--snap1&lt;--snap2&lt;--snap3&lt;--snap4&lt;--当前(active)</span></span></code></pre>
+<ul>
+<li>如上,base-image是制作好的一个qcow2格式的磁盘镜像文件,它包含有完整的OS以及引导程序,</li>
+<li>现在以这个base-image为模板创建多个虚拟机,简单点方法,每创建一个虚拟机我们就把这个镜像完整复制一份,但这种做法效率底下,满足不了生产需要,</li>
+<li>这时就用到了qcow2镜像的特性copy-on-write</li>
+<li>qcow2(qemu copy-on-write)格式镜像支持快照,具有创建一个base-image,以及在base-image(backing file)基础上创建多个copy-on-write overlays镜像的能力,</li>
+<li>解释下backing file和overlay, 我们为base-image创建一个guest1,那么此时base-image就是guest1的backing file,guest1就是base-image的overlay</li>
+<li>同理,为guest1虚拟机创建了一个快照snap1,此时guest1就是snap1的backing file,snap1是guest1的overlay,backing files和overlays十分有用,可以快速的创建瘦装备实例,特别是在开发测试过程中可以快速回滚到之前某个状态</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 使用模板镜像centosbase(backing file)创建两个虚拟机(基于centosbase),20G不是必须的参数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> create</span><span style="color: #F97E72;"> -b</span><span> centosbase.qcow2</span><span style="color: #F97E72;"> -f</span><span> qcow2 centos1.qcow2 20G</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> create</span><span style="color: #F97E72;"> -b</span><span> centosbase.qcow2</span><span style="color: #F97E72;"> -f</span><span> qcow2 centos2.qcow2 20G</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 现在创建出来的centos1和centos2都可以用来启动一个虚拟机,因为他们依赖于backing file,所以这两个磁盘只有几百个字节大小,只有新的文件才会被写入此磁盘</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看镜像信息,包括虚拟磁盘大小,实际占用空间,backing file</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> info centos1.qcow2</span></span></code></pre><h1 id="nei-zhi-kuai-zhao-jie-shao-internal-snapshots">内置快照介绍（Internal Snapshots）</h1>
+<h2 id="nei-zhi-ci-pan-kuai-zhao">内置磁盘快照</h2>
+<p>单个qcow2镜像文件存储快照点的磁盘状态,没有新磁盘文件产生,虚拟机运行状态和关闭状态都可以创建,Libvirt 使用 'qemu-img' 命令创建关机状态的磁盘快照.</p>
+<h2 id="nei-zhi-xi-tong-huan-yuan-dian">内置系统还原点</h2>
+<ul>
+<li>使用virsh save/restore命令</li>
+<li>可以在虚机开机状态下（内存）保存内存状态，设备状态和磁盘状态到一个指定文件中,还原的时候虚机关机，然后restore回去</li>
+<li>多用于测试场景中，我们经常需要不断的将vm还原到某个起点，然后重新开始部署和测试。</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#创建快照1(centos1运行时)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-create-as centos1 centos1_sn1 centos1_sn1-desc</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#创建快照2(centos1关闭)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> shutdown centos1</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-create-as centos1 centos1_sn2 centos1_sn2-desc</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看所有快照</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-list centos1</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#快照回滚</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-revert</span><span style="color: #F97E72;"> --domain</span><span> centos1 centos1_sn1</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-revert</span><span style="color: #F97E72;"> --domain</span><span> centos1 centos1_sn3</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#内置磁盘快照可以随意回滚,比如先回滚到sn1,在回滚到sn3都是OK的</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#注意一点是虚拟机开启状态下,不能回滚到State为running的快照点</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#快照删除</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-delete centos1 centos1_sn2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">或者</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-delete</span><span style="color: #F97E72;"> --domain</span><span> centos1</span><span style="color: #F97E72;"> --snapshotname</span><span> centos1_sn2</span></span></code></pre><h1 id="wai-zhi-kuai-zhao-jie-shao-external-snapshots">外置快照介绍（External Snapshots）</h1>
+<h2 id="wai-zhi-ci-pan-kuai-zhao-external-disk-snapshot">外置磁盘快照（External disk snapshot）</h2>
+<p>当一个快照被创建时，创建时当前的状态保存在当前使用的磁盘文件中，即成为一个backing file,此时一个新的overlay被创建出来保存以后写入的数据</p>
+<h2 id="wai-zhi-xi-tong-huan-yuan-dian-external-system-checkpoint">外置系统还原点（External system checkpoint）</h2>
+<p>虚拟机的磁盘状态将被保存到一个文件中，内存和设备的状态将被保存到另外一个新的文件中</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 启动centos2虚拟机,查看当前所使用磁盘</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> start centos2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> domblklist centos2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-create-as</span><span style="color: #F97E72;"> --domain</span><span> centos2 centos2_sn1 centos2_sn1-desc</span><span style="color: #F97E72;"> --disk-only --diskspec</span><span> vda,snapshot=external,file=/data_lij/vhosts/centos2_sn1.qcow2</span><span style="color: #F97E72;"> --atomic</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看快照</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-list centos2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看centos2当前所使用磁盘</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> domblklist centos2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#所使用磁盘已经更新到新创建的磁盘</span></span></code></pre><h1 id="wai-zhi-ci-pan-kuai-zhao-de-he-bing">外置磁盘快照的合并</h1>
+<ul>
+<li>外置快照非常有用，但这里有一个问题就是如何合并快照文件来缩短链的长度，不能直接删除某个快照,因为每个快照都保存有相应的数据</li>
+<li>有两种方式实现
+<ul>
+<li>blockcommit: 从 top 合并数据到 base (即合并overlays至backing files)</li>
+<li>blockpull: 将backing file数据合并至overlay中.从 base 到 top</li>
+</ul>
+</li>
+</ul>
+<h2 id="blockcommitxiang-xia-he-bing">blockcommit向下合并</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># blockcommit可以让你将&#39;top&#39;镜像(在同一条backing file链中)合并至底层的&#39;base&#39;镜像,</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 一旦 blockcommit #执行完成，处于最上面的overlay链将被自动指向到底层的overlay或base, 后用来缩短链长度的时候十分有用.</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># A qemu1.3以下版本不支持live blockcommit,</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># B qemu2.0以下版本不支持合并&#39;Active&#39;层(最顶部的overlay,即当前使用磁盘)至backing_files</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 当前: [base] &lt;- sn1 &lt;- sn2 &lt;- sn3 &lt;- sn4(当前使用磁盘)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 目标: [base] &lt;- sn1 &lt;--------------- sn4</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 我们需要做的是合并sn2,sn3到sn1中,并删除sn2,sn3快照,下面有两种方式</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># (method-a):</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> blockcommit</span><span style="color: #F97E72;"> --domain</span><span> f17 vda</span><span style="color: #F97E72;"> --base</span><span> /export/vmimages/sn1.qcow2</span><span style="color: #F97E72;"> --top</span><span> /export/vmimages/sn3.qcow2</span><span style="color: #F97E72;"> --wait --verbose</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 或者 (method-b):</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> blockcommit</span><span style="color: #F97E72;"> --domain</span><span> centos2 vda</span><span style="color: #F97E72;"> --base</span><span> centos2_sn2.qcow2</span><span style="color: #F97E72;"> --top</span><span> centos2_sn3.qcow2</span><span style="color: #F97E72;"> --wait --verbose</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> blockcommit</span><span style="color: #F97E72;"> --domain</span><span> centos2 vda</span><span style="color: #F97E72;"> --base</span><span> centos2_sn1.qcow2</span><span style="color: #F97E72;"> --top</span><span> centos2_sn2.qcow2</span><span style="color: #F97E72;"> --wait --verbose</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注: 如果手工执行*qemu-img*命令完成的话, 现在还只能用method-b. 我们还可以让centos2_sn4(active)直接指向centos2</span></span></code></pre><h2 id="blockpullxiang-shang-he-bing">blockpull向上合并</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># blockpull（qemu中也称作&#39;block stream&#39;）可以将backing合并至active，与blockcommit正好相反.</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 在qemu最新版本2.1.2上测试发现,当前只能将backing file合并至正在使用的active中</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># centosbase &lt;-- centos2 &lt;-- centos2_sn1 &lt;-- centos2_sn2 &lt;-- centos2_sn3 &lt;-- centos2_sn4(active)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 在上面快照链中,可以合并sn1/sn2/sn3到sn4(active),但不能合并sn1/sn2到sn3,因为sn3非当前active磁盘</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 我们需要做的是合并sn1,sn2,sn3到sn4(active)中,并删除sn1,sn2,sn3快照,如下表示关系</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 当前: [base(centos2)] &lt;- sn1 &lt;- sn2 &lt;- sn3 &lt;- sn4(当前使用磁盘)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 目标: [base(centos2)] &lt;---------------------- sn4</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> blockpull</span><span style="color: #F97E72;"> --domain</span><span> centos_2</span><span style="color: #F97E72;"> --path</span><span> /data_lij/vhosts/centos2_sn4.qcow2</span><span style="color: #F97E72;"> --base</span><span> /data_lij/vhosts/centos2.qcow2</span><span style="color: #F97E72;"> --wait --verbose</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#清理掉不用的快照</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-delete</span><span style="color: #F97E72;"> --domain</span><span> centos2 centos2_sn1</span><span style="color: #F97E72;"> --metadata</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-delete</span><span style="color: #F97E72;"> --domain</span><span> centos2 centos2_sn2</span><span style="color: #F97E72;"> --metadata</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-delete</span><span style="color: #F97E72;"> --domain</span><span> centos2 centos2_sn3</span><span style="color: #F97E72;"> --metadata</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看centos2的快照</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> snapshot-list centos2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看centos2当前使用磁盘</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> domblklist centos2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#查看快照sn4的backing file</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> info centos2_sn4.qcow2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#如果要迁移虚拟机centos2,可能要将所有backing files合并至centos2_sn4(active),然后迁移centos2_sn4(active)至目的位置</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#所有的backing files 都合并到centos2_sn4(active)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">virsh</span><span> blockpull</span><span style="color: #F97E72;"> --domain</span><span> centos2</span><span style="color: #F97E72;"> --path</span><span> /data_lij/vhosts/centos2_sn4.qcow2</span><span style="color: #F97E72;"> --wait --verbose</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> info centos2_sn4.qcow2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#合并之后,centos2_sn4是一个完整的镜像,包括centosbase,sn1/2/3所有的数据,此时其不再需要backing files</span></span></code></pre><h2 id="qemu-img-wai-zhi-kuai-zhao-he-bing">qemu-img 外置快照合并</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> rebase</span><span style="color: #F97E72;"> -u -b</span><span> centos2_sn1.qcow2 centos2_sn3.qcow2</span><span style="color: #848BBD;font-style: italic;">     #让sn3指向sn1</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 现在sn1中包含了之前的sn1/sn2中的数据,所以此时不再需要sn2中的数据,直接让sn3指向sn1即可,可以直接删除sn2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注意: -u代表&#39;Unsafe mode&#39; -- 此模式下仅仅修改了指向到的backing file名字(不复制数据)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-img</span><span> rebase</span><span style="color: #F97E72;"> -b</span><span> centos2_sn1.qcow2 centos2_sn3.qcow2</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#未使用-u模式的rebase将把数据也一并合并过去，即把sn2的数据写入到sn3并修改sn3指向sn1,此为默认模式</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 创建一个全新的、无 backing file 的镜像 (推荐)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> qemu-img convert</span><span style="color: #F97E72;"> -f</span><span> qcow2</span><span style="color: #F97E72;"> -O</span><span> qcow2</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  /var/lib/libvirt/images/107/vm-107-disk-0.qcow2</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  /var/lib/libvirt/images/107/vm-107-disk-0-standalone.qcow2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># ❌ 危险！这是把当前层写回 backing file，会污染 base 镜像！</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> qemu-img commit /var/lib/libvirt/images/107/vm-107-disk-0.qcow2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 将backing file数据合并到当前镜像</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> qemu-img rebase</span><span style="color: #F97E72;"> -b</span><span style="color: #FF8B39;"> &quot;&quot;</span><span> /var/lib/libvirt/images/107/vm-107-disk-0.qcow2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 安装必要的工具（如果尚未安装）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt-get install libguestfs-tools</span><span style="color: #848BBD;font-style: italic;">  # Ubuntu/Debian</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 合并并优化镜像</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> virt-sparsify</span><span style="color: #F97E72;"> --compress</span><span> /var/lib/libvirt/images/107/vm-107-disk-0.qcow2 /var/lib/libvirt/images/107/vm-107-disk-0-merged.qcow2</span></span></code></pre><h1 id="qi-dong-shi-bai-hou-xiu-fu">启动失败后修复</h1>
+<h2 id="zai-su-zhu-ji-shang-gua-zai-xin-jing-xiang-geng-xin-fstab-zhong-jian-initramfs">在宿主机上挂载新镜像，更新 fstab + 重建 initramfs</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 安装必要工具（如未安装）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install libguestfs-tools</span><span style="color: #848BBD;font-style: italic;">   # Debian/Ubuntu</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 或 yum install libguestfs-tools   # RHEL/CentOS</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 使用 guestfish 挂载并检查/修复</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> guestfish</span><span style="color: #F97E72;"> --rw -a</span><span> /var/lib/libvirt/images/107/vm-107-disk-0-standalone.qcow2</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> run</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> list-filesystems</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> mount /dev/sda1 /</span><span style="color: #848BBD;font-style: italic;">        # 假设 / 是 sda1（根据你的分区调整！）</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> mount /dev/sdb1 /mnt</span><span style="color: #848BBD;font-style: italic;">     # 如果 /home 或其他在 sdb1，按需挂</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看当前 UUID（关键！）</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> sh </span><span style="color: #FF8B39;">&quot;blkid&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># ✅ 更新 fstab 中的 UUID 为新值</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> sh </span><span style="color: #FF8B39;">&quot;sed -i &#39;s/old-xxxx-yyyy-zzzz/new-1111-2222-3333/g&#39; /etc/fstab&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># —— 如果是 Debian/Ubuntu：</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> sh </span><span style="color: #FF8B39;">&quot;chroot / update-initramfs -u -k all&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 退出</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">&gt;</span><span> exit</span></span></code></pre><h2 id="lin-shi-rao-guo-jin-yong-yu-zhen-duan-huo-jin-ji-hui-fu-zai-grub-qi-dong-jie-mian-e-edit">临时绕过（仅用于诊断或紧急恢复） 在 GRUB 启动界面： e(edit)</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">添加启动参数</span><span>  init=/bin/bash</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span style="color: #F97E72;"> -o</span><span> remount,rw /</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /etc/fstab</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">lsblk</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">blkid</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span style="color: #F97E72;"> -a</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">exec</span><span> /sbin/init</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> set-default graphical</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">update-grub</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">reboot</span></span></code></pre><h1 id="qi-dong-xu-ni-ji-de-jian-qie-ban-gong-xiang">启动虚拟机的剪切板共享</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install spice-vdagent</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> virsh dumpxml debian12</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> graphics</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> virsh domdisplay debian12</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/apparmor调试 启动虚拟机失败排查/">&#8249; apparmor调试 启动虚拟机失败排查</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/pipewire 音频控制/"> pipewire 音频控制 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xu-ni-ji-kuai-zhao-lian-snapshot-chains">虚拟机快照链(snapshot chains)</a>
+        </div>
+        <div>
+          <a href="#nei-zhi-kuai-zhao-jie-shao-internal-snapshots">内置快照介绍（Internal Snapshots）</a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-zhi-ci-pan-kuai-zhao"><small>- 内置磁盘快照</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-zhi-xi-tong-huan-yuan-dian"><small>- 内置系统还原点</small></a>
+        </div>
+        <div>
+          <a href="#wai-zhi-kuai-zhao-jie-shao-external-snapshots">外置快照介绍（External Snapshots）</a>
+        </div>
+        <div class="hpad">
+          <a href="#wai-zhi-ci-pan-kuai-zhao-external-disk-snapshot"><small>- 外置磁盘快照（External disk snapshot）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wai-zhi-xi-tong-huan-yuan-dian-external-system-checkpoint"><small>- 外置系统还原点（External system checkpoint）</small></a>
+        </div>
+        <div>
+          <a href="#wai-zhi-ci-pan-kuai-zhao-de-he-bing">外置磁盘快照的合并</a>
+        </div>
+        <div class="hpad">
+          <a href="#blockcommitxiang-xia-he-bing"><small>- blockcommit向下合并</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#blockpullxiang-shang-he-bing"><small>- blockpull向上合并</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qemu-img-wai-zhi-kuai-zhao-he-bing"><small>- qemu-img 外置快照合并</small></a>
+        </div>
+        <div>
+          <a href="#qi-dong-shi-bai-hou-xiu-fu">启动失败后修复</a>
+        </div>
+        <div class="hpad">
+          <a href="#zai-su-zhu-ji-shang-gua-zai-xin-jing-xiang-geng-xin-fstab-zhong-jian-initramfs"><small>- 在宿主机上挂载新镜像，更新 fstab + 重建 initramfs</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lin-shi-rao-guo-jin-yong-yu-zhen-duan-huo-jin-ji-hui-fu-zai-grub-qi-dong-jie-mian-e-edit"><small>- 临时绕过（仅用于诊断或紧急恢复） 在 GRUB 启动界面： e(edit)</small></a>
+        </div>
+        <div>
+          <a href="#qi-dong-xu-ni-ji-de-jian-qie-ban-gong-xiang">启动虚拟机的剪切板共享</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

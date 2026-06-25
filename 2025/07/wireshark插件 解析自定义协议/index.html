@@ -1,0 +1,311 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=93df6f1e4ed2acf7a26e" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>wireshark插件 解析自定义协议 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/07/wireshark插件 解析自定义协议/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/07/wireshark插件 解析自定义协议/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/07/wireshark插件 解析自定义协议/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="wireshark插件 解析自定义协议 | 墨雪天琊" />
+  <meta name="twitter:title" content="wireshark插件 解析自定义协议 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-07-30" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=7ca5a0bdf0e712f01b02"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/07/wireshark插件 解析自定义协议/">wireshark插件 解析自定义协议</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 30, 2025 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/protocol/">protocol</a>  #<a href="https://moxuetianya.github.io/tags/xie-yi/">协议</a> </span>
+
+    
+
+
+<p>Wireshark内置了Lua脚本编写插件，无需配置额外的环境，使用起来吧比较便。</p>
+<p>使用Lua编写Wireshark协议解析插件，有几个比较重要的概念:</p>
+<ol>
+<li>Dissector,解剖器，用来解析包的类，我们要编写的，也是一个Dissector。</li>
+<li>DissectorTable,解析器表是Wireshark中解析器的组织形式，是某一种协议的子解析器的一个列表，其作用是把所有的解析器组织成一种树状结构，便于Wireshark在解析包的时候自动选择对应的解析器。例如TCP协议的子解析器 http, smtp, sip等都被加在了"tcp.port"这个解析器表中，可以根据抓到的包的不同的tcp端口号，自动选择对应的解析器。</li>
+</ol>
+<h1 id="ji-chu">基础</h1>
+<p><img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-07-30-17-28-53.png" alt="主要接口" /></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- create a new protocol</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> proto_name</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF8B39;"> &quot;PNASKCP&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> proto_desc</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF8B39;"> &quot;Private NAS Protocol (KCP)&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> proto_obj</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> Proto</span><span>(</span><span style="color: #FF7EDB;">proto_name</span><span>, </span><span style="color: #FF7EDB;">proto_desc</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> proto_port</span><span style="color: #FEDE5D;"> =</span><span style="color: #F97E72;"> 5067</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--register this dissector add Packet Details</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">DissectorTable</span><span>.</span><span style="color: #36F9F6;">get</span><span>(</span><span style="color: #FF8B39;">&quot;udp.port&quot;</span><span>):</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">proto_port</span><span>, </span><span style="color: #FF7EDB;">proto_obj</span><span>)</span></span></code></pre><h2 id="protofield">ProtoField</h2>
+<p>表示协议字段，一般用于解析字段后往解析树上添加节点。根据字段类型不同，其接口可以分为两大类。
+这些接口都会返回一个新的字段对象。方括号内是可选字段，花括号内是可替换的类型字段。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>ProtoField.{type}(abbr, [name], [base], [valuestring], [mask], [desc])</span></span>
+<span class="giallo-l"><span>·type包括:uint8, uint16, uint24, uint32, uint64, framenum, float, double, string, stringz, bytes, bool, ipv4, ipv6, ether,oid, guid</span></span></code></pre>
+<p>参数</p>
+<ul>
+<li>abbr 字段的缩写名称（过滤器中使用的字符串）。</li>
+<li>name (optional) 字段的实际名称（出现在树中的字符串）。</li>
+<li>base (optional) base.DEC，base.HEX或base.OCT，base.DEC_HEX，base.HEX_DEC，base.UNIT_STRING或base.RANGE_STRING。</li>
+<li>valuestring (optional) 包含与值对应的文本的表，或包含与值 ({min, max, “string”}) 对应的范围字符串值表的表（如果基数为 ）base.RANGE_STRING，或包含单位名称的表如果 base 是base.UNIT_STRING.</li>
+<li>mask (optional) 此字段的整数掩码。</li>
+<li>desc (optional) 字段说明。</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #FF7EDB;">fields</span><span>.tlv_value_int16</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">uint16</span><span>(</span><span style="color: #FF7EDB;">proto_name</span><span style="color: #FEDE5D;"> ..</span><span style="color: #FF8B39;"> &quot;.tlv_value_int&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;PNAS TLV VALUE&quot;</span><span>, </span><span style="color: #FF7EDB;">base</span><span>.HEX)</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">fields</span><span>.uri_ipv4</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">ipv4</span><span>(</span><span style="color: #FF7EDB;">proto_name</span><span style="color: #FEDE5D;"> ..</span><span style="color: #FF8B39;"> &quot;.uri_ipv4&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;IP ADDRESS&quot;</span><span>)</span></span></code></pre><h2 id="tvb">tvb</h2>
+<p>Tvb（Testy Virtual Buffer）表示报文缓存，也就是实际的报文数据，可以通过下面介绍的TvbRange从报文数据中解出信息。主要接口有：
+<img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-07-30-17-31-38.png" alt="tvb 接口" /></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- tvb(offset, 4)表示从offset开始之后的4个字节</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">subtree</span><span>:</span><span style="color: #36F9F6;">add_le</span><span>(</span><span style="color: #FF7EDB;">fields</span><span>.peer_ipaddr, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #F97E72;">4</span><span>))</span></span></code></pre><h2 id="pinfo">pinfo</h2>
+<p>报文信息(packet information)。主要接口有：
+<img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-07-30-17-32-48.png" alt="" /></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- show protocol name</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">pinfo</span><span>.cols.protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF8B39;"> &quot;PNASKCP&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- show in info</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">pinfo</span><span>.cols.</span><span style="color: #FE4450;">info</span><span>:</span><span style="color: #36F9F6;">set</span><span>(</span><span style="color: #FF8B39;">&quot;Private NAS Protocol (CALL_REQUEST)&quot;</span><span>) </span></span></code></pre><h2 id="treeitem">TreeItem</h2>
+<p>表示报文解析树中的一个树节点。主要接口有：
+<img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-07-30-17-33-31.png" alt="" />
+还有注意一下网络字节序的问题，如果是网络字节序需要用add_le添加节点</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- kcp header</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> subtree</span><span style="color: #FEDE5D;"> =</span><span style="color: #FE4450;"> tree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">proto_obj</span><span>, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #FF7EDB;">lmmh_len</span><span>), </span><span style="color: #FF8B39;">&quot;KCP&quot;</span><span>)	</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--conv</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">subtree</span><span>:</span><span style="color: #36F9F6;">add_le</span><span>(</span><span style="color: #FF7EDB;">fields</span><span>.conv, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #F97E72;">4</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">offset</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> offset</span><span style="color: #FEDE5D;"> +</span><span style="color: #F97E72;"> 4</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--cmd</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">subtree</span><span>:</span><span style="color: #36F9F6;">add_le</span><span>(</span><span style="color: #FF7EDB;">fields</span><span>.cmd, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #F97E72;">1</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">offset</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> offset</span><span style="color: #FEDE5D;"> +</span><span style="color: #F97E72;"> 1</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--frg</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">subtree</span><span>:</span><span style="color: #36F9F6;">add_le</span><span>(</span><span style="color: #FF7EDB;">fields</span><span>.frg, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #F97E72;">1</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">offset</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> offset</span><span style="color: #FEDE5D;"> +</span><span style="color: #F97E72;"> 1</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--wnd</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">subtree</span><span>:</span><span style="color: #36F9F6;">add_le</span><span>(</span><span style="color: #FF7EDB;">fields</span><span>.wnd, </span><span style="color: #36F9F6;">tvb</span><span>(</span><span style="color: #FF7EDB;">offset</span><span>, </span><span style="color: #F97E72;">2</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">offset</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> offset</span><span style="color: #FEDE5D;"> +</span><span style="color: #F97E72;"> 2</span></span></code></pre><h1 id="jiao-ben-mo-ban">脚本模板</h1>
+<p>创建编译 packet-demo.lua 文件</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #FEDE5D;">do</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 创建一个新的协议: 协议名称为 fuzz_proto，在Packet Details窗格显示为 Fuzz Custom Protocol</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">fuzz_protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> Proto</span><span>(</span><span style="color: #FF8B39;">&quot;fuzz_proto&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;Fuzz Custom Protocol&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 定义协议字段</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--[[ 自定义字段</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">protocol_type(2) -- 自定义协议编号</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">base_protocol(1) -- 下层协议</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">connection_index(1) -- 收发状态</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">round_index(4) -- 本轮次序号</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--]]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> f_protocol_type</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">uint16</span><span>(</span><span style="color: #FF8B39;">&quot;fuzz_proto.protocol_type&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;Custom Protocol ID&quot;</span><span>, </span><span style="color: #FF7EDB;">base</span><span>.DEC)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> f_base_protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">uint8</span><span>(</span><span style="color: #FF8B39;">&quot;fuzz_proto.base_protocol&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;Base Protocol&quot;</span><span>, </span><span style="color: #FF7EDB;">base</span><span>.DEC)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> f_connection_index</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">uint8</span><span>(</span><span style="color: #FF8B39;">&quot;fuzz_proto.connection_index&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;Connection ID&quot;</span><span>, </span><span style="color: #FF7EDB;">base</span><span>.DEC)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> f_round_index</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> ProtoField</span><span>.</span><span style="color: #36F9F6;">uint32</span><span>(</span><span style="color: #FF8B39;">&quot;fuzz_proto.round_index&quot;</span><span>, </span><span style="color: #FF8B39;">&quot;Round Index&quot;</span><span>, </span><span style="color: #FF7EDB;">base</span><span>.DEC)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 将字段添加到协议中</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">fuzz_protocol</span><span>.fields</span><span style="color: #FEDE5D;"> =</span><span> { </span><span style="color: #FF7EDB;">f_protocol_type</span><span>, </span><span style="color: #FF7EDB;">f_base_protocol</span><span>, </span><span style="color: #FF7EDB;">f_connection_index</span><span>, </span><span style="color: #FF7EDB;">f_round_index</span><span> } </span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> data_dis</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> Dissector</span><span>.</span><span style="color: #36F9F6;">get</span><span>(</span><span style="color: #FF8B39;">&quot;data&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 定义协议的解析函数</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">function</span><span style="color: #36F9F6;"> FUZZ_dissector</span><span>(</span><span style="color: #FF7EDB;font-style: italic;">buffer</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> pinfo</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> tree</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> length</span><span style="color: #FEDE5D;"> =</span><span style="color: #FE4450;"> buffer</span><span>:</span><span style="color: #36F9F6;">len</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 确保报文有足够的长度供解析</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span style="color: #FF7EDB;"> length</span><span style="color: #FEDE5D;"> &lt;</span><span style="color: #F97E72;"> 8</span><span style="color: #FEDE5D;"> then</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        return</span><span style="color: #F97E72;"> false</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    end</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    --验证一下identifier这个字段是不是0x12,如果不是的话，认为不是我要解析的packet</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> v_identifier</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buffer</span><span>(</span><span style="color: #F97E72;">0</span><span>, </span><span style="color: #F97E72;">1</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span> (</span><span style="color: #FE4450;">v_identifier</span><span>:</span><span style="color: #36F9F6;">uint</span><span>() </span><span style="color: #FEDE5D;">~=</span><span style="color: #F97E72;"> 0x12</span><span>) </span><span style="color: #FEDE5D;">then</span><span> </span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        return</span><span style="color: #F97E72;"> false</span><span> </span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    end</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    --取出其他字段的值</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> v_length</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buffer</span><span>(</span><span style="color: #F97E72;">1</span><span>, </span><span style="color: #F97E72;">1</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    v_length</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> tonumber</span><span>(</span><span style="color: #36F9F6;">tostring</span><span>(</span><span style="color: #FF7EDB;">v_length</span><span>),</span><span style="color: #F97E72;">16</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> v_data</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buffer</span><span>(</span><span style="color: #F97E72;">2</span><span>,</span><span style="color: #FF7EDB;">v_length</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 显示协议名称 --在主窗口的 Protocol 字段显示的名称为 XX_Protobuf</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- pinfo.cols.protocol:set(&quot;XX_Protobuf&quot;)</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    pinfo</span><span>.cols.protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF8B39;"> &quot;fuzz_proto&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    --现在知道是我的协议了，放心大胆添加Packet Details</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 在树形结构中添加Headers</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> subtree</span><span style="color: #FEDE5D;"> =</span><span style="color: #FE4450;"> tree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">fuzz_protocol</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">0</span><span>, </span><span style="color: #F97E72;">7</span><span>), </span><span style="color: #FF8B39;">&quot;Fuzz Header&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 解析协议字段并添加到树中</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    subtree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">f_protocol_type</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">0</span><span>, </span><span style="color: #F97E72;">2</span><span>))</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> d_base_protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buffer</span><span>(</span><span style="color: #F97E72;">2</span><span>, </span><span style="color: #F97E72;">1</span><span>):</span><span style="color: #36F9F6;">uint</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> d_base_protocol_map</span><span style="color: #FEDE5D;"> =</span><span> {</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">0</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;UnSet&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">1</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;Ethernet&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">2</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;IP&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">3</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;TCP&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">4</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;UDP&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">5</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;TLS&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #F97E72;">6</span><span>] </span><span style="color: #FEDE5D;">=</span><span style="color: #FF8B39;"> &quot;HTTP&quot;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> d_base_protocol</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> d_base_protocol_map</span><span>[</span><span style="color: #FF7EDB;">d_base_protocol</span><span>] </span><span style="color: #FEDE5D;">or</span><span style="color: #FF8B39;"> &quot;Unknown&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    subtree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">f_base_protocol</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">2</span><span>, </span><span style="color: #F97E72;">1</span><span>)):</span><span style="color: #36F9F6;">append_text</span><span>(</span><span style="color: #FF8B39;">&quot; (&quot; </span><span style="color: #FEDE5D;">..</span><span style="color: #FF7EDB;"> d_base_protocol</span><span style="color: #FEDE5D;"> ..</span><span style="color: #FF8B39;"> &quot;)&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> d_connection_index</span><span style="color: #FEDE5D;"> =</span><span> (</span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">3</span><span>, </span><span style="color: #F97E72;">1</span><span>):</span><span style="color: #36F9F6;">uint</span><span>() </span><span style="color: #FEDE5D;">&lt;</span><span style="color: #F97E72;"> 127</span><span>) </span><span style="color: #FEDE5D;">and</span><span style="color: #FF8B39;"> &quot;Send&quot; </span><span style="color: #FEDE5D;">or</span><span style="color: #FF8B39;"> &quot;Receive&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    subtree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">f_connection_index</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">3</span><span>, </span><span style="color: #F97E72;">1</span><span>)):</span><span style="color: #36F9F6;">append_text</span><span>(</span><span style="color: #FF8B39;">&quot; (&quot; </span><span style="color: #FEDE5D;">..</span><span style="color: #FF7EDB;"> d_connection_index</span><span style="color: #FEDE5D;"> ..</span><span style="color: #FF8B39;"> &quot;)&quot;</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 本轮次序号, 取值为十六进制，需要将其转换为十进制 </span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> d_round_index</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> string.format</span><span>(</span><span style="color: #FF8B39;">&quot;%d&quot;</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">4</span><span>, </span><span style="color: #F97E72;">4</span><span>):</span><span style="color: #36F9F6;">uint</span><span>()) </span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    subtree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">f_round_index</span><span>, </span><span style="color: #36F9F6;">buffer</span><span>(</span><span style="color: #F97E72;">4</span><span>, </span><span style="color: #F97E72;">4</span><span>)):</span><span style="color: #36F9F6;">append_text</span><span>(</span><span style="color: #FF8B39;">&quot; (&quot; </span><span style="color: #FEDE5D;">..</span><span style="color: #FF7EDB;"> d_round_index</span><span style="color: #FEDE5D;"> ..</span><span style="color: #FF8B39;"> &quot;)&quot;</span><span>) </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    -- 解析下层协议</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> payload</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buffer</span><span>(</span><span style="color: #F97E72;">8</span><span>, </span><span style="color: #FF7EDB;">length</span><span style="color: #FEDE5D;"> -</span><span style="color: #F97E72;"> 8</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    local</span><span style="color: #FF7EDB;"> subtree_payload</span><span style="color: #FEDE5D;"> =</span><span style="color: #FE4450;"> tree</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF7EDB;">fuzz_protocol</span><span>, </span><span style="color: #FF7EDB;">payload</span><span>, </span><span style="color: #FF8B39;">&quot;Current Custom Protocol&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    subtree_payload</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #FF8B39;">&quot;Payload&quot;</span><span>, </span><span style="color: #FF7EDB;">payload</span><span>):</span><span style="color: #36F9F6;">append_text</span><span>(</span><span style="color: #FF8B39;">&quot; (&quot; </span><span style="color: #FEDE5D;">..</span><span style="color: #FE4450;"> payload</span><span>:</span><span style="color: #36F9F6;">len</span><span>() </span><span style="color: #FEDE5D;">..</span><span style="color: #FF8B39;"> &quot; bytes)&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">end</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">function</span><span style="color: #36F9F6;"> fuzz_protocol</span><span>.</span><span style="color: #36F9F6;">dissector</span><span>(</span><span style="color: #FF7EDB;font-style: italic;">buffer</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> pinfo</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> tree</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span style="color: #36F9F6;"> FUZZ_dissector</span><span>(</span><span style="color: #FF7EDB;">buffer</span><span>, </span><span style="color: #FF7EDB;">pinfo</span><span>, </span><span style="color: #FF7EDB;">tree</span><span>) </span><span style="color: #FEDE5D;">then</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">        -- valid Fuzz diagram</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    else</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">        -- data这个dissector几乎是必不可少的；当发现不是我的协议时，就应该调用data</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">        data_dis</span><span>.</span><span style="color: #36F9F6;">call</span><span>(</span><span style="color: #FF7EDB;">buffer</span><span>, </span><span style="color: #FF7EDB;">pinfo</span><span>, </span><span style="color: #FF7EDB;">tree</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    end</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">end</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 注册 dissector 到对应的 DLT_USER3 (150)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- local wtap_encap_table = DissectorTable.get(&quot;wtap_encap&quot;)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- wtap_encap_table:add(150, fuzz_protocol)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> tcp_encap_table</span><span style="color: #FEDE5D;"> =</span><span style="color: #FF7EDB;"> DissectorTable</span><span>.</span><span style="color: #36F9F6;">get</span><span>(</span><span style="color: #FF8B39;">&quot;tcp.port&quot;</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">--因为我们的自定义协议的接受端口是1080，所以这里只需要添加到&quot;tcp.port&quot;这个DissectorTable里即可。</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tcp_encap_table</span><span>:</span><span style="color: #36F9F6;">add</span><span>(</span><span style="color: #F97E72;">1080</span><span>, </span><span style="color: #FF7EDB;">fuzz_protocol</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">end</span></span>
+<span class="giallo-l"></span></code></pre><h1 id="pei-zhi-luajiao-ben">配置lua脚本</h1>
+<p><img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-07-30-17-11-07.png" alt="lua脚本位置" /></p>
+<p>如图， 在/usr/share/wireshark/init.lua文件中，添加：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #FF7EDB;">enable_lua</span><span style="color: #FEDE5D;"> =</span><span style="color: #F97E72;"> true</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">dofile</span><span>(</span><span style="color: #FF8B39;">&quot;/home/peter/.config/wireshark/packet-demo.lua&quot;</span><span>)</span></span></code></pre>
+<p>然后重新启动Wireshark或者点击【分析】-【重新载入Lua插件】，就可以启用你自己的lua插件了。</p>
+<h2 id="xin-ban-ben-wireshark4-2-zhong-de-wei-zhi-you-suo-gai-bian">新版本wireshark4.2 中的位置有所改变</h2>
+<p><img src="https://moxuetianya.github.io/2025/07/wireshark%E6%8F%92%E4%BB%B6%20%E8%A7%A3%E6%9E%90%E8%87%AA%E5%AE%9A%E4%B9%89%E5%8D%8F%E8%AE%AE/2025-08-13-18-58-36.png" alt="" />
+如图 init.lua需要 放置在 /usr/lib/x86_64-linux-gnu/wireshark/plugins/init.lua 位置
+并添加</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #36F9F6;">dofile</span><span>(</span><span style="color: #FF7EDB;">DATA_DIR</span><span style="color: #FEDE5D;">..</span><span style="color: #FF8B39;">&quot;/packet-demo.lua&quot;</span><span>)</span></span></code></pre><h1 id="gao-ji-yi-dian-de-wan-fa">高级一点的玩法</h1>
+<p>如果我们协议的PayLoad里封装的其实是以太网包，能不能让Wireshark在我们的插件执行完之后，继续按照以太网格式解析其他部分呢？</p>
+<p>这里，我们重新构造一下需要继续解析的数据，然后获取出一个以太网解析器就继续做下去</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #FEDE5D;">local</span><span style="color: #FF7EDB;"> raw_data</span><span style="color: #FEDE5D;"> =</span><span style="color: #36F9F6;"> buf</span><span>(</span><span style="color: #F97E72;">8</span><span>, </span><span style="color: #FE4450;">buf</span><span>:</span><span style="color: #36F9F6;">len</span><span>() </span><span style="color: #FEDE5D;">-</span><span style="color: #F97E72;"> 8</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">Dissector</span><span>.</span><span style="color: #36F9F6;">get</span><span>(</span><span style="color: #FF8B39;">&quot;eth_maybefcs&quot;</span><span>):</span><span style="color: #36F9F6;">call</span><span>(</span><span style="color: #FE4450;">raw_data</span><span>:</span><span style="color: #36F9F6;">tvb</span><span>(), </span><span style="color: #FF7EDB;">pinfo</span><span>, </span><span style="color: #FF7EDB;">tree</span><span>)</span></span></code></pre>
+<p>替换上面代码的-- 解析下层协议即可
+需要在注意,</p>
+<ol>
+<li>获取的解析器名称应该是 eth_maybefcs，因为DissectorTable里写的eth，但是提示找不到。 eth_maybefcs，意思是可能带有fcs的eth帧</li>
+<li>raw_data需要调用一下tvb()函数，不然会提示你这个是userdata，不能使用。tvb的全称应该是Testy Virtual Buffer，用来存储Packet buffer的，要处理必须先转成这个。</li>
+</ol>
+<p>调用eth_maybefcs解析器的时候，这些解析器会给协议栏赋值，覆盖掉我们之前写的wfuzz protocol。为了区分，我们可以在上面的代码之后加上：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="lua"><span class="giallo-l"><span style="color: #FF7EDB;">pkt</span><span>.cols.</span><span style="color: #FE4450;">protocol</span><span>:</span><span style="color: #36F9F6;">append</span><span>(</span><span style="color: #FF8B39;">&quot;-FuzzProtocol&quot;</span><span>)</span></span></code></pre>
+<p>就是不管协议栏被改成了什么，都在后面加上-FuzzProtocol，这样ARP、ICMP等就会变成 ARP-Fuzz、ICMP-Fuzz了，一眼就可以跟那些普通的ARP和ICMP区分出来。</p>
+<h1 id="can-kao">参考</h1>
+<p><a rel="noopener external" target="_blank" href="https://www.cnblogs.com/little-kwy/p/14888454.html">wireshark插件开发</a></br>
+<a rel="noopener external" target="_blank" href="https://zhuanlan.zhihu.com/p/568748288">自定义协议</a></br>
+<a rel="noopener external" target="_blank" href="https://zhuanlan.zhihu.com/p/5968603110">wireshark lua api 协议解析</a></br></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/08/输入法工作原理ibus/">&#8249; 输入法工作原理ibus</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/手动安装vscode server/"> 手动安装vscode server &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#ji-chu">基础</a>
+        </div>
+        <div class="hpad">
+          <a href="#protofield"><small>- ProtoField</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tvb"><small>- tvb</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pinfo"><small>- pinfo</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#treeitem"><small>- TreeItem</small></a>
+        </div>
+        <div>
+          <a href="#jiao-ben-mo-ban">脚本模板</a>
+        </div>
+        <div>
+          <a href="#pei-zhi-luajiao-ben">配置lua脚本</a>
+        </div>
+        <div class="hpad">
+          <a href="#xin-ban-ben-wireshark4-2-zhong-de-wei-zhi-you-suo-gai-bian"><small>- 新版本wireshark4.2 中的位置有所改变</small></a>
+        </div>
+        <div>
+          <a href="#gao-ji-yi-dian-de-wan-fa">高级一点的玩法</a>
+        </div>
+        <div>
+          <a href="#can-kao">参考</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

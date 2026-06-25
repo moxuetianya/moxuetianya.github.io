@@ -1,0 +1,188 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - qemu-img</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/qemu-img/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-11-22T11:21:09+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/qemu-img/atom.xml</id>
+    <entry xml:lang="en">
+        <title>qemu-img 管理虚拟机硬盘</title>
+        <published>2025-11-22T11:21:09+08:00</published>
+        <updated>2025-11-22T11:21:09+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/"/>
+        <id>https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/">&lt;h1 id=&quot;xu-ni-ji-kuai-zhao-lian-snapshot-chains&quot;&gt;虚拟机快照链(snapshot chains)&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;虚拟机快照保存了虚拟机在某个指定时间点的状态(包括操作系统和所有的程序),&lt;&#x2F;li&gt;
+&lt;li&gt;利用快照,我们可以恢复虚拟机到某个以前的状态,比如测试软件的时候经常需要回滚系统。&lt;&#x2F;li&gt;
+&lt;li&gt;快照链就是多个快照组成的关系链,这些快照按照创建时间排列成链,&lt;&#x2F;li&gt;
+&lt;li&gt;像下面这样,本文章要解释的就是怎么创建这条链,链中快照的相互关系,缩短链,以及如何利用这条链回滚我们的虚拟机到某个状态&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;base-image&amp;lt;--guest1&amp;lt;--snap1&amp;lt;--snap2&amp;lt;--snap3&amp;lt;--snap4&amp;lt;--当前(active)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;如上,base-image是制作好的一个qcow2格式的磁盘镜像文件,它包含有完整的OS以及引导程序,&lt;&#x2F;li&gt;
+&lt;li&gt;现在以这个base-image为模板创建多个虚拟机,简单点方法,每创建一个虚拟机我们就把这个镜像完整复制一份,但这种做法效率底下,满足不了生产需要,&lt;&#x2F;li&gt;
+&lt;li&gt;这时就用到了qcow2镜像的特性copy-on-write&lt;&#x2F;li&gt;
+&lt;li&gt;qcow2(qemu copy-on-write)格式镜像支持快照,具有创建一个base-image,以及在base-image(backing file)基础上创建多个copy-on-write overlays镜像的能力,&lt;&#x2F;li&gt;
+&lt;li&gt;解释下backing file和overlay, 我们为base-image创建一个guest1,那么此时base-image就是guest1的backing file,guest1就是base-image的overlay&lt;&#x2F;li&gt;
+&lt;li&gt;同理,为guest1虚拟机创建了一个快照snap1,此时guest1就是snap1的backing file,snap1是guest1的overlay,backing files和overlays十分有用,可以快速的创建瘦装备实例,特别是在开发测试过程中可以快速回滚到之前某个状态&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用模板镜像centosbase(backing file)创建两个虚拟机(基于centosbase),20G不是必须的参数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; create&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b&lt;&#x2F;span&gt;&lt;span&gt; centosbase.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span&gt; qcow2 centos1.qcow2 20G&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; create&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b&lt;&#x2F;span&gt;&lt;span&gt; centosbase.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span&gt; qcow2 centos2.qcow2 20G&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 现在创建出来的centos1和centos2都可以用来启动一个虚拟机,因为他们依赖于backing file,所以这两个磁盘只有几百个字节大小,只有新的文件才会被写入此磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看镜像信息,包括虚拟磁盘大小,实际占用空间,backing file&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; info centos1.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;nei-zhi-kuai-zhao-jie-shao-internal-snapshots&quot;&gt;内置快照介绍（Internal Snapshots）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;nei-zhi-ci-pan-kuai-zhao&quot;&gt;内置磁盘快照&lt;&#x2F;h2&gt;
+&lt;p&gt;单个qcow2镜像文件存储快照点的磁盘状态,没有新磁盘文件产生,虚拟机运行状态和关闭状态都可以创建,Libvirt 使用 &#x27;qemu-img&#x27; 命令创建关机状态的磁盘快照.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;nei-zhi-xi-tong-huan-yuan-dian&quot;&gt;内置系统还原点&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;使用virsh save&#x2F;restore命令&lt;&#x2F;li&gt;
+&lt;li&gt;可以在虚机开机状态下（内存）保存内存状态，设备状态和磁盘状态到一个指定文件中,还原的时候虚机关机，然后restore回去&lt;&#x2F;li&gt;
+&lt;li&gt;多用于测试场景中，我们经常需要不断的将vm还原到某个起点，然后重新开始部署和测试。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#创建快照1(centos1运行时)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-create-as centos1 centos1_sn1 centos1_sn1-desc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#创建快照2(centos1关闭)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; shutdown centos1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-create-as centos1 centos1_sn2 centos1_sn2-desc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看所有快照&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-list centos1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#快照回滚&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-revert&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos1 centos1_sn1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-revert&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos1 centos1_sn3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#内置磁盘快照可以随意回滚,比如先回滚到sn1,在回滚到sn3都是OK的&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#注意一点是虚拟机开启状态下,不能回滚到State为running的快照点&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#快照删除&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-delete centos1 centos1_sn2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;或者&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-delete&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --snapshotname&lt;&#x2F;span&gt;&lt;span&gt; centos1_sn2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;wai-zhi-kuai-zhao-jie-shao-external-snapshots&quot;&gt;外置快照介绍（External Snapshots）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wai-zhi-ci-pan-kuai-zhao-external-disk-snapshot&quot;&gt;外置磁盘快照（External disk snapshot）&lt;&#x2F;h2&gt;
+&lt;p&gt;当一个快照被创建时，创建时当前的状态保存在当前使用的磁盘文件中，即成为一个backing file,此时一个新的overlay被创建出来保存以后写入的数据&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wai-zhi-xi-tong-huan-yuan-dian-external-system-checkpoint&quot;&gt;外置系统还原点（External system checkpoint）&lt;&#x2F;h2&gt;
+&lt;p&gt;虚拟机的磁盘状态将被保存到一个文件中，内存和设备的状态将被保存到另外一个新的文件中&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 启动centos2虚拟机,查看当前所使用磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; start centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; domblklist centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-create-as&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 centos2_sn1 centos2_sn1-desc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --disk-only --diskspec&lt;&#x2F;span&gt;&lt;span&gt; vda,snapshot=external,file=&#x2F;data_lij&#x2F;vhosts&#x2F;centos2_sn1.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --atomic&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看快照&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-list centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看centos2当前所使用磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; domblklist centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#所使用磁盘已经更新到新创建的磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;wai-zhi-ci-pan-kuai-zhao-de-he-bing&quot;&gt;外置磁盘快照的合并&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;外置快照非常有用，但这里有一个问题就是如何合并快照文件来缩短链的长度，不能直接删除某个快照,因为每个快照都保存有相应的数据&lt;&#x2F;li&gt;
+&lt;li&gt;有两种方式实现
+&lt;ul&gt;
+&lt;li&gt;blockcommit: 从 top 合并数据到 base (即合并overlays至backing files)&lt;&#x2F;li&gt;
+&lt;li&gt;blockpull: 将backing file数据合并至overlay中.从 base 到 top&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;blockcommitxiang-xia-he-bing&quot;&gt;blockcommit向下合并&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# blockcommit可以让你将&amp;#39;top&amp;#39;镜像(在同一条backing file链中)合并至底层的&amp;#39;base&amp;#39;镜像,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 一旦 blockcommit #执行完成，处于最上面的overlay链将被自动指向到底层的overlay或base, 后用来缩短链长度的时候十分有用.&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# A qemu1.3以下版本不支持live blockcommit,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# B qemu2.0以下版本不支持合并&amp;#39;Active&amp;#39;层(最顶部的overlay,即当前使用磁盘)至backing_files&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 当前: [base] &amp;lt;- sn1 &amp;lt;- sn2 &amp;lt;- sn3 &amp;lt;- sn4(当前使用磁盘)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 目标: [base] &amp;lt;- sn1 &amp;lt;--------------- sn4&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 我们需要做的是合并sn2,sn3到sn1中,并删除sn2,sn3快照,下面有两种方式&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# (method-a):&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; blockcommit&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; f17 vda&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --base&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;export&#x2F;vmimages&#x2F;sn1.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --top&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;export&#x2F;vmimages&#x2F;sn3.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --wait --verbose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或者 (method-b):&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; blockcommit&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 vda&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --base&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn2.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --top&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn3.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --wait --verbose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; blockcommit&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 vda&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --base&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn1.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --top&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn2.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --wait --verbose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 注: 如果手工执行*qemu-img*命令完成的话, 现在还只能用method-b. 我们还可以让centos2_sn4(active)直接指向centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;blockpullxiang-shang-he-bing&quot;&gt;blockpull向上合并&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# blockpull（qemu中也称作&amp;#39;block stream&amp;#39;）可以将backing合并至active，与blockcommit正好相反.&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 在qemu最新版本2.1.2上测试发现,当前只能将backing file合并至正在使用的active中&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# centosbase &amp;lt;-- centos2 &amp;lt;-- centos2_sn1 &amp;lt;-- centos2_sn2 &amp;lt;-- centos2_sn3 &amp;lt;-- centos2_sn4(active)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 在上面快照链中,可以合并sn1&#x2F;sn2&#x2F;sn3到sn4(active),但不能合并sn1&#x2F;sn2到sn3,因为sn3非当前active磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 我们需要做的是合并sn1,sn2,sn3到sn4(active)中,并删除sn1,sn2,sn3快照,如下表示关系&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 当前: [base(centos2)] &amp;lt;- sn1 &amp;lt;- sn2 &amp;lt;- sn3 &amp;lt;- sn4(当前使用磁盘)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 目标: [base(centos2)] &amp;lt;---------------------- sn4&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; blockpull&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos_2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --path&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;data_lij&#x2F;vhosts&#x2F;centos2_sn4.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --base&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;data_lij&#x2F;vhosts&#x2F;centos2.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --wait --verbose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#清理掉不用的快照&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-delete&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 centos2_sn1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --metadata&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-delete&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 centos2_sn2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --metadata&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-delete&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2 centos2_sn3&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --metadata&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看centos2的快照&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; snapshot-list centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看centos2当前使用磁盘&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; domblklist centos2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#查看快照sn4的backing file&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; info centos2_sn4.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#如果要迁移虚拟机centos2,可能要将所有backing files合并至centos2_sn4(active),然后迁移centos2_sn4(active)至目的位置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#所有的backing files 都合并到centos2_sn4(active)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;virsh&lt;&#x2F;span&gt;&lt;span&gt; blockpull&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --domain&lt;&#x2F;span&gt;&lt;span&gt; centos2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --path&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;data_lij&#x2F;vhosts&#x2F;centos2_sn4.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --wait --verbose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; info centos2_sn4.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#合并之后,centos2_sn4是一个完整的镜像,包括centosbase,sn1&#x2F;2&#x2F;3所有的数据,此时其不再需要backing files&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;qemu-img-wai-zhi-kuai-zhao-he-bing&quot;&gt;qemu-img 外置快照合并&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; rebase&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u -b&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn1.qcow2 centos2_sn3.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     #让sn3指向sn1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 现在sn1中包含了之前的sn1&#x2F;sn2中的数据,所以此时不再需要sn2中的数据,直接让sn3指向sn1即可,可以直接删除sn2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 注意: -u代表&amp;#39;Unsafe mode&amp;#39; -- 此模式下仅仅修改了指向到的backing file名字(不复制数据)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-img&lt;&#x2F;span&gt;&lt;span&gt; rebase&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b&lt;&#x2F;span&gt;&lt;span&gt; centos2_sn1.qcow2 centos2_sn3.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#未使用-u模式的rebase将把数据也一并合并过去，即把sn2的数据写入到sn3并修改sn3指向sn1,此为默认模式&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 创建一个全新的、无 backing file 的镜像 (推荐)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; qemu-img convert&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span&gt; qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -O&lt;&#x2F;span&gt;&lt;span&gt; qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0.qcow2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0-standalone.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ❌ 危险！这是把当前层写回 backing file，会污染 base 镜像！&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; qemu-img commit &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 将backing file数据合并到当前镜像&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; qemu-img rebase&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 安装必要的工具（如果尚未安装）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-get install libguestfs-tools&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # Ubuntu&#x2F;Debian&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 合并并优化镜像&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; virt-sparsify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --compress&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0.qcow2 &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0-merged.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;qi-dong-shi-bai-hou-xiu-fu&quot;&gt;启动失败后修复&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;zai-su-zhu-ji-shang-gua-zai-xin-jing-xiang-geng-xin-fstab-zhong-jian-initramfs&quot;&gt;在宿主机上挂载新镜像，更新 fstab + 重建 initramfs&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 安装必要工具（如未安装）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install libguestfs-tools&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   # Debian&#x2F;Ubuntu&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或 yum install libguestfs-tools   # RHEL&#x2F;CentOS&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用 guestfish 挂载并检查&#x2F;修复&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; guestfish&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --rw -a&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;107&#x2F;vm-107-disk-0-standalone.qcow2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; run&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; list-filesystems&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; mount &#x2F;dev&#x2F;sda1 &#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;        # 假设 &#x2F; 是 sda1（根据你的分区调整！）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; mount &#x2F;dev&#x2F;sdb1 &#x2F;mnt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     # 如果 &#x2F;home 或其他在 sdb1，按需挂&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看当前 UUID（关键！）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; sh &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;blkid&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ✅ 更新 fstab 中的 UUID 为新值&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; sh &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;sed -i &amp;#39;s&#x2F;old-xxxx-yyyy-zzzz&#x2F;new-1111-2222-3333&#x2F;g&amp;#39; &#x2F;etc&#x2F;fstab&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# —— 如果是 Debian&#x2F;Ubuntu：&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; sh &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;chroot &#x2F; update-initramfs -u -k all&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 退出&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; exit&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;lin-shi-rao-guo-jin-yong-yu-zhen-duan-huo-jin-ji-hui-fu-zai-grub-qi-dong-jie-mian-e-edit&quot;&gt;临时绕过（仅用于诊断或紧急恢复） 在 GRUB 启动界面： e(edit)&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;添加启动参数&lt;&#x2F;span&gt;&lt;span&gt;  init=&#x2F;bin&#x2F;bash&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mount&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; remount,rw &#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;fstab&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;lsblk&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;blkid&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mount&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exec&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;sbin&#x2F;init&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;systemctl&lt;&#x2F;span&gt;&lt;span&gt; set-default graphical&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;update-grub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;reboot&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;qi-dong-xu-ni-ji-de-jian-qie-ban-gong-xiang&quot;&gt;启动虚拟机的剪切板共享&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install spice-vdagent&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; virsh dumpxml debian12&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; graphics&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; virsh domdisplay debian12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>
