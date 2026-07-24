@@ -1,0 +1,349 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>深入理解系统调用 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2023/10/深入理解系统调用/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2023/10/深入理解系统调用/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2023/10/深入理解系统调用/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="深入理解系统调用 | 墨雪天琊" />
+  <meta name="twitter:title" content="深入理解系统调用 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2023-10-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2023/10/深入理解系统调用/">深入理解系统调用</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 25, 2023 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/xi-tong-diao-yong/">系统调用</a>] #<a href="https://moxuetianya.github.io/tags/syscalls/">syscalls</a> </span>
+
+    
+
+
+<h1 id="shen-ru-li-jie-xi-tong-diao-yong">深入理解系统调用</h1>
+<h1 id="xi-tong-diao-yong-xiang-guan-zhi-shi">系统调用相关知识</h1>
+<p>系统调用（system call）利用陷阱（trap），是异常（Exception）的一种，从用户态进⼊内核态。
+系统调用具有以下功能和特性：
+把用户从底层的硬件编程中解放出来。操作系统为我们管理硬件，⽤户态进程不用直接与硬件设备打交道。
+极⼤地提高系统的安全性。如果用户态进程直接与硬件设备打交道，会产⽣安全隐患，可能引起系统崩溃。
+使用户程序具有可移植性。用户程序与具体的硬件已经解耦合并用接⼝（api）代替了，不会有紧密的关系，便于在不同系统间移植。</p>
+<p><img src="https://moxuetianya.github.io/2023/10/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8/syscalls-20231220190830-ped9g5v.png" alt="系统调用" /></p>
+<h1 id="inuxshang-de-xi-tong-diao-yong-shi-xian-yuan-li">inux上的系统调用实现原理</h1>
+<p>要想实现系统调用，主要实现以下几个方面：</p>
+<ol>
+<li>通知内核调用一个哪个系统调用</li>
+<li>用户程序把系统调用的参数传递给内核</li>
+<li>用户程序获取内核返回的系统调用返回值</li>
+</ol>
+<h2 id="tong-zhi-nei-he-diao-yong-yi-ge-na-ge-xi-tong-diao-yong">通知内核调用一个哪个系统调用</h2>
+<p>每个系统调用都有一个系统调用号，系统调用发生时，内核就是根据传入的系统调用号来知道是哪个系统调用的。
+在x86架构中，用户空间将系统调用号是放在eax中的，系统调用处理程序通过eax取得系统调用号。
+系统调用号定义在内核代码：arch/x86/include/asm/unistd.h 中，可以看出linux的系统调用不是很多。</p>
+<h2 id="yong-hu-cheng-xu-ba-xi-tong-diao-yong-de-can-shu-chuan-di-gei-nei-he">用户程序把系统调用的参数传递给内核</h2>
+<p>系统调用的参数也是通过寄存器传给内核的，在x86系统上，系统调用的前5个参数放在ebx,ecx,edx,esi和edi中，如果参数多的话，还需要用个单独的寄存器存放指向所有参数在用户空间地址的指针。
+一般的系统调用都是通过C库(最常用的是glibc库)来访问的，Linux内核提供一个从用户程序直接访问系统调用的方法。
+参见内核代码：
+sysdeps/unix/sysv/linux/x86_64/sysdep.h
+arch/x86/include/asm/unistd.h :
+里面定义了6个宏，分别可以调用参数个数为0～6的系统调用</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #36F9F6;">syscall0</span><span>(type,name)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall1</span><span>(type,name,type1,arg1)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall2</span><span>(type,name,type1,arg1,type2,arg2)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall3</span><span>(type,name,type1,arg1,type2,arg2,type3,arg3)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall4</span><span>(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall5</span><span>(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4,type5,arg5)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">_syscall6</span><span>(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4,type5,arg5,type6,arg6)</span></span></code></pre>
+<p>超过6个参数的系统调用很罕见，所以这里只定义了6个。</p>
+<h2 id="yong-hu-cheng-xu-huo-qu-nei-he-fan-hui-de-xi-tong-diao-yong-fan-hui-zhi">用户程序获取内核返回的系统调用返回值</h2>
+<p>获取系统调用的返回值也是通过寄存器，在x86系统上，返回值放在eax中。
+<img src="https://moxuetianya.github.io/2023/10/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8/syscall-table-20231220190830-qw90vwn.png" alt="syscall-table" /></p>
+<h1 id="shi-yan-huan-jing-zhun-bei">实验环境准备</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install build-essential</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span> qemu qemu-system-x86</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span> libncurses5-dev bison flex libssl-dev libelf-dev</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span> axel </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">axel</span><span style="color: #F97E72;"> -n 20</span><span> https://mirrors.edge.kernel.org/pub/linux/kernel/v5.x/linux-5.4.34.tar.xz</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">xz</span><span style="color: #F97E72;"> -d</span><span> linux-5.4.34.tar.xz</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tar</span><span style="color: #F97E72;"> -xvf</span><span> linux-5.4.34.tar </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> linux-5.4.34</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">make</span><span> defconfig</span><span style="color: #848BBD;font-style: italic;">  #默认配置基于&#39;x86_64_defconfig&#39;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">make</span><span> menuconfig</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#打开debug相关选项</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">Kernel</span><span> hacking</span><span style="color: #F97E72;"> ---</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    Compile-time</span><span> checks and compiler options</span><span style="color: #F97E72;"> ---</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #FEDE5D;">*</span><span>]</span><span style="color: #FE4450;"> Compile</span><span> the kernel with debug info</span></span>
+<span class="giallo-l"><span>        [</span><span style="color: #FEDE5D;">*</span><span>]</span><span style="color: #FE4450;"> Provide</span><span> GDB scripts for kernel debugging  [*] Kernel debugging</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#关闭KASLR，否则会导致打断点失败</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">Processor</span><span> type and features</span><span style="color: #F97E72;"> ----</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"><span>    []</span><span style="color: #FE4450;"> Randomize</span><span> the address of the kernel image (KASLR)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#KASLR让加载到内核时是随机一个地址，如果加载内核一直同一个地址，容易被黑客攻击,这里为了实验方便，把它关闭。</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">make</span><span style="color: #F97E72;"> -j$(</span><span style="color: #FE4450;">nproc</span><span style="color: #F97E72;">)</span><span style="color: #848BBD;font-style: italic;">  #编译内核，需要几分钟的时间</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#测试一下，不能正常加载运行</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> -kernel</span><span> arch/x86/boot/bzImage  //在没有xwindow的情况下运行qemu 需要使用</span><span style="color: #F97E72;"> -display</span><span> curses</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">axel</span><span style="color: #F97E72;"> -n 20</span><span> https://busybox.net/downloads/busybox-1.31.1.tar.bz2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tar</span><span style="color: #F97E72;"> -jxvf</span><span> busybox-1.31.1.tar.bz2</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> busybox-1.31.1</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">make</span><span> menuconfig</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">/*</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">记得要编译成静态链接，不用动态链接库。</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">Settings</span><span style="color: #F97E72;"> ---</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"><span>    [</span><span style="color: #FEDE5D;">*</span><span>]</span><span style="color: #FE4450;"> Build</span><span> static binary (no shared libs)    </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">然后编译安装，默认会安装到源码目录下的</span><span> _install 目录中。</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">*</span><span>/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">make</span><span style="color: #F97E72;"> -j$(</span><span style="color: #FE4450;">nproc</span><span style="color: #F97E72;">)</span><span> &amp;&amp;</span><span style="color: #FE4450;"> make</span><span> install</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> rootfs</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> rootfs</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cp</span><span> ../busybox-1.31.1/_install/</span><span style="color: #FE4450;font-weight: bold;">*</span><span> ./</span><span style="color: #F97E72;"> -rf</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> dev proc sys home</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> cp</span><span style="color: #F97E72;"> -a</span><span> /dev/{null,console,tty,tty1,tty2,tty3,tty4} dev/</span></span></code></pre><h2 id="initjiao-ben">init脚本</h2>
+<p>准备init脚本文件放在根文件系统目录下(rootfs/init)，添加如下内容到init文件：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#!/bin/sh</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span style="color: #F97E72;"> -t</span><span> proc none /proc </span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span style="color: #F97E72;"> -t</span><span> sysfs none /sys</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #FF8B39;"> &quot;Welcome to test-OS!&quot;</span><span> </span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #FF8B39;"> &quot;--------------------&quot;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> home</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">/bin/sh</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">chmod</span><span> +x init</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">find</span><span> .</span><span style="color: #F97E72;"> -print0</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> cpio</span><span style="color: #F97E72;"> --null -ov --format=newc</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> gzip</span><span style="color: #F97E72;"> -9</span><span style="color: #FEDE5D;"> &gt;</span><span> ../rootfs.cpio.gz</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> ../</span><span style="color: #848BBD;font-style: italic;">   #一定要返回到上一级，因为rootfs.cpio.gz在上一级</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> -kernel</span><span> ~/linux-5.4.34/arch/x86/boot/bzImage</span><span style="color: #F97E72;"> -initrd</span><span> rootfs.cpio.gz //在没有xwindow的情况下运行qemu 需要使用</span><span style="color: #F97E72;"> -display</span><span> curses </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64的参数比较多，这里简单说下：</span><span> 　　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-kernel是指定一个大内核文件，当仁不让的是bzImage。</span><span> 　　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-initrd是指定一个</span><span> initrd.img文件，这个文件就是我们使用busybox生成的initramfs.img。 　　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-smp可以从名字猜想，它是给qemu指定几个处理器，或者是几个线程</span><span>&lt;嗯，大概意思就thread吧&gt;。</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-gdb则是启动qemu的内嵌gdbserver，监听的是本地tcp端口1234—如果这样写：</span><span style="color: #F97E72;"> -gdb</span><span> tcp:192.168.1.100:1234 ，似乎也是没问题的。　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-S</span><span> 就是挂起gdbserver，让gdb remote connect it。 　　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-s</span><span> 默认使用1234端口进行远程调试，和-gdb tcp::1234类似。 　　</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">-m</span><span> 2048指定内存大小为2048M</span></span></code></pre><h1 id="qemu-gdbdiao-shi-nei-he">QEMU+GDB调试内核</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> -kernel</span><span> /usr/src/linux-4.6.2/arch/x86/boot/bzImage</span><span style="color: #F97E72;"> -initrd</span><span> …/initramfs.img</span><span style="color: #F97E72;"> -smp 2 -S -s  -display</span><span> curses </span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>gdb /usr/src/linux-4.6.2/vmlinux (修改成自己的vmlinux路径)</span></span>
+<span class="giallo-l"><span>target remote:1234 (默认端口是1234，进行远程连接)</span></span>
+<span class="giallo-l"><span>b start_kernel (设置断点)</span></span>
+<span class="giallo-l"><span>c (continue 运行到断点处)</span></span></code></pre><h2 id="tong-guo-hui-bian-zhi-ling-hong-fa-gai-xi-tong-diao-yong">通过汇编指令触发该系统调用</h2>
+<ol>
+<li>首先查看系统调用表，选择setdomainname</li>
+</ol>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> ~/linux-5.4.34/arch/x86/entry/syscalls/syscall_64.tbl</span></span></code></pre>
+<p>第一列的数字是系统调用号。
+第三列是系统调用的名字。
+第四列是系统调用在内核的实现函数。
+如上图，171是写调用: 系统调用 setdomainname，函数入口为 __x64_sys_setdomainname。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #72F1B8;">#include</span><span style="color: #FF8B39;"> &lt;stdio.h&gt;</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">#include</span><span style="color: #FF8B39;"> &lt;unistd.h&gt;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span style="color: #36F9F6;"> main</span><span> (</span><span style="color: #FEDE5D;">int</span><span style="color: #FF7EDB;font-style: italic;"> argc</span><span>,</span><span style="color: #FEDE5D;"> char *</span><span style="color: #FF7EDB;font-style: italic;">argv</span><span style="color: #FEDE5D;">[]</span><span>)</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">	int</span><span> a,b;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">	char</span><span style="color: #FF7EDB;"> buf</span><span>[</span><span style="color: #F97E72;">50</span><span>]</span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;">&quot;test123&quot;</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">	int</span><span> size</span><span style="color: #FFFFFFEE;">=</span><span style="color: #FEDE5D;">sizeof</span><span>(</span><span style="color: #FF8B39;">&quot;test123&quot;</span><span>);</span></span>
+<span class="giallo-l"><span>	a</span><span style="color: #FFFFFFEE;">=</span><span style="color: #36F9F6;">setdomainname</span><span>(buf,</span><span style="color: #FEDE5D;">sizeof</span><span>(</span><span style="color: #FF8B39;">&quot;test123&quot;</span><span>));</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">	printf</span><span>(</span><span style="color: #FF8B39;">&quot;a=</span><span style="color: #72F1B8;font-style: italic;">%d</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>,a);</span></span>
+<span class="giallo-l"><span>	b</span><span style="color: #FFFFFFEE;">=</span><span style="color: #36F9F6;">getdomainname</span><span>(buf,</span><span style="color: #FEDE5D;">sizeof</span><span>(buf));</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">	printf</span><span>(</span><span style="color: #FF8B39;">&quot;new domainname is </span><span style="color: #72F1B8;font-style: italic;">%s</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>,buf);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">	return</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #72F1B8;">#include</span><span style="color: #FF8B39;"> &lt;stdio.h&gt;</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">#include</span><span style="color: #FF8B39;"> &lt;unistd.h&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span style="color: #36F9F6;"> main</span><span> (</span><span style="color: #FEDE5D;">int</span><span style="color: #FF7EDB;font-style: italic;"> argc</span><span>,</span><span style="color: #FEDE5D;">char *</span><span style="color: #FF7EDB;font-style: italic;">argv</span><span style="color: #FEDE5D;">[]</span><span>)</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        int</span><span> a,b;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        char</span><span style="color: #FF7EDB;"> buf</span><span>[</span><span style="color: #F97E72;">50</span><span>]</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF8B39;"> &quot;abc444&quot;</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        int</span><span> size </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FEDE5D;"> sizeof</span><span>(</span><span style="color: #FF8B39;">&quot;abc444&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        asm</span><span style="color: #FE4450;"> volatile</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">                &quot;movq %1,%%rdi</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span style="color: #848BBD;font-style: italic;">            //EDI寄存器用于传递参数</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">                &quot;movq %2,%%rsi</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span style="color: #848BBD;font-style: italic;">            //ESI寄存器用于传递参数</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">                &quot;movq $0xab,%%rax</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span style="color: #848BBD;font-style: italic;">         //使用EAX传递系统调用号</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">                &quot;syscall</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span style="color: #848BBD;font-style: italic;">                  //64位触发系统调用 ,32位使用int $x80 回去内存特定地址执行指定函数</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">                &quot;movq %%rax,%0</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span style="color: #848BBD;font-style: italic;">      	   //保存返回值</span></span>
+<span class="giallo-l"><span>                :</span><span style="color: #FF8B39;"> &quot;=m&quot;</span><span>(a)</span></span>
+<span class="giallo-l"><span>                :</span><span style="color: #FF8B39;"> &quot;g&quot;</span><span> (buf),</span><span style="color: #FF8B39;">&quot;g&quot;</span><span> (size)</span><span style="color: #848BBD;font-style: italic;">    /* input g mean Choose any one Regtster*/</span></span>
+<span class="giallo-l"><span>                );</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">        printf</span><span>(</span><span style="color: #FF8B39;">&quot;a=</span><span style="color: #72F1B8;font-style: italic;">%d</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>,a);</span></span>
+<span class="giallo-l"><span>        b</span><span style="color: #FFFFFFEE;">=</span><span style="color: #36F9F6;">getdomainname</span><span>(buf,</span><span style="color: #FEDE5D;">sizeof</span><span>(buf));</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">        printf</span><span>(</span><span style="color: #FF8B39;">&quot;new domainname is </span><span style="color: #72F1B8;font-style: italic;">%s</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>,buf);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        return</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">gcc</span><span style="color: #F97E72;"> -o</span><span> write-asm write-asm.c</span><span style="color: #F97E72;"> -static</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">//主要要静态编译</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">./write</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> -kernel</span><span> ~/linux-5.4.34/arch/x86/boot/bzImage</span><span style="color: #F97E72;"> -initrd</span><span> rootfs.cpio.gz</span><span style="color: #F97E72;"> -S -s -nographic -append</span><span style="color: #FF8B39;"> &quot;console=ttyS0&quot;</span></span></code></pre><h1 id="fen-xi-xi-tong-diao-yong-zai-nei-he-tai-de-gong-zuo-ji-zhi">分析系统调用在内核态的工作机制</h1>
+<p><img src="https://moxuetianya.github.io/2023/10/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8/syscall-implement-20231220190830-edzaolm.png" alt="系统调用实现原理" />
+应用程序调用一个库函数xyz()
+库函数内封装了一个系统调用SYSCALL，它将参数(系统调用号)传递给内核并触发中断
+触发中断后，内核进行中断处理，执行系统调用处理函数 (5.0内核中是entry_INT80_32，不再是system_call了)
+系统调用处理函数会根据系统调用号，选择相应的系统调用服务例程（在这里是sys_xyz)，真正开始处理该系统调用</p>
+<p>其中 setdomainname函数由glibc实现
+源码位于glibc下的./sysdeps/unix/sysv/linux/x86_64/sysdep.h
+比如 syscall0的定义</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #FEDE5D;">#undef</span><span style="color: #36F9F6;"> internal_syscall0</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">#define</span><span style="color: #36F9F6;"> internal_syscall0</span><span>(</span><span style="color: #FF7EDB;font-style: italic;">number</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> dummy</span><span>...)</span><span style="color: #36F9F6;">             \</span></span>
+<span class="giallo-l"><span>({</span><span style="color: #36F9F6;">                                  \</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    unsigned long int</span><span> resultvar;</span><span style="color: #36F9F6;">                    \</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    asm</span><span style="color: #FE4450;"> volatile</span><span> (                          \</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    &quot;syscall</span><span style="color: #36F9F6;">\n\t</span><span style="color: #FF8B39;">&quot;</span><span>                           \</span></span>
+<span class="giallo-l"><span>    :</span><span style="color: #FF8B39;"> &quot;=a&quot;</span><span> (resultvar)                          \</span></span>
+<span class="giallo-l"><span>    :</span><span style="color: #FF8B39;"> &quot;0&quot;</span><span> (number)                          \</span></span>
+<span class="giallo-l"><span>    :</span><span style="color: #FF8B39;"> &quot;memory&quot;</span><span>, REGISTERS_CLOBBERED_BY_SYSCALL);</span><span style="color: #36F9F6;">            \</span></span>
+<span class="giallo-l"><span>    (</span><span style="color: #FEDE5D;">long int</span><span>) resultvar;</span><span style="color: #36F9F6;">                       \</span></span>
+<span class="giallo-l"><span>})</span></span></code></pre>
+<p>其中的
+"syscall\n\t"
+为调用特殊模块寄存器（Model Specific Registers，简称 MSR）。这种寄存器是 CPU 为了完成某些特殊控制功能为目的的寄存器，其中就有系统调用。
+其值由人为定义.相当于手动配置的常量内存,由系统初始化时指定.</p>
+<p>在系统初始化的时候，trap_init 除了初始化上面的中断模式，这里面还会调用 cpu_init-&gt;syscall_init。*arch/x86/kernel/cpu/common.c 的 syscall_init 中初始化代码：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> syscall_init</span><span>(</span><span style="color: #FEDE5D;">void</span><span>)</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    extern</span><span style="color: #FEDE5D;"> char</span><span> _entry_trampoline</span><span style="color: #FEDE5D;">[]</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    extern</span><span style="color: #FEDE5D;"> char</span><span> entry_SYSCALL_64_trampoline</span><span style="color: #FEDE5D;">[]</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    int</span><span> cpu </span><span style="color: #FFFFFFEE;">=</span><span style="color: #36F9F6;"> smp_processor_id</span><span>();</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    unsigned long</span><span> SYSCALL64_entry_trampoline </span><span style="color: #FFFFFFEE;">=</span></span>
+<span class="giallo-l"><span>        (</span><span style="color: #FEDE5D;">unsigned long</span><span>)</span><span style="color: #36F9F6;">get_cpu_entry_area</span><span>(cpu)-&gt;</span><span style="color: #FF7EDB;">entry_trampoline</span><span style="color: #FEDE5D;"> +</span></span>
+<span class="giallo-l"><span>        (entry_SYSCALL_64_trampoline </span><span style="color: #FEDE5D;">-</span><span> _entry_trampoline);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">    wrmsr</span><span>(MSR_STAR,</span><span style="color: #F97E72;"> 0</span><span>, (__USER32_CS </span><span style="color: #FEDE5D;">&lt;&lt;</span><span style="color: #F97E72;"> 16</span><span>)</span><span style="color: #FEDE5D;"> |</span><span> __KERNEL_CS);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span> (</span><span style="color: #36F9F6;">static_cpu_has</span><span>(X86_FEATURE_PTI))</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">        wrmsrl</span><span>(MSR_LSTAR, SYSCALL64_entry_trampoline);     </span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    else</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">        wrmsrl</span><span>(MSR_LSTAR, (</span><span style="color: #FEDE5D;">unsigned long</span><span>)entry_SYSCALL_64);</span></span></code></pre>
+<p>MSR_LSTAR 就是这样一个特殊的寄存器，当 syscall 指令调用的时候，会从这个寄存器里面拿出函数地址来调用，也就是调用 entry_SYSCALL_64。
+这一步也就是堆栈信息中的 ??() 部分的动作,至此系统完成了以下动作:
+将调用号由用户态数据栈写入eax寄存器,将系统调用的参数依次写入寄存器rdi,rsi,rdx,r10,r8,r9(如果有)
+中断系统
+找到内存中系统调用内核态函数entry_SYSCALL_64的入口,进入内核态</p>
+<p>汇编指令 syscall 触发系统调用，通过MSR寄存器找到了中断函数入口，此时，代码执行到arch/x86/entry/entry_64.S 目录下的ENTRY(entry_SYSCALL_64)入口，然后开始通过swapgs 和压栈动作保存现场。</p>
+<p>然后跳转到了arch/x86/entry/common.c:290 目录下的 do_syscall_64 函数，在ax寄存器中获取到系统调用号，然后去执行系统调用内容:
+接下来，在编译的过程中，需要根据 syscall_64.tbl 生成 unistd_64.h。生成方式在 arch/x86/entry/syscalls/Makefile 中。
+这里面会使用两个脚本，其中第一个脚本 arch/x86/entry/syscalls/syscallhdr.sh，会在文件中生成  __NR_open；
+第二个脚本 arch/x86/entry/syscalls/syscalltbl.sh，会在文件中生成 _*SYSCALL(**NR_open, sys_open)。**这样，unistd_64.h 是对应的系统调用号和系统调用实现函数之间的对应关系。*<em>在文件 arch/x86/entry/syscall_64.c，定义了这样一个表，里面 include 了这个头文件，这样所有的 sys</em> 系统调用就都在这个表里面了</p>
+<p>其中sys_call_table()定义在arch/x86/entry/syscall_64.c :21
+通过引入&lt;asm/syscalls_64.h&gt; 来找到系统调用对应的入口</p>
+<p>然后程序跳转到kernel/sys.c下的__x64_sys_setdomainname 函数，开始执行：
+函数执行完后回到步骤(3)中的 syscall_return_slowpath(regs); 准备进行恢复现场：
+接着程序再次回到arch/x86/entry/entry_64.S，执行恢复现场，最后两句完成了堆栈的切换。</p>
+<p><img src="https://moxuetianya.github.io/2023/10/%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8/syscall-chain-20231220190830-939br2s.png" alt="syscall调用过程" /></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2023/11/80211-hwsim/">&#8249; 80211_hwsim</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2023/10/惊群-thundering-herd/"> linux惊群处理 - thundering herd &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#shen-ru-li-jie-xi-tong-diao-yong">深入理解系统调用</a>
+        </div>
+        <div>
+          <a href="#xi-tong-diao-yong-xiang-guan-zhi-shi">系统调用相关知识</a>
+        </div>
+        <div>
+          <a href="#inuxshang-de-xi-tong-diao-yong-shi-xian-yuan-li">inux上的系统调用实现原理</a>
+        </div>
+        <div class="hpad">
+          <a href="#tong-zhi-nei-he-diao-yong-yi-ge-na-ge-xi-tong-diao-yong"><small>- 通知内核调用一个哪个系统调用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yong-hu-cheng-xu-ba-xi-tong-diao-yong-de-can-shu-chuan-di-gei-nei-he"><small>- 用户程序把系统调用的参数传递给内核</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yong-hu-cheng-xu-huo-qu-nei-he-fan-hui-de-xi-tong-diao-yong-fan-hui-zhi"><small>- 用户程序获取内核返回的系统调用返回值</small></a>
+        </div>
+        <div>
+          <a href="#shi-yan-huan-jing-zhun-bei">实验环境准备</a>
+        </div>
+        <div class="hpad">
+          <a href="#initjiao-ben"><small>- init脚本</small></a>
+        </div>
+        <div>
+          <a href="#qemu-gdbdiao-shi-nei-he">QEMU+GDB调试内核</a>
+        </div>
+        <div class="hpad">
+          <a href="#tong-guo-hui-bian-zhi-ling-hong-fa-gai-xi-tong-diao-yong"><small>- 通过汇编指令触发该系统调用</small></a>
+        </div>
+        <div>
+          <a href="#fen-xi-xi-tong-diao-yong-zai-nei-he-tai-de-gong-zuo-ji-zhi">分析系统调用在内核态的工作机制</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

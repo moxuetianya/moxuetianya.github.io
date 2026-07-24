@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - bun</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/bun/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-07-21T09:30:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/bun/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 启动慢排查：plugin 触发 60MB npm 依赖下载</title>
+        <published>2026-07-21T09:30:00+08:00</published>
+        <updated>2026-07-21T09:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;wfuzz agent --agent-config=wfuzz-utils,wfuzz-db&lt;&#x2F;code&gt; 执行后，opencode 长时间无响应。没有报错，没有 crash，进程在 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 中显示为 S（sleeping）状态，CPU 低，但终端就是不动。&lt;&#x2F;p&gt;
+&lt;p&gt;单独执行 opencode 也一样：只要设置了 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 环境变量，启动就卡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-lun-pai-cha-yi-wei-shi-si-suo&quot;&gt;第一轮排查：以为是死锁&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;strace-kan-xi-tong-diao-yong&quot;&gt;strace 看系统调用&lt;&#x2F;h2&gt;
+&lt;p&gt;用 &lt;code&gt;strace -f -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 跟踪进程。主线程在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待，worker 线程（40+ 个）全部卡在 &lt;code&gt;futex&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 10] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 11] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 12] futex(..., FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Worker 线程在 work-stealing 模式下互相唤醒，但没有一个线程在做实际工作。strace 最后一行出现：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 9] futex(...) = -1 ETIMEDOUT (Connection timed out)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看起来像是 Bun worker pool 在进行网络操作时超时，之后所有 worker 陷入 livelock —— 被不断唤醒但无事可做。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dui-bi-shi-yan&quot;&gt;对比实验&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;无 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;正常启动，TUI 渲染&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向 &lt;code&gt;{}&lt;&#x2F;code&gt; 空配置&lt;&#x2F;td&gt;&lt;td&gt;正常启动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向含 &lt;code&gt;plugin&lt;&#x2F;code&gt; 字段的配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;最小插件（&lt;code&gt;return {}&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;--pure&lt;&#x2F;code&gt; 模式&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;serve&lt;&#x2F;code&gt; 模式（headless）&lt;&#x2F;td&gt;&lt;td&gt;终端不卡，但端口不监听、WebSocket 无响应&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键发现：&lt;strong&gt;只要配置中有 &lt;code&gt;&quot;plugin&quot;: [...]&lt;&#x2F;code&gt;，不论插件内容是什么，TUI 和 serve 模式都卡。&lt;&#x2F;strong&gt; 一度怀疑是 opencode 1.17.12 的 plugin 加载 bug。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-lun-pai-cha-zhao-dao-zhen-zheng-de-gen-yin&quot;&gt;第二轮排查：找到真正的根因&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;huan-guan-cha-jiao-du-wen-jian-xi-tong-wang-luo&quot;&gt;换观察角度：文件系统 + 网络&lt;&#x2F;h2&gt;
+&lt;p&gt;回头检查 &lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;_cacache&#x2F;&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;83M&lt;&#x2F;span&gt;&lt;span&gt;    &#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;83M！进程并不是死锁，而是在&lt;strong&gt;下载 npm 包&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 opencode 的文件描述符：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; npm&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;l-wx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 30&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;root&#x2F;.npm&#x2F;_cacache&#x2F;tmp&#x2F;de55a9bf-...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;lrwx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 31&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; socket:[...]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 连接 npm registry (Cloudflare 104.16.x.34)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;lrwx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 32&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; socket:[...]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;opencode 生成了 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;package.json&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;json&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;dependencies&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;: {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    &amp;quot;@opencode-ai&#x2F;plugin&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;1.17.12&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后自动调用 &lt;code&gt;@npmcli&#x2F;arborist.reify()&lt;&#x2F;code&gt; 安装依赖。&lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的依赖树非常大：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;@opencode-ai&#x2F;plugin@1.17.12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── effect@4.0.0-beta.83        ← 最大，带 12 个子依赖&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── fast-check + pure-rand&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── find-my-way-ts&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── kubernetes-types&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── msgpackr + msgpackr-extract (native .node 二进制)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── multipasta&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── toml &#x2F; uuid &#x2F; yaml &#x2F; ini&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   └── @standard-schema&#x2F;spec&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── zod@4.1.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── @ai-sdk&#x2F;provider@3.0.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   └── json-schema&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;└── @opencode-ai&#x2F;sdk@1.17.12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    └── cross-spawn → path-key → shebang-command → which → isexe&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;总共 27 个包，解压后 63MB。在容器环境中无 npm 缓存，下载需要数十秒到数分钟。期间 opencode 不监听端口、不响应 WebSocket、TUI 不渲染 —— 宏观表现就是&quot;卡死了&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;p&gt;手动模拟 opencode 的行为：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&#x2F;plugin&amp;quot;:&amp;quot;1.17.12&amp;quot;}}&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; package.json&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; time npm install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --production&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;added&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 27&lt;&#x2F;span&gt;&lt;span&gt; packages in 51s&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; node_modules&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;63M&lt;&#x2F;span&gt;&lt;span&gt;    node_modules&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;51 秒。这解释了为什么启动&quot;时快时慢&quot; —— 有缓存的机器几秒，无缓存的容器一分钟以上。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-zai-rong-qi-li-you-qi-yan-zhong&quot;&gt;为什么在容器里尤其严重&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;每次启动都是新容器，&lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;code&gt; 和 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt; 都是空的&lt;&#x2F;li&gt;
+&lt;li&gt;没有 Bun 的 package 缓存&lt;&#x2F;li&gt;
+&lt;li&gt;npm registry 从容器网络访问可能更慢&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;平台侧虽然设置了 &lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt;（跳过 AI 模型列表拉取），但这只影响 model fetching，不影响 plugin 系统的 npm 依赖安装（使用 &lt;code&gt;@npmcli&#x2F;arborist&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fang-an-yi-qu-diao-plugin-zui-kuai&quot;&gt;方案一：去掉 plugin（最快）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中删除 &lt;code&gt;&quot;plugin&quot;&lt;&#x2F;code&gt; 字段。当前 &lt;code&gt;wfuzz-agent.ts&lt;&#x2F;code&gt; 主要是调试日志 hook，唯一有实际功能的 &lt;code&gt;experimental.chat.system.transform&lt;&#x2F;code&gt; opencode 原生就支持（自动读取 AGENTS.md）。后续如果需要 hook 功能再考虑其他注入方式。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-er-yu-zhuang-node-modules-bao-chi-plugin-ke-yong&quot;&gt;方案二：预装 node_modules（保持 plugin 可用）&lt;&#x2F;h2&gt;
+&lt;p&gt;在构建时（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）提前执行 &lt;code&gt;npm install&lt;&#x2F;code&gt;，把 63MB 的 &lt;code&gt;node_modules&#x2F;&lt;&#x2F;code&gt; 打进发布包。运行时由 &lt;code&gt;wfuzz-agent&lt;&#x2F;code&gt;（Rust 侧）在 exec opencode 之前把 &lt;code&gt;node_modules&lt;&#x2F;code&gt; + &lt;code&gt;package.json&lt;&#x2F;code&gt; 复制到 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;构建流程改动（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 下载 opencode 后&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;OPENCODE_VERSION&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;$BIN_DIR&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;opencode&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --version&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; agent-config&#x2F;package.json&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&#x2F;plugin&amp;quot;:&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;$OPENCODE_VERSION&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;}}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; agent-config &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; npm&lt;&#x2F;span&gt;&lt;span&gt; install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --production&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → node_modules&#x2F; 被打进发布包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;运行时改动（&lt;code&gt;main.rs&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;&#x2F;&#x2F; exec opencode 之前&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; bin_dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;agent-config&#x2F;node_modules&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; PathBuf&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;from&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;env&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;var&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;HOME&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;.config&#x2F;opencode&#x2F;node_modules&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;if&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exists&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;amp;&amp;amp; !&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exists&lt;&#x2F;span&gt;&lt;span&gt;() {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    fs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;create_dir_all&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;())&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;    copy_dir_recursive&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;src&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    fs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;write&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;package.json&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;),&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; bundled_pkg_json&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;&#x2F;&#x2F; opencode 启动时 bun install 发现 node_modules 已存在 → 跳过下载&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;复制 63MB 本地文件的耗时远小于网络下载（毫秒级 vs 几十秒），且不受网络环境、npm registry 可用性的影响。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;后续分析&lt;&#x2F;strong&gt;：&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-npm-install-source-analysis&#x2F;&quot;&gt;源码分析篇&lt;&#x2F;a&gt; 深入了 &lt;code&gt;ConfigPaths.directories()&lt;&#x2F;code&gt;、&lt;code&gt;Npm.install()&lt;&#x2F;code&gt; 和 &lt;code&gt;waitForDependencies()&lt;&#x2F;code&gt; 的调用链，解释了为什么每个 &lt;code&gt;.opencode&lt;&#x2F;code&gt; 目录都会触发依赖安装。&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-startup-trace-verification&#x2F;&quot;&gt;验证篇&lt;&#x2F;a&gt; 通过注入调试日志实测了完整耗时。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;fang-an-san-sheng-ji-opencode&quot;&gt;方案三：升级 opencode&lt;&#x2F;h2&gt;
+&lt;p&gt;测试了 1.18.3 版本，行为完全一致。看起来这个机制是 opencode 设计如此 —— 有 plugin 就必须装依赖。只能从工程侧规避。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-fang-fa-lun-xiao-jie&quot;&gt;排查方法论小结&lt;&#x2F;h1&gt;
+&lt;p&gt;这次排查犯了一个典型错误：看到 strace 输出 &lt;code&gt;futex&lt;&#x2F;code&gt; + &lt;code&gt;ETIMEDOUT&lt;&#x2F;code&gt; 就下了&quot;死锁&quot;的结论。实际是 Bun 的 worker pool 正常工作模式 —— 线程在等待 I&#x2F;O（npm 下载），被唤醒处理数据包，然后继续等待。livelock 只是假象。&lt;&#x2F;p&gt;
+&lt;p&gt;教训：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看系统调用只能告诉你进程在&quot;做什么类型的等待&quot;，不能直接告诉你&quot;在等什么&quot;&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;怀疑死锁前，先检查&lt;strong&gt;文件系统和网络&lt;&#x2F;strong&gt; —— 进程可能在静静地下载东西&lt;&#x2F;li&gt;
+&lt;li&gt;对比实验是定位根因的最可靠手段 —— 控制变量（有无 plugin、有无 config）快速排除干扰因素&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;fd&#x2F;&lt;&#x2F;code&gt; 是看进程 IO 目标的第一手资料，比 strace 更直观&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;gong-ju-su-cha&quot;&gt;工具速查&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程打开的文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程网络连接&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -tnp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看 npm 缓存大小&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看 opencode 日志&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程线程数和等待原因&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;task&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; wc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 测试 WebSocket 连通性（bash）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 3&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;4096&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -en&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;GET &#x2F; HTTP&#x2F;1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;amp;3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 100&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>

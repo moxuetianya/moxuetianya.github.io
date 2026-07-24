@@ -1,0 +1,252 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux 内核笔记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="物理内存布局、内存预留方法、earlyoom 机制、内核内存泄漏排查、Linux 总线驱动模型" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/07/linux-kernel/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/07/linux-kernel/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/07/linux-kernel/" />
+  <meta property="og:description" content="物理内存布局、内存预留方法、earlyoom 机制、内核内存泄漏排查、Linux 总线驱动模型" />
+  <meta name="twitter:description" content="物理内存布局、内存预留方法、earlyoom 机制、内核内存泄漏排查、Linux 总线驱动模型" />
+  <meta property="og:title" content="Linux 内核笔记 | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux 内核笔记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/07/linux-kernel/">Linux 内核笔记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2025 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/kernel/">kernel</a>  #<a href="https://moxuetianya.github.io/tags/memory/">memory</a>  #<a href="https://moxuetianya.github.io/tags/driver/">driver</a>  #<a href="https://moxuetianya.github.io/tags/oom/">oom</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a> </span>
+
+    
+
+
+<h1 id="linux-nei-he-bi-ji">Linux 内核笔记</h1>
+<h2 id="wu-li-nei-cun-bu-ju">物理内存布局</h2>
+<p>在典型 RISC-V/ARM 主板中，物理地址空间分配如下：</p>
+<ul>
+<li><code>0x0000_0000</code> — 保留</li>
+<li><code>0x0200_0000</code> — CLINT（中断控制器）</li>
+<li><code>0x1000_0000</code> — Boot ROM</li>
+<li><code>0x1009_0000</code> — 以太网控制器</li>
+<li><code>0x8000_0000</code> — DRAM 起始地址</li>
+</ul>
+<p>高于 <code>0x8000_0000</code> 的地址访问 DRAM，低于的地址访问 MMIO（内存映射 I/O）设备。主板设计者决定物理地址的路由规则。</p>
+<p>可通过 <code>cat /proc/iomem</code> 查看物理内存分布，<code>System RAM</code> 项代表系统可用内存。</p>
+<h2 id="yu-liu-xi-tong-nei-cun">预留系统内存</h2>
+<h3 id="fang-fa-yi-nei-he-qi-dong-can-shu">方法一：内核启动参数</h3>
+<p>在 grub 启动参数中添加：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>memmap=4m\$0x10DBFFFFF</span></span></code></pre>
+<p>表示从 <code>0x10DBFFFFF</code> 起预留 4MB。重启后通过 <code>cat /proc/iomem</code> 验证是否标记为 <code>reserved</code>。</p>
+<h3 id="fang-fa-er-memblock">方法二：memblock</h3>
+<p>在 <code>setup_arch()</code> 中调用 <code>memblock_reserve()</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #36F9F6;">memblock_reserve</span><span>(</span><span style="color: #F97E72;">0x100000000</span><span>,</span><span style="color: #F97E72;"> 0x2000000</span><span>);</span><span style="color: #848BBD;font-style: italic;">  // 预留 32MB</span></span></code></pre>
+<p>预留内存可通过 <code>memremap()</code> 或 <code>phy_to_vir</code>（仅限 normal 区）映射访问。</p>
+<h3 id="fang-fa-san-xian-zhi-zong-nei-cun-mem">方法三：限制总内存 <code>mem=</code></h3>
+<p>在 grub 中添加 <code>mem=2G</code> 限制可用内存，超出部分即被隐藏。隐藏内存只能通过 <code>memremap()</code> 访问，<code>phy_to_vir</code> 不可用。</p>
+<h3 id="fang-fa-si-cma">方法四：CMA</h3>
+<p>CMA（Contiguous Memory Allocation）动态分配大块连续物理内存，可用于 DMA 等场景，需修改内核配置或设备树。</p>
+<h2 id="fang-wen-yu-liu-nei-cun">访问预留内存</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 申请资源</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">request_mem_region</span><span>(</span><span style="color: #F97E72;">0x40000000</span><span>,</span><span style="color: #F97E72;"> 0x20000000</span><span>,</span><span style="color: #FF8B39;"> &quot;reserve test&quot;</span><span>);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 映射内存</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void*</span><span> addr </span><span style="color: #FFFFFFEE;">=</span><span style="color: #36F9F6;"> memremap</span><span>(</span><span style="color: #F97E72;">0x40000000</span><span>,</span><span style="color: #F97E72;"> 0x20000000</span><span>, MEMREMAP_WB);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 使用完后释放</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">iounmap</span><span>(addr);</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">release_mem_region</span><span>(</span><span style="color: #F97E72;">0x40000000</span><span>,</span><span style="color: #F97E72;"> 0x20000000</span><span>);</span></span></code></pre><h2 id="earlyoom">earlyoom</h2>
+<p>当系统内存不足时，earlyoom 在 OOM Killer 之前主动杀掉高内存消耗进程，避免系统卡顿。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">apt</span><span> install earlyoom</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> enable</span><span style="color: #F97E72;"> --now</span><span> earlyoom</span></span></code></pre>
+<p>默认行为：内存和 swap 同时低于 10% 时杀 <code>oom_score</code> 最高的进程；低于 5% 时发 SIGKILL。</p>
+<p>配置 <code>/etc/default/earlyoom</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>EARLYOOM_ARGS=&quot;-r 60 -m 1 -s 5 --avoid &#39;(^|/)(init|X|sshd)$&#39;&quot;</span></span></code></pre>
+<ul>
+<li><code>-r 60</code>：每 60 秒打印一次统计</li>
+<li><code>-m 1</code>：物理内存保留 1%</li>
+<li><code>-s 5</code>：swap 保留 5%</li>
+<li><code>--avoid</code>：永不杀匹配正则的进程</li>
+<li><code>--prefer</code>：优先杀匹配正则的进程</li>
+</ul>
+<p>查看历史记录：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">journalctl</span><span style="color: #F97E72;"> -u</span><span> earlyoom</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -iE</span><span style="color: #FF8B39;"> &quot;(sending|killing)&quot;</span></span></code></pre><h2 id="nei-he-nei-cun-xie-lou-pai-cha">内核内存泄漏排查</h2>
+<p><strong>思路</strong>：</p>
+<ol>
+<li>监控用户进程 PSS（<code>pmap &lt;pid&gt;</code>）</li>
+<li>监控 <code>/proc/meminfo</code>，重点关注 Slab 使用量</li>
+<li>使用 <code>slabtop</code> 查看 slab 分配，关注持续增长的 size 类别</li>
+<li>使用 <code>trace-cmd</code> 跟踪 <code>kmalloc</code>/<code>kfree</code>：</li>
+</ol>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">trace-cmd</span><span> record</span><span style="color: #F97E72;"> -e</span><span> kmalloc</span><span style="color: #F97E72;"> -f</span><span style="color: #FF8B39;"> &#39;bytes_alloc==4096&#39;</span><span style="color: #F97E72;"> -e</span><span> kfree</span><span style="color: #F97E72;"> -T</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">trace-cmd</span><span> report</span></span></code></pre>
+<p>对比 kmalloc 和 kfree 的 ptr 地址，匹配不上的即为泄漏。</p>
+<ol start="5">
+<li>手动触发 vmcore 用 crash 工具分析：</li>
+</ol>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #36F9F6;">echo</span><span> c</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sysrq-trigger</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">crash</span><span> ./vmcore ./vmlinux.debug</span></span></code></pre><h2 id="linux-zong-xian-qu-dong-mo-xing">Linux 总线驱动模型</h2>
+<p>Linux 设备驱动模型以**总线（bus）<strong>为核心，管理</strong>设备（device）<strong>和</strong>驱动（driver）**的匹配。</p>
+<h3 id="zong-xian-zhu-ce">总线注册</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #FE4450;">static</span><span style="color: #FEDE5D;"> struct</span><span> bus_type xbus </span><span style="color: #FFFFFFEE;">=</span><span> {</span></span>
+<span class="giallo-l"><span>    .name </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;"> &quot;xbus&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>    .match </span><span style="color: #FFFFFFEE;">=</span><span> xbus_match,</span><span style="color: #848BBD;font-style: italic;">  // 设备和驱动匹配回调</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 模块加载时注册</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">bus_register</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;font-style: italic;">xbus</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 导出属性文件到 /sys</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">bus_create_file</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;font-style: italic;">xbus</span><span>,</span><span style="color: #FEDE5D;"> &amp;</span><span style="color: #FF7EDB;font-style: italic;">bus_attr_xbus_test</span><span>);</span></span></code></pre><h3 id="she-bei-zhu-ce">设备注册</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #FE4450;">static</span><span style="color: #FEDE5D;"> struct</span><span> device xdev </span><span style="color: #FFFFFFEE;">=</span><span> {</span></span>
+<span class="giallo-l"><span>    .init_name </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;"> &quot;xdev&quot;</span><span>,</span></span>
+<span class="giallo-l"><span>    .bus </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FEDE5D;"> &amp;</span><span>xbus,</span></span>
+<span class="giallo-l"><span>    .release </span><span style="color: #FFFFFFEE;">=</span><span> xdev_release,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">device_register</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;font-style: italic;">xdev</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 导出设备属性</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">DEVICE_ATTR</span><span>(xdev_id, S_IRUSR</span><span style="color: #FEDE5D;">|</span><span>S_IWUSR, xdev_id_show, xdev_id_store);</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">device_create_file</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;font-style: italic;">xdev</span><span>,</span><span style="color: #FEDE5D;"> &amp;</span><span style="color: #FF7EDB;font-style: italic;">dev_attr_xdev_id</span><span>);</span></span></code></pre><h3 id="qu-dong-zhu-ce">驱动注册</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="c"><span class="giallo-l"><span style="color: #FE4450;">static</span><span style="color: #FEDE5D;"> struct</span><span> device_driver xdrv </span><span style="color: #FFFFFFEE;">=</span><span> {</span></span>
+<span class="giallo-l"><span>    .name </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;"> &quot;xdev&quot;</span><span>,</span><span style="color: #848BBD;font-style: italic;">      // 与设备名一致才能匹配</span></span>
+<span class="giallo-l"><span>    .bus </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FEDE5D;"> &amp;</span><span>xbus,</span></span>
+<span class="giallo-l"><span>    .probe </span><span style="color: #FFFFFFEE;">=</span><span> xdrv_probe,</span></span>
+<span class="giallo-l"><span>    .remove </span><span style="color: #FFFFFFEE;">=</span><span> xdrv_remove,</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #36F9F6;">driver_register</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;font-style: italic;">xdrv</span><span>);</span></span></code></pre>
+<p>匹配成功后自动调用驱动的 <code>probe</code> 函数。</p>
+<h3 id="shu-xing-wen-jian-dao-chu-hong">属性文件导出宏</h3>
+<table><thead><tr><th>宏</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>BUS_ATTR</code></td><td>总线级别属性</td></tr>
+<tr><td><code>DEVICE_ATTR</code></td><td>设备级别属性</td></tr>
+<tr><td><code>DRIVER_ATTR_RO</code> / <code>DRIVER_ATTR_WO</code> / <code>DRIVER_ATTR_RW</code></td><td>驱动级别属性</td></tr>
+</tbody></table>
+<p>属性文件出现在 <code>/sys/bus/&lt;bus_name&gt;/</code> 对应目录下，用户可通过 <code>cat</code>/<code>echo</code> 读写。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/gpg/">&#8249; GPG 使用指南</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/linux-ops/"> Linux 运维笔记 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#linux-nei-he-bi-ji">Linux 内核笔记</a>
+        </div>
+        <div class="hpad">
+          <a href="#wu-li-nei-cun-bu-ju"><small>- 物理内存布局</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yu-liu-xi-tong-nei-cun"><small>- 预留系统内存</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-fa-yi-nei-he-qi-dong-can-shu"><small>· 方法一：内核启动参数</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-fa-er-memblock"><small>· 方法二：memblock</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-fa-san-xian-zhi-zong-nei-cun-mem"><small>· 方法三：限制总内存 mem=</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-fa-si-cma"><small>· 方法四：CMA</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-wen-yu-liu-nei-cun"><small>- 访问预留内存</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#earlyoom"><small>- earlyoom</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-he-nei-cun-xie-lou-pai-cha"><small>- 内核内存泄漏排查</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#linux-zong-xian-qu-dong-mo-xing"><small>- Linux 总线驱动模型</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zong-xian-zhu-ce"><small>· 总线注册</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#she-bei-zhu-ce"><small>· 设备注册</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#qu-dong-zhu-ce"><small>· 驱动注册</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shu-xing-wen-jian-dao-chu-hong"><small>· 属性文件导出宏</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

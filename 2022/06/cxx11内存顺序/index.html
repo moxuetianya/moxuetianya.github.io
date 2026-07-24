@@ -1,0 +1,474 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>cxx11内存顺序 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/06/cxx11内存顺序/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/06/cxx11内存顺序/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/06/cxx11内存顺序/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="cxx11内存顺序 | 墨雪天琊" />
+  <meta name="twitter:title" content="cxx11内存顺序 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-06-01" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/06/cxx11内存顺序/">cxx11内存顺序</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 01, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>, <a href="https://moxuetianya.github.io/categories/nei-cun-mo-xing/">内存模型</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/nei-cun-mo-xing/">内存模型</a> </span>
+
+    
+
+
+<h1 id="cxx11nei-cun-shun-xu">cxx11内存顺序</h1>
+<h1 id="bei-jing">背景</h1>
+<p>x86_64和Sparc是强顺序模型（Total Store Order），这是一种接近程序顺序的顺序模型。所谓Total，就是说，内存（在写操作上）是有一个全局的顺序的（所有人看到的一样的顺序）， 就好像在内存上的每个Store动作必须有一个排队，一个弄完才轮到另一个，这个顺序和你的程序顺序直接相关。所有的行为组合只会是所有CPU内存程序顺序的交织，不会发生和程序顺序不一致的地方[4]。TSO模型有利于多线程程序的编写，对程序员更加友好，但对芯片实现者不友好。CPU为了TSO的承诺，会牺牲一些并发上的执行效率。弱内存模型（简称WMO，Weak Memory Ordering），是把是否要求强制顺序这个要求直接交给程序员的方法。换句话说，CPU不去保证这个顺序模型（除非他们在一个CPU上就有依赖）， 程序员要主动插入内存屏障指令来强化这个“可见性”[4]。ARMv8，PowerPC和MIPS等体系结构都是弱内存模型。每种弱内存模型的体系架构都有自己的内存屏障指令，语义也不完全相同。弱内存模型下，硬件实现起来相对简单，处理器执行的效率也高， 只要没有遇到显式的屏障指令，CPU可以对局部指令进行reorder以提高执行效率。对于多线程程序开发来说，对并发的数据访问我们一般到做同步操作， 可以使用mutex，semaphore，conditional等重量级方案对共享数据进行保护。但为了实现更高的并发，需要使用内存共享变量做通信（Message Passing）， 这就对程序员的要求很高了，程序员必须时时刻刻必须很清楚自己在做什么， 否则写出来的程序的执行行为会让人很是迷惑！值得一提的是，并发虽好，如果能够简单粗暴实现，就不要搞太多投机取巧！要实现lock-free无锁编程真的有点难。</p>
+<h1 id="c-11-memory-order">c++11 memory_order</h1>
+<p>C11/C++11使用memory order来描述memory model， 而用来联系memory order的是atomic变量， atomic操作可以用load()和release()语义来描述。一个简单的atomic变量赋值可描述为：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>atomic_var1.store (atomic_var2.load()); // atomic variables</span></span>
+<span class="giallo-l"><span>     vs</span></span>
+<span class="giallo-l"><span>var1 = var2;                            // regular variables</span></span></code></pre>
+<p>为了更好地描述内存模型，有4种关系术语需要了解一下。</p>
+<h2 id="sequenced-before">sequenced-before</h2>
+<p>同一个线程之内，语句A的执行顺序在语句B前面，那么就成为A sequenced-before B。它不仅仅表示两个操作之间的先后顺序，还表示了操作结果之间的可见性关系。
+两个操作A和操作B，如果有A sequenced-before B，除了表示操作A的顺序在B之前，还表示了操作A的结果操作B可见。例如：语句A是sequenced-before语句B的。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>r2 = x.load(std::memory_order_relaxed); // A</span></span>
+<span class="giallo-l"><span>y.store(42, std::memory_order_relaxed); // B</span></span></code></pre><h2 id="happens-before">happens-before</h2>
+<p>happens-before关系表示的不同线程之间的操作先后顺序。
+如果A happens-before B，则A的内存状态将在B操作执行之前就可见。
+happends-before关系满足传递性、非自反性和非对称性。
+happens before包含了inter-thread happens before和synchronizes-with两种关系。</p>
+<h2 id="synchronizes-with">synchronizes-with</h2>
+<p>synchronizes-with关系强调的是变量被修改之后的传播关系（propagate），
+即如果一个线程修改某变量的之后的结果能被其它线程可见，那么就是满足synchronizes-with关系的[9]。
+另外synchronizes-with可以被认为是跨线程间的happends-before关系。显然，满足synchronizes-with关系的操作一定满足happens-before关系了。</p>
+<h2 id="carries-dependency">Carries dependency</h2>
+<p>同一个线程内，表达式A sequenced-before 表达式B，并且表达式B的值是受表达式A的影响的一种关系，
+称之为"Carries dependency"。这个很好理解，例如：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int *a = &amp;var1;</span></span>
+<span class="giallo-l"><span>int *b = &amp;var2;</span></span>
+<span class="giallo-l"><span>c = *a + *b;</span></span></code></pre>
+<p>了解了上面一些基本概念，下面我们来一起学习一下内存模型吧。</p>
+<h1 id="c11-c-11nei-cun-mo-xing">C11/C++11内存模型</h1>
+<p><img src="https://moxuetianya.github.io/2022/06/cxx11%E5%86%85%E5%AD%98%E9%A1%BA%E5%BA%8F/image-20231225112409-plcoj9a.png" alt="image" /><br />
+C/C++11标准中提供了6种memory order，来描述内存模型[6]:enum memory_order {<br />
+memory_order_relaxed,<br />
+memory_order_consume,<br />
+memory_order_acquire,<br />
+memory_order_release,<br />
+memory_order_acq_rel,<br />
+memory_order_seq_cst<br />
+};</p>
+<p><img src="https://moxuetianya.github.io/2022/06/cxx11%E5%86%85%E5%AD%98%E9%A1%BA%E5%BA%8F/image-20231225112417-08nah5u.png" alt="image" /></p>
+<h2 id="2-1-memory-order-releaxed">2.1 memory order releaxed</h2>
+<p>relaxed表示一种最为宽松的内存操作约定，Relaxed ordering 仅仅保证load()和store()是原子操作， 除此之外，不提供任何跨线程的同步[5]。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>std::atomic&lt;int&gt; x = 0;     // global variable</span></span>
+<span class="giallo-l"><span>                   std::atomic&lt;int&gt; y = 0;     // global variable</span></span>
+<span class="giallo-l"><span>		  </span></span>
+<span class="giallo-l"><span>Thread-1:                                  Thread-2:</span></span>
+<span class="giallo-l"><span>r1 = y.load(memory_order_relaxed); // A    r2 = x.load(memory_order_relaxed); // C</span></span>
+<span class="giallo-l"><span>x.store(r1, memory_order_relaxed); // B    y.store(42, memory_order_relaxed); // D</span></span></code></pre>
+<p>上面的多线程模型执行的时候，可能出现r2 == r1 == 42。要理解这一点并不难，因为CPU在执行的时候允许局部指令重排reorder，D可能在C前执行。如果程序的执行顺序是 D -&gt; A -&gt; B -&gt; C，那么就会出现r1 == r2 == 42。如果某个操作只要求是原子操作，除此之外，不需要其它同步的保障，那么就可以使用 relaxed ordering。</p>
+<p>程序计数器是一种典型的应用场景：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;cassert&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;vector&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::atomic&lt;int&gt; cnt = {0};</span></span>
+<span class="giallo-l"><span>void f()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    for (int n = 0; n &lt; 1000; ++n) {</span></span>
+<span class="giallo-l"><span>        cnt.fetch_add(1, std::memory_order_relaxed);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::vector&lt;std::thread&gt; v;</span></span>
+<span class="giallo-l"><span>    for (int n = 0; n &lt; 10; ++n) {</span></span>
+<span class="giallo-l"><span>        v.emplace_back(f);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    for (auto&amp; t : v) {</span></span>
+<span class="giallo-l"><span>        t.join();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    assert(cnt == 10000);    // never failed</span></span>
+<span class="giallo-l"><span>    return 0;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>cnt是共享的全局变量，多个线程并发地对cnt执行RMW（Read Modify Write）原子操作。这里只保证cnt的原子性，其他有依赖cnt的地方不保证任何的同步。</p>
+<h2 id="2-2-memory-order-consume">2.2 memory order consume</h2>
+<p>consume要搭配release一起使用。很多时候，线程间只想针对有依赖关系的操作进行同步， 除此之外线程中其他操作顺序如何不关心，这时候就适合用consume来完成这个操作。例如：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>b = *a;</span></span>
+<span class="giallo-l"><span>c = *b</span></span></code></pre>
+<p>第二行的变量c依赖于第一行的执行结果，因此这两行代码是"Carries dependency"关系。显然，由于consume是针对有明确依赖关系的语句来限定其执行顺序的一种内存顺序， 而releaxed不提供任何顺序保证， 所以consume order要比releaxed order要更加地Strong。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;cassert&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;string&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::atomic&lt;std::string*&gt; ptr;</span></span>
+<span class="giallo-l"><span>int data;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void producer()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::string* p  = new std::string(&quot;Hello&quot;);</span></span>
+<span class="giallo-l"><span>    data = 42;</span></span>
+<span class="giallo-l"><span>    ptr.store(p, std::memory_order_release);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void consumer()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::string* p2;</span></span>
+<span class="giallo-l"><span>    while (!(p2 = ptr.load(std::memory_order_consume)))</span></span>
+<span class="giallo-l"><span>        ;</span></span>
+<span class="giallo-l"><span>    assert(*p2 == &quot;Hello&quot;);  // never fires: *p2 carries dependency from ptr</span></span>
+<span class="giallo-l"><span>    assert(data == 42);      // may or may not fire: data does not carry dependency from ptr</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::thread t1(producer);</span></span>
+<span class="giallo-l"><span>    std::thread t2(consumer);</span></span>
+<span class="giallo-l"><span>    t1.join();</span></span>
+<span class="giallo-l"><span>    t2.join();</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>assert(*p2 == "Hello")永远不会失败，但assert(data == 42)可能会。原因是：p2和ptr直接有依赖关系，但data和ptr没有直接依赖关系，尽管线程1中data赋值在ptr.store()之前，线程2看到的data的值还是不确定的。</p>
+<h2 id="2-3-memory-order-acquire">2.3 memory order acquire</h2>
+<p>acquire和release也必须放到一起使用。 release和acquire构成了synchronize-with关系，也就是同步关系。在这个关系下：线程A中所有发生在release x之前的值的写操作， 对线程B的acquire x之后的任何操作都可见。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;cassert&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;string&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::atomic&lt;bool&gt; ready{ false };</span></span>
+<span class="giallo-l"><span>int data = 0;</span></span>
+<span class="giallo-l"><span>std::atomic&lt;int&gt; var = {0};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void sender()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    data = 42;                                              // A</span></span>
+<span class="giallo-l"><span>    var.store(100, std::memory_order_relaxed);              // B</span></span>
+<span class="giallo-l"><span>    ready.store(true, std::memory_order_release);           // C</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>void receiver()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    while (!ready.load(std::memory_order_acquire))          // D</span></span>
+<span class="giallo-l"><span>        ;</span></span>
+<span class="giallo-l"><span>    assert(data == 42);  // never failed                    // E</span></span>
+<span class="giallo-l"><span>    assert(var == 100);  // never failed                    // F</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::thread t1(sender);</span></span>
+<span class="giallo-l"><span>    std::thread t2(receiver);</span></span>
+<span class="giallo-l"><span>    t1.join();</span></span>
+<span class="giallo-l"><span>    t2.join();</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>上面的例子中：</p>
+<blockquote>
+<p>sender线程中data = 42是sequence before原子变量ready的
+sender和receiver在C和D处发生了同步线程
+sender中C之前的所有读写对线程receiver都是可见的 显然， release和acquire组合在一起
+比release和consume组合更加Strong！</p>
+</blockquote>
+<h2 id="2-4-memory-order-release">2.4 memory order release</h2>
+<p>release order一般不单独使用，它和acquire和consume组成2种独立的内存顺序搭配。这里就不用展开啰里啰嗦了。</p>
+<h2 id="2-5-memory-order-acq-rel">2.5 memory order acq_rel</h2>
+<p>acq_rel是acquire和release的叠加。</p>
+<p>这里是一个例子，关于为什么要有acq_rel可以参考一下：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;cassert&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;vector&gt;</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>std::vector&lt;int&gt; data;</span></span>
+<span class="giallo-l"><span>std::atomic&lt;int&gt; flag = {0};</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void thread_1()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    data.push_back(42);</span></span>
+<span class="giallo-l"><span>    flag.store(1, std::memory_order_release);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void thread_2()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    int expected=1;</span></span>
+<span class="giallo-l"><span>    while (!flag.compare_exchange_strong(expected, 2, std::memory_order_acq_rel)) {</span></span>
+<span class="giallo-l"><span>        expected = 1;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void thread_3()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    while (flag.load(std::memory_order_acquire) &lt; 2)</span></span>
+<span class="giallo-l"><span>        ;</span></span>
+<span class="giallo-l"><span>    assert(data.at(0) == 42); // will never fire</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::thread a(thread_1);</span></span>
+<span class="giallo-l"><span>    std::thread b(thread_2);</span></span>
+<span class="giallo-l"><span>    std::thread c(thread_3);</span></span>
+<span class="giallo-l"><span>    a.join(); b.join(); c.join();</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h2 id="2-6-memory-order-seq-cst">2.6 memory order seq_cst</h2>
+<p>seq_cst表示顺序一致性内存模型，在这个模型约束下不仅同一个线程内的执行结果是和程序顺序一致的， 每个线程间互相看到的执行结果和程序顺序也保持顺序一致。显然，seq_cst的约束是最强的，这意味着要牺牲性能为代价。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>atomic int x (0);               atomic int y (0);</span></span>
+<span class="giallo-l"><span>    x. store (1, seq cst );     ||      y. store (1, seq cst );</span></span>
+<span class="giallo-l"><span>    int r1 = y.load( seq cst ); ||      int r2 = x.load( seq cst );</span></span>
+<span class="giallo-l"><span>                assert (r1 == 1 || r2 == 1);</span></span>
+<span class="giallo-l"></span></code></pre>
+<p>下面是一个seq_cst的实例：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;cassert&gt;</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>std::atomic&lt;bool&gt; x = {false};</span></span>
+<span class="giallo-l"><span>std::atomic&lt;bool&gt; y = {false};</span></span>
+<span class="giallo-l"><span>std::atomic&lt;int&gt; z = {0};</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void write_x()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    x.store(true, std::memory_order_seq_cst);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void write_y()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    y.store(true, std::memory_order_seq_cst);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void read_x_then_y()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    while (!x.load(std::memory_order_seq_cst))</span></span>
+<span class="giallo-l"><span>        ;</span></span>
+<span class="giallo-l"><span>    if (y.load(std::memory_order_seq_cst)) {</span></span>
+<span class="giallo-l"><span>        ++z;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void read_y_then_x()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    while (!y.load(std::memory_order_seq_cst))</span></span>
+<span class="giallo-l"><span>        ;</span></span>
+<span class="giallo-l"><span>    if (x.load(std::memory_order_seq_cst)) {</span></span>
+<span class="giallo-l"><span>        ++z;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::thread a(write_x);</span></span>
+<span class="giallo-l"><span>    std::thread b(write_y);</span></span>
+<span class="giallo-l"><span>    std::thread c(read_x_then_y);</span></span>
+<span class="giallo-l"><span>    std::thread d(read_y_then_x);</span></span>
+<span class="giallo-l"><span>    a.join(); b.join(); c.join(); d.join();</span></span>
+<span class="giallo-l"><span>    assert(z.load() != 0);  // will never happen</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h2 id="2-7-relationship-with-volatile">2.7 Relationship with volatile</h2>
+<p>人的一生总是充满了疑惑。可能你会思考？volatile关键字能够防止指令被编译器优化，那它能提供线程间(inter-thread)同步语义吗？
+答案是：不能！！！尽管volatile能够防止单个线程内对volatile变量进行reorder，但多个线程同时访问同一个volatile变量，线程间是完全不提供同步保证。
+而且，volatile不提供原子性！并发的读写volatile变量是会产生数据竞争的，同时non volatile操作可以在volatile操作附近自由地reorder。看一个例子，执行下面的并发程序，不出意外的话，你不会得到一个为0的结果。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;thread&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>volatile int count = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void increase() {</span></span>
+<span class="giallo-l"><span>    for (int i = 0; i &lt; 1000000; i++) {</span></span>
+<span class="giallo-l"><span>        count++;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void decrease() {</span></span>
+<span class="giallo-l"><span>    for (int i = 0; i &lt; 1000000; i++) {</span></span>
+<span class="giallo-l"><span>        count--;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main() {</span></span>
+<span class="giallo-l"><span>    std::thread t1(increase);</span></span>
+<span class="giallo-l"><span>    std::thread t2(decrease);</span></span>
+<span class="giallo-l"><span>    t1.join();</span></span>
+<span class="giallo-l"><span>    t2.join();</span></span>
+<span class="giallo-l"><span>    std::cout &lt;&lt; count &lt;&lt; std::endl;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span></code></pre><h1 id="si-chong-tong-bu-fu-jia-guan-yu-x86">四种同步(附加关于x86)</h1>
+<p>虽然是六种类型，但是理解了四种同步的情形基本就差不多了。</p>
+<h2 id="1-relaxed-ordering">1. Relaxed ordering:</h2>
+<p>在单个线程内，所有原子操作是顺序进行的。按照什么顺序？基本上就是代码顺序（sequenced-before）。这就是唯一的限制了！两个来自不同线程的原子操作是什么顺序？两个字：任意。</p>
+<h2 id="2-release-acquire">2. Release -- acquire:</h2>
+<p>来自不同线程的两个原子操作顺序不一定？那怎么能限制一下它们的顺序？这就需要两个线程进行一下同步（synchronize-with）。同步什么呢？同步对一个变量的读写操作。
+线程 A 原子性地把值写入 x (release), 然后线程 B 原子性地读取 x 的值（acquire）. 这样线程 B 保证读取到 x 的最新值。
+注意 release -- acquire 有个牛逼的副作用：线程 A 中所有发生在 release x 之前的写操作，对在线程 B acquire x 之后的任何读操作都可见！
+本来 A, B 间读写操作顺序不定。这么一同步，在 x 这个点前后， A, B 线程之间有了个顺序关系，称作 inter-thread happens-before.</p>
+<h2 id="3-release-consume">3. Release -- consume:</h2>
+<p>我去，我只想同步一个 x 的读写操作，结果把 release 之前的写操作都顺带同步了？如果我想避免这个额外开销怎么办？用 release -- consume 呗。
+同步还是一样的同步，这回副作用弱了点：在线程 B acquire x 之后的读操作中，有一些是依赖于 x 的值的读操作。 管这些依赖于 x 的读操作叫 赖B读.
+同理在线程 A 里面, release x 也有一些它所依赖的其他写操作，这些写操作自然发生在 release x 之前了。管这些写操作叫 赖A写.
+现在这个副作用就是，只有 赖B读 能看见 赖A写. （卧槽真累）有人问了，说什么叫数据依赖（carries dependency）？其实这玩意儿巨简单：S1. c = a + b;
+S2. e = c + d;S2 数据依赖于 S1，因为它需要 c 的值。</p>
+<h2 id="4-sequential-consistency">4. Sequential consistency:</h2>
+<p>理解了前面的几个，顺序一致性就最好理解了。Release -- acquire 就同步一个 x， 顺序一致就是对所有的变量的所有原子操作都同步。
+这么一来，我擦，所有的原子操作就跟由一个线程顺序执行似的。</p>
+<p>评论里有很多关于x86内存模型的指正，放在这里：</p>
+<blockquote>
+<p>Loads are not reordered with other loads.Stores are not reordered with other stores.Stores are not reordered with older loads.</p>
+</blockquote>
+<p>然后最重要的：Loads may be reordered with older stores to different locations.
+因为 store-load 可以被重排，所以x86不是顺序一致。但是因为其他三种读写顺序不能被重排，
+所以x86是 acquire/release 语义。
+aquire语义：load 之后的读写操作无法被重排至 load 之前。即 load-load, load-store 不能被重排。
+release语义：store 之前的读写操作无法被重排至 store 之后。即 load-store, store-store 不能被重排。
+最简单的试试 relaxed ordering 的方法就是拿出手机。
+写个小程序，故意留个 race condition，然后放到 iPhone 或者安卓手机上调，不用 release -- acquire 保准出错。</p>
+<p>然而这种 bug 你在 x86 的 host 机上是调不出来的，即便拿模拟器也调不出来。</p>
+<h1 id="qi-ta">其他</h1>
+<p>https://en.cppreference.com/w/cpp/atomic/memory_order#Relaxed_ordering
+https://en.cppreference.com/w/cpp/atomic</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/PIMPL-模式/">&#8249; PIMPL 模式</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/cpp-memory-order/"> C++ 内存顺序 (Memory Order) &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cxx11nei-cun-shun-xu">cxx11内存顺序</a>
+        </div>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#c-11-memory-order">c++11 memory_order</a>
+        </div>
+        <div class="hpad">
+          <a href="#sequenced-before"><small>- sequenced-before</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#happens-before"><small>- happens-before</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#synchronizes-with"><small>- synchronizes-with</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#carries-dependency"><small>- Carries dependency</small></a>
+        </div>
+        <div>
+          <a href="#c11-c-11nei-cun-mo-xing">C11&#x2F;C++11内存模型</a>
+        </div>
+        <div class="hpad">
+          <a href="#2-1-memory-order-releaxed"><small>- 2.1 memory order releaxed</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-2-memory-order-consume"><small>- 2.2 memory order consume</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-3-memory-order-acquire"><small>- 2.3 memory order acquire</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-4-memory-order-release"><small>- 2.4 memory order release</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-5-memory-order-acq-rel"><small>- 2.5 memory order acq_rel</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-6-memory-order-seq-cst"><small>- 2.6 memory order seq_cst</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-7-relationship-with-volatile"><small>- 2.7 Relationship with volatile</small></a>
+        </div>
+        <div>
+          <a href="#si-chong-tong-bu-fu-jia-guan-yu-x86">四种同步(附加关于x86)</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-relaxed-ordering"><small>- 1. Relaxed ordering:</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-release-acquire"><small>- 2. Release -- acquire:</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-release-consume"><small>- 3. Release -- consume:</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-sequential-consistency"><small>- 4. Sequential consistency:</small></a>
+        </div>
+        <div>
+          <a href="#qi-ta">其他</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - 系统调用</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/xi-tong-diao-yong/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2023-10-25T14:56:50+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/xi-tong-diao-yong/atom.xml</id>
+    <entry xml:lang="en">
+        <title>深入理解系统调用</title>
+        <published>2023-10-25T14:56:50+08:00</published>
+        <updated>2023-10-25T14:56:50+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2023/10/深入理解系统调用/"/>
+        <id>https://moxuetianya.github.io/2023/10/深入理解系统调用/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2023/10/深入理解系统调用/">&lt;h1 id=&quot;shen-ru-li-jie-xi-tong-diao-yong&quot;&gt;深入理解系统调用&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;xi-tong-diao-yong-xiang-guan-zhi-shi&quot;&gt;系统调用相关知识&lt;&#x2F;h1&gt;
+&lt;p&gt;系统调用（system call）利用陷阱（trap），是异常（Exception）的一种，从用户态进⼊内核态。
+系统调用具有以下功能和特性：
+把用户从底层的硬件编程中解放出来。操作系统为我们管理硬件，⽤户态进程不用直接与硬件设备打交道。
+极⼤地提高系统的安全性。如果用户态进程直接与硬件设备打交道，会产⽣安全隐患，可能引起系统崩溃。
+使用户程序具有可移植性。用户程序与具体的硬件已经解耦合并用接⼝（api）代替了，不会有紧密的关系，便于在不同系统间移植。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2023&#x2F;10&#x2F;%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8&#x2F;syscalls-20231220190830-ped9g5v.png&quot; alt=&quot;系统调用&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;inuxshang-de-xi-tong-diao-yong-shi-xian-yuan-li&quot;&gt;inux上的系统调用实现原理&lt;&#x2F;h1&gt;
+&lt;p&gt;要想实现系统调用，主要实现以下几个方面：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;通知内核调用一个哪个系统调用&lt;&#x2F;li&gt;
+&lt;li&gt;用户程序把系统调用的参数传递给内核&lt;&#x2F;li&gt;
+&lt;li&gt;用户程序获取内核返回的系统调用返回值&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;tong-zhi-nei-he-diao-yong-yi-ge-na-ge-xi-tong-diao-yong&quot;&gt;通知内核调用一个哪个系统调用&lt;&#x2F;h2&gt;
+&lt;p&gt;每个系统调用都有一个系统调用号，系统调用发生时，内核就是根据传入的系统调用号来知道是哪个系统调用的。
+在x86架构中，用户空间将系统调用号是放在eax中的，系统调用处理程序通过eax取得系统调用号。
+系统调用号定义在内核代码：arch&#x2F;x86&#x2F;include&#x2F;asm&#x2F;unistd.h 中，可以看出linux的系统调用不是很多。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yong-hu-cheng-xu-ba-xi-tong-diao-yong-de-can-shu-chuan-di-gei-nei-he&quot;&gt;用户程序把系统调用的参数传递给内核&lt;&#x2F;h2&gt;
+&lt;p&gt;系统调用的参数也是通过寄存器传给内核的，在x86系统上，系统调用的前5个参数放在ebx,ecx,edx,esi和edi中，如果参数多的话，还需要用个单独的寄存器存放指向所有参数在用户空间地址的指针。
+一般的系统调用都是通过C库(最常用的是glibc库)来访问的，Linux内核提供一个从用户程序直接访问系统调用的方法。
+参见内核代码：
+sysdeps&#x2F;unix&#x2F;sysv&#x2F;linux&#x2F;x86_64&#x2F;sysdep.h
+arch&#x2F;x86&#x2F;include&#x2F;asm&#x2F;unistd.h :
+里面定义了6个宏，分别可以调用参数个数为0～6的系统调用&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;syscall0&lt;&#x2F;span&gt;&lt;span&gt;(type,name)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall1&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall2&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1,type2,arg2)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall3&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1,type2,arg2,type3,arg3)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall4&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall5&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4,type5,arg5)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;_syscall6&lt;&#x2F;span&gt;&lt;span&gt;(type,name,type1,arg1,type2,arg2,type3,arg3,type4,arg4,type5,arg5,type6,arg6)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;超过6个参数的系统调用很罕见，所以这里只定义了6个。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yong-hu-cheng-xu-huo-qu-nei-he-fan-hui-de-xi-tong-diao-yong-fan-hui-zhi&quot;&gt;用户程序获取内核返回的系统调用返回值&lt;&#x2F;h2&gt;
+&lt;p&gt;获取系统调用的返回值也是通过寄存器，在x86系统上，返回值放在eax中。
+&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2023&#x2F;10&#x2F;%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8&#x2F;syscall-table-20231220190830-qw90vwn.png&quot; alt=&quot;syscall-table&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-yan-huan-jing-zhun-bei&quot;&gt;实验环境准备&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install build-essential&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; qemu qemu-system-x86&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; libncurses5-dev bison flex libssl-dev libelf-dev&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; axel &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;axel&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n 20&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;mirrors.edge.kernel.org&#x2F;pub&#x2F;linux&#x2F;kernel&#x2F;v5.x&#x2F;linux-5.4.34.tar.xz&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;xz&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d&lt;&#x2F;span&gt;&lt;span&gt; linux-5.4.34.tar.xz&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tar&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -xvf&lt;&#x2F;span&gt;&lt;span&gt; linux-5.4.34.tar &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; linux-5.4.34&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;make&lt;&#x2F;span&gt;&lt;span&gt; defconfig&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  #默认配置基于&amp;#39;x86_64_defconfig&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;make&lt;&#x2F;span&gt;&lt;span&gt; menuconfig&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#打开debug相关选项&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;Kernel&lt;&#x2F;span&gt;&lt;span&gt; hacking&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; ---&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    Compile-time&lt;&#x2F;span&gt;&lt;span&gt; checks and compiler options&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; ---&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        [&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; Compile&lt;&#x2F;span&gt;&lt;span&gt; the kernel with debug info&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        [&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; Provide&lt;&#x2F;span&gt;&lt;span&gt; GDB scripts for kernel debugging  [*] Kernel debugging&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#关闭KASLR，否则会导致打断点失败&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;Processor&lt;&#x2F;span&gt;&lt;span&gt; type and features&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; ----&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    []&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; Randomize&lt;&#x2F;span&gt;&lt;span&gt; the address of the kernel image (KASLR)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#KASLR让加载到内核时是随机一个地址，如果加载内核一直同一个地址，容易被黑客攻击,这里为了实验方便，把它关闭。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;make&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -j$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;nproc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  #编译内核，需要几分钟的时间&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#测试一下，不能正常加载运行&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-system-x86_64&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -kernel&lt;&#x2F;span&gt;&lt;span&gt; arch&#x2F;x86&#x2F;boot&#x2F;bzImage  &#x2F;&#x2F;在没有xwindow的情况下运行qemu 需要使用&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -display&lt;&#x2F;span&gt;&lt;span&gt; curses&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;axel&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n 20&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;busybox.net&#x2F;downloads&#x2F;busybox-1.31.1.tar.bz2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tar&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -jxvf&lt;&#x2F;span&gt;&lt;span&gt; busybox-1.31.1.tar.bz2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; busybox-1.31.1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;make&lt;&#x2F;span&gt;&lt;span&gt; menuconfig&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;记得要编译成静态链接，不用动态链接库。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;Settings&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; ---&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    [&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; Build&lt;&#x2F;span&gt;&lt;span&gt; static binary (no shared libs)    &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;然后编译安装，默认会安装到源码目录下的&lt;&#x2F;span&gt;&lt;span&gt; _install 目录中。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;make&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -j$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;nproc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;)&lt;&#x2F;span&gt;&lt;span&gt; &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; make&lt;&#x2F;span&gt;&lt;span&gt; install&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mkdir&lt;&#x2F;span&gt;&lt;span&gt; rootfs&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; rootfs&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cp&lt;&#x2F;span&gt;&lt;span&gt; ..&#x2F;busybox-1.31.1&#x2F;_install&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;font-weight: bold;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -rf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mkdir&lt;&#x2F;span&gt;&lt;span&gt; dev proc sys home&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; cp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;{null,console,tty,tty1,tty2,tty3,tty4} dev&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;initjiao-ben&quot;&gt;init脚本&lt;&#x2F;h2&gt;
+&lt;p&gt;准备init脚本文件放在根文件系统目录下(rootfs&#x2F;init)，添加如下内容到init文件：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#!&#x2F;bin&#x2F;sh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mount&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -t&lt;&#x2F;span&gt;&lt;span&gt; proc none &#x2F;proc &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mount&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -t&lt;&#x2F;span&gt;&lt;span&gt; sysfs none &#x2F;sys&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;Welcome to test-OS!&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;--------------------&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; home&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;bin&#x2F;sh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chmod&lt;&#x2F;span&gt;&lt;span&gt; +x init&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;find&lt;&#x2F;span&gt;&lt;span&gt; .&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -print0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; cpio&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --null -ov --format=newc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; gzip&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -9&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ..&#x2F;rootfs.cpio.gz&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; ..&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   #一定要返回到上一级，因为rootfs.cpio.gz在上一级&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-system-x86_64&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -kernel&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;linux-5.4.34&#x2F;arch&#x2F;x86&#x2F;boot&#x2F;bzImage&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -initrd&lt;&#x2F;span&gt;&lt;span&gt; rootfs.cpio.gz &#x2F;&#x2F;在没有xwindow的情况下运行qemu 需要使用&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -display&lt;&#x2F;span&gt;&lt;span&gt; curses &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-system-x86_64的参数比较多，这里简单说下：&lt;&#x2F;span&gt;&lt;span&gt; 　　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-kernel是指定一个大内核文件，当仁不让的是bzImage。&lt;&#x2F;span&gt;&lt;span&gt; 　　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-initrd是指定一个&lt;&#x2F;span&gt;&lt;span&gt; initrd.img文件，这个文件就是我们使用busybox生成的initramfs.img。 　　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-smp可以从名字猜想，它是给qemu指定几个处理器，或者是几个线程&lt;&#x2F;span&gt;&lt;span&gt;&amp;lt;嗯，大概意思就thread吧&amp;gt;。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-gdb则是启动qemu的内嵌gdbserver，监听的是本地tcp端口1234—如果这样写：&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -gdb&lt;&#x2F;span&gt;&lt;span&gt; tcp:192.168.1.100:1234 ，似乎也是没问题的。　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-S&lt;&#x2F;span&gt;&lt;span&gt; 就是挂起gdbserver，让gdb remote connect it。 　　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-s&lt;&#x2F;span&gt;&lt;span&gt; 默认使用1234端口进行远程调试，和-gdb tcp::1234类似。 　　&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;-m&lt;&#x2F;span&gt;&lt;span&gt; 2048指定内存大小为2048M&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;qemu-gdbdiao-shi-nei-he&quot;&gt;QEMU+GDB调试内核&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-system-x86_64&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -kernel&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;usr&#x2F;src&#x2F;linux-4.6.2&#x2F;arch&#x2F;x86&#x2F;boot&#x2F;bzImage&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -initrd&lt;&#x2F;span&gt;&lt;span&gt; …&#x2F;initramfs.img&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -smp 2 -S -s  -display&lt;&#x2F;span&gt;&lt;span&gt; curses &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;gdb &#x2F;usr&#x2F;src&#x2F;linux-4.6.2&#x2F;vmlinux (修改成自己的vmlinux路径)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;target remote:1234 (默认端口是1234，进行远程连接)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;b start_kernel (设置断点)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;c (continue 运行到断点处)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;tong-guo-hui-bian-zhi-ling-hong-fa-gai-xi-tong-diao-yong&quot;&gt;通过汇编指令触发该系统调用&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;首先查看系统调用表，选择setdomainname&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;linux-5.4.34&#x2F;arch&#x2F;x86&#x2F;entry&#x2F;syscalls&#x2F;syscall_64.tbl&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;第一列的数字是系统调用号。
+第三列是系统调用的名字。
+第四列是系统调用在内核的实现函数。
+如上图，171是写调用: 系统调用 setdomainname，函数入口为 __x64_sys_setdomainname。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;#include&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;stdio.h&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;#include&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;unistd.h&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;int&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; main&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;int&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt; argc&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; char *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;argv&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;[]&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;	int&lt;&#x2F;span&gt;&lt;span&gt; a,b;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;	char&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; buf&lt;&#x2F;span&gt;&lt;span&gt;[&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;50&lt;&#x2F;span&gt;&lt;span&gt;]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;test123&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;	int&lt;&#x2F;span&gt;&lt;span&gt; size&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;sizeof&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;test123&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	a&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;setdomainname&lt;&#x2F;span&gt;&lt;span&gt;(buf,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;sizeof&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;test123&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;	printf&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;a=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;font-style: italic;&quot;&gt;%d&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,a);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;getdomainname&lt;&#x2F;span&gt;&lt;span&gt;(buf,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;sizeof&lt;&#x2F;span&gt;&lt;span&gt;(buf));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;	printf&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;new domainname is &lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;font-style: italic;&quot;&gt;%s&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,buf);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;	return&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;#include&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;stdio.h&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;#include&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;unistd.h&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;int&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; main&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;int&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt; argc&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;char *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;argv&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;[]&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        int&lt;&#x2F;span&gt;&lt;span&gt; a,b;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        char&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; buf&lt;&#x2F;span&gt;&lt;span&gt;[&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;50&lt;&#x2F;span&gt;&lt;span&gt;]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;abc444&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        int&lt;&#x2F;span&gt;&lt;span&gt; size &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; sizeof&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;abc444&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        asm&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; volatile&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;                &amp;quot;movq %1,%%rdi&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;            &#x2F;&#x2F;EDI寄存器用于传递参数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;                &amp;quot;movq %2,%%rsi&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;            &#x2F;&#x2F;ESI寄存器用于传递参数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;                &amp;quot;movq $0xab,%%rax&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;         &#x2F;&#x2F;使用EAX传递系统调用号&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;                &amp;quot;syscall&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;                  &#x2F;&#x2F;64位触发系统调用 ,32位使用int $x80 回去内存特定地址执行指定函数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;                &amp;quot;movq %%rax,%0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      	   &#x2F;&#x2F;保存返回值&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                :&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;=m&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;(a)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                :&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;g&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; (buf),&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;g&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; (size)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    &#x2F;* input g mean Choose any one Regtster*&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                );&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;        printf&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;a=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;font-style: italic;&quot;&gt;%d&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,a);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;getdomainname&lt;&#x2F;span&gt;&lt;span&gt;(buf,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;sizeof&lt;&#x2F;span&gt;&lt;span&gt;(buf));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;        printf&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;new domainname is &lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;font-style: italic;&quot;&gt;%s&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,buf);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        return&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gcc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; write-asm write-asm.c&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -static&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;&#x2F;主要要静态编译&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;.&#x2F;write&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;qemu-system-x86_64&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -kernel&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;linux-5.4.34&#x2F;arch&#x2F;x86&#x2F;boot&#x2F;bzImage&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -initrd&lt;&#x2F;span&gt;&lt;span&gt; rootfs.cpio.gz&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -S -s -nographic -append&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;console=ttyS0&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;fen-xi-xi-tong-diao-yong-zai-nei-he-tai-de-gong-zuo-ji-zhi&quot;&gt;分析系统调用在内核态的工作机制&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2023&#x2F;10&#x2F;%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8&#x2F;syscall-implement-20231220190830-edzaolm.png&quot; alt=&quot;系统调用实现原理&quot; &#x2F;&gt;
+应用程序调用一个库函数xyz()
+库函数内封装了一个系统调用SYSCALL，它将参数(系统调用号)传递给内核并触发中断
+触发中断后，内核进行中断处理，执行系统调用处理函数 (5.0内核中是entry_INT80_32，不再是system_call了)
+系统调用处理函数会根据系统调用号，选择相应的系统调用服务例程（在这里是sys_xyz)，真正开始处理该系统调用&lt;&#x2F;p&gt;
+&lt;p&gt;其中 setdomainname函数由glibc实现
+源码位于glibc下的.&#x2F;sysdeps&#x2F;unix&#x2F;sysv&#x2F;linux&#x2F;x86_64&#x2F;sysdep.h
+比如 syscall0的定义&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;#undef&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; internal_syscall0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;#define&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; internal_syscall0&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;number&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt; dummy&lt;&#x2F;span&gt;&lt;span&gt;...)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;             \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;({&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;                                  \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    unsigned long int&lt;&#x2F;span&gt;&lt;span&gt; resultvar;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;                    \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    asm&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; volatile&lt;&#x2F;span&gt;&lt;span&gt; (                          \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;    &amp;quot;syscall&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\n\t&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;                           \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    :&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;=a&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; (resultvar)                          \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    :&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;0&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt; (number)                          \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    :&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;memory&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;, REGISTERS_CLOBBERED_BY_SYSCALL);&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;            \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;long int&lt;&#x2F;span&gt;&lt;span&gt;) resultvar;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;                       \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;})&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中的
+&quot;syscall\n\t&quot;
+为调用特殊模块寄存器（Model Specific Registers，简称 MSR）。这种寄存器是 CPU 为了完成某些特殊控制功能为目的的寄存器，其中就有系统调用。
+其值由人为定义.相当于手动配置的常量内存,由系统初始化时指定.&lt;&#x2F;p&gt;
+&lt;p&gt;在系统初始化的时候，trap_init 除了初始化上面的中断模式，这里面还会调用 cpu_init-&amp;gt;syscall_init。*arch&#x2F;x86&#x2F;kernel&#x2F;cpu&#x2F;common.c 的 syscall_init 中初始化代码：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;c&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;void&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; syscall_init&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;void&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    extern&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; char&lt;&#x2F;span&gt;&lt;span&gt; _entry_trampoline&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;[]&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    extern&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; char&lt;&#x2F;span&gt;&lt;span&gt; entry_SYSCALL_64_trampoline&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;[]&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    int&lt;&#x2F;span&gt;&lt;span&gt; cpu &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; smp_processor_id&lt;&#x2F;span&gt;&lt;span&gt;();&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    unsigned long&lt;&#x2F;span&gt;&lt;span&gt; SYSCALL64_entry_trampoline &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;unsigned long&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;get_cpu_entry_area&lt;&#x2F;span&gt;&lt;span&gt;(cpu)-&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;entry_trampoline&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; +&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        (entry_SYSCALL_64_trampoline &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;-&lt;&#x2F;span&gt;&lt;span&gt; _entry_trampoline);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;    wrmsr&lt;&#x2F;span&gt;&lt;span&gt;(MSR_STAR,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0&lt;&#x2F;span&gt;&lt;span&gt;, (__USER32_CS &lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 16&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span&gt; __KERNEL_CS);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    if&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;static_cpu_has&lt;&#x2F;span&gt;&lt;span&gt;(X86_FEATURE_PTI))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;        wrmsrl&lt;&#x2F;span&gt;&lt;span&gt;(MSR_LSTAR, SYSCALL64_entry_trampoline);     &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    else&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;        wrmsrl&lt;&#x2F;span&gt;&lt;span&gt;(MSR_LSTAR, (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;unsigned long&lt;&#x2F;span&gt;&lt;span&gt;)entry_SYSCALL_64);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;MSR_LSTAR 就是这样一个特殊的寄存器，当 syscall 指令调用的时候，会从这个寄存器里面拿出函数地址来调用，也就是调用 entry_SYSCALL_64。
+这一步也就是堆栈信息中的 ??() 部分的动作,至此系统完成了以下动作:
+将调用号由用户态数据栈写入eax寄存器,将系统调用的参数依次写入寄存器rdi,rsi,rdx,r10,r8,r9(如果有)
+中断系统
+找到内存中系统调用内核态函数entry_SYSCALL_64的入口,进入内核态&lt;&#x2F;p&gt;
+&lt;p&gt;汇编指令 syscall 触发系统调用，通过MSR寄存器找到了中断函数入口，此时，代码执行到arch&#x2F;x86&#x2F;entry&#x2F;entry_64.S 目录下的ENTRY(entry_SYSCALL_64)入口，然后开始通过swapgs 和压栈动作保存现场。&lt;&#x2F;p&gt;
+&lt;p&gt;然后跳转到了arch&#x2F;x86&#x2F;entry&#x2F;common.c:290 目录下的 do_syscall_64 函数，在ax寄存器中获取到系统调用号，然后去执行系统调用内容:
+接下来，在编译的过程中，需要根据 syscall_64.tbl 生成 unistd_64.h。生成方式在 arch&#x2F;x86&#x2F;entry&#x2F;syscalls&#x2F;Makefile 中。
+这里面会使用两个脚本，其中第一个脚本 arch&#x2F;x86&#x2F;entry&#x2F;syscalls&#x2F;syscallhdr.sh，会在文件中生成  __NR_open；
+第二个脚本 arch&#x2F;x86&#x2F;entry&#x2F;syscalls&#x2F;syscalltbl.sh，会在文件中生成 _*SYSCALL(**NR_open, sys_open)。**这样，unistd_64.h 是对应的系统调用号和系统调用实现函数之间的对应关系。*&lt;em&gt;在文件 arch&#x2F;x86&#x2F;entry&#x2F;syscall_64.c，定义了这样一个表，里面 include 了这个头文件，这样所有的 sys&lt;&#x2F;em&gt; 系统调用就都在这个表里面了&lt;&#x2F;p&gt;
+&lt;p&gt;其中sys_call_table()定义在arch&#x2F;x86&#x2F;entry&#x2F;syscall_64.c :21
+通过引入&amp;lt;asm&#x2F;syscalls_64.h&amp;gt; 来找到系统调用对应的入口&lt;&#x2F;p&gt;
+&lt;p&gt;然后程序跳转到kernel&#x2F;sys.c下的__x64_sys_setdomainname 函数，开始执行：
+函数执行完后回到步骤(3)中的 syscall_return_slowpath(regs); 准备进行恢复现场：
+接着程序再次回到arch&#x2F;x86&#x2F;entry&#x2F;entry_64.S，执行恢复现场，最后两句完成了堆栈的切换。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2023&#x2F;10&#x2F;%E6%B7%B1%E5%85%A5%E7%90%86%E8%A7%A3%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8&#x2F;syscall-chain-20231220190830-939br2s.png&quot; alt=&quot;syscall调用过程&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

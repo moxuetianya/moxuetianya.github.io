@@ -1,0 +1,144 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>限流——漏桶算法和令牌桶算法 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/06/限流——漏桶算法和令牌桶算法/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/06/限流——漏桶算法和令牌桶算法/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/06/限流——漏桶算法和令牌桶算法/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="限流——漏桶算法和令牌桶算法 | 墨雪天琊" />
+  <meta name="twitter:title" content="限流——漏桶算法和令牌桶算法 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-06-21" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/06/限流——漏桶算法和令牌桶算法/">限流——漏桶算法和令牌桶算法</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 21, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/server/">server</a>] #<a href="https://moxuetianya.github.io/tags/server/">server</a> </span>
+
+    
+
+
+<h1 id="xian-liu-lou-tong-suan-fa-he-ling-pai-tong-suan-fa">限流——漏桶算法和令牌桶算法</h1>
+<h1 id="xian-liu">限流</h1>
+<p>在开发高并发系统时有三把利器用来保护系统：缓存、降级和限流</p>
+<p>缓存：缓存的目的是提升系统访问速度和增大系统处理能力
+降级：当服务流量剧增，影响到核心流程的性能，需要暂时屏蔽掉一些功能，待高峰过去或问题解决后再重新打开，以此释放服务器资源以保证核心任务的正常运行。
+限流：限流的目的是通过对并发访问或请求进行限速，或者对一个时间窗口内的请求进行限速来保护系统，一旦达到限制速率则可以拒绝服务、或排队或等待、降级等处理</p>
+<p>常用的限流算法有令牌桶和，漏桶，滑动窗口
+https://segmentfault.com/a/1190000023552181</p>
+<h1 id="lou-tong-suan-fa">漏桶算法</h1>
+<p>即 一个固定容量的桶，上边不停的滴水，下边漏水。</p>
+<p>特别注意：上边滴水的速度是不固定的，下边则是以固定的流速往下滴水，当下边的流速小于上边的流速时，桶里的水就会溢出。
+映射到具体的网络请求就是：网络请求就相当于上边的水滴，一个请求对应一个水滴，大量的请求到来时先缓存到漏桶中，然后以固定的频率将这些请求转发出去，即下边的漏水。
+达到的效果：请求总是以固定的速度被转发到业务服务。不管网络请求在单位时间内来了多少，漏桶都是以固定速率转发请求，所以请求到达业务服务的频率基本一样。当请求数量超过桶容量时就拒绝服务，此时则需要通过降级或者其他方式进行处理，这属于其他范畴，暂不讨论。</p>
+<p>漏桶算法(Leaky Bucket)是网络世界中流量整形（Traffic Shaping）或速率限制（Rate Limiting）时经常使用的一种算法，它的主要目的是控制数据注入到网络的速率，平滑网络上的突发流量。漏桶算法提供了一种机制，通过它，突发流量可以被整形以便为网络提供一个稳定的流量。</p>
+<h1 id="ling-pai-tong-suan-fa">令牌桶算法</h1>
+<p>即 一个线程以固定的速率生产令牌扔进桶中，当请求到达时需要从桶中获取一个令牌才可被转发，否则拒绝转发。</p>
+<p>达到的效果：单位时间内令牌的最大数量有限。请求的转发并不受限于令牌的生产速度，只要桶中有令牌并且能够拿到，该请求就可以被转发。</p>
+<p>令牌桶算法是网络流量整形（Traffic Shaping）和速率限制（Rate Limiting）中最常使用的一种算法。典型情况下，令牌桶算法用来控制发送到网络上的数据的数目，并允许突发数据的发送。</p>
+<p>令牌桶算法的原理是系统会以一个恒定的速度往桶里放入令牌，而如果请求需要被处理，则需要先从桶里获取一个令牌，当桶里没有令牌可取时，则拒绝服务。从原理上看，令牌桶算法和漏桶算法是相反的，一个“进水”，一个是“漏水”。</p>
+<h1 id="liang-zhe-bi-jiao">两者比较</h1>
+<p>共同点： 两种算法都能控制单位时间内的最大请求数(即桶的最大容量)
+不同点： 漏桶算法关注的是请求被以一定速率转发，容易引起资源业务服务资源利用不充分；令牌算法关注的是单位时间内的最大请求数，一定程度上容忍短时间的高并发，但如果配置不当容易造成服务器阻塞甚至宕机。</p>
+<p>漏桶算法与令牌桶算法的区别在于，漏桶算法能够强行限制数据的传输速率，令牌桶算法能够在限制数据的平均传输速率的同时还允许某种程度的突发传输。</p>
+<p>在某些情况下，漏桶算法不能够有效地使用网络资源，因为漏桶的漏出速率是固定的，所以即使网络中没有发生拥塞，漏桶算法也不能使某一个单独的数据流达到端口速率。因此，漏桶算法对于存在突发特性的流量来说缺乏效率。而令牌桶算法则能够满足这些具有突发特性的流量。通常，漏桶算法与令牌桶算法结合起来为网络流量提供更高效的控制。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/std-function/">&#8249; std::function</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/负载均衡算法/"> 负载均衡算法 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-liu-lou-tong-suan-fa-he-ling-pai-tong-suan-fa">限流——漏桶算法和令牌桶算法</a>
+        </div>
+        <div>
+          <a href="#xian-liu">限流</a>
+        </div>
+        <div>
+          <a href="#lou-tong-suan-fa">漏桶算法</a>
+        </div>
+        <div>
+          <a href="#ling-pai-tong-suan-fa">令牌桶算法</a>
+        </div>
+        <div>
+          <a href="#liang-zhe-bi-jiao">两者比较</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

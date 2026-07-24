@@ -1,0 +1,267 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>网络调试与流量控制 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="TCP 异常关闭场景分析（RST&#x2F;FIN&#x2F;Broken Pipe）、局域网 IP 冲突排查手册、Linux TC 流量控制（HTB&#x2F;SFQ）" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/07/network-debug/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/07/network-debug/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/07/network-debug/" />
+  <meta property="og:description" content="TCP 异常关闭场景分析（RST&#x2F;FIN&#x2F;Broken Pipe）、局域网 IP 冲突排查手册、Linux TC 流量控制（HTB&#x2F;SFQ）" />
+  <meta name="twitter:description" content="TCP 异常关闭场景分析（RST&#x2F;FIN&#x2F;Broken Pipe）、局域网 IP 冲突排查手册、Linux TC 流量控制（HTB&#x2F;SFQ）" />
+  <meta property="og:title" content="网络调试与流量控制 | 墨雪天琊" />
+  <meta name="twitter:title" content="网络调试与流量控制 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/07/network-debug/">网络调试与流量控制</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2025 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/network/">network</a>] #<a href="https://moxuetianya.github.io/tags/tcp/">tcp</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/tc/">tc</a>  #<a href="https://moxuetianya.github.io/tags/wireshark/">wireshark</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a> </span>
+
+    
+
+
+<h1 id="wang-luo-diao-shi-yu-liu-liang-kong-zhi">网络调试与流量控制</h1>
+<h2 id="tcp-yi-chang-guan-bi-chang-jing-fen-xi">TCP 异常关闭场景分析</h2>
+<h3 id="guan-jian-gai-nian">关键概念</h3>
+<ul>
+<li><strong>RST（Reset）</strong>：异常终止连接，接收方得到 <code>Connection reset by peer</code></li>
+<li><strong>FIN</strong>：正常关闭连接，接收方 Recv 返回 0</li>
+<li><strong>Broken Pipe</strong>：向已收到 RST 的连接写入数据</li>
+</ul>
+<h3 id="time-wait">TIME_WAIT</h3>
+<p>主动关闭方进入 TIME_WAIT（2MSL，约 60 秒）的原因：</p>
+<ol>
+<li>确保最后的 ACK 能重传给被动关闭方</li>
+<li>防止旧连接的残余数据包干扰同五元组的新连接</li>
+</ol>
+<h3 id="yi-chang-chang-jing-zong-jie">异常场景总结</h3>
+<table><thead><tr><th>场景</th><th>服务器端表现</th></tr></thead><tbody>
+<tr><td>客户端 crash（不关 socket 直接退出）</td><td><code>Connection reset by peer</code>（104）</td></tr>
+<tr><td>客户端死机/断网/网线松动</td><td>无任何错误，等超时断开</td></tr>
+<tr><td>客户端正常关闭 Socket</td><td>收完数据后 Recv 返回 0</td></tr>
+<tr><td>服务器已 close，客户端再发包</td><td>第 1 包发送成功，第 2 包 <code>Broken pipe</code>（32）</td></tr>
+<tr><td>服务器接收缓冲区有未读数据时 close</td><td>发送 RST 而非 FIN，客户端收到 104 错误</td></tr>
+<tr><td>服务器先发数据后 close，客户端再发再收</td><td>Windows 端 Recv 报 10053；Linux 端正常收完</td></tr>
+</tbody></table>
+<h3 id="broken-pipe-gen-yin">Broken Pipe 根因</h3>
+<p>收到 RST 后仍向该连接写数据 → <code>SIGPIPE</code> 信号 + <code>EPIPE</code> 错误。</p>
+<h3 id="sheng-chan-jing-yan">生产经验</h3>
+<p>跨服跳转的掉线问题常因服务器在接收缓冲区还有未收数据时关闭 Socket，导致对端收到 RST 而非正常关闭。建议<strong>连接关闭由客户端发起</strong>。</p>
+<h3 id="cuo-wu-ma-dui-zhao">错误码对照</h3>
+<table><thead><tr><th>Linux</th><th>Windows</th><th>含义</th></tr></thead><tbody>
+<tr><td>104 (ECONNRESET)</td><td>10054</td><td>Connection reset by peer</td></tr>
+<tr><td>32 (EPIPE)</td><td>10053</td><td>Broken pipe / connection aborted</td></tr>
+<tr><td>Recv 返回 0</td><td>Recv 返回 0</td><td>对端正常关闭</td></tr>
+</tbody></table>
+<h2 id="ju-yu-wang-ip-chong-tu-pai-cha">局域网 IP 冲突排查</h2>
+<h3 id="di-yi-bu-que-ren-chong-tu">第一步：确认冲突</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># arping 检测重复 IP（最权威）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">arping</span><span style="color: #F97E72;"> -D -c 5 -I</span><span> eth0</span><span style="color: #FEDE5D;"> &lt;</span><span>目标IP</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 收到多个不同 MAC 的回复 = 冲突确认</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 抓包观察 MAC 抖动</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tcpdump</span><span style="color: #F97E72;"> -i</span><span> eth0 arp and host</span><span style="color: #FEDE5D;"> &lt;</span><span>目标IP</span><span style="color: #FEDE5D;">&gt;</span><span style="color: #F97E72;"> -e -c 20</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 反复刷新 ARP 观察</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> i</span><span style="color: #FEDE5D;"> in</span><span> $(</span><span style="color: #FE4450;">seq</span><span style="color: #F97E72;"> 1 10</span><span>);</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  arp</span><span style="color: #F97E72;"> -d</span><span style="color: #FEDE5D;"> &lt;</span><span>目标IP</span><span style="color: #FEDE5D;">&gt; 2&gt;</span><span>/dev/null</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  ping</span><span style="color: #F97E72;"> -c 1 -W 1</span><span style="color: #FEDE5D;"> &lt;</span><span>目标IP</span><span style="color: #FEDE5D;">&gt; &gt;</span><span> /dev/null</span><span style="color: #FEDE5D;"> 2&gt;&amp;1</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  arp</span><span style="color: #F97E72;"> -n</span><span style="color: #FEDE5D;"> &lt;</span><span>目标IP</span><span style="color: #FEDE5D;">&gt; |</span><span style="color: #FE4450;"> grep</span><span> ether</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  sleep</span><span style="color: #F97E72;"> 1</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span></code></pre><h3 id="di-er-bu-ding-wei-chong-tu-she-bei">第二步：定位冲突设备</h3>
+<ol>
+<li><strong>交换机 MAC 表</strong>（最可靠）：
+<ul>
+<li>Cisco: <code>show mac address-table address aa:bb:cc:dd:ee:02</code></li>
+<li>H3C: <code>display mac-address aa:bb:cc:dd:ee:02</code></li>
+<li>华为: <code>display mac-address-table address aa:bb:cc:dd:ee:02</code></li>
+</ul>
+</li>
+<li><strong>OUI 厂商查询</strong>：<code>curl -s "https://api.maclookup.app/v2/macs/&lt;mac&gt;"</code></li>
+<li><strong>nmap 探测</strong>：绑定静态 ARP 后 <code>nmap -O -sV &lt;IP&gt;</code></li>
+<li><strong>mDNS/NetBIOS</strong>：<code>avahi-resolve -a &lt;IP&gt;</code> 或 <code>nbtscan &lt;IP&gt;</code></li>
+<li><strong>DHCP 租约</strong>：<code>grep "&lt;mac&gt;" /var/lib/dhcp/dhcpd.leases</code></li>
+<li><strong>SNMP 遍历</strong>（大型网络）：<code>snmpwalk -v2c -c public &lt;交换机IP&gt; 1.3.6.1.2.1.17.4.3.1.2</code></li>
+</ol>
+<h3 id="chu-li-cuo-shi">处理措施</h3>
+<ul>
+<li>DHCP 冲突 → 预留/排除该 IP</li>
+<li>静态 IP 配错 → 联系管理员修改</li>
+<li>流氓设备 → 交换机端口 shutdown / MAC 过滤</li>
+<li>临时止损 → 交换机 IP-MAC 绑定</li>
+</ul>
+<h2 id="linux-tc-liu-liang-kong-zhi">Linux TC 流量控制</h2>
+<h3 id="he-xin-gai-nian">核心概念</h3>
+<table><thead><tr><th>概念</th><th>说明</th></tr></thead><tbody>
+<tr><td>qdisc（排队规则）</td><td>内核发送数据包的排队策略</td></tr>
+<tr><td>class（类）</td><td>qdisc 内部分类，可嵌套子类</td></tr>
+<tr><td>filter（过滤器）</td><td>将数据包分类到指定 class</td></tr>
+</tbody></table>
+<h3 id="wu-lei-bie-qdisc">无类别 qdisc</h3>
+<ul>
+<li><strong>pfifo/bfifo</strong>：先进先出（按包数/按字节）</li>
+<li><strong>pfifo_fast</strong>：基于 TOS 的三波段优先级队列</li>
+<li><strong>sfq</strong>：随机公平队列，按会话轮询</li>
+<li><strong>tbf</strong>：令牌桶过滤器，限速</li>
+<li><strong>red</strong>：随机早期探测，适合高带宽</li>
+</ul>
+<h3 id="htb-fen-ceng-ling-pai-tong">HTB（分层令牌桶）</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 创建根 qdisc</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span> qdisc add dev eth0 root handle 1: htb default</span><span style="color: #F97E72;"> 2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 创建分类，保证 98M，最大 100M</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span> class add dev eth0 parent 1:1 classid 1:2 htb rate 98mbit ceil 100mbit prio</span><span style="color: #F97E72;"> 2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 添加 SFQ 叶子 qdisc</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span> qdisc add dev eth0 parent 1:2 handle 2: sfq perturb</span><span style="color: #F97E72;"> 10</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 过滤特定 IP 到指定 class</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span> filter add dev eth0 protocol ip parent 1:0 u32 match ip src</span><span style="color: #F97E72;"> 192.168.0.2</span><span> flowid 1:2</span></span></code></pre><h3 id="chang-yong-ming-ling">常用命令</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">tc</span><span> qdisc del dev eth0 root</span><span style="color: #848BBD;font-style: italic;">                    # 清除所有规则</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span style="color: #F97E72;"> -s -d</span><span> qdisc show dev eth0</span><span style="color: #848BBD;font-style: italic;">                  # 查看 qdisc 统计</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">tc</span><span style="color: #F97E72;"> -s -d</span><span> class show dev eth0</span><span style="color: #848BBD;font-style: italic;">                  # 查看 class 统计</span></span></code></pre><h3 id="wang-qia-zi-jie-kou">网卡子接口</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ip</span><span> addr add 2.2.2.2/24 dev eth0 label eth0:0</span><span style="color: #848BBD;font-style: italic;">  # 添加 IP 别名</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ip</span><span> addr del 2.2.2.2/24 dev eth0 label eth0:0</span><span style="color: #848BBD;font-style: italic;">  # 删除</span></span></code></pre>
+<p>永久生效需在 <code>/etc/sysconfig/network-scripts/</code> 下创建配置文件。</p>
+<h2 id="lian-lu-zu-bo-di-zhi-224-0-0-252">链路组播地址 224.0.0.252</h2>
+<p><strong>LLMNR（Link-Local Multicast Name Resolution）</strong>：Windows 在 DNS 解析失败后，向 <code>224.0.0.252</code> 发送多播查询，局域网内主机若匹配则单播回复自己的 IP。常用于无 DNS 服务器的小型局域网。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">tcpdump</span><span style="color: #F97E72;"> -i</span><span> eth0</span><span style="color: #FF8B39;"> &#39;udp port 5355 or host 224.0.0.252&#39;</span><span style="color: #F97E72;"> -nn</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/linux-ops/">&#8249; Linux 运维笔记</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/"> OpenSSL 与 Nginx SSL &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#wang-luo-diao-shi-yu-liu-liang-kong-zhi">网络调试与流量控制</a>
+        </div>
+        <div class="hpad">
+          <a href="#tcp-yi-chang-guan-bi-chang-jing-fen-xi"><small>- TCP 异常关闭场景分析</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#guan-jian-gai-nian"><small>· 关键概念</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#time-wait"><small>· TIME_WAIT</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yi-chang-chang-jing-zong-jie"><small>· 异常场景总结</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#broken-pipe-gen-yin"><small>· Broken Pipe 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sheng-chan-jing-yan"><small>· 生产经验</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#cuo-wu-ma-dui-zhao"><small>· 错误码对照</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ju-yu-wang-ip-chong-tu-pai-cha"><small>- 局域网 IP 冲突排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#di-yi-bu-que-ren-chong-tu"><small>· 第一步：确认冲突</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#di-er-bu-ding-wei-chong-tu-she-bei"><small>· 第二步：定位冲突设备</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chu-li-cuo-shi"><small>· 处理措施</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#linux-tc-liu-liang-kong-zhi"><small>- Linux TC 流量控制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#he-xin-gai-nian"><small>· 核心概念</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wu-lei-bie-qdisc"><small>· 无类别 qdisc</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#htb-fen-ceng-ling-pai-tong"><small>· HTB（分层令牌桶）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chang-yong-ming-ling"><small>· 常用命令</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wang-qia-zi-jie-kou"><small>· 网卡子接口</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lian-lu-zu-bo-di-zhi-224-0-0-252"><small>- 链路组播地址 224.0.0.252</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

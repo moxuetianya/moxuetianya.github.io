@@ -1,0 +1,187 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>qemu启动pve qcow2虚拟机镜像排查 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="qemu启动pve qcow2虚拟机镜像排查 | 墨雪天琊" />
+  <meta name="twitter:title" content="qemu启动pve qcow2虚拟机镜像排查 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-01-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/">qemu启动pve qcow2虚拟机镜像排查</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 一月 25, 2026 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/qcow2/">qcow2</a> </span>
+
+    
+
+
+<h1 id="xiu-fu-qcow2wen-jian-mu-lu">修复qcow2文件目录</h1>
+<p>最后发现时rootfs中缺少了 /dev 和 /sys 两个目录，导致initrd中切换到systemd时缺少挂载点后panic了</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096  -hda</span><span> vm-7044.qcow2</span><span style="color: #F97E72;"> -snapshot -serial</span><span> stdio</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">modprobe</span><span> nbd</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> modprobe nbd max_part=</span><span style="color: #F97E72;">8</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">lsblk</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-nbd</span><span style="color: #F97E72;"> --help</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-nbd</span><span style="color: #F97E72;"> -c</span><span> /dev/nbd0 vm-7044.qcow2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> vm-7044 &amp;&amp;</span><span style="color: #36F9F6;"> cd</span><span> vm-7044/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> part{1,5}</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span> /dev/nbd0p1 part1/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mount</span><span> /dev/nbd0p5 part5</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">cd</span><span> part5/boot/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">file</span><span> initrd.img</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> initrd &amp;&amp;</span><span style="color: #36F9F6;"> cd</span><span> initrd/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cpio</span><span style="color: #F97E72;"> -idmv</span><span style="color: #FEDE5D;"> &lt;</span><span> ../initrd.img-5.15.0-139-generic</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> -smp 2 -m 4096 -kernel</span><span> vmlinuz-5.15.0-139-generic</span><span style="color: #F97E72;"> -initrd</span><span> initrd.img-5.15.0-139-generic</span><span style="color: #F97E72;">  -append</span><span style="color: #FF8B39;"> &quot;console=ttyS0&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cp</span><span> initrd.img ../../</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cp</span><span> vmlinuz ../../</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">umount</span><span> part1</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">umount</span><span> part5</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-nbd</span><span style="color: #F97E72;"> -d</span><span> /dev/nbd0</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096 -kernel</span><span> vmlinuz</span><span style="color: #F97E72;"> -initrd</span><span> initrd.img</span><span style="color: #F97E72;">  -append</span><span style="color: #FF8B39;"> &quot;console=ttyS0&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096  -hda</span><span> ../vm-7044.qcow2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096 -kernel</span><span> vmlinuz</span><span style="color: #F97E72;"> -initrd</span><span> initrd.img</span><span style="color: #F97E72;">  -append</span><span style="color: #FF8B39;"> &quot;console=ttyS0&quot;</span><span style="color: #F97E72;"> -hda</span><span> ../vm-7044.qcow2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096 -kernel</span><span> vmlinuz</span><span style="color: #F97E72;"> -initrd</span><span> initrd.img</span><span style="color: #F97E72;">  -append</span><span style="color: #FF8B39;"> &quot;console=ttyS0 root=/dev/sda5&quot;</span><span style="color: #F97E72;"> -hda</span><span> ../vm-7044.qcow2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 最后发现qcow2中的文件系统缺少/dev 和 /sys 两个目录（导致init启动时没有devfs/tmpfs的挂载点）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">qemu-system-x86_64</span><span style="color: #F97E72;"> --enable-kvm -smp 2 -m 4096 -hda</span><span> vm-7044.qcow2</span></span></code></pre><h1 id="qemuxu-ni-ji-qi-dong-hou-ru-he-qie-huan-tty">qemu虚拟机启动后如何切换tty</h1>
+<ul>
+<li>tty1中的启动程序没有完全成功，导致卡死在启动过程，且没有shell供用户输入</li>
+<li>qemu GUI中使用monitor0, 可以发送命令,切换其他tty登录</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span>(</span><span style="color: #FE4450;">qemu</span><span>)</span><span style="color: #FE4450;"> sendkey</span><span> ctrl+alt+f3</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 登录系统后， 修改grub</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> nano /etc/defautl/grub</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注释掉hide和选项</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># GRUB_TIMEOUT_STYLE=hide</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">GRUB_CMDLINE_LINUX_DEFAULT</span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;">&#39;loglevel=7&#39;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">GRUB_CMDLINE_LINUX</span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;">&quot;console=tty0 console=ttyS0,115200n8 earlyprintk=ttyS0,115200 systemd.show_status=1&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> update-grub</span></span></code></pre><h1 id="grub-shellchang-yong-ming-ling">grub shell常用命令</h1>
+<ul>
+<li>ls	列出设备、分区或目录内容	ls, ls (hd0,1)/boot</li>
+<li>set	查看或设置环境变量	set root=(hd0,gpt2)</li>
+<li>linux	加载内核文件	linux /vmlinuz root=/dev/sda5</li>
+<li>initrd	加载初始化 RAM 磁盘	initrd /initrd.img</li>
+<li>boot	启动已经加载好的内核	boot</li>
+<li>insmod	加载动态模块（如 normal, ext2）	insmod normal</li>
+<li>cat	查看文件内容（常用于检查 grub.cfg）	cat (hd0,1)/etc/default/grub</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; configfile (hd0,msdos1)/boot/grub/grub.cfg</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 或尝试使用 search 命令自动查找</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; search</span><span style="color: #F97E72;"> --file --set=root</span><span> /boot/grub/grub.cfg</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; configfile /boot/grub/grub.cfg</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; ls (hd0,msdos5)/</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 如果显示了 vmlinuz, initrd.img 等文件，说明找对了</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 第二步：设置根分区</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看当前 root / prefix</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; set</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; set root=(</span><span style="color: #FE4450;">hd0,msdos5</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; insmod normal</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; insmod linux</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; insmod ext2</span><span style="color: #848BBD;font-style: italic;">     # ext2/ext4 都是这个</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 第三步：加载内核 (关键步骤)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 你需要指定内核文件，并手动告诉它根目录在哪里。在这里加上 nomodeset 来解决你之前的卡死问题。</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 注意：利用 Tab 键补全文件名，因为内核版本号很长</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; linux /boot/vmlinuz-xxx-generic root=/dev/sda5 nomodeset</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 第四步：加载 initrd</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; initrd /boot/initrd.img-xxx-generic</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grub</span><span>&gt; boot</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/01/性能分析工具/">&#8249; 性能分析工具</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/01/linux 键盘按键频率统计/"> linux 键盘按键频率统计 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xiu-fu-qcow2wen-jian-mu-lu">修复qcow2文件目录</a>
+        </div>
+        <div>
+          <a href="#qemuxu-ni-ji-qi-dong-hou-ru-he-qie-huan-tty">qemu虚拟机启动后如何切换tty</a>
+        </div>
+        <div>
+          <a href="#grub-shellchang-yong-ming-ling">grub shell常用命令</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer>
+</body>
+</html>

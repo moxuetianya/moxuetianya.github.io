@@ -1,0 +1,361 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="深入 opencode 源码，追踪 npmSvc.install() 对每个 config 目录无条件调用的设计原因，以及 waitForDependencies 阻塞插件加载的完整链路" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/" />
+  <meta property="og:description" content="深入 opencode 源码，追踪 npmSvc.install() 对每个 config 目录无条件调用的设计原因，以及 waitForDependencies 阻塞插件加载的完整链路" />
+  <meta name="twitter:description" content="深入 opencode 源码，追踪 npmSvc.install() 对每个 config 目录无条件调用的设计原因，以及 waitForDependencies 阻塞插件加载的完整链路" />
+  <meta property="og:title" content="opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-21" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/">opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 21, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/debug/">debug</a>, <a href="https://moxuetianya.github.io/categories/source-analysis/">source-analysis</a>] #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/npm/">npm</a>  #<a href="https://moxuetianya.github.io/tags/plugin/">plugin</a>  #<a href="https://moxuetianya.github.io/tags/effect/">effect</a>  #<a href="https://moxuetianya.github.io/tags/arborist/">arborist</a>  #<a href="https://moxuetianya.github.io/tags/source-code/">source-code</a> </span>
+
+    
+
+
+<h1 id="xian-xiang-hui-gu">现象回顾</h1>
+<p><a href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">上一篇</a> 中我们定位到：配置 <code>OPENCODE_CONFIG_DIR</code> 后 opencode 启动变慢，根因是 <code>@opencode-ai/plugin</code> 的 npm 依赖下载。</p>
+<p>但还有一个悬念没解开：<strong>为什么没有插件配置的空目录（如 <code>~/.config/opencode/</code>）也会触发 npm install？</strong> 以及 <strong>为什么不设 <code>OPENCODE_CONFIG_DIR</code> 时不会卡，设了就卡？</strong></p>
+<p>本文通过源码分析给出完整答案。</p>
+<h1 id="he-xin-dai-ma-lu-jing">核心代码路径</h1>
+<h2 id="1-mu-lu-fa-xian-configpaths-directories">1. 目录发现 — <code>ConfigPaths.directories()</code></h2>
+<p><code>packages/opencode/src/config/paths.ts:23-41</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">export const</span><span style="color: #FF7EDB;"> directories</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">fn</span><span>(</span><span style="color: #FF8B39;">&quot;ConfigPaths.directories&quot;</span><span>)(</span><span style="color: #FEDE5D;">function*</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">directory</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> worktree</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  const</span><span style="color: #FF7EDB;"> afs</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FEDE5D;"> yield*</span><span style="color: #FF7EDB;"> FSUtil</span><span>.</span><span style="color: #FF7EDB;">Service</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  return</span><span style="color: #36F9F6;"> unique</span><span>([</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    Global</span><span>.</span><span style="color: #FF7EDB;">Path</span><span>.</span><span style="color: #FF7EDB;">config</span><span>,</span><span style="color: #848BBD;font-style: italic;">              // ① ~/.config/opencode/ — 永远存在</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    ...</span><span>(</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">Flag</span><span>.</span><span style="color: #FF7EDB;">OPENCODE_DISABLE_PROJECT_CONFIG</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">      ? yield*</span><span style="color: #FF7EDB;"> afs</span><span>.</span><span style="color: #36F9F6;">up</span><span>({</span><span style="color: #848BBD;font-style: italic;">              // ② 往 cwd 上走的 .opencode/ 目录</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">          targets</span><span style="color: #B6B1B1;">:</span><span> [</span><span style="color: #FF8B39;">&quot;.opencode&quot;</span><span>],</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">          start</span><span style="color: #B6B1B1;">:</span><span style="color: #FF7EDB;"> directory</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">          stop</span><span style="color: #B6B1B1;">:</span><span style="color: #FF7EDB;"> worktree</span><span>,</span></span>
+<span class="giallo-l"><span>        })</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">      :</span><span> []),</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    ...</span><span>(</span><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> afs</span><span>.</span><span style="color: #36F9F6;">up</span><span>({</span><span style="color: #848BBD;font-style: italic;">              // ③ ~/.opencode/</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      targets</span><span style="color: #B6B1B1;">:</span><span> [</span><span style="color: #FF8B39;">&quot;.opencode&quot;</span><span>],</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      start</span><span style="color: #B6B1B1;">:</span><span style="color: #FF7EDB;"> Global</span><span>.</span><span style="color: #FF7EDB;">Path</span><span>.</span><span style="color: #FF7EDB;">home</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      stop</span><span style="color: #B6B1B1;">:</span><span style="color: #FF7EDB;"> Global</span><span>.</span><span style="color: #FF7EDB;">Path</span><span>.</span><span style="color: #FF7EDB;">home</span><span>,</span></span>
+<span class="giallo-l"><span>    })),</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    ...</span><span>(</span><span style="color: #FF7EDB;">Flag</span><span>.</span><span style="color: #FF7EDB;">OPENCODE_CONFIG_DIR</span><span style="color: #FEDE5D;"> ?</span><span> [</span><span style="color: #FF7EDB;">Flag</span><span>.</span><span style="color: #FF7EDB;">OPENCODE_CONFIG_DIR</span><span>]</span><span style="color: #FEDE5D;"> :</span><span> []),</span><span style="color: #848BBD;font-style: italic;">  // ④ 设置变量的目录</span></span>
+<span class="giallo-l"><span>  ])</span></span>
+<span class="giallo-l"><span>})</span></span></code></pre>
+<p>四个来源，<code>unique()</code> 去重，返回结果例如：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>不设 OPENCODE_CONFIG_DIR： [/root/.config/opencode]</span></span>
+<span class="giallo-l"><span>设置 OPENCODE_CONFIG_DIR： [/root/.config/opencode, /agent-config]</span></span></code></pre><h2 id="2-wu-tiao-jian-an-zhuang-config-ts-zhong-de-bian-li">2. 无条件安装 — <code>config.ts</code> 中的遍历</h2>
+<p><code>packages/opencode/src/config/config.ts:424-477</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span> (</span><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> dir</span><span style="color: #FEDE5D;"> of</span><span style="color: #FF7EDB;"> directories</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ... 加载 opencode.json / opencode.jsonc ...</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #36F9F6;"> ensureGitignore</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>).</span><span style="color: #36F9F6;">pipe</span><span>(</span><span style="color: #FF7EDB;">Effect</span><span>.</span><span style="color: #FF7EDB;">orDie</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // 对每个目录，forkDetach 一个后台 fiber 安装 @opencode-ai/plugin</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  const</span><span style="color: #FF7EDB;"> dep</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FEDE5D;"> yield*</span><span style="color: #FF7EDB;"> npmSvc</span></span>
+<span class="giallo-l"><span>    .</span><span style="color: #36F9F6;">install</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>, {</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      add</span><span style="color: #B6B1B1;">:</span><span> [{</span><span style="color: #FF7EDB;"> name</span><span style="color: #B6B1B1;">:</span><span style="color: #FF8B39;"> &quot;@opencode-ai/plugin&quot;</span><span>,</span><span style="color: #FF7EDB;"> version</span><span style="color: #B6B1B1;">:</span><span style="color: #FF7EDB;"> InstallationVersion</span><span> }],</span></span>
+<span class="giallo-l"><span>    })</span></span>
+<span class="giallo-l"><span>    .</span><span style="color: #36F9F6;">pipe</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      Effect</span><span>.</span><span style="color: #FF7EDB;">exit</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      Effect</span><span>.</span><span style="color: #36F9F6;">tap</span><span>((</span><span style="color: #FF7EDB;font-style: italic;">exit</span><span>)</span><span style="color: #FEDE5D;"> =&gt;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">        Exit</span><span>.</span><span style="color: #36F9F6;">isFailure</span><span>(</span><span style="color: #FF7EDB;">exit</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">          ?</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logWarning</span><span>(</span><span style="color: #FF8B39;">&quot;background dependency install failed&quot;</span><span>,</span><span style="color: #FEDE5D;"> ...</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">          :</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #FF7EDB;">void</span><span>,</span></span>
+<span class="giallo-l"><span>      ),</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">      Effect</span><span>.</span><span style="color: #FF7EDB;">forkDetach</span><span>,</span><span style="color: #848BBD;font-style: italic;">   // ← 后台执行，不阻塞循环</span></span>
+<span class="giallo-l"><span>    )</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">  deps</span><span>.</span><span style="color: #36F9F6;">push</span><span>(</span><span style="color: #FF7EDB;">dep</span><span>)</span><span style="color: #848BBD;font-style: italic;">            // ← 收集 fiber 引用</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // 扫描本地插件文件</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  const</span><span style="color: #FF7EDB;"> list</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FEDE5D;"> yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">promise</span><span>(()</span><span style="color: #FEDE5D;"> =&gt;</span><span style="color: #FF7EDB;"> ConfigPlugin</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>))</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>关键点：</p>
+<ul>
+<li><code>npmSvc.install()</code> 对<strong>每个</strong> <code>directories()</code> 返回的目录都调用</li>
+<li><strong>不做任何前置判断</strong>：不检查目录是否有 <code>opencode.json</code>、也没有检查是否有 <code>plugins/</code></li>
+<li><code>forkDetach</code> 确保它在后台运行，当前循环继续</li>
+</ul>
+<h3 id="wei-shen-me-zhi-an-zhuang-opencode-ai-plugin">为什么只安装 <code>@opencode-ai/plugin</code></h3>
+<p><code>config.ts:462</code> 中写死了这个包名：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FE4450;">add</span><span>: [{</span><span style="color: #FF7EDB;"> name</span><span style="color: #B6B1B1;">:</span><span style="color: #FF8B39;"> &quot;@opencode-ai/plugin&quot;</span><span>,</span><span style="color: #FF7EDB;"> version</span><span style="color: #B6B1B1;">:</span><span style="color: #FEDE5D;"> ...</span><span> }]</span></span></code></pre>
+<p>插件如果还需要其他依赖呢？有两种方式：</p>
+<p><strong>本地文件插件</strong>（<code>plugins/*.ts</code>）：把依赖加到目录的 <code>package.json</code> 中。<code>@npmcli/arborist</code> 的 <code>reify()</code> 会读取 <code>package.json</code> 的 <code>dependencies</code> 并自动解析传递依赖树——不需要在代码里逐个声明。</p>
+<p><strong>npm 包插件</strong>（<code>opencode.jsonc</code> 中的 <code>"plugin": ["some-pkg"]</code>）：走 <code>Npm.add()</code> 安装到 <code>~/.cache/opencode/packages/</code>，自己的 <code>package.json</code> 声明了什么依赖，arborist 就装什么。</p>
+<p>所以 opencode 只负责塞入 <code>@opencode-ai/plugin</code> 这一个入口包，其余依赖由标准 npm 解析链路处理。</p>
+<h3 id="ban-ben-suo-ding-ji-zhi">版本锁定机制</h3>
+<p><code>config.ts:462-463</code> 控制版本：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FE4450;">version</span><span>:</span><span style="color: #FF7EDB;"> InstallationLocal</span><span style="color: #848BBD;font-style: italic;">     // 开发版吗？</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  ?</span><span style="color: #F97E72;"> undefined</span><span style="color: #848BBD;font-style: italic;">                  // → 不锁定，按 package.json 装</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  :</span><span style="color: #FF7EDB;"> InstallationVersion</span><span style="color: #848BBD;font-style: italic;">        // → 锁定为二进制版本号</span></span></code></pre><table><thead><tr><th>二进制类型</th><th><code>OPENCODE_CHANNEL</code></th><th>安装行为</th></tr></thead><tbody>
+<tr><td>开发版（源码编译）</td><td><code>"local"</code></td><td><code>version=undefined</code>，npm 按 <code>package.json</code> 中的版本装</td></tr>
+<tr><td>正式版（你的 1.17.12）</td><td>非 <code>"local"</code></td><td><code>version="1.17.12"</code>，强制要求 <code>@opencode-ai/plugin@1.17.12</code></td></tr>
+</tbody></table>
+<p><strong>这意味着预置的 <code>node_modules</code> 必须版本精确匹配。</strong> 你的 <code>package.json</code> 写 <code>"1.17.12"</code>、<code>node_modules</code> 里装的也是 <code>1.17.12</code>、二进制要求 <code>1.17.12</code>——三者一致，arborist 跳过。如果装了 <code>1.18</code> 等其他版本，arborist 发现不匹配就会重新下载。</p>
+<p>但实际上<strong>脏检只比对包名，不比版本</strong>。<code>npm.ts:188-192</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span> (</span><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> name</span><span style="color: #FEDE5D;"> of</span><span style="color: #FF7EDB;"> declared</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  if</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">locked</span><span>.</span><span style="color: #36F9F6;">has</span><span>(</span><span style="color: #FF7EDB;">name</span><span>)) {</span><span style="color: #848BBD;font-style: italic;">  // 只看名字，不管版本号</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    yield*</span><span style="color: #36F9F6;"> reify</span><span>({</span><span style="color: #FF7EDB;"> dir</span><span>,</span><span style="color: #FF7EDB;"> add</span><span> })</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    return</span></span>
+<span class="giallo-l"><span>  }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>这意味着：</p>
+<table><thead><tr><th>package.json</th><th>package-lock.json</th><th>node_modules</th><th>脏检结果</th></tr></thead><tbody>
+<tr><td><code>1.18.0</code></td><td>有 <code>@opencode-ai/plugin</code></td><td>装了 <code>1.18.0</code></td><td><strong>跳过</strong>（名字匹配）</td></tr>
+<tr><td><code>1.17.12</code></td><td>有 <code>@opencode-ai/plugin</code></td><td>装了 <code>1.18.0</code></td><td><strong>跳过</strong>（名字匹配，版本不校验）</td></tr>
+<tr><td>不存在</td><td>没有这个包</td><td>任意</td><td><strong>触发 reify</strong></td></tr>
+</tbody></table>
+<p>脏检的唯一目的是防止"包完全没装过"的极端情况。一旦 <code>reify()</code> 被触发，arborist 会按二进制指定的 <code>InstallationVersion</code> 安装，然后 <code>save: true</code> 写回 <code>package.json</code>——<strong>二进制版本优先级最高</strong>。所以只要 <code>package-lock.json</code> 中锁定过 <code>@opencode-ai/plugin</code>（任意版本），脏检就能通过；真正强制执行具体版本的是 arborist 的 <code>reify()</code>。</p>
+<h2 id="3-she-ji-yi-tu">3. 设计意图</h2>
+<p>为什么对一切目录无差别安装？因为 opencode 的 <code>.ts</code> 插件运行时依赖 <code>@opencode-ai/plugin</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// plugins/wfuzz-agent.ts</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">export const</span><span style="color: #36F9F6;"> WfuzzAgent</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FEDE5D;"> async</span><span> ({</span><span style="color: #FF7EDB;font-style: italic;"> client</span><span> })</span><span style="color: #FEDE5D;"> =&gt;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // client 的类型定义来自 @opencode-ai/plugin</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  await</span><span style="color: #FF7EDB;"> client</span><span>.</span><span style="color: #FF7EDB;">app</span><span>.</span><span style="color: #36F9F6;">log</span><span>({</span><span style="color: #FEDE5D;"> ...</span><span> })</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p><code>client</code> 的类型和运行时由 <code>@opencode-ai/plugin</code> npm 包提供。opencode 的假设是：</p>
+<blockquote>
+<p><strong>任何目录都可能随时被放入一个 <code>.ts</code> 插件文件。与其加载时才发现缺依赖，不如提前在所有目录中确保运行时已就绪。</strong></p>
+</blockquote>
+<h2 id="4-zu-sai-dian-waitfordependencies">4. 阻塞点 — <code>waitForDependencies()</code></h2>
+<p><code>packages/opencode/src/plugin/index.ts:190-193</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> plugins</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> flags</span><span>.</span><span style="color: #FF7EDB;">pure</span><span style="color: #FEDE5D;"> ?</span><span> []</span><span style="color: #FEDE5D;"> :</span><span> (</span><span style="color: #FF7EDB;">cfg</span><span>.</span><span style="color: #FF7EDB;">plugin_origins</span><span style="color: #FEDE5D;"> ??</span><span> [])</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">if</span><span> (</span><span style="color: #FF7EDB;">plugins</span><span>.</span><span style="color: #FF7EDB;">length</span><span>)</span><span style="color: #FEDE5D;"> yield*</span><span style="color: #FF7EDB;"> config</span><span>.</span><span style="color: #36F9F6;">waitForDependencies</span><span>()</span></span></code></pre>
+<p><code>waitForDependencies()</code> 定义在 <code>config.ts:640-643</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> waitForDependencies</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">fn</span><span>(</span><span style="color: #FF8B39;">&quot;Config.waitForDependencies&quot;</span><span>)(</span><span style="color: #FEDE5D;">function*</span><span> () {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> InstanceState</span><span>.</span><span style="color: #36F9F6;">useEffect</span><span>(</span><span style="color: #FF7EDB;">state</span><span>, (</span><span style="color: #FF7EDB;font-style: italic;">s</span><span>)</span><span style="color: #FEDE5D;"> =&gt;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    Effect</span><span>.</span><span style="color: #36F9F6;">forEach</span><span>(</span><span style="color: #FF7EDB;">s</span><span>.</span><span style="color: #FF7EDB;">deps</span><span>,</span><span style="color: #FF7EDB;"> Fiber</span><span>.</span><span style="color: #FF7EDB;">join</span><span>, {</span><span style="color: #FF7EDB;"> concurrency</span><span style="color: #B6B1B1;">:</span><span style="color: #FF8B39;"> &quot;unbounded&quot;</span><span> }),</span></span>
+<span class="giallo-l"><span>  )</span></span>
+<span class="giallo-l"><span>})</span></span></code></pre>
+<p><strong><code>Fiber.join</code> 等待所有 <code>forkDetach</code> 出来的 npm install fiber 完成。</strong></p>
+<h2 id="5-wei-shen-me-bu-she-bian-liang-bu-qia-she-liao-jiu-qia">5. 为什么「不设变量不卡，设了就卡」</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>不设 OPENCODE_CONFIG_DIR:</span></span>
+<span class="giallo-l"><span>  directories() = [/root/.config/opencode]</span></span>
+<span class="giallo-l"><span>  → npm install (forkDetach) → 后台跑到 reify()</span></span>
+<span class="giallo-l"><span>  → ConfigPlugin.load() → found=0</span></span>
+<span class="giallo-l"><span>  → plugins.length = 0</span></span>
+<span class="giallo-l"><span>  → waitForDependencies() 不调用！                    ← 没人等</span></span>
+<span class="giallo-l"><span>  → TUI 立即启动，后台下载在无人等待的情况下继续</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>设 OPENCODE_CONFIG_DIR=/agent-config:</span></span>
+<span class="giallo-l"><span>  directories() = [/root/.config/opencode, /agent-config]</span></span>
+<span class="giallo-l"><span>  → npm install (forkDetach) × 2 → 后台跑两个 fiber</span></span>
+<span class="giallo-l"><span>  → ConfigPlugin.load() → found=1 (wfuzz-agent.ts)</span></span>
+<span class="giallo-l"><span>  → plugins.length = 1</span></span>
+<span class="giallo-l"><span>  → waitForDependencies() → Fiber.join 所有 fiber        ← 卡在这里</span></span>
+<span class="giallo-l"><span>  → 等到 npm install 完成才启动 TUI</span></span></code></pre>
+<p>结论：<strong>npm 下载两边都发生了，区别在于有没有 <code>waitForDependencies</code> 去等它。</strong></p>
+<h2 id="6-npm-install-nei-bu-luo-ji">6. Npm.install() 内部逻辑</h2>
+<p><code>packages/core/src/npm.ts:146-197</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> install</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">fn</span><span>(</span><span style="color: #FF8B39;">&quot;Npm.install&quot;</span><span>)(</span><span style="color: #FEDE5D;">function*</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">dir</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> input</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ① 可写检查：不可写 → 直接 return，fiber 立即完成</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  const</span><span style="color: #FF7EDB;"> canWrite</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FEDE5D;"> yield*</span><span style="color: #FF7EDB;"> afs</span><span>.</span><span style="color: #36F9F6;">access</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>, {</span><span style="color: #FF7EDB;"> writable</span><span style="color: #B6B1B1;">:</span><span style="color: #F97E72;"> true</span><span> })</span></span>
+<span class="giallo-l"><span>    .</span><span style="color: #36F9F6;">pipe</span><span>(</span><span style="color: #FF7EDB;">Effect</span><span>.</span><span style="color: #36F9F6;">as</span><span>(</span><span style="color: #F97E72;">true</span><span>),</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">orElseSucceed</span><span>(()</span><span style="color: #FEDE5D;"> =&gt;</span><span style="color: #F97E72;"> false</span><span>))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  if</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">canWrite</span><span>)</span><span style="color: #FEDE5D;"> return</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ② node_modules 不存在 → 调用 @npmcli/arborist.reify() 安装</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  if</span><span> (</span><span style="color: #FEDE5D;">!yield*</span><span style="color: #FF7EDB;"> afs</span><span>.</span><span style="color: #36F9F6;">existsSafe</span><span>(</span><span style="color: #FF7EDB;">path</span><span>.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>,</span><span style="color: #FF8B39;"> &quot;node_modules&quot;</span><span>))) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    yield*</span><span style="color: #36F9F6;"> reify</span><span>({</span><span style="color: #FF7EDB;"> add</span><span>,</span><span style="color: #FF7EDB;"> dir</span><span> })</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    return</span></span>
+<span class="giallo-l"><span>  }</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ③ 脏检：对比 package.json + package-lock.json</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  //    声明的依赖 vs 锁定的依赖，有缺失就 reify</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  //    都满足 → 跳过 (no-op)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ...</span></span>
+<span class="giallo-l"><span>})</span></span></code></pre>
+<p><code>v1.17.12</code> 中脏检逻辑已经存在。真正的问题在于：容器或新环境中 <code>~/.config/opencode/</code> 没有任何 <code>node_modules</code>，流程会在第 ② 步（<code>node_modules</code> 不存在检测）就直接调用 <code>reify()</code>，根本走不到第 ③ 步的脏检。</p>
+<h2 id="7-wan-zheng-lian-lu-tu">7. 完整链路图</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>directories()</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ├─ Global.Path.config       → /root/.config/opencode</span></span>
+<span class="giallo-l"><span>  ├─ afs.up(&quot;.opencode&quot;)      → cwd 往上的 .opencode/</span></span>
+<span class="giallo-l"><span>  ├─ afs.up(&quot;.opencode&quot;,home) → ~/.opencode/</span></span>
+<span class="giallo-l"><span>  └─ OPENCODE_CONFIG_DIR      → /agent-config (如果设了)</span></span>
+<span class="giallo-l"><span>         │</span></span>
+<span class="giallo-l"><span>         ▼ 对每个 dir</span></span>
+<span class="giallo-l"><span>  ┌──────────────────────────────────┐</span></span>
+<span class="giallo-l"><span>  │ npmSvc.install(dir, {            │</span></span>
+<span class="giallo-l"><span>  │   add: [&quot;@opencode-ai/plugin&quot;]   │</span></span>
+<span class="giallo-l"><span>  │ }).pipe(forkDetach)              │ ← 后台 fiber</span></span>
+<span class="giallo-l"><span>  │                                  │</span></span>
+<span class="giallo-l"><span>  │ deps.push(fiber)                 │ ← 收集引用</span></span>
+<span class="giallo-l"><span>  │                                  │</span></span>
+<span class="giallo-l"><span>  │ ConfigPlugin.load(dir)           │ ← 扫描 plugins/*.ts</span></span>
+<span class="giallo-l"><span>  └──────────────────────────────────┘</span></span>
+<span class="giallo-l"><span>         │</span></span>
+<span class="giallo-l"><span>         ▼ 之后，plugin/index.ts</span></span>
+<span class="giallo-l"><span>  ┌──────────────────────────────────┐</span></span>
+<span class="giallo-l"><span>  │ if (plugins.length)              │</span></span>
+<span class="giallo-l"><span>  │   waitForDependencies()          │ ← Fiber.join 所有 deps</span></span>
+<span class="giallo-l"><span>  │   // ↑ 阻塞直到 npm install 完成  │</span></span>
+<span class="giallo-l"><span>  │                                  │</span></span>
+<span class="giallo-l"><span>  │ PluginLoader.loadExternal(...)    │ ← import 插件</span></span>
+<span class="giallo-l"><span>  └──────────────────────────────────┘</span></span></code></pre><h2 id="8-jie-jue-fang-an">8. 解决方案</h2>
+<h3 id="rang-arborist-ren-wei-yi-an-zhuang">让 arborist 认为已安装</h3>
+<p><code>@npmcli/arborist</code> 的 <code>reify()</code> 在以下条件满足时是 no-op（不联网）：</p>
+<ul>
+<li><code>package.json</code> 中有 <code>@opencode-ai/plugin</code></li>
+<li><code>package-lock.json</code> 中锁定了对应版本</li>
+<li><code>node_modules/@opencode-ai/plugin/</code> 实际存在</li>
+</ul>
+<p>因此只需为 <code>directories()</code> 返回的<strong>所有</strong>目录预置这三个条件：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> dir</span><span style="color: #FEDE5D;"> in</span><span> /root/.config/opencode /root/.opencode /agent-config;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  mkdir</span><span style="color: #F97E72;"> -p</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$dir</span><span style="color: #FF8B39;">&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cp</span><span> /agent-config/package.json</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$dir</span><span style="color: #FF8B39;">/&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cp</span><span> /agent-config/package-lock.json</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$dir</span><span style="color: #FF8B39;">/&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  mkdir</span><span style="color: #F97E72;"> -p</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$dir</span><span style="color: #FF8B39;">/node_modules/@opencode-ai&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cp</span><span style="color: #F97E72;"> -a</span><span> /agent-config/node_modules/@opencode-ai/plugin</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$dir</span><span style="color: #FF8B39;">/node_modules/@opencode-ai/&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span></code></pre>
+<p><code>/agent-config/</code> 本身已具备。其余目录补充后，<code>waitForDependencies()</code> 等待的所有 fiber 都能瞬间完成。</p>
+<h3 id="yuan-ma-ji-xiu-fu-opencode-fork">源码级修复（opencode fork）</h3>
+<p>在 <code>config.ts</code> 中添加前置判断，跳过无意义的安装：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 前置守卫：既没有 opencode.json* 也没有 plugins/ → 跳过</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> hasConfig</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> dir</span><span>.</span><span style="color: #36F9F6;">endsWith</span><span>(</span><span style="color: #FF8B39;">&quot;.opencode&quot;</span><span>)</span><span style="color: #FEDE5D;"> ||</span><span style="color: #FF7EDB;"> dir</span><span style="color: #FEDE5D;"> ===</span><span style="color: #FF7EDB;"> Flag</span><span>.</span><span style="color: #FF7EDB;">OPENCODE_CONFIG_DIR</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  ||</span><span> (</span><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> fs</span><span>.</span><span style="color: #36F9F6;">existsSafe</span><span>(</span><span style="color: #FF7EDB;">path</span><span>.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>,</span><span style="color: #FF8B39;"> &quot;opencode.json&quot;</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  ||</span><span> (</span><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> fs</span><span>.</span><span style="color: #36F9F6;">existsSafe</span><span>(</span><span style="color: #FF7EDB;">path</span><span>.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>,</span><span style="color: #FF8B39;"> &quot;opencode.jsonc&quot;</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> hasPlugins</span><span style="color: #FFFFFFEE;"> =</span><span> (</span><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> fs</span><span>.</span><span style="color: #36F9F6;">existsSafe</span><span>(</span><span style="color: #FF7EDB;">path</span><span>.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>,</span><span style="color: #FF8B39;"> &quot;plugins&quot;</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  ||</span><span> (</span><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> fs</span><span>.</span><span style="color: #36F9F6;">existsSafe</span><span>(</span><span style="color: #FF7EDB;">path</span><span>.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF7EDB;">dir</span><span>,</span><span style="color: #FF8B39;"> &quot;plugin&quot;</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">if</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">hasConfig</span><span style="color: #FEDE5D;"> &amp;&amp; !</span><span style="color: #FF7EDB;">hasPlugins</span><span>)</span><span style="color: #FEDE5D;"> continue</span></span></code></pre>
+<p>配合 <code>npm.ts</code> 中的脏检逻辑（对比 <code>package-lock.json</code>），两个改动可彻底消除不必要的下载。</p>
+<blockquote>
+<p><strong>实测验证</strong>：上述分析的每一项推断都在<a href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/">验证篇</a>中通过注入 <code>[TRACE]</code> 调试日志进行了逐帧还原。docker 无缓存环境下 <code>arborist.reify()</code> 耗时 18.6 秒，<code>waitForDependencies</code> 同步阻塞 18.6 秒。</p>
+</blockquote>
+<h2 id="zong-jie">总结</h2>
+<table><thead><tr><th>现象</th><th>根因</th></tr></thead><tbody>
+<tr><td>空目录也触发 npm install</td><td><code>npmSvc.install()</code> 对所有 <code>directories()</code> 结果无条件调用</td></tr>
+<tr><td>设 <code>OPENCODE_CONFIG_DIR</code> 后变慢</td><td>有插件 → <code>waitForDependencies</code> → <code>Fiber.join</code> 等 npm fiber</td></tr>
+<tr><td>不设变量不慢</td><td>无插件 → 不调用 <code>waitForDependencies</code> → npm 在后台无人等待</td></tr>
+<tr><td>预置 node_modules 可跳过</td><td><code>arborist.reify()</code> 发现包已安装 → no-op</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/">&#8249; opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/"> opencode 启动慢排查：plugin 触发 60MB npm 依赖下载 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang-hui-gu">现象回顾</a>
+        </div>
+        <div>
+          <a href="#he-xin-dai-ma-lu-jing">核心代码路径</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-mu-lu-fa-xian-configpaths-directories"><small>- 1. 目录发现 — ConfigPaths.directories()</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-wu-tiao-jian-an-zhuang-config-ts-zhong-de-bian-li"><small>- 2. 无条件安装 — config.ts 中的遍历</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wei-shen-me-zhi-an-zhuang-opencode-ai-plugin"><small>· 为什么只安装 @opencode-ai&#x2F;plugin</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ban-ben-suo-ding-ji-zhi"><small>· 版本锁定机制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-she-ji-yi-tu"><small>- 3. 设计意图</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-zu-sai-dian-waitfordependencies"><small>- 4. 阻塞点 — waitForDependencies()</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-wei-shen-me-bu-she-bian-liang-bu-qia-she-liao-jiu-qia"><small>- 5. 为什么「不设变量不卡，设了就卡」</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-npm-install-nei-bu-luo-ji"><small>- 6. Npm.install() 内部逻辑</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-wan-zheng-lian-lu-tu"><small>- 7. 完整链路图</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#8-jie-jue-fang-an"><small>- 8. 解决方案</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#rang-arborist-ren-wei-yi-an-zhuang"><small>· 让 arborist 认为已安装</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yuan-ma-ji-xiu-fu-opencode-fork"><small>· 源码级修复（opencode fork）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

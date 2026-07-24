@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - gpg</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/gpg/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-11-25T10:59:41+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/gpg/atom.xml</id>
+    <entry xml:lang="en">
+        <title>apt 中的keyrings(gpg)</title>
+        <published>2025-11-25T10:59:41+08:00</published>
+        <updated>2025-11-25T10:59:41+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/"/>
+        <id>https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/">&lt;h1 id=&quot;apt-gpg-zuo-yong&quot;&gt;apt gpg 作用&lt;&#x2F;h1&gt;
+&lt;p&gt;在 APT 的工作流程中，GPG 签名验证（signed-by= 指定的公钥）是在 “获取 Release 文件并校验其完整性与真实性” 阶段起作用的，具体发生在 apt update 的早期阶段，早于包列表下载和安装决策。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;解析 sources.list ，识别源 URL 和组件 ( bookworm , stable)&lt;&#x2F;li&gt;
+&lt;li&gt;下载 InRelease 或 Release + Release.gpg 文件： → https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;debian&#x2F;dists&#x2F;bookworm&#x2F;InRelease
+或 → ...&#x2F;Release + ...&#x2F;Release.gpg 关键阶段&lt;&#x2F;li&gt;
+&lt;li&gt;用 &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc 中的公钥验证 InRelease&#x2F;Release.gpg 签名 ️ GPG 认证生效点&lt;&#x2F;li&gt;
+&lt;li&gt;若验证失败 → 立即报错退出 （如 NO_PUBKEY , GPG error , signature invalid ）&lt;&#x2F;li&gt;
+&lt;li&gt;若验证成功 → 解析 Release 文件中的 SHA256 &#x2F; SHA512 校验和 （哈希校验，非 GPG）&lt;&#x2F;li&gt;
+&lt;li&gt;下载 Packages.gz 等索引文件，并用 Release 中的哈希值校验完整性&lt;&#x2F;li&gt;
+&lt;li&gt;建立本地包数据库（ &#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;...  ）&lt;&#x2F;li&gt;
+&lt;li&gt;apt install 时仅校验 .deb 包哈希（来自 Packages ）， 不再 GPG 验证&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 1. 故意破坏签名验证（删掉 keyring）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; rm &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt update&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1 |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -A2 -B2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;GPG\|NO_PUBKEY&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 报错：The following signatures couldn&amp;#39;t be verified...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 2. 或临时禁用验证（危险！仅测试）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -o&lt;&#x2F;span&gt;&lt;span&gt; Acquire::Check-Valid-Until=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;false&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;         -o&lt;&#x2F;span&gt;&lt;span&gt; Acquire::AllowInsecureRepositories=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;         -o&lt;&#x2F;span&gt;&lt;span&gt; Acquire::AllowDowngradeToInsecureRepositories=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;true&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;         update&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 仍可能失败，因为 signed-by 指定了强制 key，除非改 sources.list 去掉 signed-by&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;shi-yong-jing-xiang-yuan-mirror-de-apt-fu-wu-huan-neng-zheng-chang-gpg-ren-zheng-ma&quot;&gt;使用镜像源（mirror）的 APT 服务，还能正常 GPG 认证吗？&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;可以，只要镜像同步了完整的 dists&#x2F; 目录（含 InRelease &#x2F; Release + Release.gpg）——绝大多数合规镜像都做到了。&lt;&#x2F;li&gt;
+&lt;li&gt;APT 的 GPG 校验不依赖源服务器域名&#x2F;IP，只校验：
+文件内容是否被篡改（哈希匹配）
+Release 文件是否由可信私钥签名（GPG 签名校验）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;yan-zheng-shi-cao-tui-jian&quot;&gt;验证实操（推荐）&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 1. 下载 InRelease（中科大镜像）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;mirrors.ustc.edu.cn&#x2F;docker-ce&#x2F;linux&#x2F;debian&#x2F;dists&#x2F;bookworm&#x2F;InRelease&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 2. 用你本地的 docker.asc 公钥验证&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --keyring&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;    --verify&lt;&#x2F;span&gt;&lt;span&gt; InRelease&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 应输出：Good signature from &amp;quot;Docker Release (CE deb) ...&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 3. 对比原始源（应完全一致）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;diff&lt;&#x2F;span&gt;&lt;span&gt; InRelease&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;  &amp;lt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;curl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;debian&#x2F;dists&#x2F;bookworm&#x2F;InRelease&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 无输出（完全相同）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;bao-cuo-pai-cha&quot;&gt;报错排查&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;gpg: [don&amp;#39;t know]: invalid packet (ctb=2d)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;gpg: keydb_search failed: 无效的数据包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;gpg: 无法检查签名：缺少公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;诊断依据
+你从 https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;debian&#x2F;gpg 下载的 gpg 文件（3.7KB）是 ASCII-armored 公钥&lt;&#x2F;li&gt;
+&lt;li&gt;但 --keyring &#x2F;path&#x2F;to&#x2F;file 默认期望的是 二进制格式的 keyring（或 GnuPG native keybox）&lt;&#x2F;li&gt;
+&lt;li&gt;当你直接把 ASCII-armored .asc 传给 --keyring，GPG 会把它当二进制解析 → 遇到 -----BEGIN 这种文本头 → 解析为“无效数据包”（ctb=2d 是 0x2d = &#x27;-&#x27; 字符）→ 失败 ❌&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xian-dearmor-cheng-er-jin-zhi-zai-yan-zheng-tui-jian&quot;&gt;先 dearmor 成二进制，再验证（推荐）&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 1. 确保 docker.asc 是 ASCII-armored（检查开头）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n2&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 应输出：-----BEGIN PGP PUBLIC KEY BLOCK-----&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 2. 转成二进制格式（例如 docker.gpg）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dearmor -o&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.gpg &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 3. 用 .gpg（二进制）验证&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --keyring&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;    --verify&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;InRelease&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ✅ 此时应显示：Good signature from &amp;quot;Docker Release (CE deb)...&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;bu-zhi-ding-keyring-er-shi-xian-dao-ru-gong-yao-dao-lin-shi-keyring&quot;&gt;不指定 --keyring，而是先导入公钥到临时 keyring&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 创建临时 home&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mkdir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;gpghome &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 700&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;gpghome&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导入公钥（自动 dearmor）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --homedir&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;gpghome&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --import&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 用临时 keyring 验证&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --homedir&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;gpghome&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --verify&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;InRelease&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 清理&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;rm&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -rf&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;gpghome&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;wei-shen-me-apt-ben-shen-neng-gong-zuo&quot;&gt;为什么 apt 本身能工作？&lt;&#x2F;h2&gt;
+&lt;p&gt;因为 APT 内部 自动处理 dearmor！ 当你在 sources.list 写：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;deb [signed-by=&#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc] ...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;APT 会： 检测 .asc 后缀或文件内容含 -----BEGIN → 自动 dearmor 后加载&lt;&#x2F;p&gt;
+&lt;p&gt;不依赖 gpg CLI 行为 → 所以 apt update 正常，但你手动用 gpg --keyring 却失败。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看二进制 keyring 内容&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --keyring&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-packets&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 应显示 pub, sub 等 key packets，无 &amp;quot;invalid packet&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或直接看指纹（对比官网）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --keyring&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --with-fingerprint --list-keys&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 应含：7EA0 A9C3 F273 FCD8 （即你日志中的 RSA 密钥 ID）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;zong-jie&quot;&gt;总结：&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;.asc 是文本格式，不能直接作 --keyring；必须 --dearmor 转 .gpg 二进制。&lt;&#x2F;li&gt;
+&lt;li&gt;APT 能自动处理，但 gpg CLI 不会 —— 这是常见坑点&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>GPG 使用指南</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/gpg/"/>
+        <id>https://moxuetianya.github.io/2025/07/gpg/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/gpg/">&lt;h1 id=&quot;gpg-shi-yong-zhi-nan&quot;&gt;GPG 使用指南&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ji-ben-cao-zuo&quot;&gt;基本操作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;sheng-cheng-mi-yao&quot;&gt;生成密钥&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --full-gen-key --expert&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;cha-kan-mi-yao&quot;&gt;查看密钥&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -k&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -K&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 私钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-keys --with-keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --fingerprint&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;dao-chu-dao-ru&quot;&gt;导出&#x2F;导入&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出公钥（文本格式）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --export&lt;&#x2F;span&gt;&lt;span&gt; peter&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; public.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出私钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --export-secret-key&lt;&#x2F;span&gt;&lt;span&gt; peter&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; private.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导入&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --import&lt;&#x2F;span&gt;&lt;span&gt; key.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;qian-ming-cao-zuo&quot;&gt;签名操作&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --sign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;           # 签名后内嵌原文&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --clearsign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      # 签名后原文可读&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --detach-sign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 分离签名，生成 .sig 文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --verify&lt;&#x2F;span&gt;&lt;span&gt; file.txt.asc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     # 验证签名&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;jia-mi-jie-mi&quot;&gt;加密&#x2F;解密&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 发送方使用接收方公钥加密&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;recipient&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --encrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 接收方使用自己的私钥解密&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --decrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt.asc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;tong-shi-qian-ming-he-jia-mi&quot;&gt;同时签名和加密&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --local-user&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;sender&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --recipient&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;receiver&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --sign --encrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;xin-ren-wang-luo&quot;&gt;信任网络&lt;&#x2F;h3&gt;
+&lt;p&gt;GPG 不依赖 PKI，而是通过&quot;信任网&quot;（Web of Trust）建立信任：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --sign-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   # 用自己的密钥签名对方的公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --check-sigs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 检查签名&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;zi-mi-yao-guan-li&quot;&gt;子密钥管理&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --expert --edit-key&lt;&#x2F;span&gt;&lt;span&gt; peterxiao&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  gpg&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt; addkey&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;             # 添加子密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  gpg&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt; key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;              # 选择子密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;最佳实践&lt;&#x2F;strong&gt;：生成主密钥后，导出备份到物理存储设备，然后从日常设备中删除主密钥仅保留子密钥：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a --export-secret-keys&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; master-secret-key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a --export-secret-subkeys&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; sub-secret-keys.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --delete-secret-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --import&lt;&#x2F;span&gt;&lt;span&gt; sub-secret-keys.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;此时 &lt;code&gt;gpg --list-secret-keys&lt;&#x2F;code&gt; 会显示 &lt;code&gt;sec#&lt;&#x2F;code&gt;（主密钥已删除）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gnome-keyring-ji-cheng&quot;&gt;Gnome Keyring 集成&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ssh-key-guan-li&quot;&gt;SSH key 管理&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install seahorse&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 首次 SSH 连接时提示输入 passphrase，可勾选&amp;quot;自动解锁&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;git-ping-ju&quot;&gt;Git 凭据&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install libsecret&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --global&lt;&#x2F;span&gt;&lt;span&gt; credential.helper &#x2F;usr&#x2F;lib&#x2F;git-core&#x2F;git-credential-libsecret&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;gnupg-ji-cheng&quot;&gt;GnuPG 集成&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-gnome3&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;gpg-agent.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;shi-yong-gpg-mi-yao-jin-xing-ssh-ren-zheng&quot;&gt;使用 GPG 密钥进行 SSH 认证&lt;&#x2F;h2&gt;
+&lt;p&gt;用 GPG 密钥替代 SSH 密钥，减少需要管理的密钥文件。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span&gt; enable-ssh-support&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;gpg-agent.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 在 .bashrc 中设置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; SSH_AUTH_SOCK&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpgconf&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-dirs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; agent-ssh-socket)&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg-connect-agent&lt;&#x2F;span&gt;&lt;span&gt; updatestartuptty &#x2F;bye&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 获取子密钥 keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-keys --with-keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 将 keygrip 添加到批准列表&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;keygrip&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;sshcontrol&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看已加载的 SSH 密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-add&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出 SSH 公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --export-ssh-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;git-tag-qian-ming&quot;&gt;Git Tag 签名&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --global&lt;&#x2F;span&gt;&lt;span&gt; user.signingkey&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; tag&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; v1.0.0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;git-ping-ju-guan-li&quot;&gt;Git 凭据管理&lt;&#x2F;h2&gt;
+&lt;p&gt;安装 Git Credential Manager 后配置：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用 GPG 存储凭据&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; GCM_CREDENTIAL_STORE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或使用内存缓存&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; GCM_CREDENTIAL_STORE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;cache&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 初始化密码存储&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pass&lt;&#x2F;span&gt;&lt;span&gt; init&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;gpg-key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在 Emacs 中需设置环境变量：&lt;code&gt;(setenv &quot;GCM_CREDENTIAL_STORE&quot; &quot;cache&quot;)&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ti-dai-apt-key&quot;&gt;替代 apt-key&lt;&#x2F;h2&gt;
+&lt;p&gt;从 Ubuntu 22.04 起 apt-key 被弃用，改用 GPG：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 旧方式（弃用）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -nc&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;example.com&#x2F;key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key add key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 新方式&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -O-&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;example.com&#x2F;key.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dearmor&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  sudo&lt;&#x2F;span&gt;&lt;span&gt; tee &#x2F;etc&#x2F;apt&#x2F;trusted.gpg.d&#x2F;example.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 更新 sources.list 添加 signed-by&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;deb&lt;&#x2F;span&gt;&lt;span&gt; [arch=amd64 signed-by=&#x2F;etc&#x2F;apt&#x2F;trusted.gpg.d&#x2F;example.gpg] https:&#x2F;&#x2F;example.com&#x2F;debian stable main&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;迁移旧 apt-key 条目：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key list&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;             # 查看所有旧 key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span&gt; gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dearmor -o&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;usr&#x2F;share&#x2F;keyrings&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;name&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key del&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     # 删除旧条目&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;chang-jian-wen-ti&quot;&gt;常见问题&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;GPG 生成密钥时提示熵不够&lt;&#x2F;strong&gt;：SSH 远程服务器缺乏随机源，安装 &lt;code&gt;rng-tools&lt;&#x2F;code&gt; 或在 GUI 环境下操作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Emacs Magit 与 git credential 冲突&lt;&#x2F;strong&gt;：设置 &lt;code&gt;magit-process-connection-type&lt;&#x2F;code&gt; 为 t，配置 &lt;code&gt;GCM_CREDENTIAL_STORE=cache&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

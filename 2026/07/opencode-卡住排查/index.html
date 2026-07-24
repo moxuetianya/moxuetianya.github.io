@@ -1,0 +1,388 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 界面卡住不动排查 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从进程状态、子进程树到网络连接，一步步定位 opencode 卡死在 git push SSH 连接的排查过程" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/opencode-卡住排查/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/opencode-卡住排查/" />
+  <meta property="og:description" content="从进程状态、子进程树到网络连接，一步步定位 opencode 卡死在 git push SSH 连接的排查过程" />
+  <meta name="twitter:description" content="从进程状态、子进程树到网络连接，一步步定位 opencode 卡死在 git push SSH 连接的排查过程" />
+  <meta property="og:title" content="opencode 界面卡住不动排查 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 界面卡住不动排查 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-15" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/">opencode 界面卡住不动排查</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 15, 2026 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a>  #<a href="https://moxuetianya.github.io/tags/strace/">strace</a>  #<a href="https://moxuetianya.github.io/tags/ssh/">ssh</a>  #<a href="https://moxuetianya.github.io/tags/git/">git</a>  #<a href="https://moxuetianya.github.io/tags/futex/">futex</a>  #<a href="https://moxuetianya.github.io/tags/lock-contention/">lock-contention</a>  #<a href="https://moxuetianya.github.io/tags/ipv6/">ipv6</a> </span>
+
+    
+
+
+<h1 id="xian-xiang">现象</h1>
+<p>opencode 交互界面一直显示运行中，不输出任何新内容，像是卡死了一样。</p>
+<h1 id="di-yi-fan-ying-strace">第一反应：strace</h1>
+<p><code>strace -p &lt;pid&gt;</code> 看一下卡在哪个系统调用上：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">strace</span><span style="color: #F97E72;"> -p 4188775</span></span></code></pre>
+<p>结果有<strong>大量输出</strong>，<code>epoll_wait</code> → <code>read</code> → <code>write</code> → <code>epoll_wait</code> 循环不断，并没有阻塞在某个系统调用上。</p>
+<p>这说明进程本身在运行，事件循环在持续工作。</p>
+<h1 id="huan-ge-si-lu-jin-cheng-zhuang-tai-zi-jin-cheng-shu">换个思路：进程状态 + 子进程树</h1>
+<p><code>strace</code> 输出太多看不出问题，那就从最常规的进程状态入手。</p>
+<h2 id="kan-jin-cheng-zai-deng-shen-me">看进程在等什么</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -p 4188775 -o</span><span> pid,stat,wchan,cmd</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 4188775  Sl+  do_epoll_wait  opencode --log-level DEBUG</span></span></code></pre>
+<p><code>do_epoll_wait</code> 只是某个采样时刻的快照。opencode 是事件循环模型，绝大多数时间都<strong>短暂地</strong>阻塞在 <code>epoll_wait</code> 上等待 I/O 事件，<code>ps</code> 拍到的 <code>wchan</code> 几乎永远是 <code>do_epoll_wait</code>，不代表一直卡在同一个调用上。</p>
+<p>但这个信息告诉我们一件事：<strong>进程是 S (sleeping) 状态，不是 R (running)，也不是 D (uninterruptible sleep)。没有死循环，没有内核态阻塞。</strong></p>
+<h2 id="kan-zi-jin-cheng-shu">看子进程树</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">pstree</span><span style="color: #F97E72;"> -p 4188775</span></span></code></pre>
+<p>输出：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>opencode(4188775)───git(2867)───ssh(2868)</span></span></code></pre>
+<p>一目了然：opencode 下面挂着 <code>git push</code>，git 下面挂着 <code>ssh</code>。阻塞链条是 <code>opencode → git → ssh</code>。</p>
+<p>再看 git 进程的状态：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -p 2867 -o</span><span> pid,stat,wchan,etime,cmd</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 2867  Ssl  do_wait  04:13  git push -u myself dev</span></span></code></pre>
+<p>git push 已经跑了 4 分多钟，在 <code>do_wait</code> 等待子进程 ssh 结束。</p>
+<h1 id="ding-wei-xie-zi-jin-cheng-ssh-lian-jie-chu-liao-shen-me-wen-ti">定位叶子进程：SSH 连接出了什么问题</h1>
+<h2 id="kan-wang-luo-lian-jie">看网络连接</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ss</span><span style="color: #F97E72;"> -tnp</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> 2868</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → ESTAB  0  293076  192.168.5.99:60362 → 20.205.243.166:22  users:((&quot;ssh&quot;,pid=2868,fd=3))</span></span></code></pre>
+<p>关键信息：</p>
+<table><thead><tr><th>字段</th><th>值</th><th>含义</th></tr></thead><tbody>
+<tr><td>State</td><td>ESTAB</td><td>TCP 连接已建立</td></tr>
+<tr><td>Recv-Q</td><td>0</td><td>没有待读数据</td></tr>
+<tr><td>Send-Q</td><td><strong>293076 (~286KB)</strong></td><td>发送缓冲区积压了 286KB</td></tr>
+<tr><td>目的地址</td><td><code>20.205.243.166:22</code></td><td>GitHub SSH 端口</td></tr>
+</tbody></table>
+<p>TCP 三次握手已完成，但 <strong>Send-Q 积压 286KB</strong>，说明本地发出了数据而 GitHub 端没有确认 TCP 报文。这是典型的网络不通畅：连接能建起来，但数据传不过去。</p>
+<h2 id="kan-huan-jing-bian-liang">看环境变量</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/2868/environ</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> tr</span><span style="color: #FF8B39;"> &#39;\0&#39; &#39;\n&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -i</span><span> proxy</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>HTTPS_PROXY=http://192.168.5.244:10808</span></span>
+<span class="giallo-l"><span>HTTP_PROXY=http://192.168.5.244:10808</span></span>
+<span class="giallo-l"><span>all_proxy=socks5://192.168.5.244:10808</span></span></code></pre>
+<p>注意：<strong>SSH 不使用 HTTP/SOCKS 环境变量</strong>，它会直连目标主机的 22 端口。HTTP/SOCKS 代理只对 HTTP 客户端和部分应用生效，SSH 不受影响。</p>
+<h1 id="gen-yin">根因</h1>
+<p><code>git push</code> 使用 SSH 协议推送到 GitHub（<code>git@github.com:...</code>），SSH 直连 <code>github.com:22</code>。本地网络到 GitHub 22 端口的 TCP 路径不畅通（可能被防火墙阻断或被 QoS 限速）。</p>
+<h1 id="pai-cha-si-lu-zong-jie">排查思路总结</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>进程状态 (ps)                    ← 宏观：是 sleep / run / 内核阻塞？</span></span>
+<span class="giallo-l"><span>    │</span></span>
+<span class="giallo-l"><span>    ▼</span></span>
+<span class="giallo-l"><span>子进程树 (pstree)                ← 谁在等谁？</span></span>
+<span class="giallo-l"><span>    │</span></span>
+<span class="giallo-l"><span>    ▼</span></span>
+<span class="giallo-l"><span>叶子进程网络状态 (ss -tnp)        ← 网络有没有问题？</span></span>
+<span class="giallo-l"><span>    │</span></span>
+<span class="giallo-l"><span>    ▼</span></span>
+<span class="giallo-l"><span>环境变量 (/proc/pid/environ)      ← 代理/环境因素</span></span></code></pre>
+<blockquote>
+<p><code>strace</code> 看到大量事件循环输出时，不要被干扰。事件循环模型下 <code>ps</code> 看到的 <code>epoll_wait</code> 几乎永远不变，关键是<strong>它等的那件事有没有进展</strong>——用 <code>pstree</code> 一层层追到最底层，看叶子进程的状态。</p>
+</blockquote>
+<hr />
+<h1 id="di-er-ci-pai-cha-suo-zheng-qiang-lock-contention">第二次排查：锁争抢（Lock Contention）</h1>
+<p>同一天稍晚，另一个 opencode 进程（PID 138479）又卡住了。这次表现不同：CPU 占用 18%，看起来"活着"但响应极慢。</p>
+<h2 id="chu-bu-guan-cha">初步观察</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -p 138479 -o</span><span> pid,stat,wchan,pcpu,cmd</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 138479  Sl+  do_epoll_wait  18.0  opencode --log-level DEBUG</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/138479/status</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &#39;State|VmRSS|Threads&#39;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → State: R (running)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → VmRSS: 790120 kB</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → Threads: 40</span></span></code></pre>
+<p>注意 <code>ps</code> 显示 <code>Sl+</code>（sleep），但 <code>/proc/pid/status</code> 显示 <code>R（running）</code>。790MB RSS，40 个线程，18% CPU —— 进程在干活，但效率极低。</p>
+<h2 id="strace-cai-yang">strace 采样</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">strace</span><span style="color: #F97E72;"> -p 138479 -e</span><span> trace=all</span><span style="color: #F97E72;"> -c -S</span><span> time</span><span style="color: #FEDE5D;"> 2&gt;&amp;1</span><span> &amp;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sleep</span><span style="color: #F97E72;"> 5</span><span>;</span><span style="color: #36F9F6;"> kill</span><span> %1</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null;</span><span style="color: #36F9F6;"> wait</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span></span></code></pre>
+<p>5 秒内的系统调用分布：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>% time     seconds  calls    errors  syscall</span></span>
+<span class="giallo-l"><span> 79.64    0.097539  20345      252  futex</span></span>
+<span class="giallo-l"><span> 16.14    0.019772   2649            sched_yield</span></span>
+<span class="giallo-l"><span>  2.56    0.003137    389            epoll_pwait2</span></span>
+<span class="giallo-l"><span>  0.67    0.000821   1616            clock_gettime</span></span>
+<span class="giallo-l"><span>  0.29    0.000359    277            pread64</span></span>
+<span class="giallo-l"><span>  0.18    0.000215    281            read</span></span></code></pre>
+<p>关键数据：</p>
+<ul>
+<li><strong>79.6% 时间花在 futex</strong> — 20,345 次调用，线程在抢锁</li>
+<li><strong>16.1% 花在 sched_yield</strong> — 2,649 次，争不到锁主动让出 CPU</li>
+<li>真正的 I/O（read/write）占比可以忽略</li>
+</ul>
+<h2 id="xian-cheng-fen-bu">线程分布</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -Lp 138479 -o</span><span> lwp,psr,pcpu,stat,wchan:32</span><span style="color: #F97E72;"> --no-headers</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sort</span><span style="color: #F97E72;"> -k3 -rn</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -10</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>  lwp  psr  pcpu  stat  wchan</span></span>
+<span class="giallo-l"><span>138479   0   7.3  Rl+   -                  # 主线程 running</span></span>
+<span class="giallo-l"><span>142051   3   3.4  Sl+   do_epoll_wait</span></span>
+<span class="giallo-l"><span>138494   2   2.2  Sl+   do_epoll_wait</span></span>
+<span class="giallo-l"><span>138487  14   0.9  Sl+   futex_wait_queue    # 7个线程等锁</span></span>
+<span class="giallo-l"><span>138484   0   0.9  Rl+   futex_wait_queue     # 1个线程在 futex 中 running</span></span>
+<span class="giallo-l"><span>...</span></span></code></pre>
+<p><strong>~20 个线程</strong> 在 <code>futex_wait_queue</code>，1 个主线程在用户态跑，其余在 <code>do_epoll_wait</code>。</p>
+<h2 id="gen-yin-fen-xi">根因分析</h2>
+<p>进一步跟踪 futex 操作：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">strace</span><span style="color: #F97E72;"> -p 138479 -e</span><span> trace=futex</span><span style="color: #FEDE5D;"> 2&gt;&amp;1 |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -20</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1</span></span>
+<span class="giallo-l"><span>futex(0x7f601c0c0154, FUTEX_WAKE_PRIVATE, 1) = 1</span></span>
+<span class="giallo-l"><span>futex(0x7f601c0e0150, FUTEX_WAKE_PRIVATE, 1) = 1</span></span>
+<span class="giallo-l"><span>futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1</span></span>
+<span class="giallo-l"><span>...</span></span>
+<span class="giallo-l"><span>futex(0x7f601c01f154, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME,</span></span>
+<span class="giallo-l"><span>      125123, NULL, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN</span></span></code></pre>
+<p><strong>模式</strong>：大量 <code>FUTEX_WAKE_PRIVATE</code> 唤醒 + 偶尔 <code>FUTEX_WAIT_BITSET_PRIVATE</code> 超时（EAGAIN）。多个 futex 地址集中在同一内存区（<code>0x7f601c0bxxx-0x7f601c0fxxx</code>），像是一个线程池任务队列上的锁。</p>
+<p><strong>结论：惊群效应 + 严重锁争抢。</strong></p>
+<ul>
+<li>有大量线程同时被唤醒去竞争少数任务或资源</li>
+<li>大部分线程发现没活可干又 sleep，如此循环</li>
+<li>CPU 大部分消耗在 futex 调度上而非实际工作</li>
+<li>进程"活着"（能响应请求），但有效吞吐极低</li>
+</ul>
+<p><strong>可能诱因：</strong></p>
+<ol>
+<li>线程池过大（40 线程 vs 实际 CPU 核数），过多线程争抢同一把锁</li>
+<li><code>big-pickle</code> 本地 LLM 推理慢，IO 线程在等待结果期间造成锁堆积</li>
+<li>39 个 LSP server 同时启动，大量并发初始化请求冲击线程池</li>
+</ol>
+<hr />
+<h1 id="di-san-ci-pai-cha-ipv6-lian-jie-qia-zhu-syn-sent">第三次排查：IPv6 连接卡住 SYN-SENT</h1>
+<p>解决第一个进程后，又启动了一个新的 opencode（PID 183287）。这次 CPU 很低（2.8%），但也不响应。</p>
+<h2 id="ji-chu-xin-xi">基础信息</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -p 183287 -o</span><span> pid,stat,wchan,pcpu,cmd</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 183287  Sl+  do_epoll_wait  2.8  opencode --log-level DEBUG</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/183287/status</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &#39;State|VmRSS|Threads&#39;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → State:  S (sleeping)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → VmRSS: 511812 kB</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → Threads: 16</span></span></code></pre>
+<p>16 线程，512MB，2.8% CPU，状态 S（sleeping）。和上一个完全不同。</p>
+<h2 id="xian-cheng-fen-bu-1">线程分布</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>  lwp    pcpu  wchan</span></span>
+<span class="giallo-l"><span>183348   0.8   do_epoll_wait</span></span>
+<span class="giallo-l"><span>183287   0.6   do_epoll_wait     # 主线程</span></span>
+<span class="giallo-l"><span>183295   0.1   futex_wait_queue</span></span>
+<span class="giallo-l"><span>...其他线程都在 sleep...</span></span></code></pre>
+<p>所有线程 ≤ 0.8% CPU，大部分在 futex 上 sleep。进程完全<strong>空闲</strong>，不是在忙，是真的在等什么。</p>
+<h2 id="kan-wen-jian-miao-shu-fu">看文件描述符</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ls</span><span style="color: #F97E72;"> -la</span><span> /proc/183287/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> socket</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>35 -&gt; socket:[56963599]</span></span>
+<span class="giallo-l"><span>36 -&gt; socket:[56963601]</span></span>
+<span class="giallo-l"><span>37 -&gt; socket:[56963600]</span></span>
+<span class="giallo-l"><span>38 -&gt; socket:[56962309]</span></span>
+<span class="giallo-l"><span>39 -&gt; socket:[56963602]</span></span>
+<span class="giallo-l"><span>40 -&gt; socket:[56963603]</span></span></code></pre>
+<p>共 <strong>6 个 socket</strong>。用 <code>ss</code> 看它们的连接状态：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ss</span><span style="color: #F97E72;"> -npep</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> 183287</span></span></code></pre><table><thead><tr><th>fd</th><th>TCP 状态</th><th>本地</th><th>远端</th><th>说明</th></tr></thead><tbody>
+<tr><td>38</td><td><strong>ESTABLISHED</strong></td><td>192.168.5.99:53102</td><td>172.67.69.147:443</td><td>Cloudflare IPv4 ✅</td></tr>
+<tr><td>40</td><td><strong>ESTABLISHED</strong></td><td>192.168.5.99:59558</td><td>20.205.243.165:443</td><td>Microsoft/GitHub ✅</td></tr>
+<tr><td>35</td><td><strong>SYN-SENT</strong></td><td>[3000::5054:ff:fe87:f354]:38682</td><td>[2606:4700::6810:a22]:443</td><td>Cloudflare IPv6 ❌</td></tr>
+<tr><td>36</td><td><strong>SYN-SENT</strong></td><td>[3000::5054:ff:fe87:f354]:60690</td><td>[2606:4700::6810:422]:443</td><td>Cloudflare IPv6 ❌</td></tr>
+<tr><td>37</td><td><strong>SYN-SENT</strong></td><td>[3000::5054:ff:fe87:f354]:46750</td><td>[2606:4700::6810:222]:443</td><td>Cloudflare IPv6 ❌</td></tr>
+<tr><td>39</td><td><strong>SYN-SENT</strong></td><td>[3000::5054:ff:fe87:f354]:49118</td><td>[2606:4700::6810:322]:443</td><td>Cloudflare IPv6 ❌</td></tr>
+</tbody></table>
+<p><strong>4 个连接卡在 SYN-SENT</strong>，目标全是 Cloudflare 的 IPv6 地址段 <code>2606:4700::/32</code>。</p>
+<h2 id="yan-zheng-ipv6-bu-tong">验证 IPv6 不通</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ip</span><span style="color: #F97E72;"> -6</span><span> route show default</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → default via fe80::c0b1:65ff:fe3e:68c3 dev enp1s0</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">ping6</span><span style="color: #F97E72;"> -c 2 -W 2</span><span> 2606:4700::6810:a22</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 2 packets transmitted, 0 received, 100% packet loss</span></span></code></pre>
+<p>IPv6 路由存在，但实际不通 —— ping Cloudflare IPv6 地址 100% 丢包。</p>
+<h2 id="gen-yin-fen-xi-1">根因分析</h2>
+<p><code>big-pickle</code> 模型 API 通过 Cloudflare 托管，DNS 同时返回了 A 和 AAAA 记录。Node.js HTTP 客户端默认执行 <strong>Happy Eyeballs（RFC 8305）</strong>：优先尝试 IPv6，如果连接建立缓慢，才回退到 IPv4。</p>
+<p>问题在于：</p>
+<ol>
+<li>DNS 返回了多个 Cloudflare IPv6 地址</li>
+<li>Node.js 尝试并发连接所有 IPv6 地址</li>
+<li>内核发出 SYN 后收不到 SYN-ACK，连接进入 <strong>SYN-SENT</strong> 状态</li>
+<li>内核每 20 秒重传一次 SYN，总超时可达 <strong>120 秒以上</strong></li>
+<li>在此之前，IPv4 的请求即使已成功，部分客户端逻辑可能仍在等待 IPv6 尝试完成</li>
+</ol>
+<p>这解释了为什么进程看起来"卡住了"：它不是在死循环，而是事件循环被大量 pending 的 TCP 连接超时拖着，无法及时处理已就绪的请求。</p>
+<h2 id="lin-shi-huan-jie">临时缓解</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 方式 1：Node.js 层优先 IPv4</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">NODE_OPTIONS</span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF8B39;">&quot;--dns-result-order=ipv4first&quot;</span><span style="color: #FE4450;"> opencode</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 方式 2：系统层禁用 IPv6</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> sysctl</span><span style="color: #F97E72;"> -w</span><span> net.ipv6.conf.all.disable_ipv6=</span><span style="color: #F97E72;">1</span></span></code></pre><h2 id="gen-ben-xiu-fu">根本修复</h2>
+<p>排查 IPv6 路由/网关问题，或确保 big-pickle API 域名在本地只解析到 IPv4。</p>
+<hr />
+<h1 id="pai-cha-si-lu-zong-jie-geng-xin-ban">排查思路总结（更新版）</h1>
+<p>加上今天的排查，归纳出 opencode 卡住的三种模式：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>卡住了？</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ├─ CPU 高 (&gt;10%) + 大量 futex/sched_yield</span></span>
+<span class="giallo-l"><span>  │     → 锁争抢 / 惊群效应</span></span>
+<span class="giallo-l"><span>  │     → 检查线程池大小、LSP server 数量</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ├─ CPU 低 (&lt;5%) + 进程 idle (S/sleeping)</span></span>
+<span class="giallo-l"><span>  │     → 看 fd 中的 socket</span></span>
+<span class="giallo-l"><span>  │       ├─ SYN-SENT → IPv6 不通 / 防火墙</span></span>
+<span class="giallo-l"><span>  │       └─ ESTABLISH + Send-Q 积压 → 网络拥塞</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  └─ CPU 低 + 有子进程 (pstree)</span></span>
+<span class="giallo-l"><span>        → 看 pstree 找到叶子进程</span></span>
+<span class="giallo-l"><span>          → git? ssh? → 网络问题 / 代理配置</span></span></code></pre><h1 id="jie-jue-fang-an-git-push-ssh">解决方案（git push SSH）</h1>
+<p>两种方式让 git push 走代理：</p>
+<h2 id="fang-an-yi-ssh-pei-dai-li">方案一：SSH 配代理</h2>
+<p><code>~/.ssh/config</code> 中添加：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>Host github.com</span></span>
+<span class="giallo-l"><span>    ProxyCommand nc -X 5 -x 192.168.5.244:10808 %h %p</span></span></code></pre><h2 id="fang-an-er-gai-yong-https-yuan-cheng">方案二：改用 HTTPS 远程</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">git</span><span> remote set-url myself https://github.com/moxuetianya/learn-opencode.git</span></span></code></pre>
+<p>HTTPS 协议会使用 <code>HTTPS_PROXY</code> 环境变量，自动走代理。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-plugin-architecture/">&#8249; OpenCode 插件系统与数据库架构深度解析</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/linux-idle-laptop-as-second-monitor-research/"> Linux 闲置笔记本做副屏：方案调研与后续研究 TODO &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#di-yi-fan-ying-strace">第一反应：strace</a>
+        </div>
+        <div>
+          <a href="#huan-ge-si-lu-jin-cheng-zhuang-tai-zi-jin-cheng-shu">换个思路：进程状态 + 子进程树</a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-jin-cheng-zai-deng-shen-me"><small>- 看进程在等什么</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-zi-jin-cheng-shu"><small>- 看子进程树</small></a>
+        </div>
+        <div>
+          <a href="#ding-wei-xie-zi-jin-cheng-ssh-lian-jie-chu-liao-shen-me-wen-ti">定位叶子进程：SSH 连接出了什么问题</a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-wang-luo-lian-jie"><small>- 看网络连接</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-huan-jing-bian-liang"><small>- 看环境变量</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin">根因</a>
+        </div>
+        <div>
+          <a href="#pai-cha-si-lu-zong-jie">排查思路总结</a>
+        </div>
+        <div>
+          <a href="#di-er-ci-pai-cha-suo-zheng-qiang-lock-contention">第二次排查：锁争抢（Lock Contention）</a>
+        </div>
+        <div class="hpad">
+          <a href="#chu-bu-guan-cha"><small>- 初步观察</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#strace-cai-yang"><small>- strace 采样</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-cheng-fen-bu"><small>- 线程分布</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-fen-xi"><small>- 根因分析</small></a>
+        </div>
+        <div>
+          <a href="#di-san-ci-pai-cha-ipv6-lian-jie-qia-zhu-syn-sent">第三次排查：IPv6 连接卡住 SYN-SENT</a>
+        </div>
+        <div class="hpad">
+          <a href="#ji-chu-xin-xi"><small>- 基础信息</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-cheng-fen-bu-1"><small>- 线程分布</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-wen-jian-miao-shu-fu"><small>- 看文件描述符</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng-ipv6-bu-tong"><small>- 验证 IPv6 不通</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-fen-xi-1"><small>- 根因分析</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lin-shi-huan-jie"><small>- 临时缓解</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-ben-xiu-fu"><small>- 根本修复</small></a>
+        </div>
+        <div>
+          <a href="#pai-cha-si-lu-zong-jie-geng-xin-ban">排查思路总结（更新版）</a>
+        </div>
+        <div>
+          <a href="#jie-jue-fang-an-git-push-ssh">解决方案（git push SSH）</a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-yi-ssh-pei-dai-li"><small>- 方案一：SSH 配代理</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-er-gai-yong-https-yuan-cheng"><small>- 方案二：改用 HTTPS 远程</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

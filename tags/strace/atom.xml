@@ -1,0 +1,379 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - strace</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/strace/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-07-21T09:30:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/strace/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 启动慢排查：plugin 触发 60MB npm 依赖下载</title>
+        <published>2026-07-21T09:30:00+08:00</published>
+        <updated>2026-07-21T09:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;wfuzz agent --agent-config=wfuzz-utils,wfuzz-db&lt;&#x2F;code&gt; 执行后，opencode 长时间无响应。没有报错，没有 crash，进程在 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 中显示为 S（sleeping）状态，CPU 低，但终端就是不动。&lt;&#x2F;p&gt;
+&lt;p&gt;单独执行 opencode 也一样：只要设置了 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 环境变量，启动就卡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-lun-pai-cha-yi-wei-shi-si-suo&quot;&gt;第一轮排查：以为是死锁&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;strace-kan-xi-tong-diao-yong&quot;&gt;strace 看系统调用&lt;&#x2F;h2&gt;
+&lt;p&gt;用 &lt;code&gt;strace -f -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 跟踪进程。主线程在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待，worker 线程（40+ 个）全部卡在 &lt;code&gt;futex&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 10] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 11] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 12] futex(..., FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Worker 线程在 work-stealing 模式下互相唤醒，但没有一个线程在做实际工作。strace 最后一行出现：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[pid 9] futex(...) = -1 ETIMEDOUT (Connection timed out)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看起来像是 Bun worker pool 在进行网络操作时超时，之后所有 worker 陷入 livelock —— 被不断唤醒但无事可做。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dui-bi-shi-yan&quot;&gt;对比实验&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;无 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;正常启动，TUI 渲染&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向 &lt;code&gt;{}&lt;&#x2F;code&gt; 空配置&lt;&#x2F;td&gt;&lt;td&gt;正常启动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向含 &lt;code&gt;plugin&lt;&#x2F;code&gt; 字段的配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;最小插件（&lt;code&gt;return {}&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;--pure&lt;&#x2F;code&gt; 模式&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;serve&lt;&#x2F;code&gt; 模式（headless）&lt;&#x2F;td&gt;&lt;td&gt;终端不卡，但端口不监听、WebSocket 无响应&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键发现：&lt;strong&gt;只要配置中有 &lt;code&gt;&quot;plugin&quot;: [...]&lt;&#x2F;code&gt;，不论插件内容是什么，TUI 和 serve 模式都卡。&lt;&#x2F;strong&gt; 一度怀疑是 opencode 1.17.12 的 plugin 加载 bug。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-lun-pai-cha-zhao-dao-zhen-zheng-de-gen-yin&quot;&gt;第二轮排查：找到真正的根因&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;huan-guan-cha-jiao-du-wen-jian-xi-tong-wang-luo&quot;&gt;换观察角度：文件系统 + 网络&lt;&#x2F;h2&gt;
+&lt;p&gt;回头检查 &lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;_cacache&#x2F;&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;83M&lt;&#x2F;span&gt;&lt;span&gt;    &#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;83M！进程并不是死锁，而是在&lt;strong&gt;下载 npm 包&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 opencode 的文件描述符：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; npm&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;l-wx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 30&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;root&#x2F;.npm&#x2F;_cacache&#x2F;tmp&#x2F;de55a9bf-...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;lrwx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 31&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; socket:[...]&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 连接 npm registry (Cloudflare 104.16.x.34)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;lrwx------&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 32&lt;&#x2F;span&gt;&lt;span&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; socket:[...]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;opencode 生成了 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;package.json&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;json&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;dependencies&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;: {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    &amp;quot;@opencode-ai&#x2F;plugin&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;1.17.12&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后自动调用 &lt;code&gt;@npmcli&#x2F;arborist.reify()&lt;&#x2F;code&gt; 安装依赖。&lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的依赖树非常大：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;@opencode-ai&#x2F;plugin@1.17.12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── effect@4.0.0-beta.83        ← 最大，带 12 个子依赖&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── fast-check + pure-rand&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── find-my-way-ts&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── kubernetes-types&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── msgpackr + msgpackr-extract (native .node 二进制)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── multipasta&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   ├── toml &#x2F; uuid &#x2F; yaml &#x2F; ini&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   └── @standard-schema&#x2F;spec&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── zod@4.1.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;├── @ai-sdk&#x2F;provider@3.0.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;│   └── json-schema&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;└── @opencode-ai&#x2F;sdk@1.17.12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    └── cross-spawn → path-key → shebang-command → which → isexe&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;总共 27 个包，解压后 63MB。在容器环境中无 npm 缓存，下载需要数十秒到数分钟。期间 opencode 不监听端口、不响应 WebSocket、TUI 不渲染 —— 宏观表现就是&quot;卡死了&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;p&gt;手动模拟 opencode 的行为：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&#x2F;plugin&amp;quot;:&amp;quot;1.17.12&amp;quot;}}&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; package.json&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; time npm install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --production&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;added&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 27&lt;&#x2F;span&gt;&lt;span&gt; packages in 51s&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;$&lt;&#x2F;span&gt;&lt;span&gt; du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; node_modules&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;63M&lt;&#x2F;span&gt;&lt;span&gt;    node_modules&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;51 秒。这解释了为什么启动&quot;时快时慢&quot; —— 有缓存的机器几秒，无缓存的容器一分钟以上。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-zai-rong-qi-li-you-qi-yan-zhong&quot;&gt;为什么在容器里尤其严重&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;每次启动都是新容器，&lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;code&gt; 和 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt; 都是空的&lt;&#x2F;li&gt;
+&lt;li&gt;没有 Bun 的 package 缓存&lt;&#x2F;li&gt;
+&lt;li&gt;npm registry 从容器网络访问可能更慢&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;平台侧虽然设置了 &lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt;（跳过 AI 模型列表拉取），但这只影响 model fetching，不影响 plugin 系统的 npm 依赖安装（使用 &lt;code&gt;@npmcli&#x2F;arborist&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fang-an-yi-qu-diao-plugin-zui-kuai&quot;&gt;方案一：去掉 plugin（最快）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中删除 &lt;code&gt;&quot;plugin&quot;&lt;&#x2F;code&gt; 字段。当前 &lt;code&gt;wfuzz-agent.ts&lt;&#x2F;code&gt; 主要是调试日志 hook，唯一有实际功能的 &lt;code&gt;experimental.chat.system.transform&lt;&#x2F;code&gt; opencode 原生就支持（自动读取 AGENTS.md）。后续如果需要 hook 功能再考虑其他注入方式。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-er-yu-zhuang-node-modules-bao-chi-plugin-ke-yong&quot;&gt;方案二：预装 node_modules（保持 plugin 可用）&lt;&#x2F;h2&gt;
+&lt;p&gt;在构建时（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）提前执行 &lt;code&gt;npm install&lt;&#x2F;code&gt;，把 63MB 的 &lt;code&gt;node_modules&#x2F;&lt;&#x2F;code&gt; 打进发布包。运行时由 &lt;code&gt;wfuzz-agent&lt;&#x2F;code&gt;（Rust 侧）在 exec opencode 之前把 &lt;code&gt;node_modules&lt;&#x2F;code&gt; + &lt;code&gt;package.json&lt;&#x2F;code&gt; 复制到 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;构建流程改动（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 下载 opencode 后&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;OPENCODE_VERSION&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;$BIN_DIR&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;opencode&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --version&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; agent-config&#x2F;package.json&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&#x2F;plugin&amp;quot;:&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;$OPENCODE_VERSION&lt;&#x2F;span&gt;&lt;span&gt;&amp;quot;}}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;cd&lt;&#x2F;span&gt;&lt;span&gt; agent-config &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; npm&lt;&#x2F;span&gt;&lt;span&gt; install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --production&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → node_modules&#x2F; 被打进发布包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;运行时改动（&lt;code&gt;main.rs&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;rust&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;&#x2F;&#x2F; exec opencode 之前&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; bin_dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;agent-config&#x2F;node_modules&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;let&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; PathBuf&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;from&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;env&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;var&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;HOME&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;.config&#x2F;opencode&#x2F;node_modules&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;if&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exists&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;amp;&amp;amp; !&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exists&lt;&#x2F;span&gt;&lt;span&gt;() {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    fs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;create_dir_all&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;())&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;    copy_dir_recursive&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;src&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;    fs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;::&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;write&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dst&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;parent&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;join&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;package.json&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;),&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; bundled_pkg_json&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;?&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;&#x2F;&#x2F; opencode 启动时 bun install 发现 node_modules 已存在 → 跳过下载&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;复制 63MB 本地文件的耗时远小于网络下载（毫秒级 vs 几十秒），且不受网络环境、npm registry 可用性的影响。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;后续分析&lt;&#x2F;strong&gt;：&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-npm-install-source-analysis&#x2F;&quot;&gt;源码分析篇&lt;&#x2F;a&gt; 深入了 &lt;code&gt;ConfigPaths.directories()&lt;&#x2F;code&gt;、&lt;code&gt;Npm.install()&lt;&#x2F;code&gt; 和 &lt;code&gt;waitForDependencies()&lt;&#x2F;code&gt; 的调用链，解释了为什么每个 &lt;code&gt;.opencode&lt;&#x2F;code&gt; 目录都会触发依赖安装。&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-startup-trace-verification&#x2F;&quot;&gt;验证篇&lt;&#x2F;a&gt; 通过注入调试日志实测了完整耗时。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;fang-an-san-sheng-ji-opencode&quot;&gt;方案三：升级 opencode&lt;&#x2F;h2&gt;
+&lt;p&gt;测试了 1.18.3 版本，行为完全一致。看起来这个机制是 opencode 设计如此 —— 有 plugin 就必须装依赖。只能从工程侧规避。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-fang-fa-lun-xiao-jie&quot;&gt;排查方法论小结&lt;&#x2F;h1&gt;
+&lt;p&gt;这次排查犯了一个典型错误：看到 strace 输出 &lt;code&gt;futex&lt;&#x2F;code&gt; + &lt;code&gt;ETIMEDOUT&lt;&#x2F;code&gt; 就下了&quot;死锁&quot;的结论。实际是 Bun 的 worker pool 正常工作模式 —— 线程在等待 I&#x2F;O（npm 下载），被唤醒处理数据包，然后继续等待。livelock 只是假象。&lt;&#x2F;p&gt;
+&lt;p&gt;教训：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看系统调用只能告诉你进程在&quot;做什么类型的等待&quot;，不能直接告诉你&quot;在等什么&quot;&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;怀疑死锁前，先检查&lt;strong&gt;文件系统和网络&lt;&#x2F;strong&gt; —— 进程可能在静静地下载东西&lt;&#x2F;li&gt;
+&lt;li&gt;对比实验是定位根因的最可靠手段 —— 控制变量（有无 plugin、有无 config）快速排除干扰因素&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;fd&#x2F;&lt;&#x2F;code&gt; 是看进程 IO 目标的第一手资料，比 strace 更直观&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;gong-ju-su-cha&quot;&gt;工具速查&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程打开的文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程网络连接&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -tnp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看 npm 缓存大小&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;du&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -sh&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.npm&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看 opencode 日志&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看进程线程数和等待原因&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;task&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; wc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;pid&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 测试 WebSocket 连通性（bash）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;exec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 3&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;tcp&#x2F;127.0.0.1&#x2F;4096&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -en&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;GET &#x2F; HTTP&#x2F;1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;amp;3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 100&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>opencode 界面卡住不动排查</title>
+        <published>2026-07-15T09:42:00+08:00</published>
+        <updated>2026-07-15T09:42:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-卡住排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-卡住排查/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;opencode 交互界面一直显示运行中，不输出任何新内容，像是卡死了一样。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-fan-ying-strace&quot;&gt;第一反应：strace&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 看一下卡在哪个系统调用上：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果有&lt;strong&gt;大量输出&lt;&#x2F;strong&gt;，&lt;code&gt;epoll_wait&lt;&#x2F;code&gt; → &lt;code&gt;read&lt;&#x2F;code&gt; → &lt;code&gt;write&lt;&#x2F;code&gt; → &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 循环不断，并没有阻塞在某个系统调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;这说明进程本身在运行，事件循环在持续工作。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;huan-ge-si-lu-jin-cheng-zhuang-tai-zi-jin-cheng-shu&quot;&gt;换个思路：进程状态 + 子进程树&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 输出太多看不出问题，那就从最常规的进程状态入手。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-jin-cheng-zai-deng-shen-me&quot;&gt;看进程在等什么&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 4188775  Sl+  do_epoll_wait  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt; 只是某个采样时刻的快照。opencode 是事件循环模型，绝大多数时间都&lt;strong&gt;短暂地&lt;&#x2F;strong&gt;阻塞在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待 I&#x2F;O 事件，&lt;code&gt;ps&lt;&#x2F;code&gt; 拍到的 &lt;code&gt;wchan&lt;&#x2F;code&gt; 几乎永远是 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;，不代表一直卡在同一个调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;但这个信息告诉我们一件事：&lt;strong&gt;进程是 S (sleeping) 状态，不是 R (running)，也不是 D (uninterruptible sleep)。没有死循环，没有内核态阻塞。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-zi-jin-cheng-shu&quot;&gt;看子进程树&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pstree&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;opencode(4188775)───git(2867)───ssh(2868)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一目了然：opencode 下面挂着 &lt;code&gt;git push&lt;&#x2F;code&gt;，git 下面挂着 &lt;code&gt;ssh&lt;&#x2F;code&gt;。阻塞链条是 &lt;code&gt;opencode → git → ssh&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 git 进程的状态：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 2867 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,etime,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 2867  Ssl  do_wait  04:13  git push -u myself dev&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;git push 已经跑了 4 分多钟，在 &lt;code&gt;do_wait&lt;&#x2F;code&gt; 等待子进程 ssh 结束。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-xie-zi-jin-cheng-ssh-lian-jie-chu-liao-shen-me-wen-ti&quot;&gt;定位叶子进程：SSH 连接出了什么问题&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;kan-wang-luo-lian-jie&quot;&gt;看网络连接&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -tnp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2868&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → ESTAB  0  293076  192.168.5.99:60362 → 20.205.243.166:22  users:((&amp;quot;ssh&amp;quot;,pid=2868,fd=3))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键信息：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;State&lt;&#x2F;td&gt;&lt;td&gt;ESTAB&lt;&#x2F;td&gt;&lt;td&gt;TCP 连接已建立&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Recv-Q&lt;&#x2F;td&gt;&lt;td&gt;0&lt;&#x2F;td&gt;&lt;td&gt;没有待读数据&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Send-Q&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;293076 (~286KB)&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;发送缓冲区积压了 286KB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;目的地址&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;20.205.243.166:22&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;GitHub SSH 端口&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;TCP 三次握手已完成，但 &lt;strong&gt;Send-Q 积压 286KB&lt;&#x2F;strong&gt;，说明本地发出了数据而 GitHub 端没有确认 TCP 报文。这是典型的网络不通畅：连接能建起来，但数据传不过去。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-huan-jing-bian-liang&quot;&gt;看环境变量&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;2868&#x2F;environ&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; tr&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;\0&amp;#39; &amp;#39;\n&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; proxy&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HTTPS_PROXY=http:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HTTP_PROXY=http:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;all_proxy=socks5:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;strong&gt;SSH 不使用 HTTP&#x2F;SOCKS 环境变量&lt;&#x2F;strong&gt;，它会直连目标主机的 22 端口。HTTP&#x2F;SOCKS 代理只对 HTTP 客户端和部分应用生效，SSH 不受影响。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;git push&lt;&#x2F;code&gt; 使用 SSH 协议推送到 GitHub（&lt;code&gt;git@github.com:...&lt;&#x2F;code&gt;），SSH 直连 &lt;code&gt;github.com:22&lt;&#x2F;code&gt;。本地网络到 GitHub 22 端口的 TCP 路径不畅通（可能被防火墙阻断或被 QoS 限速）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie&quot;&gt;排查思路总结&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;进程状态 (ps)                    ← 宏观：是 sleep &#x2F; run &#x2F; 内核阻塞？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;子进程树 (pstree)                ← 谁在等谁？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;叶子进程网络状态 (ss -tnp)        ← 网络有没有问题？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;环境变量 (&#x2F;proc&#x2F;pid&#x2F;environ)      ← 代理&#x2F;环境因素&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看到大量事件循环输出时，不要被干扰。事件循环模型下 &lt;code&gt;ps&lt;&#x2F;code&gt; 看到的 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 几乎永远不变，关键是&lt;strong&gt;它等的那件事有没有进展&lt;&#x2F;strong&gt;——用 &lt;code&gt;pstree&lt;&#x2F;code&gt; 一层层追到最底层，看叶子进程的状态。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-er-ci-pai-cha-suo-zheng-qiang-lock-contention&quot;&gt;第二次排查：锁争抢（Lock Contention）&lt;&#x2F;h1&gt;
+&lt;p&gt;同一天稍晚，另一个 opencode 进程（PID 138479）又卡住了。这次表现不同：CPU 占用 18%，看起来&quot;活着&quot;但响应极慢。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chu-bu-guan-cha&quot;&gt;初步观察&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,pcpu,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 138479  Sl+  do_epoll_wait  18.0  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;138479&#x2F;status&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -E&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;State|VmRSS|Threads&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → State: R (running)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → VmRSS: 790120 kB&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → Threads: 40&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 &lt;code&gt;ps&lt;&#x2F;code&gt; 显示 &lt;code&gt;Sl+&lt;&#x2F;code&gt;（sleep），但 &lt;code&gt;&#x2F;proc&#x2F;pid&#x2F;status&lt;&#x2F;code&gt; 显示 &lt;code&gt;R（running）&lt;&#x2F;code&gt;。790MB RSS，40 个线程，18% CPU —— 进程在干活，但效率极低。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;strace-cai-yang&quot;&gt;strace 采样&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -e&lt;&#x2F;span&gt;&lt;span&gt; trace=all&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c -S&lt;&#x2F;span&gt;&lt;span&gt; time&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1&lt;&#x2F;span&gt;&lt;span&gt; &amp;amp;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sleep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 5&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; kill&lt;&#x2F;span&gt;&lt;span&gt; %1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; wait&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;5 秒内的系统调用分布：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;% time     seconds  calls    errors  syscall&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; 79.64    0.097539  20345      252  futex&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; 16.14    0.019772   2649            sched_yield&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  2.56    0.003137    389            epoll_pwait2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.67    0.000821   1616            clock_gettime&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.29    0.000359    277            pread64&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.18    0.000215    281            read&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键数据：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;79.6% 时间花在 futex&lt;&#x2F;strong&gt; — 20,345 次调用，线程在抢锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;16.1% 花在 sched_yield&lt;&#x2F;strong&gt; — 2,649 次，争不到锁主动让出 CPU&lt;&#x2F;li&gt;
+&lt;li&gt;真正的 I&#x2F;O（read&#x2F;write）占比可以忽略&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Lp 138479 -o&lt;&#x2F;span&gt;&lt;span&gt; lwp,psr,pcpu,stat,wchan:32&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --no-headers&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sort&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -k3 -rn&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  lwp  psr  pcpu  stat  wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138479   0   7.3  Rl+   -                  # 主线程 running&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;142051   3   3.4  Sl+   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138494   2   2.2  Sl+   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138487  14   0.9  Sl+   futex_wait_queue    # 7个线程等锁&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138484   0   0.9  Rl+   futex_wait_queue     # 1个线程在 futex 中 running&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;~20 个线程&lt;&#x2F;strong&gt; 在 &lt;code&gt;futex_wait_queue&lt;&#x2F;code&gt;，1 个主线程在用户态跑，其余在 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;进一步跟踪 futex 操作：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -e&lt;&#x2F;span&gt;&lt;span&gt; trace=futex&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1 |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -20&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0c0154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0e0150, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c01f154, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      125123, NULL, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;模式&lt;&#x2F;strong&gt;：大量 &lt;code&gt;FUTEX_WAKE_PRIVATE&lt;&#x2F;code&gt; 唤醒 + 偶尔 &lt;code&gt;FUTEX_WAIT_BITSET_PRIVATE&lt;&#x2F;code&gt; 超时（EAGAIN）。多个 futex 地址集中在同一内存区（&lt;code&gt;0x7f601c0bxxx-0x7f601c0fxxx&lt;&#x2F;code&gt;），像是一个线程池任务队列上的锁。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;结论：惊群效应 + 严重锁争抢。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;有大量线程同时被唤醒去竞争少数任务或资源&lt;&#x2F;li&gt;
+&lt;li&gt;大部分线程发现没活可干又 sleep，如此循环&lt;&#x2F;li&gt;
+&lt;li&gt;CPU 大部分消耗在 futex 调度上而非实际工作&lt;&#x2F;li&gt;
+&lt;li&gt;进程&quot;活着&quot;（能响应请求），但有效吞吐极低&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;可能诱因：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;线程池过大（40 线程 vs 实际 CPU 核数），过多线程争抢同一把锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 本地 LLM 推理慢，IO 线程在等待结果期间造成锁堆积&lt;&#x2F;li&gt;
+&lt;li&gt;39 个 LSP server 同时启动，大量并发初始化请求冲击线程池&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-san-ci-pai-cha-ipv6-lian-jie-qia-zhu-syn-sent&quot;&gt;第三次排查：IPv6 连接卡住 SYN-SENT&lt;&#x2F;h1&gt;
+&lt;p&gt;解决第一个进程后，又启动了一个新的 opencode（PID 183287）。这次 CPU 很低（2.8%），但也不响应。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ji-chu-xin-xi&quot;&gt;基础信息&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 183287 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,pcpu,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 183287  Sl+  do_epoll_wait  2.8  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;183287&#x2F;status&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -E&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;State|VmRSS|Threads&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → State:  S (sleeping)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → VmRSS: 511812 kB&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → Threads: 16&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;16 线程，512MB，2.8% CPU，状态 S（sleeping）。和上一个完全不同。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu-1&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  lwp    pcpu  wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183348   0.8   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183287   0.6   do_epoll_wait     # 主线程&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183295   0.1   futex_wait_queue&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...其他线程都在 sleep...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所有线程 ≤ 0.8% CPU，大部分在 futex 上 sleep。进程完全&lt;strong&gt;空闲&lt;&#x2F;strong&gt;，不是在忙，是真的在等什么。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-wen-jian-miao-shu-fu&quot;&gt;看文件描述符&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;183287&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;35 -&amp;gt; socket:[56963599]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;36 -&amp;gt; socket:[56963601]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;37 -&amp;gt; socket:[56963600]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;38 -&amp;gt; socket:[56962309]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;39 -&amp;gt; socket:[56963602]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;40 -&amp;gt; socket:[56963603]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;共 &lt;strong&gt;6 个 socket&lt;&#x2F;strong&gt;。用 &lt;code&gt;ss&lt;&#x2F;code&gt; 看它们的连接状态：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -npep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 183287&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;fd&lt;&#x2F;th&gt;&lt;th&gt;TCP 状态&lt;&#x2F;th&gt;&lt;th&gt;本地&lt;&#x2F;th&gt;&lt;th&gt;远端&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;38&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:53102&lt;&#x2F;td&gt;&lt;td&gt;172.67.69.147:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv4 ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;40&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:59558&lt;&#x2F;td&gt;&lt;td&gt;20.205.243.165:443&lt;&#x2F;td&gt;&lt;td&gt;Microsoft&#x2F;GitHub ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;35&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:38682&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:a22]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;36&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:60690&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:422]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;37&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:46750&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:222]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;39&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:49118&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:322]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;4 个连接卡在 SYN-SENT&lt;&#x2F;strong&gt;，目标全是 Cloudflare 的 IPv6 地址段 &lt;code&gt;2606:4700::&#x2F;32&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng-ipv6-bu-tong&quot;&gt;验证 IPv6 不通&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ip&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -6&lt;&#x2F;span&gt;&lt;span&gt; route show default&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → default via fe80::c0b1:65ff:fe3e:68c3 dev enp1s0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ping6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 2 -W 2&lt;&#x2F;span&gt;&lt;span&gt; 2606:4700::6810:a22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 2 packets transmitted, 0 received, 100% packet loss&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;IPv6 路由存在，但实际不通 —— ping Cloudflare IPv6 地址 100% 丢包。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi-1&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 模型 API 通过 Cloudflare 托管，DNS 同时返回了 A 和 AAAA 记录。Node.js HTTP 客户端默认执行 &lt;strong&gt;Happy Eyeballs（RFC 8305）&lt;&#x2F;strong&gt;：优先尝试 IPv6，如果连接建立缓慢，才回退到 IPv4。&lt;&#x2F;p&gt;
+&lt;p&gt;问题在于：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;DNS 返回了多个 Cloudflare IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;Node.js 尝试并发连接所有 IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;内核发出 SYN 后收不到 SYN-ACK，连接进入 &lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt; 状态&lt;&#x2F;li&gt;
+&lt;li&gt;内核每 20 秒重传一次 SYN，总超时可达 &lt;strong&gt;120 秒以上&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在此之前，IPv4 的请求即使已成功，部分客户端逻辑可能仍在等待 IPv6 尝试完成&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这解释了为什么进程看起来&quot;卡住了&quot;：它不是在死循环，而是事件循环被大量 pending 的 TCP 连接超时拖着，无法及时处理已就绪的请求。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lin-shi-huan-jie&quot;&gt;临时缓解&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方式 1：Node.js 层优先 IPv4&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;NODE_OPTIONS&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;--dns-result-order=ipv4first&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; opencode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方式 2：系统层禁用 IPv6&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv6.conf.all.disable_ipv6=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;gen-ben-xiu-fu&quot;&gt;根本修复&lt;&#x2F;h2&gt;
+&lt;p&gt;排查 IPv6 路由&#x2F;网关问题，或确保 big-pickle API 域名在本地只解析到 IPv4。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie-geng-xin-ban&quot;&gt;排查思路总结（更新版）&lt;&#x2F;h1&gt;
+&lt;p&gt;加上今天的排查，归纳出 opencode 卡住的三种模式：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;卡住了？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ CPU 高 (&amp;gt;10%) + 大量 futex&#x2F;sched_yield&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 锁争抢 &#x2F; 惊群效应&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 检查线程池大小、LSP server 数量&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ CPU 低 (&amp;lt;5%) + 进程 idle (S&#x2F;sleeping)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 看 fd 中的 socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │       ├─ SYN-SENT → IPv6 不通 &#x2F; 防火墙&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │       └─ ESTABLISH + Send-Q 积压 → 网络拥塞&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  └─ CPU 低 + 有子进程 (pstree)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        → 看 pstree 找到叶子进程&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;          → git? ssh? → 网络问题 &#x2F; 代理配置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;jie-jue-fang-an-git-push-ssh&quot;&gt;解决方案（git push SSH）&lt;&#x2F;h1&gt;
+&lt;p&gt;两种方式让 git push 走代理：&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-yi-ssh-pei-dai-li&quot;&gt;方案一：SSH 配代理&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 中添加：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host github.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ProxyCommand nc -X 5 -x 192.168.5.244:10808 %h %p&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fang-an-er-gai-yong-https-yuan-cheng&quot;&gt;方案二：改用 HTTPS 远程&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; remote set-url myself https:&#x2F;&#x2F;github.com&#x2F;moxuetianya&#x2F;learn-opencode.git&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;HTTPS 协议会使用 &lt;code&gt;HTTPS_PROXY&lt;&#x2F;code&gt; 环境变量，自动走代理。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

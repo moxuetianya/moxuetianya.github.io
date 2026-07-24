@@ -1,0 +1,276 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 启动慢排查：plugin 触发 60MB npm 依赖下载 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="通过 strace、&#x2F;proc、对比实验逐步定位 opencode 启动卡顿的根因——plugin 字段触发 bun install 下载整棵依赖树，以及如何通过预装 node_modules 彻底解决" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/" />
+  <meta property="og:description" content="通过 strace、&#x2F;proc、对比实验逐步定位 opencode 启动卡顿的根因——plugin 字段触发 bun install 下载整棵依赖树，以及如何通过预装 node_modules 彻底解决" />
+  <meta name="twitter:description" content="通过 strace、&#x2F;proc、对比实验逐步定位 opencode 启动卡顿的根因——plugin 字段触发 bun install 下载整棵依赖树，以及如何通过预装 node_modules 彻底解决" />
+  <meta property="og:title" content="opencode 启动慢排查：plugin 触发 60MB npm 依赖下载 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 启动慢排查：plugin 触发 60MB npm 依赖下载 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-21" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">opencode 启动慢排查：plugin 触发 60MB npm 依赖下载</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 21, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/debug/">debug</a>, <a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a>  #<a href="https://moxuetianya.github.io/tags/strace/">strace</a>  #<a href="https://moxuetianya.github.io/tags/npm/">npm</a>  #<a href="https://moxuetianya.github.io/tags/bun/">bun</a>  #<a href="https://moxuetianya.github.io/tags/plugin/">plugin</a>  #<a href="https://moxuetianya.github.io/tags/startup/">startup</a> </span>
+
+    
+
+
+<h1 id="xian-xiang">现象</h1>
+<p><code>wfuzz agent --agent-config=wfuzz-utils,wfuzz-db</code> 执行后，opencode 长时间无响应。没有报错，没有 crash，进程在 <code>/proc</code> 中显示为 S（sleeping）状态，CPU 低，但终端就是不动。</p>
+<p>单独执行 opencode 也一样：只要设置了 <code>OPENCODE_CONFIG</code> 环境变量，启动就卡。</p>
+<h1 id="di-yi-lun-pai-cha-yi-wei-shi-si-suo">第一轮排查：以为是死锁</h1>
+<h2 id="strace-kan-xi-tong-diao-yong">strace 看系统调用</h2>
+<p>用 <code>strace -f -p &lt;pid&gt;</code> 跟踪进程。主线程在 <code>epoll_wait</code> 上等待，worker 线程（40+ 个）全部卡在 <code>futex</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>[pid 10] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0</span></span>
+<span class="giallo-l"><span>[pid 11] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0</span></span>
+<span class="giallo-l"><span>[pid 12] futex(..., FUTEX_WAKE_PRIVATE, 1) = 1</span></span>
+<span class="giallo-l"><span>...</span></span></code></pre>
+<p>Worker 线程在 work-stealing 模式下互相唤醒，但没有一个线程在做实际工作。strace 最后一行出现：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>[pid 9] futex(...) = -1 ETIMEDOUT (Connection timed out)</span></span></code></pre>
+<p>看起来像是 Bun worker pool 在进行网络操作时超时，之后所有 worker 陷入 livelock —— 被不断唤醒但无事可做。</p>
+<h2 id="dui-bi-shi-yan">对比实验</h2>
+<table><thead><tr><th>场景</th><th>结果</th></tr></thead><tbody>
+<tr><td>无 <code>OPENCODE_CONFIG</code></td><td>正常启动，TUI 渲染</td></tr>
+<tr><td><code>OPENCODE_CONFIG</code> 指向 <code>{}</code> 空配置</td><td>正常启动</td></tr>
+<tr><td><code>OPENCODE_CONFIG</code> 指向含 <code>plugin</code> 字段的配置</td><td><strong>卡住</strong></td></tr>
+<tr><td>最小插件（<code>return {}</code>）</td><td><strong>卡住</strong></td></tr>
+<tr><td><code>--pure</code> 模式</td><td><strong>卡住</strong></td></tr>
+<tr><td><code>serve</code> 模式（headless）</td><td>终端不卡，但端口不监听、WebSocket 无响应</td></tr>
+</tbody></table>
+<p>关键发现：<strong>只要配置中有 <code>"plugin": [...]</code>，不论插件内容是什么，TUI 和 serve 模式都卡。</strong> 一度怀疑是 opencode 1.17.12 的 plugin 加载 bug。</p>
+<h1 id="di-er-lun-pai-cha-zhao-dao-zhen-zheng-de-gen-yin">第二轮排查：找到真正的根因</h1>
+<h2 id="huan-guan-cha-jiao-du-wen-jian-xi-tong-wang-luo">换观察角度：文件系统 + 网络</h2>
+<p>回头检查 <code>/root/.npm/_cacache/</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">$</span><span> du</span><span style="color: #F97E72;"> -sh</span><span> /root/.npm/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">83M</span><span>    /root/.npm/</span></span></code></pre>
+<p>83M！进程并不是死锁，而是在<strong>下载 npm 包</strong>。</p>
+<p>再看 opencode 的文件描述符：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">$</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>pid</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> npm</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">l-wx------</span><span style="color: #F97E72;"> 30</span><span> -</span><span style="color: #FEDE5D;">&gt;</span><span> /root/.npm/_cacache/tmp/de55a9bf-...</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">lrwx------</span><span style="color: #F97E72;"> 31</span><span> -</span><span style="color: #FEDE5D;">&gt;</span><span> socket:[...]</span><span style="color: #848BBD;font-style: italic;">    # 连接 npm registry (Cloudflare 104.16.x.34)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">lrwx------</span><span style="color: #F97E72;"> 32</span><span> -</span><span style="color: #FEDE5D;">&gt;</span><span> socket:[...]</span></span></code></pre>
+<p>opencode 生成了 <code>~/.config/opencode/package.json</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="json"><span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">  &quot;dependencies&quot;</span><span>: {</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">    &quot;@opencode-ai/plugin&quot;</span><span>:</span><span style="color: #FF8B39;"> &quot;1.17.12&quot;</span></span>
+<span class="giallo-l"><span>  }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>然后自动调用 <code>@npmcli/arborist.reify()</code> 安装依赖。<code>@opencode-ai/plugin</code> 的依赖树非常大：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>@opencode-ai/plugin@1.17.12</span></span>
+<span class="giallo-l"><span>├── effect@4.0.0-beta.83        ← 最大，带 12 个子依赖</span></span>
+<span class="giallo-l"><span>│   ├── fast-check + pure-rand</span></span>
+<span class="giallo-l"><span>│   ├── find-my-way-ts</span></span>
+<span class="giallo-l"><span>│   ├── kubernetes-types</span></span>
+<span class="giallo-l"><span>│   ├── msgpackr + msgpackr-extract (native .node 二进制)</span></span>
+<span class="giallo-l"><span>│   ├── multipasta</span></span>
+<span class="giallo-l"><span>│   ├── toml / uuid / yaml / ini</span></span>
+<span class="giallo-l"><span>│   └── @standard-schema/spec</span></span>
+<span class="giallo-l"><span>├── zod@4.1.8</span></span>
+<span class="giallo-l"><span>├── @ai-sdk/provider@3.0.8</span></span>
+<span class="giallo-l"><span>│   └── json-schema</span></span>
+<span class="giallo-l"><span>└── @opencode-ai/sdk@1.17.12</span></span>
+<span class="giallo-l"><span>    └── cross-spawn → path-key → shebang-command → which → isexe</span></span></code></pre>
+<p>总共 27 个包，解压后 63MB。在容器环境中无 npm 缓存，下载需要数十秒到数分钟。期间 opencode 不监听端口、不响应 WebSocket、TUI 不渲染 —— 宏观表现就是"卡死了"。</p>
+<h2 id="yan-zheng">验证</h2>
+<p>手动模拟 opencode 的行为：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">$</span><span> echo</span><span style="color: #FF8B39;"> &#39;{&quot;dependencies&quot;:{&quot;@opencode-ai/plugin&quot;:&quot;1.17.12&quot;}}&#39;</span><span style="color: #FEDE5D;"> &gt;</span><span> package.json</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">$</span><span> time npm install</span><span style="color: #F97E72;"> --production</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">added</span><span style="color: #F97E72;"> 27</span><span> packages in 51s</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">$</span><span> du</span><span style="color: #F97E72;"> -sh</span><span> node_modules/</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">63M</span><span>    node_modules/</span></span></code></pre>
+<p>51 秒。这解释了为什么启动"时快时慢" —— 有缓存的机器几秒，无缓存的容器一分钟以上。</p>
+<h2 id="wei-shen-me-zai-rong-qi-li-you-qi-yan-zhong">为什么在容器里尤其严重</h2>
+<ol>
+<li>每次启动都是新容器，<code>/root/.npm/</code> 和 <code>~/.config/opencode/</code> 都是空的</li>
+<li>没有 Bun 的 package 缓存</li>
+<li>npm registry 从容器网络访问可能更慢</li>
+</ol>
+<p>平台侧虽然设置了 <code>OPENCODE_DISABLE_MODELS_FETCH=1</code>（跳过 AI 模型列表拉取），但这只影响 model fetching，不影响 plugin 系统的 npm 依赖安装（使用 <code>@npmcli/arborist</code>）。</p>
+<h1 id="jie-jue-fang-an">解决方案</h1>
+<h2 id="fang-an-yi-qu-diao-plugin-zui-kuai">方案一：去掉 plugin（最快）</h2>
+<p><code>opencode.jsonc</code> 中删除 <code>"plugin"</code> 字段。当前 <code>wfuzz-agent.ts</code> 主要是调试日志 hook，唯一有实际功能的 <code>experimental.chat.system.transform</code> opencode 原生就支持（自动读取 AGENTS.md）。后续如果需要 hook 功能再考虑其他注入方式。</p>
+<h2 id="fang-an-er-yu-zhuang-node-modules-bao-chi-plugin-ke-yong">方案二：预装 node_modules（保持 plugin 可用）</h2>
+<p>在构建时（<code>build.sh</code>）提前执行 <code>npm install</code>，把 63MB 的 <code>node_modules/</code> 打进发布包。运行时由 <code>wfuzz-agent</code>（Rust 侧）在 exec opencode 之前把 <code>node_modules</code> + <code>package.json</code> 复制到 <code>~/.config/opencode/</code>。</p>
+<p>构建流程改动（<code>build.sh</code>）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 下载 opencode 后</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">OPENCODE_VERSION</span><span style="color: #FFFFFFEE;">=</span><span>$(</span><span style="color: #FE4450;">&quot;</span><span style="color: #FF7EDB;">$BIN_DIR</span><span style="color: #FE4450;">/opencode&quot;</span><span style="color: #F97E72;"> --version</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span style="color: #FEDE5D;"> &gt;</span><span> agent-config/package.json</span><span style="color: #FEDE5D;"> &lt;&lt;</span><span style="color: #FF8B39;">EOF</span></span>
+<span class="giallo-l"><span>{&quot;dependencies&quot;:{&quot;@opencode-ai/plugin&quot;:&quot;</span><span style="color: #FF7EDB;">$OPENCODE_VERSION</span><span>&quot;}}</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">EOF</span></span>
+<span class="giallo-l"><span>(</span><span style="color: #36F9F6;">cd</span><span> agent-config &amp;&amp;</span><span style="color: #FE4450;"> npm</span><span> install</span><span style="color: #F97E72;"> --production</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → node_modules/ 被打进发布包</span></span></code></pre>
+<p>运行时改动（<code>main.rs</code>）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="rust"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// exec opencode 之前</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">let</span><span style="color: #FF7EDB;"> src</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> bin_dir</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">parent</span><span>()</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF8B39;">&quot;agent-config/node_modules&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">let</span><span style="color: #FF7EDB;"> dst</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FE4450;"> PathBuf</span><span style="color: #FEDE5D;">::</span><span style="color: #36F9F6;">from</span><span>(</span><span style="color: #FE4450;">env</span><span style="color: #FEDE5D;">::</span><span style="color: #36F9F6;">var</span><span>(</span><span style="color: #FF8B39;">&quot;HOME&quot;</span><span>)</span><span style="color: #FEDE5D;">?</span><span>)</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF8B39;">&quot;.config/opencode/node_modules&quot;</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">if</span><span style="color: #FF7EDB;"> src</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">exists</span><span>()</span><span style="color: #FEDE5D;"> &amp;&amp; !</span><span style="color: #FF7EDB;">dst</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">exists</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    fs</span><span style="color: #FEDE5D;">::</span><span style="color: #36F9F6;">create_dir_all</span><span>(</span><span style="color: #FF7EDB;">dst</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">parent</span><span>())</span><span style="color: #FEDE5D;">?</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">    copy_dir_recursive</span><span>(</span><span style="color: #FEDE5D;">&amp;</span><span style="color: #FF7EDB;">src</span><span>,</span><span style="color: #FEDE5D;"> &amp;</span><span style="color: #FF7EDB;">dst</span><span>)</span><span style="color: #FEDE5D;">?</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">    fs</span><span style="color: #FEDE5D;">::</span><span style="color: #36F9F6;">write</span><span>(</span><span style="color: #FF7EDB;">dst</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">parent</span><span>()</span><span style="color: #FEDE5D;">.</span><span style="color: #36F9F6;">join</span><span>(</span><span style="color: #FF8B39;">&quot;package.json&quot;</span><span>),</span><span style="color: #FF7EDB;"> bundled_pkg_json</span><span>)</span><span style="color: #FEDE5D;">?</span><span>;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// opencode 启动时 bun install 发现 node_modules 已存在 → 跳过下载</span></span></code></pre>
+<p>复制 63MB 本地文件的耗时远小于网络下载（毫秒级 vs 几十秒），且不受网络环境、npm registry 可用性的影响。</p>
+<blockquote>
+<p><strong>后续分析</strong>：<a href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/">源码分析篇</a> 深入了 <code>ConfigPaths.directories()</code>、<code>Npm.install()</code> 和 <code>waitForDependencies()</code> 的调用链，解释了为什么每个 <code>.opencode</code> 目录都会触发依赖安装。<a href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/">验证篇</a> 通过注入调试日志实测了完整耗时。</p>
+</blockquote>
+<h2 id="fang-an-san-sheng-ji-opencode">方案三：升级 opencode</h2>
+<p>测试了 1.18.3 版本，行为完全一致。看起来这个机制是 opencode 设计如此 —— 有 plugin 就必须装依赖。只能从工程侧规避。</p>
+<h1 id="pai-cha-fang-fa-lun-xiao-jie">排查方法论小结</h1>
+<p>这次排查犯了一个典型错误：看到 strace 输出 <code>futex</code> + <code>ETIMEDOUT</code> 就下了"死锁"的结论。实际是 Bun 的 worker pool 正常工作模式 —— 线程在等待 I/O（npm 下载），被唤醒处理数据包，然后继续等待。livelock 只是假象。</p>
+<p>教训：</p>
+<ol>
+<li><strong><code>strace</code> 看系统调用只能告诉你进程在"做什么类型的等待"，不能直接告诉你"在等什么"</strong></li>
+<li>怀疑死锁前，先检查<strong>文件系统和网络</strong> —— 进程可能在静静地下载东西</li>
+<li>对比实验是定位根因的最可靠手段 —— 控制变量（有无 plugin、有无 config）快速排除干扰因素</li>
+<li><code>/proc/&lt;pid&gt;/fd/</code> 是看进程 IO 目标的第一手资料，比 strace 更直观</li>
+</ol>
+<h1 id="gong-ju-su-cha">工具速查</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看进程打开的文件</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>pid</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看进程网络连接</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ss</span><span style="color: #F97E72;"> -tnp</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FEDE5D;"> &lt;</span><span>pid</span><span style="color: #FEDE5D;">&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看 npm 缓存大小</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">du</span><span style="color: #F97E72;"> -sh</span><span> ~/.npm/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看 opencode 日志</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> ~/.local/share/opencode/log/opencode.log</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看进程线程数和等待原因</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ls</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>pid</span><span style="color: #FEDE5D;">&gt;</span><span>/task/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> wc</span><span style="color: #F97E72;"> -l</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>pid</span><span style="color: #FEDE5D;">&gt;</span><span>/wchan</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 测试 WebSocket 连通性（bash）</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">exec</span><span style="color: #F97E72;"> 3</span><span style="color: #FEDE5D;">&lt;&gt;</span><span>/dev/tcp/127.0.0.1/4096</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> -en</span><span style="color: #FF8B39;"> &quot;GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n&quot;</span><span style="color: #FEDE5D;"> &gt;&amp;3</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">head</span><span style="color: #F97E72;"> -c 100</span><span style="color: #FEDE5D;"> &lt;</span><span>&amp;</span><span style="color: #FE4450;">3</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/">&#8249; opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/elf-二进制分析与编译链接工具/"> ELF 二进制分析与常用编译链接工具 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#di-yi-lun-pai-cha-yi-wei-shi-si-suo">第一轮排查：以为是死锁</a>
+        </div>
+        <div class="hpad">
+          <a href="#strace-kan-xi-tong-diao-yong"><small>- strace 看系统调用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dui-bi-shi-yan"><small>- 对比实验</small></a>
+        </div>
+        <div>
+          <a href="#di-er-lun-pai-cha-zhao-dao-zhen-zheng-de-gen-yin">第二轮排查：找到真正的根因</a>
+        </div>
+        <div class="hpad">
+          <a href="#huan-guan-cha-jiao-du-wen-jian-xi-tong-wang-luo"><small>- 换观察角度：文件系统 + 网络</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng"><small>- 验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-zai-rong-qi-li-you-qi-yan-zhong"><small>- 为什么在容器里尤其严重</small></a>
+        </div>
+        <div>
+          <a href="#jie-jue-fang-an">解决方案</a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-yi-qu-diao-plugin-zui-kuai"><small>- 方案一：去掉 plugin（最快）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-er-yu-zhuang-node-modules-bao-chi-plugin-ke-yong"><small>- 方案二：预装 node_modules（保持 plugin 可用）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-san-sheng-ji-opencode"><small>- 方案三：升级 opencode</small></a>
+        </div>
+        <div>
+          <a href="#pai-cha-fang-fa-lun-xiao-jie">排查方法论小结</a>
+        </div>
+        <div>
+          <a href="#gong-ju-su-cha">工具速查</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

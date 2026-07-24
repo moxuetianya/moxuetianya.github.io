@@ -1,0 +1,372 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>内存顺序(Memory Order) | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="内存顺序(Memory Order) | 墨雪天琊" />
+  <meta name="twitter:title" content="内存顺序(Memory Order) | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-06-01" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/">内存顺序(Memory Order)</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 01, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>, <a href="https://moxuetianya.github.io/categories/nei-cun-mo-xing/">内存模型</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/nei-cun-mo-xing/">内存模型</a> </span>
+
+    
+
+
+<h1 id="nei-cun-shun-xu-memory-order">内存顺序(Memory Order)</h1>
+<h1 id="nei-cun-shun-xu">内存顺序</h1>
+<p>内存顺序，通俗地讲，是关于代码编译成机器指令后的执行顺序问题。内存顺序和编译器、硬件架构密切相关。那为什么会产生内存顺序问题呢？有两方面原因： 一方面，编译器为了优化程序性能，不会完全按照开发者写的代码的顺序来生成机器指令； 另一方面，在程序运行时，为了提高性能，CPU也不完全按照程序的指令顺序执行，比如体系结构里经典的Tomasulo算法。</p>
+<p>对于大部分开发者而言，在写单线程程序，或者基于锁（Mutex）和信号量（Semaphore）之类编程框架提供的同步元语写多线程程序的时候，并不需要关心内存顺序的问题。 这是因为编译器和硬件架构保证了，虽然指令执行顺序可能跟开发者写的代码语句的顺序不一致，但是执行后的结果是一样的，即语义一致。 换句话讲，编译器和硬件架构提供了一层抽象用以屏蔽内存顺序问题，保证代码和编译出来的程序执行语义一致。 这样一方面提高程序性能，另一方面让开发者不用关心底层细节。编译器和硬件架构提供的这一层抽象叫作内存模型（Memory Model）。</p>
+<p>编译器和硬件架构提供了内存模型这一层抽象用以屏蔽内存顺序问题。 对于大部分开发者而言，写单线程程序，或基于编程框架提供的同步元语写多线程程序的时候，内存模型抽象成立，无需考虑内存顺序问题； 当开发者写多线程程序，对于多线程并发访问（或读或写）共享数据，使用原子操作，而不是基于锁互斥访问数据，即无锁化编程的时候， 这时内存模型的抽象被打破，开发者必须考虑内存顺序问题。</p>
+<p>内存顺序问题涉及编译器和硬件架构的很多细节，这里尝试用对于大部分开发者来说浅显易懂的语言来描述内存顺序问题， 尽可能避免编译器和硬件架构的实现细节，以便于大家理解。 下面依次介绍内存模型、内存顺序、原子操作，最后以C++11为例讲解开发者如何规约内存顺序。</p>
+<h1 id="nei-cun-mo-xing">内存模型</h1>
+<p>内存模型是编程语言对程序运行时内存访问模式的抽象，即内存被多个程序（进程和线程）共享，程序对内存的访问是无法预知的。 通俗地讲，内存模型指的是CPU并发随机访问内存，或从内存加载数据（Load）或把数据写入到内存（Store）。 Load和Store是机器指令（或汇编语言）的术语，其实就是读（Read）操作和写（Write）操作。 这里，内存模型屏蔽了很多硬件的细节，比如CPU的寄存器、缓存等等（因为寄存器和缓存属于程序执行上下文，CPU访问寄存器和缓存不存在并发）。 内存模型比较好理解，每个开发者或多或少都接触到内存模型。 有了内存模型这一层抽象，那么内存顺序问题可以等价于读操作和写操作的执行顺序问题，因为内存模型里CPU对内存的访问只有读和写两种操作。</p>
+<p>开发者在写代码时，代码语句的先后顺序往往约定了对内存访问的先后顺序的，即使访问的不是同一个内存地址。但是这个约定是基于内存模型这层抽象成立的前提。 前面提到，内存模型在单线程编程和基于编程框架提供的同步元语实现多线程编程的情况下，对内存顺序问题进行屏蔽，怎么理解呢？</p>
+<p>下面通过例子说明单线程程序的内存顺序问题：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int x, y = 0;</span></span>
+<span class="giallo-l"><span>x = y + 1;</span></span>
+<span class="giallo-l"><span>y = 2;</span></span></code></pre>
+<p>这段代码定义了两个整数，x和y，并对y初始化赋值为0，然后给x赋值的时候用到y的值，之后再给y赋值。 看上去，对y的写操作必须在对x的写操作之后，但是改写上述代码片段如下：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int x, y = 0;</span></span>
+<span class="giallo-l"><span>int tmp;</span></span>
+<span class="giallo-l"><span>tmp = y;</span></span>
+<span class="giallo-l"><span>y = 2;</span></span>
+<span class="giallo-l"><span>x = tmp + 1;</span></span></code></pre>
+<p>增加了变量tmp之后，首先把y的值付给tmp，然后就可以先对y赋新值，再给x赋值。对x和y来说，上面两段程序的执行结果是等价的。 变量tmp在这里可以理解为是CPU的寄存器，有了寄存器的帮助，代码里的读操作和写操作先后顺序可能被改变。 通俗地讲，编译器对代码语句的顺序调整也是类似的原理 （仅供对编译器不熟的读者理解编译器如何对代码语句顺序的调整，实际编译器对代码的优化很复杂，细节暂不展开）。</p>
+<p>上述例子说明了，单线程情况下，内存模型的抽象成立，开发者无需考虑内存顺序问题。 再考虑多线程的情况，把对x的写操作和对y的写操作放在不同的线程里：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int x, y = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    x = y + 1;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    y = 2;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>可以看出，x会有多种结果，取决于程序运行时两个线程的执行顺序，这就跟之前单线程的执行结果不一致了。 因为这里没有采用编程框架提供的同步元语来实现线程间同步，内存模型的抽象被打破，编译器和硬件架构无法保证语义一致。 此时，开发者要么采用编程框架提供的同步元语实现线程间同步以满足内存模型的抽象，要么显式规约指令执行顺序以保证结果正确。 改写上面的例子，可以采用编程框架提供的同步元语，规约程序运行时线程的执行顺序，这里使用信号量来实现线程间同步：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>sem_t semaphore; </span></span>
+<span class="giallo-l"><span>// 初始化信号量，初始值为0，最大值为1</span></span>
+<span class="giallo-l"><span>sem_init(&amp;semaphore, 0, 1); </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int x, y = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    x = y + 1;</span></span>
+<span class="giallo-l"><span>    sem_post(&amp;semaphore); </span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    sem_wait(&amp;semaphore);</span></span>
+<span class="giallo-l"><span>    y = 2;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>可以看出，使用信号量规约了两个线程在程序运行时的执行顺序，线程函数thread_func2要等待线程函数thread_func1对x完成赋值后才能对y赋值。 上述例子中，采用信号量之后，内存模型的抽象成立，多线程情况下的执行结果和单线程情况下一样，即语义一致。</p>
+<h1 id="nei-cun-shun-xu-1">内存顺序</h1>
+<p>从上面对内存模型的介绍可以看出，内存顺序，通俗地讲，就是规约编译器和硬件架构对读写操作的执行顺序。 当内存模型抽象成立时，内存模型对内存顺序做出规约，从而对开发者屏蔽内存顺序问题；当内存模型不成立时，开发者就需要显式规约内存顺序。</p>
+<p>前述讲内存模型用到的例子展示了对两个写操作的内存顺序问题。推而广之，内存顺序包含四种情况：</p>
+<p>|读操作在先 | 读读 | 读写|
+|写操作在先 | 写读 | 写写|</p>
+<p>即，读操作与读操作、读操作与写操作、写操作与读操作、写操作与写操作，四种情况下的指令执行顺序问题（不论是否读写同一个内存地址）。 开发者可以要求编译器和硬件架构在上述四种情况下分别做出规约，即：</p>
+<p>读读，读操作之后的读操作，之间的顺序不能改变；
+读写，读操作之后的写操作，之间的顺序不能改变；
+写读，写操作之后的读操作，之间的顺序不能改变；
+写写，写操作之后的写操作，之间的顺序不能改变。
+也可以换一种表达：</p>
+<p>读读，读操作之前的读操作，之间的顺序不能改变；
+读写，写操作之前的读操作，之间的顺序不能改变；
+写读，读操作之前的写操作，之间的顺序不能改变；
+写写，写操作之前的写操作，之间的顺序不能改变。
+换一种表达是为了方便后面理解C++原子操作的内存顺序。</p>
+<h1 id="yuan-zi-cao-zuo">原子操作</h1>
+<p>原子操作要么执行成功，要么尚未开始执行，不存在中间状态。 原子操作是要靠底层硬件架构来实现，只有硬件架构的某些指令才能保证原子操作，比如Compare and Swap（CAS）指令。 编程语言基于硬件架构的原子操作指令封装了一些原子类型以及原子操作（函数调用），以方便开发者使用。 如前所述，当内存模型抽象成立的时候，开发者无需考虑内存顺序问题； 当开发者使用原子操作的时候，内存模型的抽象被打破，此时开发者必须显式规约原子操作的内存顺序。</p>
+<p>另外，当CPU读写地址对齐的内存数据的时候，有可能是原子操作。 比如32位CPU，访问一个32位整数，如果这个整数的地址是4的倍数，即内存地址对齐，那么访问操作就是原子的， 即CPU执行一条指令（在一个指令周期内）读取或写入这个整数； 但是如果这个整数的地址不是4的倍数，那CPU还是要两次访问（执行两条指令）才能读取或写入这个整数，在这两次访问中间CPU有可能被其他程序抢占。 由于在编程的时候不能假设数据的内存地址一定是4的倍数，所以开发者要默认每一条代码语句都不是原子操作，除非明确使用原子操作。</p>
+<h1 id="c-de-nei-cun-shun-xu">C++的内存顺序</h1>
+<p>下面以C++语言为例，介绍开发者如何显式对原子操作的内存顺序做出规约，即要求编译器和硬件架构保证按照期望的顺序来执行原子操作指令。</p>
+<p>C++11提供了Atomic泛型，用于封装原子类型和原子操作。C++还定义了atomic_int、atomic_long、atomic_bool等类型，方便开发者直接使用。 下面的代码片段给出了Atomic泛型的定义，以及三个Atomic泛型的方法（为了便于读者理解，方法的定义略有删节）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>template &lt;class T&gt; struct atomic;</span></span>
+<span class="giallo-l"><span>...</span></span>
+<span class="giallo-l"><span>T load (memory_order sync) const noexcept;</span></span>
+<span class="giallo-l"><span>void store (T val, memory_order sync) noexcept;</span></span>
+<span class="giallo-l"><span>bool compare_exchange_strong (T&amp; expected, T val,</span></span>
+<span class="giallo-l"><span>        memory_order sync) noexcept;</span></span>
+<span class="giallo-l"><span>...</span></span></code></pre>
+<p>上面Atomic泛型的方法里有个输入参数sync的类型memory_order，用于规约Atomic泛型方法的内存顺序。 memory_order在C++11里定义为枚举类型，共有六个值，是C++11定义的内存顺序类型，可供开发者使用：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>typedef enum memory_order {</span></span>
+<span class="giallo-l"><span>    memory_order_relaxed,</span></span>
+<span class="giallo-l"><span>    memory_order_consume,</span></span>
+<span class="giallo-l"><span>    memory_order_acquire,</span></span>
+<span class="giallo-l"><span>    memory_order_release,</span></span>
+<span class="giallo-l"><span>    memory_order_acq_rel,</span></span>
+<span class="giallo-l"><span>    memory_order_seq_cst</span></span>
+<span class="giallo-l"><span>} memory_order;</span></span></code></pre>
+<p>限于篇幅，这里只介绍memory_order_acquire（简称Acquire）和memory_order_release（简称Release）这两种内存顺序，后续再介绍C++的其他内存顺序。 下表给出了Acquire和Release的语义：</p>
+<p>|内存顺序|  先后次序 | 语义 |
+|Acquire | 读操作在前|  读读、读写 |
+|Release | 写操作在后|  读写、写写 |</p>
+<p>即，Acquire要求，针对某个读操作，该读操作之后的读操作或写操作，这两种情况下的指令顺序不能改变； Release要求，针对某个写操作，该写操作之前的读操作或写操作，这两种情况下的执行顺序不能改变。、 可以看出，Acquire和Release涉及四种内存顺序中的三种情况，读读、读写和写写，不涉及写读这种情况。</p>
+<p>采用原子操作和Acquire和Release语义改写之前介绍内存模型用到的例子：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;iostream&gt; </span></span>
+<span class="giallo-l"><span>#include &lt;vector&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::atomic_int indicator (0); // 初始值为零</span></span>
+<span class="giallo-l"><span>int x, y = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    x = y + 1;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    // 通知thread_func2</span></span>
+<span class="giallo-l"><span>    indicator.store(1, // 写操作</span></span>
+<span class="giallo-l"><span>            std::memory_order_release); </span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    int ready = indicator.load( // 读操作</span></span>
+<span class="giallo-l"><span>            std::memory_order_acquire);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    // 等待thread_func1</span></span>
+<span class="giallo-l"><span>    if (read &gt; 0) {</span></span>
+<span class="giallo-l"><span>        y = 2;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>上述代码定义了一个原子整数变量indicator， 线程函数thread_func1在对x赋值完成之后，用indicator通知线程函数thread_func2。 特别要注意两个原子操作indicator.store()和indicator.load()的内存顺序， 为什么indicator.store()用Release语义，而indicator.load()用Acquire语义呢？</p>
+<p>先考虑indicator.store()的Release语义。 线程函数thread_func1先对x赋值，然后调用indicator.store()把indicator的值改为1， indicator.store()的执行顺序不允许改变，绝不能是先调用indicator.store()再给x赋值。 也就是说，对indicator的写操作indicator.store()之前的操作（对x赋值），必须保证在indicator.store()之前执行，符合Release的语义。</p>
+<p>再看indicator.load()的Acquire语义。 线程函数thread_func2先是调用indicator.load()读取indicator的值，检查是否不等于零，如果不为零，则对y赋值， indicator.load()的执行顺序不允许改变，绝不能是先对y赋值，再读取indicator的值。 也就是说，对indicator的读操作indicator.load()之后的操作（对y赋值），必须保证在indicator.load()之后执行，符合Acquire的语义。</p>
+<p>简单来说，对于原子写操作要求Release语义，对于原子读操作要求Acquire语义。 有些文章把Acquire和Release比作是对一个锁进行加锁和解锁操作，个人认为这样的比喻不是很准确。 因为，Release和Acquire这类内存顺序，跟锁和信号量的抽象层面不一样，内存顺序比锁和信号量更底层，可以用原子操作和内存顺序来实现锁和信号量。 原子操作indicator.store()和indicator.load()分别采用Release和Acquire语义，定义了两个线程间的同步通知关系（Synchronize with）， 用indicator这个原子变量来指示x是否完成赋值。这种同步通知关系不是静态规约好的，而是在程序运行时动态检查， 即x是否完成赋值并不阻塞线程函数thread_func2的执行，只是x是否完成赋值会影响线程函数thread_func2的执行结果， 有可能x尚未完成赋值但线程函数thread_func2已经执行完毕（此时线程函数thread_func2没有对y赋新值）。 如果采用锁或信号量，则x尚未完成赋值会阻塞线程函数thread_func2的执行，这样可以保证线程函数thread_func2对y赋新值。 可见，采用原子操作和内存顺序规约的线程同步通知机制，弱于锁和信号量等编程框架提供的同步元语实现的同步机制。 因此Release不是解锁操作，Acquire也不是加锁操作，这跟锁的互斥机制不一样。</p>
+<p>当然可以改写线程函数thread_func2，使其忙等待线程函数thread_func1对x完成赋值：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    int ready;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>    // 等待thread_func1</span></span>
+<span class="giallo-l"><span>    do {</span></span>
+<span class="giallo-l"><span>        ready = indicator.load( // 读操作</span></span>
+<span class="giallo-l"><span>                std::memory_order_acquire);</span></span>
+<span class="giallo-l"><span>    } while (ready == 0);</span></span>
+<span class="giallo-l"><span>        </span></span>
+<span class="giallo-l"><span>    y = 2;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>这样一来，相当于是基于原子操作和内存顺序实现了一个信号量，只是这个信号量让线程函数thread_func2忙等待而不是阻塞休眠。 这种做法在Linux内核里很常见，比如某个中断响应程序采用自旋锁（Spin Lock）忙等待某个资源，而不采用锁以避免阻塞休眠， 因为中断处理程序本身如果阻塞休眠或被其他程序抢占，会导致很复杂的程序上下文切换，也可能导致死锁。</p>
+<h1 id="happen-beforeguan-xi">Happen-Before关系</h1>
+<p>memory_order_acquire（Acquire）和memory_order_release（Release），这两种内存顺序是C++定义的六种内存顺序中最重要的两种， 只有理解了Acquire和Release的语义，才能更好理解其他四种内存顺序的语义。 更进一步，在实际使用场景中，Acquire和Release是最常见的两种内存顺序。</p>
+<p>如何判断该使用哪种内存顺序？这是开发者在使用原子类型和无锁化编程时最常碰到的问题。 这里用实际的例子来说明，如何判断该使用哪种内存顺序。 此外，为了更深入理解基于原子操作和基于锁实现的同步关系的本质区别， 还会介绍Happen-Before关系和Synchronize-With关系。</p>
+<p>线程间的同步关系，是要约定不同线程里发生的事件的先后次序，互斥关系本质也是一种同步关系。 Happen-Before关系就是用于定义不同事件之间的先后次序。 Happen-Before关系可以是在代码里静态约定好（基于锁的方式），也可以是在程序运行时动态发现（基于原子操作和内存顺序的方式）。</p>
+<p>先来看一个简单的例子，这个例子解释了Happen-Before关系：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int data = 0;</span></span>
+<span class="giallo-l"><span>int flag = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 1</span></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    data = 42;</span></span>
+<span class="giallo-l"><span>    flag = 1; // 事件1</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 2</span></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    if (flag == 1) // 事件2</span></span>
+<span class="giallo-l"><span>        printf(&quot;%d&quot;, data);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>上面的例子里定义了两个全局变量，线程1设置flag = 1表示完成对data的赋值， 线程2读取flag的值用以判断线程1是否完成对data的赋值，如果flag == 1则输出data的值。 我们定义两个事件，事件1为thread_func1里对flag赋值表示对data的赋值完成， 事件2为thread_func2里判断flag == 1，如果flag == 1则输出data的值。</p>
+<p>由于没有用锁的方式在代码里静态规约事件1和事件2的先后顺序，程序运行时可以有多种结果， 有些结果是合理的，有些结果是不合理的。 其中两种合理的结果是：要么线程2输出data的值42，要么不输出。 也就是说要么事件1 Happen-Before事件2，要么事件2 Happen-Before事件1。 但是，还有些不合理的结果，比如线程2有可能输出data的值为0，为什么呢？ 因为编译器或CPU会对程序进行优化，使得指令的执行顺序跟代码的逻辑顺序不一致。比如编译器可能对thread_func2进行如下优化：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>// thread 2</span></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    int tmp = data;</span></span>
+<span class="giallo-l"><span>    if (flag == 1)</span></span>
+<span class="giallo-l"><span>        printf(&quot;%d&quot;, tmp);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>这里tmp代表某个寄存器，编译器优化thread_func2导致在判断flag == 1前把data的值先载入寄存器，此时data的值可能为0， 判断完flag == 1之后再输出寄存器的值，此时即便data已经被thread_func1赋值为1，但是寄存器tmp里的值仍然是0。 也就是说，程序运行时产生不合理的结果，是由于没有保证事件1和事件2之间的先后次序，导致两个事件在运行时有重叠。 因此，为了保证上面的例子运行产生合理的结果，我们需要确保要么事件1 Happen-Before事件2，要么事件2 Happen-Before事件1。 可以采用基于锁的信号量机制，在代码里静态约定事件1在事件2之前发生， 也可以采用原子操作和内存顺序在程序运行时动态发现事件1和事件2之间的关系。</p>
+<p>这里我们先给出基于原子操作和内存顺序实现线程同步的实现。分两个步骤，先确定采用何种内存顺序，再确定采用哪种原子操作。</p>
+<p>上面的程序产生不合理的结果，究其原因，是因为编译器和CPU对程序指令的优化，导致代码逻辑顺序和实际指令执行顺序不一致。 因此，我们要用内存顺序来告诉编译器和CPU确保指令执行顺序和代码的逻辑顺序一致。 上述例子里，thread_func1里的两行赋值语句（两个写操作）顺序不能颠倒，thread_func2里判断语句和打印语句（两个读操作）顺序不能颠倒：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int data = 0;</span></span>
+<span class="giallo-l"><span>int flag = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 1</span></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    data = 42;</span></span>
+<span class="giallo-l"><span>    // 写操作之前的写操作，之间的顺序不能改变</span></span>
+<span class="giallo-l"><span>    flag = 1; // 事件1</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 2</span></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    if (flag == 1) // 事件2</span></span>
+<span class="giallo-l"><span>        // 读操作之后的读操作，之间的顺序不能改变</span></span>
+<span class="giallo-l"><span>        printf(&quot;%d&quot;, data);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>可以看出：要规约“写操作之前的写操作之间的顺序不能改变”（写写），得采用Release语义； 要规约“读操作之后的读操作，之间的顺序不能改变”（读读），得采用Acquire语义。</p>
+<p>确定了内存顺序，我们再考虑该如何使用原子操作，确保要么事件1 Happen-Before事件2， 要么事件2 Happen-Before事件1，不能让两个事件在运行时有重叠。 一种做法，我们可以让data成为原子变量，那就不需要flag这个通知变量了，两个线程直接原子访问data。 但是实际中，往往data代表的数据会比较大，不适合作为原子变量，因此才需要flag这个通知变量。 因此，我们让flag成为原子变量，两个线程原子访问flag来实现同步，进而确保事件1和事件2之间的先后顺序：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;atomic&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::atomic_int flag(0); // 初始值为零</span></span>
+<span class="giallo-l"><span>int data = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 1</span></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    data = 42;</span></span>
+<span class="giallo-l"><span>    flag.store(1, // 事件1</span></span>
+<span class="giallo-l"><span>            std::memory_order_release); </span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// thread 2</span></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    int ready = flag.load( // 事件2</span></span>
+<span class="giallo-l"><span>            std::memory_order_acquire);</span></span>
+<span class="giallo-l"><span>    if (ready == 1)</span></span>
+<span class="giallo-l"><span>        printf(&quot;%d&quot;, data);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>要注意一点，上面采用原子操作和内存顺序，只能确保事件1和事件2之间先后发生，存在先后次序关系， 但是不能保证事件1一定在事件2之前发生，或者事件2一定在事件1之前发生。 两个事件谁先谁后（Happen-Before关系）需要在程序运行时才能确定。</p>
+<h1 id="synchronize-withguan-xi">Synchronize-With关系</h1>
+<p>Synchronize-With关系是指，两个事件，如果事件1 Happen-Before事件2，那要把事件1同步给事件2，确保事件2得知事件1已经发生。</p>
+<p>先来看采用信号量机制来实现前述事件1和事件2之间的同步：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>sem_t flag; </span></span>
+<span class="giallo-l"><span>// 初始化信号量，初始值为0，最大值为1</span></span>
+<span class="giallo-l"><span>sem_init(&amp;flag, 0, 1); </span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int  = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func1() {</span></span>
+<span class="giallo-l"><span>    data = 42;</span></span>
+<span class="giallo-l"><span>    sem_post(&amp;flag); // 事件1</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void thread_func2() {</span></span>
+<span class="giallo-l"><span>    sem_wait(&amp;flag); // 事件2</span></span>
+<span class="giallo-l"><span>    printf(&quot;%d&quot;, data);</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>采用信号量，使得这两个线程运行结果只有一种（静态规约），即只有一种Happen-Before关系，事件1 Happen-Before事件2：</p>
+<p>不论thread_func1和thread_func2谁先开始运行，thread_func2都会等thread_func1执行完sem_post(&amp;flag)之后，才输出data的值42。
+显然，大家看到了基于原子操作和内存顺序，与基于信号量的实现，得到不同的结果。 这也就是我在上一篇Blog里提到的，基于原子操作和内存顺序，跟基于锁和信号量实现的线程间同步关系有本质的差异。 基于锁和信号量的线程间同步关系，比基于原子操作和内存顺序的线程间同步关系要更强。</p>
+<p>回到之前的例子，基于信号量实现两个线程间的同步，只有一种运行结果（静态规约）， thread_func1里sem_post(&amp;flag)一定在thread_func2输出data的值之前。 也就是说，信号量确保了事件1 Happen-Before事件2，同时也在运行时确保了事件1 Synchronize-With事件2 （通过thread_func1里sem_post(&amp;flag)和thread_func2里sem_wait(&amp;flag)来确保Synchronize-With关系）， 因而基于信号量的实现保证最终结果一定是thread_func2输出data的值42。</p>
+<p>但是，对于上述例子，基于原子操作和内存顺序实现两个线程间的同步，会有两种运行结果（动态发现）， 要么thread_func2输出data的值42，要么thread_func2不输出data的值。 也就是说，基于原子操作和内存顺序，只能保证事件1和事件2之间存在先后次序， 即要么事件1 Happen-Before事件2，要么事件2 Happen-Before事件1。 可见，基于原子操作和内存顺序，无法保证一定只有事件1 Happen-Before事件2这一种关系。 另外，在运行时，如果事件1 Happen-Before事件2， 基于flag这个原子变量的原子操作和内存顺序的实现可以确保事件1 Synchronize-With事件2 （通过thread_func1里flag.store(1, std::memory_order_release)和thread_func2里flag.load(std::memory_order_acquire)来确保）； 如果在运行时，事件2 Happen-Before事件1， 那基于flag这个原子变量的原子操作和内存顺序的实现无法确保事件2和事件1之间有Synchronize-With关系，需要另行实现。</p>
+<p>一句话总结，基于锁的同步机制，是在代码里静态约定不同线程里发生的事件之间的Happen-Before关系和Synchronize-With关系； 而基于原子操作和内存顺序，是在程序运行时动态发现事件之间的Happen-Before关系以及Synchronize-With关系。</p>
+<h1 id="c-11-memory-order">C++11 Memory Order</h1>
+<p>C++11原子操作的很多函数都有个std::memory_order参数，这个参数就是这里所说的内存模型，其并不是类似POD的内存布局，而是一种数据同步模型，准确说法应该是储存一致性模型，其作用是对同一时间的读写操作进行排序；C++11中一个定义了6种类型，我们可以将其分为4类，下面程序员能理解的语言描述一下</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>memory_order_relaxed: 很多文档都说这种模型是完全乱序的，但我理解同一线程内，基本上应该还是按照代码顺序执行的；</span></span>
+<span class="giallo-l"><span>memory_order_release &amp; memory_order_acquire: 两个线程A&amp;B，A线程Release后，B线程Acquire能保证一定读到的是最新被修改过的值；这种模型更强大的地方在于它能保证发生在A-Release前的所有写操作，在B-Acquire后都能读到最新值；</span></span>
+<span class="giallo-l"><span>memory_order_release &amp; memory_order_consume: 上一个模型的同步是针对所有对象的，这种模型只针对依赖于该操作涉及的对象：比如这个操作发生在变量a上，而s = a + b; 那s依赖于a，但b不依赖于a; 当然这里也有循环依赖的问题，例如：t = s + 1，因为s依赖于a，那t其实也是依赖于a的；</span></span>
+<span class="giallo-l"><span>memory_order_seq_cst: 顺序一致性模型，这是C++11原子操作的默认模型；大概行为为对每一个变量都进行2中所说的Release-Acquire操作，当然这也是一个最慢的同步模型；</span></span>
+<span class="giallo-l"><span>说到内存模型，就不得不提一下经常被大家误用的 volatile 关键字，这个关键字仅仅保证：数据只在内存中读写，直接操作它既不能保证操作是atomic的，也不能保证Memory Order；其实在我理解中，这个应该是嵌入式，内核或驱动程序员专用关键字:)，当然如果在竞争不敏感的环境中用来做flag用一下也没太大问题.</span></span></code></pre>
+<p>最后要说一下x86体系中Release-Acquire是自动获取的，最终形成一个memory_order_seq_cst模型；因此绝大多数情况下memory_order_relaxed其实并没有什么用.</p>
+<h1 id="qi-ta">其他</h1>
+<p>摘自：
+https://cloud.tencent.com/developer/article/1660979
+https://zhuanlan.zhihu.com/p/24983412
+https://www.zhihu.com/question/24301047/answer/85844428
+https://zhuanlan.zhihu.com/p/45566448</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/cpp-memory-order/">&#8249; C++ 内存顺序 (Memory Order)</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/05/shared-ptr-和make-shared-介绍/"> shared_ptr 和make_shared 介绍 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#nei-cun-shun-xu-memory-order">内存顺序(Memory Order)</a>
+        </div>
+        <div>
+          <a href="#nei-cun-shun-xu">内存顺序</a>
+        </div>
+        <div>
+          <a href="#nei-cun-mo-xing">内存模型</a>
+        </div>
+        <div>
+          <a href="#nei-cun-shun-xu-1">内存顺序</a>
+        </div>
+        <div>
+          <a href="#yuan-zi-cao-zuo">原子操作</a>
+        </div>
+        <div>
+          <a href="#c-de-nei-cun-shun-xu">C++的内存顺序</a>
+        </div>
+        <div>
+          <a href="#happen-beforeguan-xi">Happen-Before关系</a>
+        </div>
+        <div>
+          <a href="#synchronize-withguan-xi">Synchronize-With关系</a>
+        </div>
+        <div>
+          <a href="#c-11-memory-order">C++11 Memory Order</a>
+        </div>
+        <div>
+          <a href="#qi-ta">其他</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,306 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - network</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/network/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-03-20T01:56:07+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/network/atom.xml</id>
+    <entry xml:lang="en">
+        <title>linux 网络不通网卡缺陷排查记录</title>
+        <published>2026-03-20T01:56:07+00:00</published>
+        <updated>2026-03-20T01:56:07+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/"/>
+        <id>https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;查看&lt;code&gt;ip route&lt;&#x2F;code&gt; &lt;code&gt;ip link&lt;&#x2F;code&gt; &lt;code&gt;ip -4 addr&lt;&#x2F;code&gt; &lt;code&gt;bridge show&lt;&#x2F;code&gt; 等多个命令，没有发现明显问题
+怀疑是linux网桥导致的问题，后面发现是物理网卡hung了&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cha-kan-dmesg&quot;&gt;查看dmesg&lt;&#x2F;h1&gt;
+&lt;p&gt;sudo dmesg -w&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[318451.739250] e1000e 0000:00:1f.6 enp0s31f6: Detected Hardware Unit Hang:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  TDH                  &amp;lt;ed&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  TDT                  &amp;lt;10&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  next_to_use          &amp;lt;10&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  next_to_clean        &amp;lt;ec&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                buffer_info[next_to_clean]:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  time_stamp           &amp;lt;110b9fd62&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  next_to_watch        &amp;lt;ed&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  jiffies              &amp;lt;112f6a400&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                  next_to_watch.status &amp;lt;0&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                MAC Status             &amp;lt;40080083&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                PHY Status             &amp;lt;796d&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                PHY 1000BASE-T Status  &amp;lt;3800&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                PHY Extended Status    &amp;lt;3000&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                PCI Status             &amp;lt;10&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhen-duan-jie-guo-he-xin-zhen-duan&quot;&gt;诊断结果 核心诊断&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;硬件型号：Intel I219-LM (rev 11)。这是 Dell OptiPlex 7090 等商用机常见的板载网卡。&lt;&#x2F;li&gt;
+&lt;li&gt;内核版本：6.17.0-19-generic。这是一个非常新的内核（Ubuntu 24.04 的 HWE 边缘或开发版内核）。&lt;&#x2F;li&gt;
+&lt;li&gt;故障原因：新版内核中的 e1000e 驱动与 I219-LM (rev 11) 存在兼容性问题。&lt;&#x2F;li&gt;
+&lt;li&gt;Intel I219 系列网卡在 Linux 下以“挑剔”著称，经常在新内核中出现 Hardware Unit Hang。&lt;&#x2F;li&gt;
+&lt;li&gt;错误日志显示驱动检测到发送&#x2F;接收队列死锁，这通常是因为新内核的电源管理策略（ASPM）或中断处理逻辑与该特定修订版（rev 11）的硬件不匹配导致的。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;lin-shi-ce-shi-wu-xu-zhong-qi-yun-xing-yi-xia-ming-ling-guan-bi-gai-wang-qia-de-aspm-zhu-dong-zhuang-tai-dian-yuan-guan-li&quot;&gt;临时测试（无需重启）： 运行以下命令关闭该网卡的 ASPM（主动状态电源管理）：&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 注意：需要 root 权限&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; setpci&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; 00:1f.6 0x50.B=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;0x00&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 如果命令提示找不到 setpci，请先安装：&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install pciutils&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;执行完上述命令后，重置网卡：&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;```&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; bash&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ip link set enp0s31f6 down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ip link set enp0s31f6 up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;yong-jiu-sheng-xiao-xiu-gai-grub&quot;&gt;永久生效（修改 GRUB）：&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;如果临时测试有效，需要修改启动参数永久生效：&lt;&#x2F;li&gt;
+&lt;li&gt;sudo nano &#x2F;etc&#x2F;default&#x2F;grub&lt;&#x2F;li&gt;
+&lt;li&gt;找到 GRUB_CMDLINE_LINUX_DEFAULT 这一行，在引号内添加 pcie_aspm=off。&lt;&#x2F;li&gt;
+&lt;li&gt;GRUB_CMDLINE_LINUX_DEFAULT=&quot;quiet splash pcie_aspm=off&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;保存退出后，更新 GRUB 并重启：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; update-grub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; reboot&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;jin-yong-te-ding-de-wang-qia-jie-neng-gong-neng&quot;&gt;禁用特定的网卡节能功能&lt;&#x2F;h2&gt;
+&lt;p&gt;如果方案一无效，尝试通过 ethtool 禁用网卡内部的节能选项。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install ethtool&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ethtool enp0s31f6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -E&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;Wake-on|Energy&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 关闭 Wake-on-LAN&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; enp0s31f6 wol d&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 关闭 Energy Efficient Ethernet (EEE) - 这对 I219 很重要&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --set-eee&lt;&#x2F;span&gt;&lt;span&gt; enp0s31f6 eee off&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 注：如果 --set-eee 提示不支持，可以忽略该行。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 为了让这些设置在重启后依然有效，你可以创建一个 systemd 服务或将其放入 &#x2F;etc&#x2F;network&#x2F;interfaces (如果是旧版 networking) 或 Netplan 的配置中。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;快速临时测试脚本：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ip link set enp0s31f6 down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; enp0s31f6 wol d&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --set-eee&lt;&#x2F;span&gt;&lt;span&gt; enp0s31f6 eee off&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ip link set enp0s31f6 up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>常用网络工具</title>
+        <published>2025-11-25T18:52:43+08:00</published>
+        <updated>2025-11-25T18:52:43+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/常用网络工具/"/>
+        <id>https://moxuetianya.github.io/2025/11/常用网络工具/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/常用网络工具/">&lt;h1 id=&quot;chang-yong-wang-luo-gong-ju&quot;&gt;常用网络工具&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;ping&lt;&#x2F;li&gt;
+&lt;li&gt;curl&lt;&#x2F;li&gt;
+&lt;li&gt;httpie&lt;&#x2F;li&gt;
+&lt;li&gt;wget&lt;&#x2F;li&gt;
+&lt;li&gt;tc&lt;&#x2F;li&gt;
+&lt;li&gt;dig&#x2F;nslookup&lt;&#x2F;li&gt;
+&lt;li&gt;whois&lt;&#x2F;li&gt;
+&lt;li&gt;ssh&#x2F;scp&#x2F;rsync&lt;&#x2F;li&gt;
+&lt;li&gt;ngrep 抓包grep命令的网络版&lt;&#x2F;li&gt;
+&lt;li&gt;tcpdump&#x2F;wireshark&#x2F;tshark&lt;&#x2F;li&gt;
+&lt;li&gt;tcpflow 捕获和重组TCP连接中的数据流&lt;&#x2F;li&gt;
+&lt;li&gt;ifconfig&#x2F;route&lt;&#x2F;li&gt;
+&lt;li&gt;ip&#x2F;arp&lt;&#x2F;li&gt;
+&lt;li&gt;mitmproxy 中间人代理工具拦截修改观察流量&lt;&#x2F;li&gt;
+&lt;li&gt;nmap 网络探测和安全审核工具&lt;&#x2F;li&gt;
+&lt;li&gt;zenmap 图形界面管理和执行网络扫描任务&lt;&#x2F;li&gt;
+&lt;li&gt;p0f 被动操作系统指纹识别网络流量分析工具&lt;&#x2F;li&gt;
+&lt;li&gt;openvpn&#x2F;wiregaurd&lt;&#x2F;li&gt;
+&lt;li&gt;nc&#x2F;socat&#x2F;telnet 数据传输和处理&lt;&#x2F;li&gt;
+&lt;li&gt;ftp&#x2F;sftp&lt;&#x2F;li&gt;
+&lt;li&gt;nestat&#x2F;ss&#x2F;lsof&lt;&#x2F;li&gt;
+&lt;li&gt;iptables&#x2F;nftables&lt;&#x2F;li&gt;
+&lt;li&gt;hping3 生成解析TCP&#x2F;IP协议 数据包 也是安全审计、防火墙测试工具&lt;&#x2F;li&gt;
+&lt;li&gt;traceroute&#x2F;mtr&lt;&#x2F;li&gt;
+&lt;li&gt;tcptraceroute 使用tcp协议进行路径跟踪&lt;&#x2F;li&gt;
+&lt;li&gt;ethtool 查看和修改网络设备的驱动参数和硬件设置&lt;&#x2F;li&gt;
+&lt;li&gt;iw&#x2F;iwconfig 配置和管理无线网络接口&lt;&#x2F;li&gt;
+&lt;li&gt;sysctl 运行时配置内核参数&lt;&#x2F;li&gt;
+&lt;li&gt;openssl&lt;&#x2F;li&gt;
+&lt;li&gt;stunnel 开源跨平台进行通信加密&lt;&#x2F;li&gt;
+&lt;li&gt;iptraf&#x2F;nethogs&#x2F;iftop&#x2F;ntop 网络流量监控&lt;&#x2F;li&gt;
+&lt;li&gt;ab&#x2F;nload&#x2F;iperf3 网络性能测试和监控&lt;&#x2F;li&gt;
+&lt;li&gt;python3 -m http.server&lt;&#x2F;li&gt;
+&lt;li&gt;ipcalc 简单的ip地址计算&lt;&#x2F;li&gt;
+&lt;li&gt;nsenter 进入指定进程命令空间下运行执行程序&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>systemd-networkd-wait-online阻塞问题解决方案</title>
+        <published>2025-11-23T00:18:35+08:00</published>
+        <updated>2025-11-23T00:18:35+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/"/>
+        <id>https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/">&lt;h1 id=&quot;pei-zhi-chao-shi-shi-jian-he-zhi-ding-deng-dai-jie-kou&quot;&gt;配置超时时间 和 指定等待接口&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# sudo systemctl disable systemd-networkd-wait-online.service --now&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl edit systemd-networkd-wait-online.service&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;TimeoutStartSec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;5&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 删除原来的 ExecStart 行&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;ExecStart&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 添加新的 ExecStart 行，使用 --interface 明确指定等待的接口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;ExecStart&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;lib&#x2F;systemd&#x2F;systemd-networkd-wait-online&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; --interface&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; --interface&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;eth1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 排除名为 vpn0 的接口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ExecStart=&#x2F;lib&#x2F;systemd&#x2F;systemd-networkd-wait-online --exclude=vpn0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 全局超时配置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; vim &#x2F;etc&#x2F;systemd&#x2F;system.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;DefaultTimeoutStartSec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;DefaultTimeoutStopSec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;ShutdownWatchdogSec&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;30&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhen-duan-wen-ti-gen-yuan&quot;&gt;诊断问题根源&lt;&#x2F;h1&gt;
+&lt;p&gt;如果问题是由于网络配置本身的错误导致接口无法上线，仅仅禁用等待服务只会隐藏问题。&lt;&#x2F;p&gt;
+&lt;p&gt;检查网络状态： 查看 systemd-networkd 对接口的看法：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;networkctl&lt;&#x2F;span&gt;&lt;span&gt; status&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查找接口的 State 是否一直处于 configuring 或 degraded 状态。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>远程唤醒 Wake-on-LAN</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/wake-on-lan/"/>
+        <id>https://moxuetianya.github.io/2025/07/wake-on-lan/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/wake-on-lan/">&lt;h1 id=&quot;yuan-cheng-huan-xing-wake-on-lan&quot;&gt;远程唤醒 Wake-on-LAN&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;yuan-li&quot;&gt;原理&lt;&#x2F;h2&gt;
+&lt;p&gt;WOL 通过发送 &lt;strong&gt;Magic Packet&lt;&#x2F;strong&gt; 唤醒目标计算机。Magic Packet 是一个广播帧，由以下组成：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;6 字节的 &lt;code&gt;0xFF&lt;&#x2F;code&gt;（全 1）&lt;&#x2F;li&gt;
+&lt;li&gt;目标 MAC 地址重复 16 次&lt;&#x2F;li&gt;
+&lt;li&gt;共 102 字节&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过 UDP 端口 7 或 9（默认）发送，也可以是二层帧（EtherType &lt;code&gt;0x0842&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;p&gt;关机状态下网卡（NIC）保持低功耗待机，监听 Magic Packet，收到后触发开机。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;linux-bei-huan-xing-duan-pei-zhi&quot;&gt;Linux 被唤醒端配置&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看是否支持 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ethtool&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -C 3 -i&lt;&#x2F;span&gt;&lt;span&gt; wake&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Supports Wake-on: pumbg  表示支持&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Wake-on: d               d=禁用, g=已开启&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 开启 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; eth0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;WOL 选项含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;d&lt;&#x2F;td&gt;&lt;td&gt;禁用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;p&lt;&#x2F;td&gt;&lt;td&gt;物理活动唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;u&lt;&#x2F;td&gt;&lt;td&gt;单播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;m&lt;&#x2F;td&gt;&lt;td&gt;多播（组播）消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;b&lt;&#x2F;td&gt;&lt;td&gt;广播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;a&lt;&#x2F;td&gt;&lt;td&gt;ARP 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;g&lt;&#x2F;td&gt;&lt;td&gt;Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;s&lt;&#x2F;td&gt;&lt;td&gt;带密码的 Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;g&lt;&#x2F;code&gt;（Magic Packet），避免路由器广播误唤醒。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;que-bao-zhong-qi-hou-zi-dong-kai-qi&quot;&gt;确保重启后自动开启&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;方法一&lt;&#x2F;strong&gt;：添加到 &lt;code&gt;&#x2F;etc&#x2F;rc.local&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;sbin&#x2F;ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; eth0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法二&lt;&#x2F;strong&gt;：创建 systemd 服务：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Unit]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Description&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;Enable Wake On Lan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Type&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;oneshot&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;ExecStart&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;usr&#x2F;sbin&#x2F;ethtool --change enp3s0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Install]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;WantedBy&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;basic.target&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fa-song-magic-packet&quot;&gt;发送 Magic Packet&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# wakeonlan（UDP，无需 root）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install wakeonlan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i 192.168.1.255&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      # 指定广播地址&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i 192.168.1.255 -p 4242&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 指定端口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# etherwake（二层帧，需 root）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install etherwake&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; etherwake&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; etherwake&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   # 指定接口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;zhua-bao-yan-zheng&quot;&gt;抓包验证&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 监听 Magic Packet（UDP 端口 9）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -vvnn -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;ether dst host ff:ff:ff:ff:ff:ff and udp port 9&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 监听二层帧 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -vvnn -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;ether[12:2] == 0x0842&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Wireshark 过滤&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;udp.port&lt;&#x2F;span&gt;&lt;span&gt; ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 9&lt;&#x2F;span&gt;&lt;span&gt; or udp.port ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 7&lt;&#x2F;span&gt;&lt;span&gt; or eth.type ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0x0842&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;wol-bao-wen-lei-xing-zong-jie&quot;&gt;WOL 报文类型总结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;以太网地址&lt;&#x2F;th&gt;&lt;th&gt;IP 层地址&lt;&#x2F;th&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;wakeonlan&lt;&#x2F;td&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;网段广播&#x2F;255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;etherwake&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;广播&lt;&#x2F;td&gt;&lt;td&gt;无（纯二层）&lt;&#x2F;td&gt;&lt;td&gt;EtherType 0x0842&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Windows WOL App&lt;&#x2F;td&gt;&lt;td&gt;广播&lt;&#x2F;td&gt;&lt;td&gt;网段广播 + 255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;gong-wang-huan-xing&quot;&gt;公网唤醒&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;bi-yao-tiao-jian&quot;&gt;必要条件&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;公网 IP&lt;&#x2F;strong&gt; 或 &lt;strong&gt;DDNS&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;路由器端口转发&lt;&#x2F;strong&gt;：将外网端口映射到目标机器的 IP:9（UDP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ARP 绑定&lt;&#x2F;strong&gt;：路由器中绑定目标机器的 MAC-IP，防止关机后 ARP 表丢失&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;chang-jian-shi-bai-yuan-yin&quot;&gt;常见失败原因&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;路由器端口转发不支持映射为广播地址（如华为路由只支持已获取 IP 的设备）&lt;&#x2F;li&gt;
+&lt;li&gt;路由器在设备关机后检测到 MAC 下线，ARP 绑定失效，丢包&lt;&#x2F;li&gt;
+&lt;li&gt;源地址经 DNAT（端口转发）后变为公网 IP，某些网卡&#x2F;NIC 对单播 Magic Packet 的处理不一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;rao-xing-fang-an&quot;&gt;绕行方案&lt;&#x2F;h3&gt;
+&lt;p&gt;通过内网一台始终在线的机器（如 NAS）作为跳板，由 NAS 发送 wakeonlan 命令唤醒目标机器。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wol-bao-wen-fa-song-fang-shi-dui-bi&quot;&gt;WOL 报文发送方式对比&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;优点&lt;&#x2F;th&gt;&lt;th&gt;缺点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;安全、低带宽&lt;&#x2F;td&gt;&lt;td&gt;IP 变化后失效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;子网广播&lt;&#x2F;td&gt;&lt;td&gt;兼容性好、成功率高&lt;&#x2F;td&gt;&lt;td&gt;需要路由器支持；仅 IPv4；安全性低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;qi-ta-yuan-cheng-kai-ji-fang-an&quot;&gt;其他远程开机方案&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;智能插座&lt;&#x2F;strong&gt; + BIOS &quot;通电自动开机&quot;：最简单，适用于任何机器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;PCI-E 开机卡&lt;&#x2F;strong&gt;：通过 WiFi 发送开机信号，需 PCIE 插槽带电&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;短接 POWER SW 跳线&lt;&#x2F;strong&gt;：通过外部设备短接主板的电源跳线&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-li-python-jiao-ben&quot;&gt;示例 Python 脚本&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;python&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;import&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;def&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; wol&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;mac&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; bytes&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;):&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;socket&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;AF_INET&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;, socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SOCK_DGRAM&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;setsockopt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SOL_SOCKET&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;, socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SO_BROADCAST&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    magic&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\xff&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; +&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; mac&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 16&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;sendto&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(magic, (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&amp;lt;broadcast&amp;gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 7&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;wol&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\x00\x15\xB2\xAA\x5B\x00&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>

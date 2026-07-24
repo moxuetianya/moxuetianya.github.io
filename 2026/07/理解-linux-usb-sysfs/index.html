@@ -1,0 +1,375 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>理解 Linux USB sysfs | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="lsusb 输出解读、sysfs 路径命名规则、多配置机制、xHCI 双总线架构及根集线器命名" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/理解-linux-usb-sysfs/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/理解-linux-usb-sysfs/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/理解-linux-usb-sysfs/" />
+  <meta property="og:description" content="lsusb 输出解读、sysfs 路径命名规则、多配置机制、xHCI 双总线架构及根集线器命名" />
+  <meta name="twitter:description" content="lsusb 输出解读、sysfs 路径命名规则、多配置机制、xHCI 双总线架构及根集线器命名" />
+  <meta property="og:title" content="理解 Linux USB sysfs | 墨雪天琊" />
+  <meta name="twitter:title" content="理解 Linux USB sysfs | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-03" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/理解-linux-usb-sysfs/">理解 Linux USB sysfs</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 03, 2026 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/usb/">usb</a> </span>
+
+    
+
+
+<h1 id="lsusb-shu-chu-jie-du"><code>lsusb</code> 输出解读</h1>
+<p>以一个 QEMU 虚拟机的输出为例：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub</span></span>
+<span class="giallo-l"><span>Bus 001 Device 002: ID 0627:0001 Adomax Technology Co., Ltd QEMU Tablet</span></span>
+<span class="giallo-l"><span>Bus 002 Device 001: ID 1d6b:0003 Linux Foundation 3.0 root hub</span></span></code></pre>
+<p>每行格式为 <code>Bus XXX Device YYY: ID vvvv:pppp VendorName ProductName</code>：</p>
+<table><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>Bus 001</code></td><td>USB 总线编号</td></tr>
+<tr><td><code>Device 001</code></td><td>该总线上的设备编号（按枚举顺序分配）</td></tr>
+<tr><td><code>ID 1d6b:0002</code></td><td>VID (Vendor ID，由 USB-IF 分配) + PID (Product ID，厂商自定义)</td></tr>
+<tr><td><code>Linux Foundation ...</code></td><td>从 <code>/usr/share/hwdata/usb.ids</code> 查表得到的人类可读名称</td></tr>
+</tbody></table>
+<p>以上三行表示两台设备：</p>
+<ul>
+<li><code>1d6b:0002</code> — USB 2.0 根集线器（xHCI 控制器在 USB 2.0 侧的抽象）</li>
+<li><code>0627:0001</code> — QEMU 虚拟 USB Tablet（模拟触控/鼠标输入）</li>
+<li><code>1d6b:0003</code> — USB 3.0 根集线器（同一控制器在 USB 3.0 侧的抽象）</li>
+</ul>
+<h1 id="lsusb-tv-shu-zhuang-tuo-bu"><code>lsusb -tv</code> 树状拓扑</h1>
+<p><code>-t</code> 显示层级拓扑，<code>-v</code> 显示详细信息：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>/:  Bus 001.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/15p, 480M</span></span>
+<span class="giallo-l"><span>    ID 1d6b:0002 Linux Foundation 2.0 root hub</span></span>
+<span class="giallo-l"><span>    |__ Port 001: Dev 002, If 0, Class=Human Interface Device, Driver=usbhid, 480M</span></span>
+<span class="giallo-l"><span>        ID 0627:0001 Adomax Technology Co., Ltd QEMU Tablet</span></span>
+<span class="giallo-l"><span>/:  Bus 002.Port 001: Dev 001, Class=root_hub, Driver=xhci_hcd/15p, 5000M</span></span>
+<span class="giallo-l"><span>    ID 1d6b:0003 Linux Foundation 3.0 root hub</span></span></code></pre><table><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>/</code></td><td>USB 拓扑的根节点</td></tr>
+<tr><td><code>Bus 001</code>, <code>Bus 002</code></td><td>分别对应 USB 2.0 总线和 USB 3.0 总线</td></tr>
+<tr><td><code>Port 001</code>, <code>Port ...</code></td><td>物理端口号</td></tr>
+<tr><td><code>Dev N</code></td><td>设备编号</td></tr>
+<tr><td><code>Class=root_hub</code></td><td>设备类别（根集线器 / HID 等）</td></tr>
+<tr><td><code>Driver=xhci_hcd/15p</code></td><td>绑定驱动和下游端口数（15 个端口）</td></tr>
+<tr><td><code>480M</code></td><td>链路速率 480 Mbps (USB 2.0 High-Speed)</td></tr>
+<tr><td><code>5000M</code></td><td>链路速率 5 Gbps (USB 3.0 SuperSpeed)</td></tr>
+<tr><td><code>|__</code></td><td>缩进表示子设备，连接在本集线器的某个端口上</td></tr>
+<tr><td><code>If 0</code></td><td>Interface 0（一个设备可同时暴露多个接口）</td></tr>
+<tr><td><code>Class=Human Interface Device</code></td><td>接口类别为 HID（键盘/鼠标/触控类）</td></tr>
+<tr><td><code>Driver=usbhid</code></td><td>绑定驱动</td></tr>
+</tbody></table>
+<h1 id="sysfs-lu-jing-ming-ming-gui-ze">sysfs 路径命名规则</h1>
+<p>设备在 <code>/sys/bus/usb/devices/</code> 中的路径名由三部分构成：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>&lt;总线&gt;-&lt;端口路径&gt;:&lt;配置&gt;.&lt;接口&gt;</span></span></code></pre><h2 id="bus-part-zong-xian-bu-fen">bus-part（总线部分）</h2>
+<table><thead><tr><th>示例</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>usb1</code></td><td>USB Bus 1 的虚拟根设备（唯一不带端口路径的特例）</td></tr>
+<tr><td><code>usb2</code></td><td>USB Bus 2 的虚拟根设备</td></tr>
+</tbody></table>
+<h2 id="port-path-duan-kou-lu-jing-bu-fen">port-path（端口路径部分）</h2>
+<p>端口路径从根集线器向下逐级编号，用 <code>-</code> 分隔第一个端口与总线，后续层级都用 <code>.</code>。</p>
+<table><thead><tr><th>示例</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>1-0</code></td><td>Bus 1 上的根集线器本身（port 0 仅为占位符，非真实端口）</td></tr>
+<tr><td><code>1-1</code></td><td>Bus 1 根集线器的 Port 1</td></tr>
+<tr><td><code>1-2</code></td><td>Bus 1 根集线器的 Port 2</td></tr>
+<tr><td><code>1-1.2</code></td><td>Bus 1 → 根 Port 1 上的下游集线器 → 该集线器的 Port 2</td></tr>
+<tr><td><code>1-1.2.3</code></td><td>再延伸一级：Port 2 下级集线器的 Port 3</td></tr>
+<tr><td><code>3-2.1.4</code></td><td>Bus 3 → Port 2 → 集线器 Port 1 → 集线器 Port 4</td></tr>
+</tbody></table>
+<p><strong>规则概括：</strong> <code>-</code> 只出现一次，作为总线号与端口链的分隔符；<code>0</code> 仅用于根集线器作为设备自身被引用时。</p>
+<h2 id="config-interface-pei-zhi-yu-jie-kou-bu-fen">config.interface（配置与接口部分）</h2>
+<p>USB 设备层次为：Device → Configuration → Interface → Endpoint。</p>
+<table><thead><tr><th>示例</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>1-1</code></td><td>设备级别（无配置/接口信息）</td></tr>
+<tr><td><code>1-1:1.0</code></td><td>设备，配置 1，接口 0</td></tr>
+<tr><td><code>1-1:1.1</code></td><td>同一设备的配置 1 下的接口 1（复合设备可多接口）</td></tr>
+<tr><td><code>1-1:2.0</code></td><td>同一设备的配置 2 下的接口 0（多配置设备）</td></tr>
+<tr><td><code>1-0:1.0</code></td><td>根集线器作为设备，配置 1，接口 0</td></tr>
+</tbody></table>
+<h2 id="zong-he-shi-li">综合示例</h2>
+<p>在 <code>/sys/bus/usb/devices/</code> 中的一个多层拓扑可能长这样：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>usb1                    ← Bus 1 根设备</span></span>
+<span class="giallo-l"><span>1-0:1.0                 ← Bus 1 根集线器接口</span></span>
+<span class="giallo-l"><span>1-1                     ← 根 Port 1 上的设备</span></span>
+<span class="giallo-l"><span>1-1:1.0                 ← 该设备，配置 1 接口 0</span></span>
+<span class="giallo-l"><span>1-1:1.1                 ← 该设备，配置 1 接口 1（复合设备）</span></span>
+<span class="giallo-l"><span>1-1.2                   ← 该设备是个下游集线器，其 Port 2 上的设备</span></span>
+<span class="giallo-l"><span>1-1.2:1.0</span></span>
+<span class="giallo-l"><span>1-1.2.3                 ← 下游集线器 Port 3 上的设备</span></span>
+<span class="giallo-l"><span>1-1.2.3:1.0</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>usb2                    ← Bus 2 根设备</span></span>
+<span class="giallo-l"><span>2-0:1.0</span></span>
+<span class="giallo-l"><span>2-1                     ← Bus 2 根 Port 1</span></span>
+<span class="giallo-l"><span>2-1:1.0</span></span></code></pre><h1 id="duan-dian-endpoint">端点（Endpoint）</h1>
+<p>端点是 USB 通信的最终收发单元，位于整个层次的最底层：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>Device → Configuration → Interface → Endpoint</span></span></code></pre><h2 id="ep0-she-bei-ji-de-kong-zhi-duan-dian">EP0：设备级的控制端点</h2>
+<p><strong>EP0 属于设备，不属于任何接口。</strong> 每个 USB 设备强制拥有 EP0，在配置和接口建立之前就已存在。EP0 是双向控制端点，用于：</p>
+<ul>
+<li>获取设备/配置/接口/端点描述符</li>
+<li>设置地址（<code>SET_ADDRESS</code>）</li>
+<li>选择配置（<code>SET_CONFIGURATION</code>）</li>
+<li>厂商自定义的控制命令</li>
+</ul>
+<p>任何接口都不能声明或占用 EP0。</p>
+<h2 id="duan-dian-zi-yuan-yu-fen-pei">端点资源与分配</h2>
+<p>USB 端点地址由 4 位端点号 + 1 位方向组成，规范限制每个设备最多 <strong>16 个端点号</strong>（EP0 ~ EP15）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>端点地址字节: [D7 = 方向: 1=IN, 0=OUT] [D3..D0 = 端点号]</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>EP1 OUT = 0x01    EP1 IN = 0x81</span></span>
+<span class="giallo-l"><span>EP2 OUT = 0x02    EP2 IN = 0x82</span></span></code></pre>
+<p>扣除强制占用的 EP0，剩余 <strong>15 个端点号</strong>（EP1 ~ EP15），每个号可分配 IN 和 OUT 两个方向，因此单方向计最多 <strong>30 个端点</strong>（不含 EP0）。</p>
+<p>端点号是<strong>设备级资源</strong>：一个端点号在给定配置内只能被一个接口独占，不能跨接口共用。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>设备端点池：EP1 IN, EP1 OUT, EP2 IN, EP2 OUT, ..., EP15 IN, EP15 OUT</span></span>
+<span class="giallo-l"><span>              │                   │</span></span>
+<span class="giallo-l"><span>              │      Interface 0  │      Interface 1</span></span>
+<span class="giallo-l"><span>              └───────────────────┴──────────────────────</span></span>
+<span class="giallo-l"><span>                 各自领走端点，同一个端点号不会出现在两个接口里</span></span></code></pre>
+<p>注意 <code>EP1 IN</code> 和 <code>EP1 OUT</code> 虽然共用端点号 1，但<strong>是两个独立的端点</strong>，各占端点池的一个位置。</p>
+<p>一个接口可以独占所有剩余端点（如一个复杂的 UVC 摄像头用掉 6~8 个），也可以多个接口分摊。总之是<strong>瓜分</strong>，不是共享。</p>
+<h2 id="duan-dian-lei-xing">端点类型</h2>
+<table><thead><tr><th>类型</th><th>用途</th><th>典型场景</th></tr></thead><tbody>
+<tr><td>Control</td><td>设备配置/命令</td><td>EP0（设备级）</td></tr>
+<tr><td>Interrupt</td><td>低延迟、小数据量</td><td>HID 键盘/鼠标</td></tr>
+<tr><td>Bulk</td><td>大数据量、无延迟保证</td><td>Mass Storage、串口</td></tr>
+<tr><td>Isochronous</td><td>固定带宽、允许丢包</td><td>摄像头、音频</td></tr>
+</tbody></table>
+<h2 id="chang-jian-jie-kou-de-duan-dian-shi-yong">常见接口的端点使用</h2>
+<table><thead><tr><th>设备类型</th><th>接口数</th><th>端点</th></tr></thead><tbody>
+<tr><td>HID 键盘</td><td>1</td><td>1 IN interrupt</td></tr>
+<tr><td>HID 鼠标+键盘</td><td>2</td><td>2 IN interrupt（各 1 个）</td></tr>
+<tr><td>Mass Storage（U 盘）</td><td>1</td><td>1 IN bulk + 1 OUT bulk</td></tr>
+<tr><td>CDC ACM（串口）</td><td>2</td><td>1 IN bulk + 1 OUT bulk + 1 IN interrupt（通知）</td></tr>
+<tr><td>UVC 摄像头</td><td>2~3</td><td>1 isochronous IN + alternate settings 的多组 isochronous 端点</td></tr>
+</tbody></table>
+<hr />
+<h1 id="duo-pei-zhi-multiple-configurations">多配置（Multiple Configurations）</h1>
+<p>USB 规范允许一个设备有多个配置（Configuration），但同一时刻只有一个配置生效，且互相排斥。</p>
+<h2 id="shen-me-shi-hou-yong-duo-pei-zhi">什么时候用多配置</h2>
+<table><thead><tr><th>场景</th><th>配置 1</th><th>配置 2</th></tr></thead><tbody>
+<tr><td>低功耗模式</td><td>全功能（键盘+鼠标），耗电高</td><td>仅键盘，耗电低</td></tr>
+<tr><td>固件升级</td><td>正常工作模式</td><td>DFU (Device Firmware Upgrade)</td></tr>
+<tr><td>多用途</td><td>CDC ECM（网卡）</td><td>其他功能</td></tr>
+<tr><td>兼容性</td><td>USB 3.0 全速</td><td>降级 USB 2.0</td></tr>
+</tbody></table>
+<p>实际上，<strong>99.9% 的设备只有一个配置</strong>。</p>
+<h2 id="pei-zhi-de-xuan-ze-yu-qie-huan">配置的选择与切换</h2>
+<p>设备插入后，内核自动遍历所有配置描述符，并默认激活配置 1。可以通过 sysfs 手动切换：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看当前激活的配置</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /sys/bus/usb/devices/1-1/bConfigurationValue</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 1</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看设备支持几个配置</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /sys/bus/usb/devices/1-1/bNumConfigurations</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># → 2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 切换到配置 2</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 2</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sudo</span><span> tee /sys/bus/usb/devices/1-1/bConfigurationValue</span></span></code></pre>
+<p>切换配置时内核会解绑旧配置下所有接口的驱动，重建新接口，再重新匹配驱动。</p>
+<h2 id="qie-huan-pei-zhi-gu-jian-zhong-mei-ju">切换配置 ≠ 固件重枚举</h2>
+<p>更常见的场景是 <strong>usb_modeswitch</strong> 之类的工具，它不是切换配置，而是让设备固件在电气层面断开再重连，以新的 VID/PID 重新枚举：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>插入设备 → 识别为 Mass Storage (PID=1001)</span></span>
+<span class="giallo-l"><span>    ↓ usb_modeswitch 发送 SCSI/vendor 命令</span></span>
+<span class="giallo-l"><span>设备断开 USB 连接</span></span>
+<span class="giallo-l"><span>    ↓ 设备固件切换内部模式</span></span>
+<span class="giallo-l"><span>设备重新上拉 D+ → 识别为 Modem/网卡 (PID=1002)</span></span></code></pre><table><thead><tr><th></th><th>配置切换</th><th>固件重枚举</th></tr></thead><tbody>
+<tr><td>VID/PID</td><td>不变</td><td>可不同</td></tr>
+<tr><td>机制</td><td><code>SetConfiguration()</code></td><td>电气断开再重连</td></tr>
+<tr><td>对主机而言</td><td>同一设备</td><td>两个独立的插入事件</td></tr>
+</tbody></table>
+<hr />
+<h1 id="xhci-shuang-zong-xian-jia-gou">xHCI 双总线架构</h1>
+<p>xHCI 控制器内部有两个独立的根集线器——USB 2.0 和 USB 3.0 各一个。一个物理端口从同一个插座同时引出两组引脚：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>                     xHCI 控制器</span></span>
+<span class="giallo-l"><span>                    ┌─────────────┐</span></span>
+<span class="giallo-l"><span>                    │             │</span></span>
+<span class="giallo-l"><span>   USB 2.0 总线     │  ┌───────┐  │     USB 3.0 总线</span></span>
+<span class="giallo-l"><span>   (Bus 1, 480M)    │  │ 芯片  │  │     (Bus 2, 5000M)</span></span>
+<span class="giallo-l"><span>       ↑            │  └───────┘  │          ↑</span></span>
+<span class="giallo-l"><span>       │            │             │          │</span></span>
+<span class="giallo-l"><span>       └────────────┼─────────────┼──────────┘</span></span>
+<span class="giallo-l"><span>                 物理端口 (同一个物理插座)</span></span>
+<span class="giallo-l"><span>              ┌───┴───┐</span></span>
+<span class="giallo-l"><span>          D+/D-    SSTX+/SSRX+</span></span>
+<span class="giallo-l"><span>        (USB 2.0)   (USB 3.0)</span></span></code></pre><h2 id="she-bei-lu-you">设备路由</h2>
+<table><thead><tr><th>插入设备类型</th><th>使用引脚</th><th>枚举到</th></tr></thead><tbody>
+<tr><td>USB 3.0/3.x (SuperSpeed)</td><td>SSTX/SSRX</td><td>Bus 2 (USB 3.0 总线)</td></tr>
+<tr><td>USB 2.0 (High/Full/Low Speed)</td><td>D+/D-</td><td>Bus 1 (USB 2.0 总线)</td></tr>
+</tbody></table>
+<p>因此 <code>1-1</code> 和 <code>2-1</code> 会同时出现在 sysfs 中——它们是<strong>同一个物理端口的 USB 2.0 影子和 USB 3.0 影子</strong>，设备实际只出现在其中一条总线上，取决于插入设备的速度层级。</p>
+<h2 id="zhi-ze-hua-fen">职责划分</h2>
+<table><thead><tr><th>层</th><th>职责</th></tr></thead><tbody>
+<tr><td>物理层</td><td>D+/D- 和 SSTX/SSRX 是两组独立差分信号线</td></tr>
+<tr><td>xHCI 控制器硬件</td><td>内部两个根集线器，根据检测到的信号自动路由到对应总线</td></tr>
+<tr><td><code>xhci_hcd</code> 驱动</td><td>为两个根集线器分别创建 <code>usb1</code>/<code>usb2</code>，管理端口映射和设备枚举</td></tr>
+<tr><td>USB 核心 (usbcore)</td><td>抽象层，统一设备模型与 sysfs 接口</td></tr>
+<tr><td>设备驱动 (usbhid 等)</td><td>不感知上述细节，只看到绑定到自己接口上的设备</td></tr>
+</tbody></table>
+<hr />
+<h1 id="wei-shen-me-gen-ji-xian-qi-shi-1-0-er-fei-1-0-1">为什么根集线器是 <code>1-0</code> 而非 <code>1-0.1</code></h1>
+<p>根集线器的端口路径命名中，<code>-0</code> 是占位符——根集线器没有上游端口可以编号，所以用 <code>0</code> 表示它作为设备本身。</p>
+<p>但引用根集线器上的端口时，路径直接从该端口号开始，根集线器本身不在路径中出现：</p>
+<table><thead><tr><th>期望的写法（错误）</th><th>实际写法</th><th>原因</th></tr></thead><tbody>
+<tr><td><code>1-0.1</code></td><td><code>1-1</code></td><td><code>-</code> 之后直接是端口链，根集线器默认为起点</td></tr>
+<tr><td><code>1-0.1.2</code></td><td><code>1-1.2</code></td><td>同上，起点不编号</td></tr>
+<tr><td>引用根集线器本身</td><td><code>1-0</code></td><td>这是唯一出现 <code>0</code> 的地方</td></tr>
+</tbody></table>
+<p>下游集线器不需要 <code>0</code>，因为它们的设备路径已以自身端口号结束，不存在 <code>N-M.n.0</code> 这种写法。</p>
+<h1 id="su-cha-biao">速查表</h1>
+<table><thead><tr><th>sysfs 路径</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>usbN</code></td><td>虚拟根设备，Bus N</td></tr>
+<tr><td><code>N-0:1.0</code></td><td>Bus N 根集线器，配置 1，接口 0</td></tr>
+<tr><td><code>N-M</code></td><td>Bus N 根集线器 Port M 上的设备</td></tr>
+<tr><td><code>N-M:1.0</code></td><td>同上，配置 1，接口 0</td></tr>
+<tr><td><code>N-M.N</code></td><td>Bus N → Port M 下游集线器 → Port N</td></tr>
+<tr><td><code>N-M.N:1.0</code></td><td>同上，配置 1，接口 0</td></tr>
+<tr><td><code>N-M.N.O</code></td><td>三层集线器嵌套</td></tr>
+<tr><td><code>N-M:1.1</code></td><td>同一配置下的第 2 个接口（复合设备）</td></tr>
+<tr><td><code>N-M:2.0</code></td><td>第 2 个配置的第 1 个接口（罕见）</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/">&#8249; waypipe + weston 全屏乱码排查：一次被现象带偏的过程</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/make-your-linux-distro/"> 基于上游发行版制作你的 Linux 发行版 — live-build/archiso/livecd-tools 指南 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#lsusb-shu-chu-jie-du">lsusb 输出解读</a>
+        </div>
+        <div>
+          <a href="#lsusb-tv-shu-zhuang-tuo-bu">lsusb -tv 树状拓扑</a>
+        </div>
+        <div>
+          <a href="#sysfs-lu-jing-ming-ming-gui-ze">sysfs 路径命名规则</a>
+        </div>
+        <div class="hpad">
+          <a href="#bus-part-zong-xian-bu-fen"><small>- bus-part（总线部分）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#port-path-duan-kou-lu-jing-bu-fen"><small>- port-path（端口路径部分）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#config-interface-pei-zhi-yu-jie-kou-bu-fen"><small>- config.interface（配置与接口部分）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-he-shi-li"><small>- 综合示例</small></a>
+        </div>
+        <div>
+          <a href="#duan-dian-endpoint">端点（Endpoint）</a>
+        </div>
+        <div class="hpad">
+          <a href="#ep0-she-bei-ji-de-kong-zhi-duan-dian"><small>- EP0：设备级的控制端点</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#duan-dian-zi-yuan-yu-fen-pei"><small>- 端点资源与分配</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#duan-dian-lei-xing"><small>- 端点类型</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#chang-jian-jie-kou-de-duan-dian-shi-yong"><small>- 常见接口的端点使用</small></a>
+        </div>
+        <div>
+          <a href="#duo-pei-zhi-multiple-configurations">多配置（Multiple Configurations）</a>
+        </div>
+        <div class="hpad">
+          <a href="#shen-me-shi-hou-yong-duo-pei-zhi"><small>- 什么时候用多配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pei-zhi-de-xuan-ze-yu-qie-huan"><small>- 配置的选择与切换</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qie-huan-pei-zhi-gu-jian-zhong-mei-ju"><small>- 切换配置 ≠ 固件重枚举</small></a>
+        </div>
+        <div>
+          <a href="#xhci-shuang-zong-xian-jia-gou">xHCI 双总线架构</a>
+        </div>
+        <div class="hpad">
+          <a href="#she-bei-lu-you"><small>- 设备路由</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zhi-ze-hua-fen"><small>- 职责划分</small></a>
+        </div>
+        <div>
+          <a href="#wei-shen-me-gen-ji-xian-qi-shi-1-0-er-fei-1-0-1">为什么根集线器是 1-0 而非 1-0.1</a>
+        </div>
+        <div>
+          <a href="#su-cha-biao">速查表</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

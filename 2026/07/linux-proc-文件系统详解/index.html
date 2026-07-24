@@ -1,0 +1,303 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux /proc 文件系统详解 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="通过 &#x2F;proc 接口查看 CPU、内存、磁盘、中断等系统信息，涵盖常用 procfs 文件的含义与使用" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/linux-proc-文件系统详解/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/linux-proc-文件系统详解/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/linux-proc-文件系统详解/" />
+  <meta property="og:description" content="通过 &#x2F;proc 接口查看 CPU、内存、磁盘、中断等系统信息，涵盖常用 procfs 文件的含义与使用" />
+  <meta name="twitter:description" content="通过 &#x2F;proc 接口查看 CPU、内存、磁盘、中断等系统信息，涵盖常用 procfs 文件的含义与使用" />
+  <meta property="og:title" content="Linux &#x2F;proc 文件系统详解 | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux &#x2F;proc 文件系统详解 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/linux-proc-文件系统详解/">Linux /proc 文件系统详解</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">Linux</a>] #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/proc/">proc</a>  #<a href="https://moxuetianya.github.io/tags/xi-tong-guan-li/">系统管理</a> </span>
+
+    
+
+
+<p><code>/proc</code> 是一个伪文件系统（procfs），由内核动态生成，用于暴露系统运行状态。读取这些文件无需特殊工具，<code>cat</code> 即可——这也是排查问题最快的手段。</p>
+<span id="continue-reading"></span><h2 id="cpu-xin-xi">CPU 信息</h2>
+<h3 id="proc-cpuinfo">/proc/cpuinfo</h3>
+<p>每颗逻辑核一个段落，常用字段：</p>
+<table><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>processor</code></td><td>逻辑核编号（从 0 开始）</td></tr>
+<tr><td><code>physical id</code></td><td>物理 CPU 编号</td></tr>
+<tr><td><code>cpu cores</code></td><td>每颗物理 CPU 的核数</td></tr>
+<tr><td><code>siblings</code></td><td>单颗物理 CPU 的逻辑核数（含超线程）</td></tr>
+<tr><td><code>core id</code></td><td>当前核在物理 CPU 中的编号</td></tr>
+<tr><td><code>model name</code></td><td>CPU 型号与主频</td></tr>
+<tr><td><code>cache size</code></td><td>L2 缓存大小</td></tr>
+<tr><td><code>flags</code></td><td>支持的 CPU 特性（如 aes, avx2）</td></tr>
+</tbody></table>
+<p>常用统计命令：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 物理 CPU 个数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/cpuinfo</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FF8B39;"> &quot;physical id&quot;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sort</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> uniq</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> wc</span><span style="color: #F97E72;"> -l</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 每颗 CPU 的核数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/cpuinfo</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FF8B39;"> &quot;cpu cores&quot;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> uniq</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 逻辑 CPU 总数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/cpuinfo</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FF8B39;"> &quot;processor&quot;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> wc</span><span style="color: #F97E72;"> -l</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># CPU 型号</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/cpuinfo</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FF8B39;"> &quot;model name&quot;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> uniq</span></span></code></pre>
+<p>总核数 = 物理 CPU 数 × 每颗核数；总逻辑 CPU 数 = 物理 CPU 数 × 每颗核数 × 超线程数。</p>
+<h3 id="proc-uptime">/proc/uptime</h3>
+<p>系统运行时长与空闲时间：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/uptime</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 406988.68 15804134.45</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 第一个值：系统启动至今的秒数</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 第二个值：所有 CPU 累计空闲的秒数（需除以逻辑核数）</span></span></code></pre><h3 id="proc-version">/proc/version</h3>
+<p>内核版本号与编译信息：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/version</span></span></code></pre><h3 id="proc-cmdline">/proc/cmdline</h3>
+<p>内核启动参数：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/cmdline</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># BOOT_IMAGE=/vmlinuz-5.15.0-generic root=/dev/mapper/root ro console=tty0 console=ttyS0,115200</span></span></code></pre><h2 id="nei-cun-xin-xi">内存信息</h2>
+<h3 id="proc-meminfo">/proc/meminfo</h3>
+<p>内存使用概况（总量、空闲、缓存、Swap 等）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/meminfo</span></span></code></pre><h3 id="dmidecode-t-memory">dmidecode -t memory</h3>
+<p>查看物理内存条型号、频率、容量（需 root）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> dmidecode</span><span style="color: #F97E72;"> -t</span><span> memory</span></span></code></pre>
+<p>输出示例：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>Memory Device</span></span>
+<span class="giallo-l"><span>    Size: 16384 MB</span></span>
+<span class="giallo-l"><span>    Type: DDR3</span></span>
+<span class="giallo-l"><span>    Speed: 1600 MT/s</span></span>
+<span class="giallo-l"><span>    Manufacturer: Hynix</span></span>
+<span class="giallo-l"><span>    Part Number: HMT42GR7AFR4C-RD</span></span></code></pre><h3 id="proc-iomem">/proc/iomem</h3>
+<p>物理地址空间分配，包含 DDR、PCI Bus、ACPI Tables、ROM 等区域的地址映射：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> cat /proc/iomem</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>00000000-00000fff : Reserved</span></span>
+<span class="giallo-l"><span>00001000-0009fbff : System RAM</span></span>
+<span class="giallo-l"><span>...</span></span>
+<span class="giallo-l"><span>100000000-38cafffff : System RAM</span></span>
+<span class="giallo-l"><span>  20ee00000-20fe025c7 : Kernel code</span></span>
+<span class="giallo-l"><span>  210000000-210a87fff : Kernel rodata</span></span>
+<span class="giallo-l"><span>  210c00000-2110455ff : Kernel data</span></span>
+<span class="giallo-l"><span>  211393000-2119fffff : Kernel bss</span></span></code></pre>
+<p>要点：</p>
+<ul>
+<li>DDR 物理内存在地址空间上不一定连续，也不一定从 0 开始</li>
+<li>除 System RAM 外还有 PCI Bus、System ROM 等 I/O 内存区域</li>
+<li>可查看内核代码段、数据段在物理内存中的位置</li>
+</ul>
+<h3 id="proc-ioports">/proc/ioports</h3>
+<p>内核 IO 端口地址分配：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/ioports</span></span></code></pre><h3 id="diao-zheng-nei-cun-fen-pei-ce-lue">调整内存分配策略</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看当前 overcommit 策略</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/sys/vm/overcommit_memory</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 0 - 检查可用内存，不足则拒绝</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 1 - 始终允许，不检查</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 2 - 允许超过（物理内存 + 交换空间）总和</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 2</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sys/vm/overcommit_memory</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 60</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sys/vm/overcommit_ratio</span></span></code></pre><h2 id="ci-pan-yu-io">磁盘与 IO</h2>
+<h3 id="proc-diskstats">/proc/diskstats</h3>
+<p>磁盘 I/O 统计，iostat、iotop 等工具的数据来源：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/diskstats</span></span></code></pre>
+<p>各字段含义（按列顺序）：</p>
+<table><thead><tr><th>列</th><th>含义</th></tr></thead><tbody>
+<tr><td>1</td><td>读完成次数</td></tr>
+<tr><td>2</td><td>合并读次数</td></tr>
+<tr><td>3</td><td>读扇区数</td></tr>
+<tr><td>4</td><td>读耗时（ms）</td></tr>
+<tr><td>5</td><td>写完成次数</td></tr>
+<tr><td>6</td><td>合并写次数</td></tr>
+<tr><td>7</td><td>写扇区数</td></tr>
+<tr><td>8</td><td>写耗时（ms）</td></tr>
+<tr><td>9</td><td>正在处理的 I/O 数</td></tr>
+<tr><td>10</td><td>I/O 总耗时（ms），field 9 不为 0 时增长</td></tr>
+<tr><td>11</td><td>加权 I/O 耗时（ms），每次 I/O 开始/结束/合并时累加</td></tr>
+</tbody></table>
+<h2 id="zhong-duan">中断</h2>
+<h3 id="proc-interrupts">/proc/interrupts</h3>
+<p>每个 IRQ 在各 CPU 上的中断次数：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/interrupts</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>           CPU0       CPU1       CPU2       CPU3</span></span>
+<span class="giallo-l"><span>  0:        205          0          0          0   IO-APIC-edge      timer</span></span>
+<span class="giallo-l"><span>  1:         10          0          0          0   IO-APIC-edge      i8042</span></span>
+<span class="giallo-l"><span>  4:       1467          0          0        432   IO-APIC-edge      serial</span></span></code></pre>
+<p>从左到右：IRQ 序号、各 CPU 中断次数、中断控制器类型、设备名称。</p>
+<h3 id="proc-stat">/proc/stat</h3>
+<p>系统全局统计，包含总中断数：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/stat</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #FF8B39;"> &quot;intr&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># intr 598618187 205 10 0 0 ...</span></span></code></pre>
+<p>第一个数字为总中断数，其后依次为各 IRQ 的中断次数（从 0 开始）。</p>
+<h2 id="nei-he-yu-diao-shi">内核与调试</h2>
+<h3 id="proc-kallsyms">/proc/kallsyms</h3>
+<p>内核符号表，用于调试和跟踪：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/kallsyms</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 非 root 用户看到的地址为 0</span></span></code></pre><h3 id="proc-modules">/proc/modules</h3>
+<p>已加载的内核模块列表。</p>
+<h3 id="proc-slabinfo">/proc/slabinfo</h3>
+<p>Slab 分配器使用情况（内核对象缓存）。</p>
+<h2 id="proc-sys-nei-he-can-shu">/proc/sys 内核参数</h2>
+<p><code>/proc/sys/</code> 下包含了大量可调内核参数，通过 <code>sysctl</code> 或直接写文件生效：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看所有可调参数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sysctl</span><span style="color: #F97E72;"> -a</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 临时修改</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 1</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sys/net/ipv4/ip_forward</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sysctl</span><span style="color: #F97E72;"> -w</span><span> net.ipv4.ip_forward=</span><span style="color: #F97E72;">1</span></span></code></pre>
+<p>常用内核参数路径：</p>
+<table><thead><tr><th>路径</th><th>作用</th></tr></thead><tbody>
+<tr><td><code>/proc/sys/vm/dirty_ratio</code></td><td>脏页触发写回的阈值</td></tr>
+<tr><td><code>/proc/sys/vm/swappiness</code></td><td>Swap 倾向性（0-100）</td></tr>
+<tr><td><code>/proc/sys/net/ipv4/tcp_tw_reuse</code></td><td>TIME_WAIT 复用</td></tr>
+<tr><td><code>/proc/sys/kernel/pid_max</code></td><td>最大 PID 值</td></tr>
+</tbody></table>
+<hr />
+<p><strong>参考链接：</strong></p>
+<ul>
+<li><a rel="noopener external" target="_blank" href="https://man7.org/linux/man-pages/man5/proc.5.html">proc(5) — Linux manual page</a></li>
+<li><a rel="noopener external" target="_blank" href="https://man7.org/linux/man-pages/man8/sysctl.8.html">sysctl(8) — Linux manual page</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/elf-二进制分析与编译链接工具/">&#8249; ELF 二进制分析与常用编译链接工具</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/systemd-cgroup-resource-control/"> systemd 资源控制：cgroup v2 配置与实践 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cpu-xin-xi">CPU 信息</a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-cpuinfo"><small>- &#x2F;proc&#x2F;cpuinfo</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-uptime"><small>- &#x2F;proc&#x2F;uptime</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-version"><small>- &#x2F;proc&#x2F;version</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-cmdline"><small>- &#x2F;proc&#x2F;cmdline</small></a>
+        </div>
+        <div>
+          <a href="#nei-cun-xin-xi">内存信息</a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-meminfo"><small>- &#x2F;proc&#x2F;meminfo</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dmidecode-t-memory"><small>- dmidecode -t memory</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-iomem"><small>- &#x2F;proc&#x2F;iomem</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-ioports"><small>- &#x2F;proc&#x2F;ioports</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#diao-zheng-nei-cun-fen-pei-ce-lue"><small>- 调整内存分配策略</small></a>
+        </div>
+        <div>
+          <a href="#ci-pan-yu-io">磁盘与 IO</a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-diskstats"><small>- &#x2F;proc&#x2F;diskstats</small></a>
+        </div>
+        <div>
+          <a href="#zhong-duan">中断</a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-interrupts"><small>- &#x2F;proc&#x2F;interrupts</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-stat"><small>- &#x2F;proc&#x2F;stat</small></a>
+        </div>
+        <div>
+          <a href="#nei-he-yu-diao-shi">内核与调试</a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-kallsyms"><small>- &#x2F;proc&#x2F;kallsyms</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-modules"><small>- &#x2F;proc&#x2F;modules</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#proc-slabinfo"><small>- &#x2F;proc&#x2F;slabinfo</small></a>
+        </div>
+        <div>
+          <a href="#proc-sys-nei-he-can-shu">&#x2F;proc&#x2F;sys 内核参数</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

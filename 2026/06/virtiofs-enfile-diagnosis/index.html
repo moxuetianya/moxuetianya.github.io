@@ -1,0 +1,339 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>virtiofs ENFILE 问题排查手册 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="排查 virtiofs 导致宿主机文件表耗尽（ENFILE）致使 VM 内报错“系统中打开的文件过多”的问题" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta property="og:description" content="排查 virtiofs 导致宿主机文件表耗尽（ENFILE）致使 VM 内报错“系统中打开的文件过多”的问题" />
+  <meta name="twitter:description" content="排查 virtiofs 导致宿主机文件表耗尽（ENFILE）致使 VM 内报错“系统中打开的文件过多”的问题" />
+  <meta property="og:title" content="virtiofs ENFILE 问题排查手册 | 墨雪天琊" />
+  <meta name="twitter:title" content="virtiofs ENFILE 问题排查手册 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-06-13" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/">virtiofs ENFILE 问题排查手册</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 13, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/virtualization/">virtualization</a>] #<a href="https://moxuetianya.github.io/tags/virtiofs/">virtiofs</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/libvirt/">libvirt</a>  #<a href="https://moxuetianya.github.io/tags/fuse/">fuse</a>  #<a href="https://moxuetianya.github.io/tags/file-descriptor/">file-descriptor</a> </span>
+
+    
+
+
+<h1 id="virtiofs-enfile-wen-ti-pai-cha-shou-ce">virtiofs ENFILE 问题排查手册</h1>
+<h2 id="wen-ti-xian-xiang">问题现象</h2>
+<p>VM 内执行文件操作时报错：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>ls: 无法打开目录 &#39;.&#39;: 系统中打开的文件过多</span></span>
+<span class="giallo-l"><span># 对应系统错误: ENFILE (Too many open files in system)</span></span></code></pre>
+<hr />
+<h2 id="pai-cha-bu-zou">排查步骤</h2>
+<h3 id="1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai">1. 系统级文件句柄状态</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/sys/fs/file-nr</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 输出格式: &lt;已分配数量&gt; &lt;空闲数量&gt; &lt;最大限制&gt;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 如果第 2 列 = 0 表示文件表已耗尽</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/sys/fs/file-max</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /proc/sys/fs/nr_open</span></span></code></pre><h3 id="2-ding-wei-virtiofsd-jin-cheng">2. 定位 virtiofsd 进程</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">pgrep</span><span style="color: #F97E72;"> -a</span><span> virtiofsd</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">ps</span><span style="color: #F97E72;"> -o</span><span> pid,ppid,user,etime,rss,args</span><span style="color: #F97E72;"> -p</span><span> $(</span><span style="color: #FE4450;">pgrep</span><span style="color: #F97E72;"> -d</span><span style="color: #FF8B39;">&#39;,&#39;</span><span> virtiofsd)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># rss: 内存占用  etime: 运行时长</span></span></code></pre><h3 id="3-jian-cha-virtiofsd-fd-shu-liang">3. 检查 virtiofsd fd 数量</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 精确计数</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> wc</span><span style="color: #F97E72;"> -l</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 间接估算（fd 目录字节数 ≈ 30×fd数）</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">stat</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> Size</span></span></code></pre><h3 id="4-cha-kan-fd-lei-xing-fen-bu">4. 查看 fd 类型分布</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> awk</span><span style="color: #FF8B39;"> &#39;{</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  target=$NF</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  if (target ~ /^socket:/)       type=&quot;socket&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else if (target ~ /^pipe:/)    type=&quot;pipe&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else if (target ~ /^anon_inode:/) type=&quot;anon_inode&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else if (target ~ /\(deleted\)$/) type=&quot;deleted_file&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else if (target ~ /^\//)       type=&quot;regular_file&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else if (target ~ /^\/dev\//)  type=&quot;dev&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  else                           type=&quot;other&quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">  count[type]++</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">} END { for(t in count) print count[t], t }&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sort</span><span style="color: #F97E72;"> -rn</span></span></code></pre><h3 id="5-cha-kan-fd-zhi-xiang-na-xie-mu-lu">5. 查看 fd 指向哪些目录</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> awk</span><span style="color: #FF8B39;"> &#39;{print $NF}&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  sed</span><span style="color: #FF8B39;"> &#39;s|/home/peter/project||&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  awk</span><span style="color: #F97E72;"> -F</span><span style="color: #FF8B39;">&#39;/&#39; &#39;{print $1&quot;/&quot;$2&quot;/&quot;$3&quot;/&quot;$4}&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  sort</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> uniq</span><span style="color: #F97E72;"> -c</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sort</span><span style="color: #F97E72;"> -rn</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -30</span></span></code></pre><h3 id="6-cai-yang-cha-kan-fd-ju-ti-nei-rong">6. 采样查看 fd 具体内容</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 前 40 个</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -40</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 中间段</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sed</span><span style="color: #F97E72;"> -n</span><span style="color: #FF8B39;"> &#39;5000,5020p&#39;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 末尾</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span style="color: #F97E72;"> -A</span><span> ls</span><span style="color: #F97E72;"> -la</span><span> /proc/</span><span style="color: #FEDE5D;">&lt;</span><span>PID</span><span style="color: #FEDE5D;">&gt;</span><span>/fd/</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> tail</span><span style="color: #F97E72;"> -20</span></span></code></pre><h3 id="7-jian-cha-virtiofsd-nei-cun-he-zi-yuan-xian-zhi">7. 检查 virtiofsd 内存和资源限制</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> pid</span><span style="color: #FEDE5D;"> in &lt;</span><span>PID_LIST</span><span style="color: #FEDE5D;">&gt;</span><span>;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  echo</span><span style="color: #FF8B39;"> &quot;=== PID </span><span style="color: #FF7EDB;">$pid</span><span style="color: #FF8B39;"> ===&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cat</span><span> /proc/</span><span style="color: #FF7EDB;">$pid</span><span>/limits</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;open files|processes&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cat</span><span> /proc/</span><span style="color: #FF7EDB;">$pid</span><span>/status</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;VmRSS|VmSize|Threads&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span></code></pre><h3 id="8-jian-cha-fuse-lian-jie-can-shu">8. 检查 FUSE 连接参数</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ls</span><span> /sys/fs/fuse/connections/</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> conn</span><span style="color: #FEDE5D;"> in</span><span> /sys/fs/fuse/connections/*/;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  echo</span><span style="color: #FF8B39;"> &quot;=== $(</span><span style="color: #FE4450;">basename</span><span style="color: #FF7EDB;"> $conn</span><span style="color: #FF8B39;">) ===&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cat</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$conn</span><span style="color: #FF8B39;">/max_background&quot;</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cat</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$conn</span><span style="color: #FF8B39;">/congestion_threshold&quot;</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  cat</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$conn</span><span style="color: #FF8B39;">/waiting&quot;</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># max_background 默认 12，congestion_threshold 默认 9</span></span></code></pre><h3 id="9-jian-cha-qemu-jin-cheng">9. 检查 QEMU 进程</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ps</span><span> aux</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;qemu|libvirt&quot;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -v</span><span> grep</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> pid</span><span style="color: #FEDE5D;"> in &lt;</span><span>QEMU_PID_LIST</span><span style="color: #FEDE5D;">&gt;</span><span>;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  stat</span><span> /proc/</span><span style="color: #FF7EDB;">$pid</span><span>/fd</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> Size</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span></code></pre><h3 id="10-quan-xi-tong-fd-tong-ji">10. 全系统 fd 统计</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FF7EDB;">total</span><span style="color: #FFFFFFEE;">=</span><span>0</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> p</span><span style="color: #FEDE5D;"> in</span><span> /proc/[0-9]</span><span style="color: #FEDE5D;">*</span><span>/fd/;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">  total</span><span style="color: #FFFFFFEE;">=</span><span>$((</span><span style="color: #FE4450;">total</span><span> + $(</span><span style="color: #FE4450;">ls</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$p</span><span style="color: #FF8B39;">&quot;</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> wc</span><span style="color: #F97E72;"> -l</span><span>)))</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #FF8B39;"> &quot;用户可见: </span><span style="color: #FF7EDB;">$total</span><span style="color: #FF8B39;">&quot;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #FF8B39;"> &quot;系统分配: $(</span><span style="color: #FE4450;">awk</span><span style="color: #FF8B39;"> &#39;{print $1}&#39; /proc/sys/fs/file-nr)&quot;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #FF8B39;"> &quot;差值(root): $((</span><span style="color: #FE4450;"> $(awk</span><span style="color: #FF8B39;"> &#39;{print $1}&#39; /proc/sys/fs/file-nr) - total ))&quot;</span></span></code></pre><h3 id="11-cha-zhao-fd-zui-da-de-jin-cheng">11. 查找 fd 最大的进程</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> p</span><span style="color: #FEDE5D;"> in</span><span> /proc/[0-9]</span><span style="color: #FEDE5D;">*</span><span>/fd/;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">  size</span><span style="color: #FFFFFFEE;">=</span><span>$(</span><span style="color: #36F9F6;">stat</span><span style="color: #F97E72;"> -c%s</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$p</span><span style="color: #FF8B39;">&quot;</span><span style="color: #FEDE5D;"> 2&gt;</span><span>/dev/null)</span></span>
+<span class="giallo-l"><span>  [</span><span style="color: #FF8B39;"> &quot;</span><span style="color: #FF7EDB;">$size</span><span style="color: #FF8B39;">&quot;</span><span style="color: #FEDE5D;"> -gt</span><span style="color: #F97E72;"> 1000</span><span> ]</span><span style="color: #FE4450;"> 2</span><span>&gt;/dev/null &amp;&amp;</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">    echo</span><span style="color: #FF8B39;"> &quot;Size=</span><span style="color: #FF7EDB;">$size</span><span style="color: #FF8B39;"> PID=$(</span><span style="color: #FE4450;">basename</span><span style="color: #FF8B39;"> $(</span><span style="color: #FE4450;">dirname</span><span style="color: #FF8B39;"> $(</span><span style="color: #FE4450;">dirname</span><span style="color: #FF7EDB;"> $p</span><span style="color: #FF8B39;">))) Name=$(</span><span style="color: #FE4450;">cat</span><span style="color: #FF8B39;"> /proc/$(</span><span style="color: #FE4450;">basename</span><span style="color: #FF8B39;"> $(</span><span style="color: #FE4450;">dirname</span><span style="color: #FF8B39;"> $(</span><span style="color: #FE4450;">dirname</span><span style="color: #FF7EDB;"> $p</span><span style="color: #FF8B39;">)))/comm</span><span style="color: #FEDE5D;"> 2&gt;</span><span style="color: #FF8B39;">/dev/null)&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done |</span><span style="color: #FE4450;"> sort</span><span style="color: #F97E72;"> -t= -k2 -rn</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -10</span></span></code></pre>
+<hr />
+<h2 id="gen-yin-fen-xi">根因分析</h2>
+<h3 id="di-yi-ceng-fd-xie-lou-lian">第一层：fd 泄漏链</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>debian13 VM 内某个进程 (IDE/编译器/文件搜索)</span></span>
+<span class="giallo-l"><span>  → 遍历 /home/peter/project 下数十万文件</span></span>
+<span class="giallo-l"><span>    → virtiofsd 为每个 open() 在宿主机分配一个真实 fd</span></span>
+<span class="giallo-l"><span>      → 数小时内累积数十万 fd + 数 GB 内存</span></span>
+<span class="giallo-l"><span>        → 宿主机 file-nr 耗尽 (allocated=1,015,480, free=0)</span></span>
+<span class="giallo-l"><span>          → 其他 VM 尝试访问 virtiofs → ENFILE</span></span></code></pre><h3 id="di-er-ceng-zhen-gen-yin-fs-file-max-she-wei-int64-max-hong-fa-nei-he-yi-chu">第二层（真根因）：<code>fs.file-max</code> 设为 INT64_MAX 触发内核溢出</h3>
+<p>这不是简单的"文件开太多"问题，真正的根因是 <strong><code>fs.file-max</code> 被设成了 <code>9223372036854775807</code>（INT64_MAX）</strong>。</p>
+<p>内核分配文件描述符时，会动态扩展 <code>fdtable</code>（文件描述符表）。扩展逻辑大致是：以当前 <code>files_stat.max_files</code> 为上限，按倍数扩容（<code>n = last * 2 + 1</code>）。</p>
+<p>当 <code>file-max = INT64_MAX</code> 时：</p>
+<ol>
+<li><strong>整数溢出</strong>：扩容公式 <code>n = (last * 2 + 1)</code> 在极端大的上限下，乘法结果溢出回绕成非法值</li>
+<li><strong>分配失败</strong>：内核尝试分配巨大的 fd table 数组（几十 GB 的连续内存），<code>kvmalloc</code> 返回 <code>NULL</code></li>
+<li><strong>返回 ENFILE</strong>：分配失败后内核认为"系统范围文件表已满"，返回 <code>ENFILE</code> — 但实际上文件表远没满</li>
+</ol>
+<p>因此即使系统只打开了 14 万个文件（远未达到真实承载能力），只要某个进程需要扩展自己的 fd table，就会触发溢出 → 返回 ENFILE。</p>
+<h3 id="pan-duan-biao-zhun">判断标准</h3>
+<table><thead><tr><th>症状</th><th>结论</th></tr></thead><tbody>
+<tr><td><code>fs.file-max</code> ≈ 9223372036854775807</td><td><strong>核心问题</strong>：触发内核 fd table 溢出</td></tr>
+<tr><td><code>file-nr</code> 第 2 列 ≈ 0</td><td>文件表已饱和</td></tr>
+<tr><td>virtiofsd fd 总数 &gt; 10 万</td><td>严重泄漏</td></tr>
+<tr><td>fd 99% 为常规文件</td><td>VM 内进程遍历文件系统</td></tr>
+<tr><td>fd 集中在 <code>build/cache</code>、<code>node_modules</code>、<code>target/debug</code> 等</td><td>构建工具或 IDE 扫描</td></tr>
+<tr><td>virtiofsd RSS &gt; 数 GB</td><td>内存与 fd 同步泄漏</td></tr>
+</tbody></table>
+<hr />
+<h2 id="xiu-fu-fang-an">修复方案</h2>
+<h3 id="zhu-yao-xiu-fu-she-ding-he-li-de-fs-file-max">主要修复：设定合理的 <code>fs.file-max</code></h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 在 VM 内执行（立即生效）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> sysctl</span><span style="color: #F97E72;"> -w</span><span> fs.file-max=</span><span style="color: #F97E72;">2097152</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> sysctl</span><span style="color: #F97E72;"> -w</span><span> fs.nr_open=</span><span style="color: #F97E72;">2097152</span></span></code></pre>
+<p><code>fs.file-max</code> 只是一个上限，不会预分配任何资源。设成 2097152（200 万）在内核内部数据结构的安全范围内，扩容计算不会溢出，分配也不会失败。200 万已经非常充裕，一般 VM 用到 10~20 万。</p>
+<p><strong>持久化：</strong></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span style="color: #FEDE5D;"> &lt;&lt;</span><span style="color: #FF8B39;"> &#39;EOF&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sudo</span><span> tee /etc/sysctl.d/99-file-max.conf</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">fs.file-max = 2097152</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">fs.nr_open = 2097152</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">EOF</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> sysctl</span><span style="color: #F97E72;"> --system</span></span></code></pre>
+<blockquote>
+<p><strong>注意：</strong> <code>fs.file-max</code> 太大反而有害。INT64_MAX 会导致内核 fd table 扩容时整数溢出，明明还有余量却报 ENFILE。这是 Linux 内核 6.x 的已知行为。</p>
+</blockquote>
+<h3 id="lin-shi-shi-fang-fd">临时：释放 fd</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 重启 virtiofsd（会短时断开 VM 内挂载）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> kill</span><span style="color: #F97E72;"> -HUP</span><span style="color: #FEDE5D;"> &lt;</span><span>virtiofsd_PID</span><span style="color: #FEDE5D;">&gt;</span></span></code></pre><h3 id="vm-nei-qing-li-huan-cun">VM 内：清理缓存</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 创建定时脚本</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span style="color: #FEDE5D;"> &gt;</span><span> /usr/local/bin/manage_virtiofs_cache.sh</span><span style="color: #FEDE5D;"> &lt;&lt;</span><span style="color: #FF8B39;"> &#39;EOF&#39;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">#!/bin/bash</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">CACHED_MB=$(free -m | awk &#39;/^Mem:/ {print $6}&#39;)</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">if [ $CACHED_MB -gt 4096 ]; then</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    sync</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    echo 3 &gt; /proc/sys/vm/drop_caches</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">fi</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">EOF</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">chmod</span><span> +x /usr/local/bin/manage_virtiofs_cache.sh</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># crontab: 每 30 分钟执行</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># */30 * * * * /usr/local/bin/manage_virtiofs_cache.sh</span></span></code></pre><h3 id="vm-nei-diao-zheng-nei-he-can-shu">VM 内：调整内核参数</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 1000</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sys/vm/vfs_cache_pressure</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">echo</span><span style="color: #F97E72;"> 1000</span><span style="color: #FEDE5D;"> &gt;</span><span> /proc/sys/vm/dirty_writeback_centisecs</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 持久化</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">cat</span><span style="color: #FEDE5D;"> &gt;&gt;</span><span> /etc/sysctl.conf</span><span style="color: #FEDE5D;"> &lt;&lt;</span><span style="color: #FF8B39;"> EOF</span></span>
+<span class="giallo-l"><span>vm.vfs_cache_pressure=1000</span></span>
+<span class="giallo-l"><span>vm.dirty_writeback_centisecs=1000</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">EOF</span></span></code></pre><h3 id="yong-jiu-xiu-gai-libvirt-pei-zhi">永久：修改 libvirt 配置</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="xml"><span class="giallo-l"><span style="color: #36F9F6;">&lt;</span><span style="color: #72F1B8;">filesystem</span><span style="color: #FEDE5D;"> type</span><span>=</span><span style="color: #FF8B39;">&#39;mount&#39;</span><span style="color: #FEDE5D;"> accessmode</span><span>=</span><span style="color: #FF8B39;">&#39;passthrough&#39;</span><span style="color: #36F9F6;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  &lt;</span><span style="color: #72F1B8;">driver</span><span style="color: #FEDE5D;"> type</span><span>=</span><span style="color: #FF8B39;">&#39;virtiofs&#39;</span><span style="color: #FEDE5D;"> queue</span><span>=</span><span style="color: #FF8B39;">&#39;1024&#39;</span><span style="color: #36F9F6;">/&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  &lt;</span><span style="color: #72F1B8;">source</span><span style="color: #FEDE5D;"> dir</span><span>=</span><span style="color: #FF8B39;">&#39;/home/peter/project&#39;</span><span style="color: #36F9F6;">/&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  &lt;</span><span style="color: #72F1B8;">target</span><span style="color: #FEDE5D;"> dir</span><span>=</span><span style="color: #FF8B39;">&#39;project&#39;</span><span style="color: #36F9F6;">/&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  &lt;</span><span style="color: #72F1B8;">binary</span><span style="color: #FEDE5D;"> path</span><span>=</span><span style="color: #FF8B39;">&#39;/usr/libexec/virtiofsd&#39;</span><span style="color: #FEDE5D;"> xattr</span><span>=</span><span style="color: #FF8B39;">&#39;on&#39;</span><span style="color: #36F9F6;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">    &lt;</span><span style="color: #72F1B8;">cache</span><span style="color: #FEDE5D;"> size</span><span>=</span><span style="color: #FF8B39;">&#39;8192&#39;</span><span style="color: #36F9F6;">/&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  &lt;/</span><span style="color: #72F1B8;">binary</span><span style="color: #36F9F6;">&gt;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">&lt;/</span><span style="color: #72F1B8;">filesystem</span><span style="color: #36F9F6;">&gt;</span></span></code></pre>
+<hr />
+<h2 id="he-xin-pai-cha-luo-ji">核心排查逻辑</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>file-nr 异常高</span></span>
+<span class="giallo-l"><span>  → ps 找 virtiofsd 进程</span></span>
+<span class="giallo-l"><span>    → ls /proc/&lt;pid&gt;/fd | wc -l 数 fd</span></span>
+<span class="giallo-l"><span>      → ls -la /proc/&lt;pid&gt;/fd/ 看类型</span></span>
+<span class="giallo-l"><span>        → awk 按目录聚合 找来源</span></span>
+<span class="giallo-l"><span>          → 定位 VM 内是什么进程在遍历文件</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/">&#8249; GNOME Remote Desktop (RDP) 完整排查与修复记录</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"> QEMU 虚拟机无法访问网关/公网排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#virtiofs-enfile-wen-ti-pai-cha-shou-ce">virtiofs ENFILE 问题排查手册</a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-xian-xiang"><small>- 问题现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-bu-zou"><small>- 排查步骤</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai"><small>· 1. 系统级文件句柄状态</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-ding-wei-virtiofsd-jin-cheng"><small>· 2. 定位 virtiofsd 进程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-jian-cha-virtiofsd-fd-shu-liang"><small>· 3. 检查 virtiofsd fd 数量</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-cha-kan-fd-lei-xing-fen-bu"><small>· 4. 查看 fd 类型分布</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-cha-kan-fd-zhi-xiang-na-xie-mu-lu"><small>· 5. 查看 fd 指向哪些目录</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-cai-yang-cha-kan-fd-ju-ti-nei-rong"><small>· 6. 采样查看 fd 具体内容</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#7-jian-cha-virtiofsd-nei-cun-he-zi-yuan-xian-zhi"><small>· 7. 检查 virtiofsd 内存和资源限制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#8-jian-cha-fuse-lian-jie-can-shu"><small>· 8. 检查 FUSE 连接参数</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#9-jian-cha-qemu-jin-cheng"><small>· 9. 检查 QEMU 进程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#10-quan-xi-tong-fd-tong-ji"><small>· 10. 全系统 fd 统计</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#11-cha-zhao-fd-zui-da-de-jin-cheng"><small>· 11. 查找 fd 最大的进程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-fen-xi"><small>- 根因分析</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#di-yi-ceng-fd-xie-lou-lian"><small>· 第一层：fd 泄漏链</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#di-er-ceng-zhen-gen-yin-fs-file-max-she-wei-int64-max-hong-fa-nei-he-yi-chu"><small>· 第二层（真根因）：fs.file-max 设为 INT64_MAX 触发内核溢出</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pan-duan-biao-zhun"><small>· 判断标准</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-fang-an"><small>- 修复方案</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zhu-yao-xiu-fu-she-ding-he-li-de-fs-file-max"><small>· 主要修复：设定合理的 fs.file-max</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#lin-shi-shi-fang-fd"><small>· 临时：释放 fd</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#vm-nei-qing-li-huan-cun"><small>· VM 内：清理缓存</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#vm-nei-diao-zheng-nei-he-can-shu"><small>· VM 内：调整内核参数</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yong-jiu-xiu-gai-libvirt-pei-zhi"><small>· 永久：修改 libvirt 配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#he-xin-pai-cha-luo-ji"><small>- 核心排查逻辑</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

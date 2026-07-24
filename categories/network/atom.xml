@@ -1,0 +1,375 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - network</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/network/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-07-18T12:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/network/atom.xml</id>
+    <entry xml:lang="en">
+        <title>网络调试与流量控制</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/network-debug/"/>
+        <id>https://moxuetianya.github.io/2025/07/network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/network-debug/">&lt;h1 id=&quot;wang-luo-diao-shi-yu-liu-liang-kong-zhi&quot;&gt;网络调试与流量控制&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;tcp-yi-chang-guan-bi-chang-jing-fen-xi&quot;&gt;TCP 异常关闭场景分析&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;guan-jian-gai-nian&quot;&gt;关键概念&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;RST（Reset）&lt;&#x2F;strong&gt;：异常终止连接，接收方得到 &lt;code&gt;Connection reset by peer&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;FIN&lt;&#x2F;strong&gt;：正常关闭连接，接收方 Recv 返回 0&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Broken Pipe&lt;&#x2F;strong&gt;：向已收到 RST 的连接写入数据&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;time-wait&quot;&gt;TIME_WAIT&lt;&#x2F;h3&gt;
+&lt;p&gt;主动关闭方进入 TIME_WAIT（2MSL，约 60 秒）的原因：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;确保最后的 ACK 能重传给被动关闭方&lt;&#x2F;li&gt;
+&lt;li&gt;防止旧连接的残余数据包干扰同五元组的新连接&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;yi-chang-chang-jing-zong-jie&quot;&gt;异常场景总结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;服务器端表现&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;客户端 crash（不关 socket 直接退出）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Connection reset by peer&lt;&#x2F;code&gt;（104）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;客户端死机&#x2F;断网&#x2F;网线松动&lt;&#x2F;td&gt;&lt;td&gt;无任何错误，等超时断开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;客户端正常关闭 Socket&lt;&#x2F;td&gt;&lt;td&gt;收完数据后 Recv 返回 0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器已 close，客户端再发包&lt;&#x2F;td&gt;&lt;td&gt;第 1 包发送成功，第 2 包 &lt;code&gt;Broken pipe&lt;&#x2F;code&gt;（32）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器接收缓冲区有未读数据时 close&lt;&#x2F;td&gt;&lt;td&gt;发送 RST 而非 FIN，客户端收到 104 错误&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器先发数据后 close，客户端再发再收&lt;&#x2F;td&gt;&lt;td&gt;Windows 端 Recv 报 10053；Linux 端正常收完&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;broken-pipe-gen-yin&quot;&gt;Broken Pipe 根因&lt;&#x2F;h3&gt;
+&lt;p&gt;收到 RST 后仍向该连接写数据 → &lt;code&gt;SIGPIPE&lt;&#x2F;code&gt; 信号 + &lt;code&gt;EPIPE&lt;&#x2F;code&gt; 错误。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;sheng-chan-jing-yan&quot;&gt;生产经验&lt;&#x2F;h3&gt;
+&lt;p&gt;跨服跳转的掉线问题常因服务器在接收缓冲区还有未收数据时关闭 Socket，导致对端收到 RST 而非正常关闭。建议&lt;strong&gt;连接关闭由客户端发起&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cuo-wu-ma-dui-zhao&quot;&gt;错误码对照&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Linux&lt;&#x2F;th&gt;&lt;th&gt;Windows&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;104 (ECONNRESET)&lt;&#x2F;td&gt;&lt;td&gt;10054&lt;&#x2F;td&gt;&lt;td&gt;Connection reset by peer&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;32 (EPIPE)&lt;&#x2F;td&gt;&lt;td&gt;10053&lt;&#x2F;td&gt;&lt;td&gt;Broken pipe &#x2F; connection aborted&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Recv 返回 0&lt;&#x2F;td&gt;&lt;td&gt;Recv 返回 0&lt;&#x2F;td&gt;&lt;td&gt;对端正常关闭&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;ju-yu-wang-ip-chong-tu-pai-cha&quot;&gt;局域网 IP 冲突排查&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;di-yi-bu-que-ren-chong-tu&quot;&gt;第一步：确认冲突&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# arping 检测重复 IP（最权威）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;arping&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -D -c 5 -I&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;目标IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 收到多个不同 MAC 的回复 = 冲突确认&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 抓包观察 MAC 抖动&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eth0 arp and host&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;目标IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -c 20&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 反复刷新 ARP 观察&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;for&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; i&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; in&lt;&#x2F;span&gt;&lt;span&gt; $(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;seq&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 1 10&lt;&#x2F;span&gt;&lt;span&gt;);&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; do&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  arp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;目标IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  ping&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 1 -W 1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;目标IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  arp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;目标IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; ether&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  sleep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;done&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;di-er-bu-ding-wei-chong-tu-she-bei&quot;&gt;第二步：定位冲突设备&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;交换机 MAC 表&lt;&#x2F;strong&gt;（最可靠）：
+&lt;ul&gt;
+&lt;li&gt;Cisco: &lt;code&gt;show mac address-table address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;H3C: &lt;code&gt;display mac-address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;华为: &lt;code&gt;display mac-address-table address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;OUI 厂商查询&lt;&#x2F;strong&gt;：&lt;code&gt;curl -s &quot;https:&#x2F;&#x2F;api.maclookup.app&#x2F;v2&#x2F;macs&#x2F;&amp;lt;mac&amp;gt;&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;nmap 探测&lt;&#x2F;strong&gt;：绑定静态 ARP 后 &lt;code&gt;nmap -O -sV &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;mDNS&#x2F;NetBIOS&lt;&#x2F;strong&gt;：&lt;code&gt;avahi-resolve -a &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt; 或 &lt;code&gt;nbtscan &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DHCP 租约&lt;&#x2F;strong&gt;：&lt;code&gt;grep &quot;&amp;lt;mac&amp;gt;&quot; &#x2F;var&#x2F;lib&#x2F;dhcp&#x2F;dhcpd.leases&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SNMP 遍历&lt;&#x2F;strong&gt;（大型网络）：&lt;code&gt;snmpwalk -v2c -c public &amp;lt;交换机IP&amp;gt; 1.3.6.1.2.1.17.4.3.1.2&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;chu-li-cuo-shi&quot;&gt;处理措施&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;DHCP 冲突 → 预留&#x2F;排除该 IP&lt;&#x2F;li&gt;
+&lt;li&gt;静态 IP 配错 → 联系管理员修改&lt;&#x2F;li&gt;
+&lt;li&gt;流氓设备 → 交换机端口 shutdown &#x2F; MAC 过滤&lt;&#x2F;li&gt;
+&lt;li&gt;临时止损 → 交换机 IP-MAC 绑定&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;linux-tc-liu-liang-kong-zhi&quot;&gt;Linux TC 流量控制&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-gai-nian&quot;&gt;核心概念&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;概念&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;qdisc（排队规则）&lt;&#x2F;td&gt;&lt;td&gt;内核发送数据包的排队策略&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;class（类）&lt;&#x2F;td&gt;&lt;td&gt;qdisc 内部分类，可嵌套子类&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;filter（过滤器）&lt;&#x2F;td&gt;&lt;td&gt;将数据包分类到指定 class&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wu-lei-bie-qdisc&quot;&gt;无类别 qdisc&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;pfifo&#x2F;bfifo&lt;&#x2F;strong&gt;：先进先出（按包数&#x2F;按字节）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pfifo_fast&lt;&#x2F;strong&gt;：基于 TOS 的三波段优先级队列&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;sfq&lt;&#x2F;strong&gt;：随机公平队列，按会话轮询&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;tbf&lt;&#x2F;strong&gt;：令牌桶过滤器，限速&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;red&lt;&#x2F;strong&gt;：随机早期探测，适合高带宽&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;htb-fen-ceng-ling-pai-tong&quot;&gt;HTB（分层令牌桶）&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 创建根 qdisc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span&gt; qdisc add dev eth0 root handle 1: htb default&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 创建分类，保证 98M，最大 100M&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span&gt; class add dev eth0 parent 1:1 classid 1:2 htb rate 98mbit ceil 100mbit prio&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 添加 SFQ 叶子 qdisc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span&gt; qdisc add dev eth0 parent 1:2 handle 2: sfq perturb&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 过滤特定 IP 到指定 class&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span&gt; filter add dev eth0 protocol ip parent 1:0 u32 match ip src&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 192.168.0.2&lt;&#x2F;span&gt;&lt;span&gt; flowid 1:2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;chang-yong-ming-ling&quot;&gt;常用命令&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span&gt; qdisc del dev eth0 root&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;                    # 清除所有规则&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s -d&lt;&#x2F;span&gt;&lt;span&gt; qdisc show dev eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;                  # 查看 qdisc 统计&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s -d&lt;&#x2F;span&gt;&lt;span&gt; class show dev eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;                  # 查看 class 统计&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;wang-qia-zi-jie-kou&quot;&gt;网卡子接口&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ip&lt;&#x2F;span&gt;&lt;span&gt; addr add 2.2.2.2&#x2F;24 dev eth0 label eth0:0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 添加 IP 别名&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ip&lt;&#x2F;span&gt;&lt;span&gt; addr del 2.2.2.2&#x2F;24 dev eth0 label eth0:0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 删除&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;永久生效需在 &lt;code&gt;&#x2F;etc&#x2F;sysconfig&#x2F;network-scripts&#x2F;&lt;&#x2F;code&gt; 下创建配置文件。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lian-lu-zu-bo-di-zhi-224-0-0-252&quot;&gt;链路组播地址 224.0.0.252&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;LLMNR（Link-Local Multicast Name Resolution）&lt;&#x2F;strong&gt;：Windows 在 DNS 解析失败后，向 &lt;code&gt;224.0.0.252&lt;&#x2F;code&gt; 发送多播查询，局域网内主机若匹配则单播回复自己的 IP。常用于无 DNS 服务器的小型局域网。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;udp port 5355 or host 224.0.0.252&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -nn&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>代理协议与网络穿透</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/proxy-network/"/>
+        <id>https://moxuetianya.github.io/2025/07/proxy-network/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/proxy-network/">&lt;h1 id=&quot;dai-li-xie-yi-yu-wang-luo-chuan-tou&quot;&gt;代理协议与网络穿透&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;dai-li-xie-yi-dui-bi&quot;&gt;代理协议对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ji-chu-dai-li-xie-yi&quot;&gt;基础代理协议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;th&gt;现状&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Shadowsocks&lt;&#x2F;td&gt;&lt;td&gt;经典加密代理&lt;&#x2F;td&gt;&lt;td&gt;极易被识别封禁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMess + WebSocket&lt;&#x2F;td&gt;&lt;td&gt;伪装 HTTP 流量&lt;&#x2F;td&gt;&lt;td&gt;端口被封频繁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision&lt;&#x2F;td&gt;&lt;td&gt;消除 TLS in TLS 特征&lt;&#x2F;td&gt;&lt;td&gt;须配合有效证书域名&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision + REALITY&lt;&#x2F;td&gt;&lt;td&gt;偷取大厂 TLS 证书&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;当前最稳定&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;tls-wei-zhuang-xie-yi-yan-jin&quot;&gt;TLS 伪装协议演进&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;shadow-tls&lt;&#x2F;strong&gt;：偷白名单域名证书，仅支持 TLS 1.3，不处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;restls&lt;&#x2F;strong&gt;：支持 TLS 1.2&#x2F;1.3，处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：使用 ECDHE 算法，即使客户端配置泄露也不影响数据安全。ShadowTLS 使用对称 PSK，配置泄露可能导致流量解密&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;anytls&lt;&#x2F;strong&gt;：消除 TLS in TLS 特征，支持自定义填充包数量和长度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xtls-he-xin-ji-shu&quot;&gt;XTLS 核心技术&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;XTLS splice&lt;&#x2F;strong&gt;：将内层 TLS 数据直接嵌入外层 TLS 流，减少重复加解密，降低 CPU 开销&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VISION&lt;&#x2F;strong&gt;：模拟时延与消息交换顺序，抹平 多层TLS 握手的不自然时序特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：在 TLS 握手阶段返回真网站的证书，使连接与普通 HTTPS 访问外观一致&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;XHTTP&lt;&#x2F;strong&gt;：在应用层进一步伪装，上行拆分为多个 POST 请求，下行伪装为流式下载或 SSE，消除&quot;稳定长时间加密流&quot;的特征&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xie-yi-an-quan-ping-gu&quot;&gt;协议安全评估&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;SS 节点搭建后次日即可能被封 IP&lt;&#x2F;li&gt;
+&lt;li&gt;VMess+WS 易被封端口（非封 IP）&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision 目前稳定，需关注域名是否被阻断&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision+REALITY 堪称最稳方案&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cloudflare-dai-li&quot;&gt;Cloudflare 代理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhi-chi-de-duan-kou&quot;&gt;支持的端口&lt;&#x2F;h3&gt;
+&lt;p&gt;HTTP 端口：80, 8080, 8880, 2052, 2082, 2086, 2095&lt;&#x2F;p&gt;
+&lt;p&gt;HTTPS 端口：443, 2053, 2083, 2087, 2096, 8443&lt;&#x2F;p&gt;
+&lt;p&gt;仅 80 和 443 支持缓存、Cloudflare Apps、中国网络等全部功能。通过 WAF 规则可阻止非 80&#x2F;443 端口的流量。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cloudflare-ip-duan&quot;&gt;Cloudflare IP 段&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;173.245.48.0&#x2F;20, 103.21.244.0&#x2F;22, 103.22.200.0&#x2F;22, 103.31.4.0&#x2F;22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;141.101.64.0&#x2F;18, 108.162.192.0&#x2F;18, 190.93.240.0&#x2F;20, 188.114.96.0&#x2F;20&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;197.234.240.0&#x2F;22, 198.41.128.0&#x2F;17, 162.158.0.0&#x2F;15, 104.16.0.0&#x2F;13&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;104.24.0.0&#x2F;14, 172.64.0.0&#x2F;13, 131.0.72.0&#x2F;22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;cf-worker-vless-proxyip-yuan-li&quot;&gt;CF Worker VLESS proxyIP 原理&lt;&#x2F;h3&gt;
+&lt;p&gt;CF Worker 不能直接访问 Cloudflare 自家的 IP 地址（&lt;a rel=&quot;noopener external&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;workers&#x2F;runtime-apis&#x2F;tcp-sockets&#x2F;#considerations&quot;&gt;官方确认&lt;&#x2F;a&gt;）。当远程 TCP 无数据返回时触发 &lt;code&gt;retry()&lt;&#x2F;code&gt;，通过 proxyIP（&quot;神奇的 IP&quot;）中转数据包到 CF 目的 IP。&lt;&#x2F;p&gt;
+&lt;p&gt;这不是每次转发都用，只作 failsafe。非 Cloudflare 部署的网站（如 AWS Cloudfront、Google）可直接访问，不经过 proxyIP。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;proxyIP 的隐患&lt;&#x2F;strong&gt;：安全性（数据转给第三方）、速度受限于单个 IP、可用性不确定。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fan-dai-cf-ip&quot;&gt;反代 CF IP&lt;&#x2F;h3&gt;
+&lt;p&gt;链路：用户 → 自己的 VPS → Cloudflare CDN → 源站&lt;&#x2F;p&gt;
+&lt;p&gt;通过 iptables 将 VPS 端口转发到 Cloudflare 对应端口，实现加速的同时享受 CF 的防护功能。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用 arloor 的 iptables 转发脚本&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 原理：将 VPS 的 80 端口流量转发到 Cloudflare CDN IP:80&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;sing-box-xray-v2ray-bu-shu&quot;&gt;sing-box &#x2F; Xray &#x2F; v2ray 部署&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fu-wu-duan-an-zhuang&quot;&gt;服务端安装&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# sing-box&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;bash&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -qO-&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;github.com&#x2F;233boy&#x2F;sing-box&#x2F;raw&#x2F;main&#x2F;install.sh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Xray&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;bash&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -qO-&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;github.com&#x2F;233boy&#x2F;xray&#x2F;raw&#x2F;main&#x2F;install.sh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;mian-ban-guan-li&quot;&gt;面板管理&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 3x-ui（Xray 管理面板）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;bash&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;lt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;curl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Ls&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;MHSanaei&#x2F;3x-ui&#x2F;refs&#x2F;tags&#x2F;v2.6.0&#x2F;install.sh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;x-ui&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # TUI 配置界面&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;ding-yue-zhuan-huan&quot;&gt;订阅转换&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 不直接兼容大多数机场的订阅格式，需 &lt;a rel=&quot;noopener external&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;Toperlock&#x2F;sing-box-subscribe&quot;&gt;sing-box-subscribe&lt;&#x2F;a&gt; 转换：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&amp;lt;URL&amp;gt;&#x2F;url=&amp;lt;subscription_url&amp;gt;&#x2F;&amp;amp;file=&amp;lt;sing-box_template_url&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;clash-api-jian-rong&quot;&gt;Clash API 兼容&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 兼容 Clash API，可使用 metacubexd dashboard：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;json&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;experimental&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;: {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    &amp;quot;clash_api&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;: {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;      &amp;quot;external_controller&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;0.0.0.0:9090&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;      &amp;quot;external_ui&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;metacubexd&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;      &amp;quot;default_mode&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;rule&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;ke-hu-duan-ruan-jian&quot;&gt;客户端软件&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;mihomo&lt;&#x2F;strong&gt; &#x2F; &lt;strong&gt;clash verge&lt;&#x2F;strong&gt; — Clash 系客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2rayN&lt;&#x2F;strong&gt; — Windows 客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2raya&lt;&#x2F;strong&gt; — 透明代理&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;hiddify-app&lt;&#x2F;strong&gt; — sing-box 前端&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tou-ming-wang-guan&quot;&gt;透明网关&lt;&#x2F;h3&gt;
+&lt;p&gt;在网关上运行 sing-box，其他机器将网关指向该机器即可智能分流。注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;其他机器的 DNS 必须是公网 DNS&lt;&#x2F;li&gt;
+&lt;li&gt;或配置特定入站端口接管 DNS 请求&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-dai-li-pei-zhi&quot;&gt;Nginx 代理配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;proxy-set-header-host&quot;&gt;proxy_set_header Host&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;nginx&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;proxy_set_header&lt;&#x2F;span&gt;&lt;span&gt; Host $&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;host&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;proxy_set_header&lt;&#x2F;span&gt;&lt;span&gt; X-Forwarded-For $&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;remote_addr&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;$proxy_host&lt;&#x2F;code&gt;：upstream 服务器的 IP&#x2F;域名（默认值）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时取虚拟主机名（推荐）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$http_host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时为空&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;$host&lt;&#x2F;code&gt; 避免 Host 头部丢失的情况。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;x-forwarded-for&quot;&gt;X-Forwarded-For&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;X-Forwarded-For: client, proxy1, proxy2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每经过一层代理，将请求来源 IP 追加到右侧。最左边的 IP 是原始客户端。该字段易被伪造，应谨慎使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-ju-yu-can-kao&quot;&gt;工具与参考&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Cloudflare 优选 IP：&lt;code&gt;CloudflareSpeedTest&lt;&#x2F;code&gt;、&lt;code&gt;better-cloudflare-ip&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;CF 中转 IP 获取：&lt;code&gt;zip.baipiao.eu.org&lt;&#x2F;code&gt;、电报 &lt;code&gt;@cf_push&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;IP 纯净度查询：&lt;code&gt;scamalytics.com&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在线测速：&lt;code&gt;speedtest.net&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;FOFA 搜索 CF IP：&lt;code&gt;server=&quot;cloudflare&quot; &amp;amp;&amp;amp; country=&quot;US&quot; &amp;amp;&amp;amp; port=&quot;443&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>远程唤醒 Wake-on-LAN</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/wake-on-lan/"/>
+        <id>https://moxuetianya.github.io/2025/07/wake-on-lan/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/wake-on-lan/">&lt;h1 id=&quot;yuan-cheng-huan-xing-wake-on-lan&quot;&gt;远程唤醒 Wake-on-LAN&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;yuan-li&quot;&gt;原理&lt;&#x2F;h2&gt;
+&lt;p&gt;WOL 通过发送 &lt;strong&gt;Magic Packet&lt;&#x2F;strong&gt; 唤醒目标计算机。Magic Packet 是一个广播帧，由以下组成：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;6 字节的 &lt;code&gt;0xFF&lt;&#x2F;code&gt;（全 1）&lt;&#x2F;li&gt;
+&lt;li&gt;目标 MAC 地址重复 16 次&lt;&#x2F;li&gt;
+&lt;li&gt;共 102 字节&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过 UDP 端口 7 或 9（默认）发送，也可以是二层帧（EtherType &lt;code&gt;0x0842&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;p&gt;关机状态下网卡（NIC）保持低功耗待机，监听 Magic Packet，收到后触发开机。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;linux-bei-huan-xing-duan-pei-zhi&quot;&gt;Linux 被唤醒端配置&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看是否支持 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ethtool&lt;&#x2F;span&gt;&lt;span&gt; eth0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -C 3 -i&lt;&#x2F;span&gt;&lt;span&gt; wake&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Supports Wake-on: pumbg  表示支持&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Wake-on: d               d=禁用, g=已开启&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 开启 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; eth0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;WOL 选项含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;d&lt;&#x2F;td&gt;&lt;td&gt;禁用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;p&lt;&#x2F;td&gt;&lt;td&gt;物理活动唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;u&lt;&#x2F;td&gt;&lt;td&gt;单播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;m&lt;&#x2F;td&gt;&lt;td&gt;多播（组播）消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;b&lt;&#x2F;td&gt;&lt;td&gt;广播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;a&lt;&#x2F;td&gt;&lt;td&gt;ARP 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;g&lt;&#x2F;td&gt;&lt;td&gt;Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;s&lt;&#x2F;td&gt;&lt;td&gt;带密码的 Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;g&lt;&#x2F;code&gt;（Magic Packet），避免路由器广播误唤醒。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;que-bao-zhong-qi-hou-zi-dong-kai-qi&quot;&gt;确保重启后自动开启&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;方法一&lt;&#x2F;strong&gt;：添加到 &lt;code&gt;&#x2F;etc&#x2F;rc.local&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;&#x2F;sbin&#x2F;ethtool&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; eth0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法二&lt;&#x2F;strong&gt;：创建 systemd 服务：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Unit]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Description&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;Enable Wake On Lan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Type&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;oneshot&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;ExecStart&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;usr&#x2F;sbin&#x2F;ethtool --change enp3s0 wol g&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Install]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;WantedBy&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;basic.target&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fa-song-magic-packet&quot;&gt;发送 Magic Packet&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# wakeonlan（UDP，无需 root）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install wakeonlan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i 192.168.1.255&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      # 指定广播地址&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wakeonlan&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i 192.168.1.255 -p 4242&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 指定端口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# etherwake（二层帧，需 root）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install etherwake&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; etherwake&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; etherwake&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;MAC-address&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   # 指定接口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;zhua-bao-yan-zheng&quot;&gt;抓包验证&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 监听 Magic Packet（UDP 端口 9）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -vvnn -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;ether dst host ff:ff:ff:ff:ff:ff and udp port 9&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 监听二层帧 WOL&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -vvnn -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;ether[12:2] == 0x0842&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Wireshark 过滤&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;udp.port&lt;&#x2F;span&gt;&lt;span&gt; ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 9&lt;&#x2F;span&gt;&lt;span&gt; or udp.port ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 7&lt;&#x2F;span&gt;&lt;span&gt; or eth.type ==&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0x0842&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;wol-bao-wen-lei-xing-zong-jie&quot;&gt;WOL 报文类型总结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;以太网地址&lt;&#x2F;th&gt;&lt;th&gt;IP 层地址&lt;&#x2F;th&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;wakeonlan&lt;&#x2F;td&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;网段广播&#x2F;255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;etherwake&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;广播&lt;&#x2F;td&gt;&lt;td&gt;无（纯二层）&lt;&#x2F;td&gt;&lt;td&gt;EtherType 0x0842&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Windows WOL App&lt;&#x2F;td&gt;&lt;td&gt;广播&lt;&#x2F;td&gt;&lt;td&gt;网段广播 + 255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;gong-wang-huan-xing&quot;&gt;公网唤醒&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;bi-yao-tiao-jian&quot;&gt;必要条件&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;公网 IP&lt;&#x2F;strong&gt; 或 &lt;strong&gt;DDNS&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;路由器端口转发&lt;&#x2F;strong&gt;：将外网端口映射到目标机器的 IP:9（UDP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ARP 绑定&lt;&#x2F;strong&gt;：路由器中绑定目标机器的 MAC-IP，防止关机后 ARP 表丢失&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;chang-jian-shi-bai-yuan-yin&quot;&gt;常见失败原因&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;路由器端口转发不支持映射为广播地址（如华为路由只支持已获取 IP 的设备）&lt;&#x2F;li&gt;
+&lt;li&gt;路由器在设备关机后检测到 MAC 下线，ARP 绑定失效，丢包&lt;&#x2F;li&gt;
+&lt;li&gt;源地址经 DNAT（端口转发）后变为公网 IP，某些网卡&#x2F;NIC 对单播 Magic Packet 的处理不一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;rao-xing-fang-an&quot;&gt;绕行方案&lt;&#x2F;h3&gt;
+&lt;p&gt;通过内网一台始终在线的机器（如 NAS）作为跳板，由 NAS 发送 wakeonlan 命令唤醒目标机器。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wol-bao-wen-fa-song-fang-shi-dui-bi&quot;&gt;WOL 报文发送方式对比&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;优点&lt;&#x2F;th&gt;&lt;th&gt;缺点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;安全、低带宽&lt;&#x2F;td&gt;&lt;td&gt;IP 变化后失效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;子网广播&lt;&#x2F;td&gt;&lt;td&gt;兼容性好、成功率高&lt;&#x2F;td&gt;&lt;td&gt;需要路由器支持；仅 IPv4；安全性低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;qi-ta-yuan-cheng-kai-ji-fang-an&quot;&gt;其他远程开机方案&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;智能插座&lt;&#x2F;strong&gt; + BIOS &quot;通电自动开机&quot;：最简单，适用于任何机器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;PCI-E 开机卡&lt;&#x2F;strong&gt;：通过 WiFi 发送开机信号，需 PCIE 插槽带电&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;短接 POWER SW 跳线&lt;&#x2F;strong&gt;：通过外部设备短接主板的电源跳线&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-li-python-jiao-ben&quot;&gt;示例 Python 脚本&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;python&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;import&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;def&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; wol&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;mac&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; bytes&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;):&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;socket&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;AF_INET&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;, socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SOCK_DGRAM&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;setsockopt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SOL_SOCKET&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;, socket.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;SO_BROADCAST&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    magic&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\xff&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; +&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; mac&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; *&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 16&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    s.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;sendto&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(magic, (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&amp;lt;broadcast&amp;gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 7&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;wol&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;b&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\x00\x15\xB2\xAA\x5B\x00&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>

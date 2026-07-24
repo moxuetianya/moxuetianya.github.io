@@ -1,0 +1,599 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - docker</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/docker/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-07-22T23:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/docker/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路</title>
+        <published>2026-07-22T23:00:00+08:00</published>
+        <updated>2026-07-22T23:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;前两篇文章分别从排查和源码分析两个角度，定位了 opencode 设置 &lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt; 后启动变慢的根因。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-plugin-slow-startup&#x2F;&quot;&gt;排查篇&lt;&#x2F;a&gt;：通过 &lt;code&gt;strace&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;&#x2F;proc&#x2F;fd&lt;&#x2F;code&gt; 发现 plugin 系统在后台下载 &lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的完整依赖树（63MB&#x2F;27 个包）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-npm-install-source-analysis&#x2F;&quot;&gt;分析篇&lt;&#x2F;a&gt;：理清了 &lt;code&gt;ConfigPaths.directories()&lt;&#x2F;code&gt; → &lt;code&gt;npmSvc.install()&lt;&#x2F;code&gt; → &lt;code&gt;waitForDependencies()&lt;&#x2F;code&gt; → &lt;code&gt;Fiber.join&lt;&#x2F;code&gt; 的调用链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;但这些分析是&lt;strong&gt;推理&lt;&#x2F;strong&gt;出来的——代码里每一步怎么写我们知道，但实际跑起来每一步要花多少时间？本文在源码中注入调试日志，编译正式版二进制，docker 模拟容器冷启动，把推理变成实测数据。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ri-zhi-zhu-ru&quot;&gt;日志注入&lt;&#x2F;h1&gt;
+&lt;p&gt;在三个关键文件中，用统一的 &lt;code&gt;[TRACE]&lt;&#x2F;code&gt; 前缀添加 &lt;code&gt;Effect.logDebug()&lt;&#x2F;code&gt; 调用。只加日志，不改逻辑。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;packages&#x2F;core&#x2F;src&#x2F;npm.ts&lt;&#x2F;code&gt; — Npm.install 三步逻辑：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;① node_modules 不存在 → reify() 〔直接下载〕&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;② 存在 → 读 package.json + package-lock.json&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;③ 脏检：声明的包 vs 锁定的包 → 缺了就 reify，都满足就跳过&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;typescript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;const&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;fn&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;Npm.install&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;)(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;function*&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt; input&lt;&#x2F;span&gt;&lt;span&gt;) {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] Npm.install dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; add=[&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;addPkgs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;]`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  &#x2F;&#x2F; ...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] Npm.install reify dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; reason=no-node_modules`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  &#x2F;&#x2F; ...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] Npm.install dirty-check dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; declared=[...] locked=[...]`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] Npm.install done dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; reason=deps-satisfied`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;})&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;const&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; reify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;font-style: italic;&quot;&gt;input&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; =&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  let&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; tReify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;                            &#x2F;&#x2F; ← 必须在 generator 外部声明&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  return&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;gen&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;function*&lt;&#x2F;span&gt;&lt;span&gt; () {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    tReify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt; =&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Date&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;now&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] reify start dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;input&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; add=[...]`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    &#x2F;&#x2F; ... arborist.reify() ...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  }).&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;pipe&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;    Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;tap&lt;&#x2F;span&gt;&lt;span&gt;(()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; =&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] reify done dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;input&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; time=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;Date&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;now&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; tReify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;ms`&lt;&#x2F;span&gt;&lt;span&gt;))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  )&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;let tReify&lt;&#x2F;code&gt; 必须在 &lt;code&gt;Effect.gen&lt;&#x2F;code&gt; 闭包&lt;strong&gt;外面&lt;&#x2F;strong&gt;声明，否则 &lt;code&gt;.pipe(Effect.tap(...))&lt;&#x2F;code&gt; 中的箭头函数无法通过闭包访问到它——第一次测试吃了这个亏，&lt;code&gt;ReferenceError: tReify is not defined&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;code&gt;packages&#x2F;opencode&#x2F;src&#x2F;config&#x2F;config.ts&lt;&#x2F;code&gt; — 目录遍历和 ConfigPlugin.load：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;typescript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] directories count=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;directories&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;length&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; items=[...]`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] npmSvc.install start dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] ConfigPlugin.load dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; found=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;list&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;?.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;length&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; ??&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] dir done dir=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;dir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; time=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;Date&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;now&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; tDir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;ms`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;packages&#x2F;opencode&#x2F;src&#x2F;plugin&#x2F;index.ts&lt;&#x2F;code&gt; — 阻塞点：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;typescript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;if&lt;&#x2F;span&gt;&lt;span&gt; (&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;plugins&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;length&lt;&#x2F;span&gt;&lt;span&gt;) {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] waitForDeps start plugins=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;plugins&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;length&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; config&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;waitForDependencies&lt;&#x2F;span&gt;&lt;span&gt;()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;  yield*&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; Effect&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;logDebug&lt;&#x2F;span&gt;&lt;span&gt;(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;`[TRACE] waitForDeps done time=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;${&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;Date&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;now&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;()&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; tWait&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;}&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;ms`&lt;&#x2F;span&gt;&lt;span&gt;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;ce-shi-huan-jing&quot;&gt;测试环境&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 编译正式版（npm registry 有对应的 @opencode-ai&#x2F;plugin@1.17.12）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;OPENCODE_VERSION&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;1.17.12&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; OPENCODE_CHANNEL&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;latest&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  bun run&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --cwd&lt;&#x2F;span&gt;&lt;span&gt; packages&#x2F;opencode build&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --single&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# docker 模拟容器冷启动，每次 &#x2F;root 都是空的&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; run&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --rm&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -v&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;agent-config&#x2F;:&#x2F;agent-config&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -v&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;tmp&#x2F;agent-log&#x2F;:&#x2F;root&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  debug-image&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  env OPENCODE_CONFIG_DIR=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;&#x2F;agent-config&amp;quot; &amp;quot;&#x2F;agent-config&#x2F;opencode&amp;quot; &amp;quot;--log-level=DEBUG&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;容器内的情况：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;root&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt;——&lt;strong&gt;空目录&lt;&#x2F;strong&gt;，无 &lt;code&gt;package.json&lt;&#x2F;code&gt;，无 &lt;code&gt;node_modules&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;agent-config&#x2F;&lt;&#x2F;code&gt;——有 &lt;code&gt;package.json&lt;&#x2F;code&gt; + &lt;code&gt;package-lock.json&lt;&#x2F;code&gt; + &lt;code&gt;node_modules&lt;&#x2F;code&gt; + &lt;code&gt;plugins&#x2F;wfuzz-agent.ts&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过 &lt;code&gt;grep &#x27;\[TRACE\]&#x27; &#x2F;root&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log&lt;&#x2F;code&gt; 过滤。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;dev-ban-ben-shi-ce-0-0-0-dev&quot;&gt;dev 版本实测（&lt;code&gt;0.0.0-dev-*&lt;&#x2F;code&gt;）&lt;&#x2F;h1&gt;
+&lt;p&gt;npm registry 上不存在 &lt;code&gt;@opencode-ai&#x2F;plugin@0.0.0-dev-*&lt;&#x2F;code&gt;，下载必然失败。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.532  [TRACE] directories count=2 items=[&#x2F;root&#x2F;.config&#x2F;opencode | &#x2F;agent-config]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.533  [TRACE] npmSvc.install start dir=&#x2F;root&#x2F;.config&#x2F;opencode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.535  [TRACE] Npm.install dir=&#x2F;root&#x2F;.config&#x2F;opencode add=[@opencode-ai&#x2F;plugin@0.0.0-dev-xxx]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.537  [TRACE] Npm.install reify reason=no-node_modules           ← ① node_modules 不存在&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.559  [TRACE] dir done dir=&#x2F;root&#x2F;.config&#x2F;opencode time=105ms     ← 本地操作返回&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.576  [TRACE] npmSvc.install start dir=&#x2F;agent-config&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.578  [TRACE] Npm.install dirty-check ... matched → done         ← ②③ 脏检通过&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.583  [TRACE] ConfigPlugin.load found=1                          ← 发现 wfuzz-agent.ts&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.586  [TRACE] waitForDeps start plugins=1                        ← 开始等！&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:18.653  [TRACE] reify start dir=&#x2F;root&#x2F;.config&#x2F;opencode add=[...]   ← 后台 fiber 开始跑&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;── 3.2 秒（npm 上找不到版本，超时退出）──&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:23:21.874  [TRACE] waitForDeps done time=3217ms                       ← Fiber.join 返回&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Fiber.join&lt;&#x2F;code&gt; 等的是 npm 超时，不是下载。但阻塞已经发生——3.2 秒的空白窗口，TUI 不渲染。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zheng-shi-ban-shi-ce-1-17-12&quot;&gt;正式版实测（&lt;code&gt;1.17.12&lt;&#x2F;code&gt;）&lt;&#x2F;h1&gt;
+&lt;p&gt;这个版本 npm registry 上有，会真正走完下载。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.454  [TRACE] directories count=2 items=[&#x2F;root&#x2F;.config&#x2F;opencode | &#x2F;agent-config]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.454  [TRACE] npmSvc.install start dir=&#x2F;root&#x2F;.config&#x2F;opencode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.457  [TRACE] Npm.install dir=&#x2F;root&#x2F;.config&#x2F;opencode add=[@opencode-ai&#x2F;plugin@1.17.12]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.459  [TRACE] Npm.install reify reason=no-node_modules           ← ① 触发完整下载&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.559  [TRACE] dir done dir=&#x2F;root&#x2F;.config&#x2F;opencode time=105ms     ← 本地操作返回(lforkDetach)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.576  [TRACE] npmSvc.install start dir=&#x2F;agent-config&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.578  [TRACE] Npm.install dirty-check declared=[@opencode-ai&#x2F;plugin, @types&#x2F;node, typescript]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.578  [TRACE]                  locked=[@opencode-ai&#x2F;plugin, @types&#x2F;node, typescript]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.578  [TRACE] Npm.install done dir=&#x2F;agent-config reason=deps-satisfied&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.580  [TRACE] reify start dir=&#x2F;root&#x2F;.config&#x2F;opencode add=[@opencode-ai&#x2F;plugin@1.17.12]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.583  [TRACE] ConfigPlugin.load found=1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:28.586  [TRACE] waitForDeps start plugins=1                        ← 开始等！&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;── 18.5 秒（arborist.reify 下载 27 个包）──&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:47.142  [TRACE] reify done time=18562ms                            ← 下载完成&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;02:58:47.150  [TRACE] waitForDeps done time=18564ms                      ← 解除阻塞&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;完整下载 &lt;strong&gt;18.6 秒&lt;&#x2F;strong&gt;。从 &lt;code&gt;waitForDeps start&lt;&#x2F;code&gt; 到 &lt;code&gt;done&lt;&#x2F;code&gt;，TUI 窗口一片空白。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wan-zheng-lian-lu&quot;&gt;完整链路&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ConfigPaths.directories()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ &#x2F;root&#x2F;.config&#x2F;opencode&#x2F; ───── 空目录，无 node_modules&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │   npmSvc.install() → Npm.install: ① node_modules 不存在 → reify()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │   ConfigPlugin.load() → found=0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ &#x2F;agent-config&#x2F; ────────────── 有完整 node_modules + lock&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │   npmSvc.install() → Npm.install: ② 存在 → ③ 脏检 matched → 跳过&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │   ConfigPlugin.load() → found=1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;plugin_origins.length = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;waitForDependencies()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  → Effect.forEach(s.deps, Fiber.join)  ← 等所有 fiber&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  → &#x2F;root&#x2F;.config&#x2F;opencode 的 reify fiber 还在跑...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  → arborist.reify(): 下载 @opencode-ai&#x2F;plugin@1.17.12 + 26 个依赖&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  → 18.6 秒后完成&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  → Fiber.join 全部返回&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每一步对应源码位置和耗时：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;步骤&lt;&#x2F;th&gt;&lt;th&gt;文件:行&lt;&#x2F;th&gt;&lt;th&gt;耗时&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;目录发现&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;paths.ts:23&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&amp;lt;1ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Npm.install 可写检查&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm.ts:141-144&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&amp;lt;1ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;node_modules 存在检查&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm.ts:149-150&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;reify（下载依赖）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm.ts:80-113&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;18,562ms&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;脏检（比对 lock）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm.ts:161-187&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;2ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ConfigPlugin.load&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;plugin.ts:18-30&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;waitForDependencies&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;config.ts:642-646&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;18,564ms&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;dui-bi-liang-chong-you-hua-ce-lue-de-xiao-guo&quot;&gt;对比：两种优化策略的效果&lt;&#x2F;h1&gt;
+&lt;p&gt;我们把之前的实验数据也放进来对比：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;对 &#x2F;root&#x2F;.config&#x2F;opencode&lt;&#x2F;th&gt;&lt;th&gt;waitForDeps&lt;&#x2F;th&gt;&lt;th&gt;TUI 出现时间&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;原始（无优化）&lt;&#x2F;td&gt;&lt;td&gt;reify 下载 18.6s&lt;&#x2F;td&gt;&lt;td&gt;阻塞 18.6s&lt;&#x2F;td&gt;&lt;td&gt;~19s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;guard 跳过&lt;&#x2F;td&gt;&lt;td&gt;不调用 npmSvc.install&lt;&#x2F;td&gt;&lt;td&gt;0ms&lt;&#x2F;td&gt;&lt;td&gt;~1s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;预置 node_modules&lt;&#x2F;td&gt;&lt;td&gt;脏检 matched → skip&lt;&#x2F;td&gt;&lt;td&gt;0ms&lt;&#x2F;td&gt;&lt;td&gt;~1s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;预置 node_modules 是&lt;strong&gt;工程侧最优解&lt;&#x2F;strong&gt;——不碰源码，只需在容器构建时将 &lt;code&gt;package.json&lt;&#x2F;code&gt; + &lt;code&gt;package-lock.json&lt;&#x2F;code&gt; + &lt;code&gt;node_modules&lt;&#x2F;code&gt; 复制到 &lt;code&gt;directories()&lt;&#x2F;code&gt; 返回的每个目录。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ti-wai-cha-jian-mu-lu-vs-wen-jian&quot;&gt;题外：插件目录 vs 文件&lt;&#x2F;h1&gt;
+&lt;p&gt;在验证过程中还有一个发现：open code 的插件&lt;strong&gt;自动发现&lt;&#x2F;strong&gt;只支持单文件，不支持目录。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;ConfigPlugin.load()&lt;&#x2F;code&gt; 的 glob 是 &lt;code&gt;{plugin,plugins}&#x2F;*.{ts,js}&lt;&#x2F;code&gt;，不匹配子目录。但加载层 &lt;code&gt;resolvePathPluginTarget()&lt;&#x2F;code&gt; 已经支持目录（找 &lt;code&gt;index.ts&lt;&#x2F;code&gt; 或 &lt;code&gt;package.json&lt;&#x2F;code&gt;）。如果有目录式插件的需求，需要在 &lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中显式配置 &lt;code&gt;&quot;plugin&quot;: [&quot;.&#x2F;plugins&#x2F;my-plugin&quot;]&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-lun&quot;&gt;结论&lt;&#x2F;h1&gt;
+&lt;p&gt;实测数据完整验证了源码分析的每一个推断：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;directories()&lt;&#x2F;code&gt; 返回的每个目录都无条件调用 &lt;code&gt;npmSvc.install()&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;空目录无 &lt;code&gt;node_modules&lt;&#x2F;code&gt; → &lt;code&gt;Npm.install&lt;&#x2F;code&gt; 第 ① 步直接 reify&lt;&#x2F;strong&gt;（后续的脏检根本没机会跑）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;只要有插件被 &lt;code&gt;ConfigPlugin.load&lt;&#x2F;code&gt; 发现 → &lt;code&gt;waitForDependencies&lt;&#x2F;code&gt; 阻塞&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;容器冷启动每次都要付这笔 18 秒的下载开销&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;code&gt;grep &#x27;\[TRACE\]&#x27; ~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log&lt;&#x2F;code&gt; 一行命令就能看到完整链路和每步耗时。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>QEMU 虚拟机无法访问网关&#x2F;公网排查</title>
+        <published>2026-06-13T02:30:00+08:00</published>
+        <updated>2026-06-13T02:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"/>
+        <id>https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/">&lt;h1 id=&quot;qemu-xu-ni-ji-wu-fa-fang-wen-wang-guan-gong-wang-pai-cha-wen-dang&quot;&gt;QEMU 虚拟机无法访问网关&#x2F;公网 排查文档&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU 虚拟机（libvirt）无法 ping 通网关 &lt;code&gt;192.168.2.1&lt;&#x2F;code&gt;，也无法访问公网。宿主机网络正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;huan-jing-xin-xi&quot;&gt;环境信息&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.100&#x2F;24&lt;&#x2F;code&gt; (vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网关&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.1&lt;&#x2F;code&gt; (MAC: &lt;code&gt;74:45:2d:96:7f:cc&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.156&lt;&#x2F;code&gt; (MAC: &lt;code&gt;52:54:00:3c:13:73&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理网卡&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eno1&lt;&#x2F;code&gt; (桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟网桥&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vmbr0&lt;&#x2F;code&gt; (含 eno1 + vnet0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TAP 设备&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vnet0&lt;&#x2F;code&gt; (VM 接口，桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟化&lt;&#x2F;td&gt;&lt;td&gt;QEMU&#x2F;KVM (libvirt 管理)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-que-ren-su-zhu-ji-wang-luo-zheng-chang&quot;&gt;1. 确认宿主机网络正常&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ping&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 2 192.168.2.1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 结果：正常，0% 丢包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;2-que-ren-wang-qiao-tuo-bu-zheng-que&quot;&gt;2. 确认网桥拓扑正确&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;brctl&lt;&#x2F;span&gt;&lt;span&gt; show vmbr0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# vmbr0:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#   eno1    (物理网卡)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;#   vnet0   (虚拟机 TAP 接口)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;3-zai-vmbr0-shang-zhua-bao-fa-xian-vm-fa-chu-de-icmp-qing-qiu&quot;&gt;3. 在 vmbr0 上抓包 — 发现 VM 发出的 ICMP 请求&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; vmbr0&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:28:13.582982 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc, ethertype IPv4 (0x0800), length 98: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request, id 10485, seq 68, length 64&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 发出的包到达了网桥 vmbr0，但没有收到任何 reply。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-zai-wu-li-wang-qia-eno1-shang-zhua-bao-fa-xian-bao-mei-you-dao-da-wu-li-jie-kou&quot;&gt;4. 在物理网卡 eno1 上抓包 — 发现包没有到达物理接口&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp and host&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 192.168.2.156&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 结果：0 packets captured&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 的 ICMP 请求在 vmbr0 到 eno1 之间被丢弃了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-jian-cha-bridge-netfilter-she-zhi-fa-xian-guan-jian-wen-ti&quot;&gt;5. 检查 bridge netfilter 设置 — 发现关键问题&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sysctl&lt;&#x2F;span&gt;&lt;span&gt; net.bridge.bridge-nf-call-iptables&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# net.bridge.bridge-nf-call-iptables = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：&lt;&#x2F;strong&gt; &lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt; 意味着桥接的 L2 流量也会经过 iptables 处理。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然 &lt;code&gt;&#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;code&gt; 中配置的是 &lt;code&gt;=0&lt;&#x2F;code&gt;，但 Docker 启动时会将其设为 &lt;code&gt;1&lt;&#x2F;code&gt;（Docker 依赖此设置来实现容器网络隔离和端口映射）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-jian-cha-iptables-forward-lian-que-ren-diu-bao-dian&quot;&gt;6. 检查 iptables FORWARD 链 — 确认丢包点&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -v&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Chain FORWARD (policy DROP 3727K packets, 1454M bytes)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; pkts bytes target     prot opt in     out     source               destination&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  229 24446 ACCEPT     all  --  vmbr0  tun0    192.168.2.0&#x2F;24       192.168.4.0&#x2F;22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  477  513K ACCEPT     all  --  tun0   vmbr0   192.168.4.0&#x2F;22       192.168.2.0&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因确认：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;FORWARD 链默认策略为 &lt;code&gt;DROP&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仅有的两条涉及 vmbr0 的规则只允许 &lt;code&gt;vmbr0 &amp;lt;-&amp;gt; tun0&lt;&#x2F;code&gt; 的 VPN 流量（192.168.2.0&#x2F;24 &amp;lt;-&amp;gt; 192.168.4.0&#x2F;22）&lt;&#x2F;li&gt;
+&lt;li&gt;没有规则允许 vmbr0 的普通桥接流量（如 VM -&amp;gt; 网关）&lt;&#x2F;li&gt;
+&lt;li&gt;因此 VM 发出的包在到达网桥后被 iptables DROP 掉，无法到达物理网卡 eno1&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;shu-ju-liu-shi-yi&quot;&gt;数据流示意&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;VM (192.168.2.156)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼ ICMP echo request&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; vnet0 ─── vmbr0 ─── ✗ iptables FORWARD DROP ─── eno1 (物理网卡)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                       (无匹配规则)                │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                                                   ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;                                             Gateway (192.168.2.1)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;li-ji-xiu-fu&quot;&gt;立即修复&lt;&#x2F;h3&gt;
+&lt;p&gt;添加规则允许桥接流量通过 iptables：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -I&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -m&lt;&#x2F;span&gt;&lt;span&gt; physdev&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --physdev-is-bridged -j&lt;&#x2F;span&gt;&lt;span&gt; ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-m physdev --physdev-is-bridged&lt;&#x2F;code&gt; 精确匹配经过桥接转发的流量&lt;&#x2F;li&gt;
+&lt;li&gt;将该规则插入 FORWARD 链首部，优先于 Docker 的链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chi-jiu-hua&quot;&gt;持久化&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;netfilter-persistent&lt;&#x2F;span&gt;&lt;span&gt; save&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该命令将当前 iptables 规则保存到 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;，重启后自动恢复。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; FORWARD&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -v&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Chain FORWARD (policy DROP)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; pkts bytes target     prot opt in     out     source               destination&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  155 44480 ACCEPT     all  --  *      *       0.0.0.0&#x2F;0            0.0.0.0&#x2F;0            PHYSDEV match --physdev-is-bridged&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tcpdump&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; eno1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e -n&lt;&#x2F;span&gt;&lt;span&gt; icmp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:30:08.217904 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;22:30:08.218266 74:45:2d:96:7f:cc &amp;gt; 52:54:00:3c:13:73: 192.168.2.1 &amp;gt; 192.168.2.156: ICMP echo reply&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 ICMP 请求和网关的回复均已正常到达物理网卡，问题解决。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h2&gt;
+&lt;p&gt;如果不想依赖 iptables 规则，也可以禁用 bridge netfilter：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.bridge.bridge-nf-call-iptables=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但此方案会导致 Docker 的端口映射和容器间隔离失效，&lt;strong&gt;不推荐&lt;&#x2F;strong&gt;在有 Docker 运行的环境中采用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-jian-ming-ling-su-cha&quot;&gt;关键命令速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;查看网桥成员&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl show&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 bridge netfilter 状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sysctl net.bridge.bridge-nf-call-iptables&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 iptables FORWARD 链&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网桥上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i vmbr0 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理接口上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i eno1 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;保存 iptables 规则&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>ubuntu docker 安装</title>
+        <published>2025-09-28T16:03:40+08:00</published>
+        <updated>2025-09-28T16:03:40+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/09/ubuntu docker 安装/"/>
+        <id>https://moxuetianya.github.io/2025/09/ubuntu docker 安装/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/09/ubuntu docker 安装/">&lt;p&gt;安装依赖包&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-get install&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    apt-transport-https&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ca-certificates&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    curl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    gnupg-agent&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    software-properties-common&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;添加docker GPG密钥&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;curl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -fsSL&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;mirrors.ustc.edu.cn&#x2F;docker-ce&#x2F;linux&#x2F;ubuntu&#x2F;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span&gt; tee &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;  &amp;quot;deb [arch=$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;dpkg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --print-architecture&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;) signed-by=&#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc] https:&#x2F;&#x2F;mirrors.ustc.edu.cn&#x2F;docker-ce&#x2F;linux&#x2F;ubuntu&#x2F; &lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; $(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &#x2F;etc&#x2F;os-release &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;$VERSION_CODENAME&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;) stable&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  sudo&lt;&#x2F;span&gt;&lt;span&gt; tee &#x2F;etc&#x2F;apt&#x2F;sources.list.d&#x2F;docker.list&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-get update&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装社区版本docker&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-get update&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 安装最新版本的 Docker Engine-Community 和 containerd ，或者转到下一步安装特定版本：&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-get install docker-ce docker-ce-cli containerd.io&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>docker 开启ipv6网络支持</title>
+        <published>2025-08-05T09:12:46+08:00</published>
+        <updated>2025-08-05T09:12:46+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/08/docker 开启ipv6网络支持/"/>
+        <id>https://moxuetianya.github.io/2025/08/docker 开启ipv6网络支持/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/08/docker 开启ipv6网络支持/">&lt;p&gt;Docker 默认是不开启 IPv6 支持的，这里介绍如何开启 Docker 桥接网络 IPv6 支持，具体操作仅供参考，建议以官方文档为准。&lt;&#x2F;p&gt;
+&lt;p&gt;通过查看主机命令方式获取的 ipv6 地址输出如下：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;6: eth0:  mtu 9000 &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    inet6 2607:f0d0:1102:11::4&#x2F;64 scope global &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;       valid_lft forever preferred_lft forever&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    inet6 fe80::230:48ff:fe33:bc33&#x2F;64 scope link &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;       valid_lft forever preferred_lft forever&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中inet6 2607:f0d0:1102:11::4&#x2F;64 scope global这行指示的IPv6地址是我们需要的目标地址，注意这里的是公网IP，也就是后面scope global指示的，大家注意到后续还有一个fe80 开头的 IPv6 地址，这个后面没有 global，也就是通常意义内网 IPv6&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ipv6-di-zhi-duan-hua-fen&quot;&gt;IPv6 地址段划分&lt;&#x2F;h1&gt;
+&lt;p&gt;Docker 可以配置多个虚拟网络，对于 IPv4 来说通过形如 172.17.0.1&#x2F;16、172.18.0.1&#x2F;16、172.19.0.1&#x2F;16 这样内网私有IP地址段配置多个 IPv4 虚拟网段，那么同样的道理 IPv6 也建议划分多个段&lt;&#x2F;p&gt;
+&lt;p&gt;比如刚才的 IPv6 地址划分为 4 个网段如下：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;2607:f0d0:1102:11::&#x2F;66&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;2607:f0d0:1102:11:4000::&#x2F;66&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;pei-zhi-mo-ren-docker-ipv6&quot;&gt;配置默认 Docker IPv6&lt;&#x2F;h1&gt;
+&lt;p&gt;编辑 Docker 配置文件&#x2F;etc&#x2F;docker&#x2F;daemon.json，如果该文件不存在，请手动建立。配置文件内容如下，如果你已有的配置文件缺少相应的配置项，添加上即可，没有必要完全覆盖内容。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;json&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;experimental&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; true&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;ipv6&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; true&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;ip6tables&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; true&lt;&#x2F;span&gt;&lt;span&gt;,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  &amp;quot;fixed-cidr-v6&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;2607:f0d0:1002:51::&#x2F;66&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里ip6tables是指由 Docker 自动配置 IPv6 的防火墙规则，如果你希望自己手动配置，请改为 false 或者移除此项，否则容器将无法连接 IPv6 网络；fixed-cidr-v6 则是我们划分的子网段的第一个，这里仅作示例请读者根据实际情况修改。&lt;&#x2F;p&gt;
+&lt;p&gt;完成配置后请使用systemctl restart docker重启docker服务生效。完成此步后 Docker 算是完成对于 IPv6 的支持了。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pei-zhi-docker-compose-de-ipv6-zhi-chi&quot;&gt;配置 Docker Compose 的 IPv6 支持&lt;&#x2F;h1&gt;
+&lt;p&gt;Docker Compose 的配置文件内容关于 IPv6 部分重点是网络节配置，如果另外配置网络的话，必须选择与默认daemon.json不同的 IPv6 子网段，例如：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;yaml&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;networks&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;  example&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    enable_ipv6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; true&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    driver&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span&gt; bridge&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    driver_opts&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;      com.docker.network.enable_ipv6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;true&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;    ipam&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt;      config&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;       -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt; subnet&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span&gt; 172.23.0.0&#x2F;16&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;       -&lt;&#x2F;span&gt;&lt;span style=&quot;color: #72F1B8;&quot;&gt; subnet&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;2607:f0d0:1002:51:4000::&#x2F;66&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;         gateway:2607:f0d0:1002:51:4000::1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里example网络我们通过配置开启IPv6支持，其中网络段配置IPv4是172.23.0.0&#x2F;16，IPv6选用余下的第二个网段2607:f0d0:1002:51:4000::&#x2F;66注意这里不能和daemon.json配置的 IPv6 网段一样。这里的 IP 配置同样是一个示例，读者请根据实际情况进行修改。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;can-kao&quot;&gt;参考&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener external&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;p&#x2F;400379696&quot;&gt;docker ipv6网络配置&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>OpenSSL 与 Nginx SSL</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/"/>
+        <id>https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/">&lt;h1 id=&quot;openssl-yu-nginx-ssl&quot;&gt;OpenSSL 与 Nginx SSL&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;openssl-zheng-shu-cao-zuo&quot;&gt;OpenSSL 证书操作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;kuai-su-sheng-cheng-zi-qian-ming-zheng-shu&quot;&gt;快速生成自签名证书&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; req&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -x509 -newkey&lt;&#x2F;span&gt;&lt;span&gt; rsa:2048&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -nodes -keyout&lt;&#x2F;span&gt;&lt;span&gt; my.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; my.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -days 3650&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -subj&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;&#x2F;C=CN&#x2F;ST=shanghai&#x2F;L=shanghai&#x2F;O=example&#x2F;OU=it&#x2F;CN=domain1&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;-subj&lt;&#x2F;code&gt; 字段含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;C=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;国家（Country）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;ST=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;省份（State）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;L=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;城市（Location）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;O=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;组织（Organization）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;OU=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;部门（Organization Unit）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;CN=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;域名或 IP（Common Name）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;cha-kan-zheng-shu&quot;&gt;查看证书&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; x509&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -text -noout -in&lt;&#x2F;span&gt;&lt;span&gt; domain.crt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; verify&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -verbose -CAfile&lt;&#x2F;span&gt;&lt;span&gt; ca.crt domain.crt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;yan-zheng-zheng-shu-yu-si-yao-shi-fou-pi-pei&quot;&gt;验证证书与私钥是否匹配&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; rsa&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -noout -modulus -in&lt;&#x2F;span&gt;&lt;span&gt; domain.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; openssl&lt;&#x2F;span&gt;&lt;span&gt; md5&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; x509&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -noout -modulus -in&lt;&#x2F;span&gt;&lt;span&gt; domain.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; openssl&lt;&#x2F;span&gt;&lt;span&gt; md5&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; req&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -noout -modulus -in&lt;&#x2F;span&gt;&lt;span&gt; domain.csr&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; openssl&lt;&#x2F;span&gt;&lt;span&gt; md5&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 三个 MD5 值一致即匹配&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;si-yao-jia-jie-mi&quot;&gt;私钥加&#x2F;解密&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 加密（DES3 密码保护）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; rsa&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -des3 -in&lt;&#x2F;span&gt;&lt;span&gt; unencrypted.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; encrypted.key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 解密（取消密码保护）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; rsa&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -in&lt;&#x2F;span&gt;&lt;span&gt; encrypted.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; decrypted.key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;pem-der-ge-shi-hu-zhuan&quot;&gt;PEM &#x2F; DER 格式互转&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# PEM → DER（二进制）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; x509&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -in&lt;&#x2F;span&gt;&lt;span&gt; domain.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -outform&lt;&#x2F;span&gt;&lt;span&gt; der&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; domain.der&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# DER → PEM&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; x509&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -inform&lt;&#x2F;span&gt;&lt;span&gt; der&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -in&lt;&#x2F;span&gt;&lt;span&gt; domain.der&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; domain.crt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;ce-shi-ssl-fu-wu&quot;&gt;测试 SSL 服务&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 启动测试 SSL 服务端&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; s_server&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --cert&lt;&#x2F;span&gt;&lt;span&gt; my.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --key&lt;&#x2F;span&gt;&lt;span&gt; my.key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 客户端连接测试&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; s_client localhost:4433&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ca-zheng-shu-zhi-zuo-guo-cheng&quot;&gt;CA 证书制作过程&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mkdir&lt;&#x2F;span&gt;&lt;span&gt; demoCA &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; cd&lt;&#x2F;span&gt;&lt;span&gt; demoCA&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 1. 生成 CA 自签名证书&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; genrsa&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;ca.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2048&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; req&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -new -x509 -days 3650 -key&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;ca.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;ca.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -config&lt;&#x2F;span&gt;&lt;span&gt; openssl.cnf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 2. 生成服务端私钥和 CSR&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; genrsa&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;server.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2048&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; req&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -new -key&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;server.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;newcerts&#x2F;server.csr&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -config&lt;&#x2F;span&gt;&lt;span&gt; openssl.cnf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 3. CA 签发服务端证书&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; ca&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -in&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;newcerts&#x2F;server.csr&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -cert&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;ca.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -keyfile&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;private&#x2F;ca.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -config&lt;&#x2F;span&gt;&lt;span&gt; openssl.cnf&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -policy&lt;&#x2F;span&gt;&lt;span&gt; policy_anything&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;certs&#x2F;server.crt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 4. 查看签发的证书&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; x509&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -in&lt;&#x2F;span&gt;&lt;span&gt; .&#x2F;certs&#x2F;server.crt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -noout -text&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;chang-jian-cuo-wu&quot;&gt;常见错误&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;unable to access .&#x2F;demoCA&#x2F;newcerts&lt;&#x2F;code&gt;：修改 &lt;code&gt;openssl.cnf&lt;&#x2F;code&gt; 中 &lt;code&gt;dir = .&#x2F;demoCA&lt;&#x2F;code&gt; 为 &lt;code&gt;dir = .&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;TXT_DB error number 2&lt;&#x2F;code&gt;：修改 &lt;code&gt;index.txt.attr&lt;&#x2F;code&gt; 中 &lt;code&gt;unique_subject = yes&lt;&#x2F;code&gt; 为 &lt;code&gt;no&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-ssl-pei-zhi&quot;&gt;Nginx SSL 配置&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;nginx&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;server&lt;&#x2F;span&gt;&lt;span&gt; {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    listen&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 443&lt;&#x2F;span&gt;&lt;span&gt; ssl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    server_name&lt;&#x2F;span&gt;&lt;span&gt; yourdomain.com;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    ssl_certificate&lt;&#x2F;span&gt;&lt;span&gt;     &#x2F;etc&#x2F;nginx&#x2F;ssl&#x2F;nginx.crt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    ssl_certificate_key&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;nginx&#x2F;ssl&#x2F;nginx.key;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    location&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; &#x2F; &lt;&#x2F;span&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        root&lt;&#x2F;span&gt;&lt;span&gt;   &#x2F;usr&#x2F;share&#x2F;nginx&#x2F;html;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        index&lt;&#x2F;span&gt;&lt;span&gt;  index.html index.htm;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;        proxy_pass&lt;&#x2F;span&gt;&lt;span&gt; http:&#x2F;&#x2F;192.168.2.23:9090;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 反向代理后端服务&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;docker-nginx-ssl&quot;&gt;Docker Nginx + SSL&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-an-yi-gou-jian-zi-ding-yi-jing-xiang&quot;&gt;方案一：构建自定义镜像&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;Dockerfile&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;docker&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;FROM&lt;&#x2F;span&gt;&lt;span&gt; nginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;COPY&lt;&#x2F;span&gt;&lt;span&gt; nginx.conf &#x2F;etc&#x2F;nginx&#x2F;conf.d&#x2F;default.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;COPY&lt;&#x2F;span&gt;&lt;span&gt; ssl &#x2F;etc&#x2F;nginx&#x2F;ssl&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; build&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -t&lt;&#x2F;span&gt;&lt;span&gt; mynginx .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; run&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d -p&lt;&#x2F;span&gt;&lt;span&gt; 443:443 mynginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;fang-an-er-gua-zai-mu-lu&quot;&gt;方案二：挂载目录&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; run&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d --name&lt;&#x2F;span&gt;&lt;span&gt; nginx nginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; cp nginx:&#x2F;etc&#x2F;nginx &#x2F;opt&#x2F;nginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; rm&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span&gt; nginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 放入证书&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;mkdir&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;opt&#x2F;nginx&#x2F;ssl&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;openssl&lt;&#x2F;span&gt;&lt;span&gt; req&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -x509 -nodes -days 365 -newkey&lt;&#x2F;span&gt;&lt;span&gt; rsa:2048&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -keyout&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;opt&#x2F;nginx&#x2F;ssl&#x2F;nginx.key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -out&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;opt&#x2F;nginx&#x2F;ssl&#x2F;nginx.crt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 启动&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;docker&lt;&#x2F;span&gt;&lt;span&gt; run&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -d -p&lt;&#x2F;span&gt;&lt;span&gt; 80:80&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p&lt;&#x2F;span&gt;&lt;span&gt; 443:443&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --name&lt;&#x2F;span&gt;&lt;span&gt; nginx&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;  -v&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;opt&#x2F;nginx:&#x2F;etc&#x2F;nginx nginx&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;nginx-fang-wen-ren-zheng&quot;&gt;Nginx 访问认证&lt;&#x2F;h2&gt;
+&lt;p&gt;使用 htpasswd 创建用户名密码文件：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install apache2-utils&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 提供 htpasswd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;yum&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -y&lt;&#x2F;span&gt;&lt;span&gt; install httpd-tools&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;htpasswd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;nginx&#x2F;.passwd username&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 创建文件并添加用户&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;htpasswd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;nginx&#x2F;.passwd username2 password&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 追加用户&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;htpasswd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -D&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;nginx&#x2F;.passwd username&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 删除用户&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Nginx 配置：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;nginx&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;location&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; &#x2F; &lt;&#x2F;span&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    auth_basic&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;Please input password&amp;quot;&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;    auth_basic_user_file&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;nginx&#x2F;.passwd;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;htpasswd-jia-mi-suan-fa-xuan-xiang&quot;&gt;htpasswd 加密算法选项&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;选项&lt;&#x2F;th&gt;&lt;th&gt;算法&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-m&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;MD5（默认）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-d&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;CRYPT&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-s&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;SHA&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-p&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;明文（不加密）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-B&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;bcrypt&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>docker 多阶段构建</title>
+        <published>2022-06-19T19:13:03+08:00</published>
+        <updated>2022-06-19T19:13:03+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/06/docker-多阶段构建/"/>
+        <id>https://moxuetianya.github.io/2022/06/docker-多阶段构建/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/06/docker-多阶段构建/">&lt;h1 id=&quot;docker-duo-jie-duan-gou-jian&quot;&gt;docker 多阶段构建&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;duo-jie-duan-gou-jian&quot;&gt;多阶段构建&lt;&#x2F;h1&gt;
+&lt;p&gt;Docker v17.05 开始支持多阶段构建 (multistage builds)。使用多阶段构建我们就可以很容易解决前面提到的问题，并且只需要编写一个 Dockerfile：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;FROM golang:alpine as builder&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;RUN apk --no-cache add git&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;WORKDIR &#x2F;go&#x2F;src&#x2F;github.com&#x2F;go&#x2F;helloworld&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;RUN go get -d -v github.com&#x2F;go-sql-driver&#x2F;mysql&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;COPY app.go .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;FROM alpine:latest as prod&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;RUN apk --no-cache add ca-certificates&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;WORKDIR &#x2F;root&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# COPY --from=builder &#x2F;go&#x2F;src&#x2F;github.com&#x2F;go&#x2F;helloworld&#x2F;app .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;COPY --from=0 &#x2F;go&#x2F;src&#x2F;github.com&#x2F;go&#x2F;helloworld&#x2F;app .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;CMD [&amp;quot;.&#x2F;app&amp;quot;]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhi-gou-jian-mou-yi-jie-duan-de-jing-xiang&quot;&gt;只构建某一阶段的镜像&lt;&#x2F;h1&gt;
+&lt;p&gt;我们只想构建 builder 阶段的镜像时，增加 --target=builder 参数即可&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker build --target builder -t username&#x2F;imagename:tag .&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;gou-jian-shi-cong-qi-ta-jing-xiang-fu-zhi-wen-jian&quot;&gt;构建时从其他镜像复制文件&lt;&#x2F;h1&gt;
+&lt;p&gt;上面例子中我们使用 COPY --from=0 &#x2F;go&#x2F;src&#x2F;github.com&#x2F;go&#x2F;helloworld&#x2F;app . 从上一阶段的镜像中复制文件，我们也可以复制任意镜像中的文件。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;COPY --from=nginx:latest &#x2F;etc&#x2F;nginx&#x2F;nginx.conf &#x2F;nginx.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>vscode using remote docker</title>
+        <published>2022-05-16T17:28:51+08:00</published>
+        <updated>2022-05-16T17:28:51+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/"/>
+        <id>https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/">&lt;h1 id=&quot;vscode-using-remote-docker&quot;&gt;vscode using remote docker&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;dockerkai-qi-yuan-cheng-duan-kou&quot;&gt;Docker开启远程端口&lt;&#x2F;h1&gt;
+&lt;p&gt;在远程主机上：&lt;&#x2F;p&gt;
+&lt;p&gt;创建文件 daemon.json 到目录 &#x2F;etc&#x2F;docker:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; {&amp;quot;hosts&amp;quot;: [&amp;quot;tcp:&#x2F;&#x2F;0.0.0.0:2375&amp;quot;, &amp;quot;unix:&#x2F;&#x2F;&#x2F;var&#x2F;run&#x2F;docker.sock&amp;quot;]}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;创建文件 &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;docker.service.d&#x2F;override.conf:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; [Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; ExecStart=&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; ExecStart=&#x2F;usr&#x2F;bin&#x2F;dockerd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启docker：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; systemctl daemon-reload&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; systemctl restart docker.service &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;pei-zhi-ben-di-shi-yong-yuan-cheng-docker-fu-wu&quot;&gt;配置本地使用远程 Docker 服务&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ssh-copy-id&quot;&gt;ssh-copy-id&lt;&#x2F;h2&gt;
+&lt;h2 id=&quot;chuang-jian-yi-ge-context&quot;&gt;创建一个context：&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker context create &amp;lt;context name&amp;gt; --docker &amp;quot;host=ssh:&#x2F;&#x2F;&amp;lt;user&amp;gt;@&amp;lt;host&amp;gt;[:port]&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;切换到上面这个context：
+测试一下：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker context use &amp;lt;context name&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker info&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里会输出和在远程主机上运行 docker info 一样的结果， 实际上这里docker本地只是一个客户端，连接到远程主机上的docker服务。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;kai-shi-yi-ge-vscodexiang-mu&quot;&gt;开始一个vscode项目!&lt;&#x2F;h1&gt;
+&lt;p&gt;这里有两个方式&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-shi-yi-attach-remote-host-container&quot;&gt;方式一： Attach Remote Host Container&lt;&#x2F;h2&gt;
+&lt;p&gt;远程主机上创建项目
+新建一个目录，例如 ~&#x2F;newproj, 然后加一个Dockerfile，例如：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;FROM python                                                                &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ENV DEBIAN_FRONTEND=noninteractive &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;apt-get update                &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后创建镜像，再启动容器：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker build . -t &amp;lt;image tag&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker run -d --name &amp;lt;container name&amp;gt; -v ~&#x2F;newproj:&#x2F;workspaces&#x2F;newproj &amp;lt;image tag&amp;gt; tail -f &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意: 这里要挂载项目目录到容器中方便保存文件。tail -f 这个命令是为了让容器保持运行。&lt;&#x2F;p&gt;
+&lt;p&gt;本地 VSCode 访问远程容器
+切换 Docker context
+打开VSCode，按下 ctrl+shift+p 运行 docker contexts use , 选择上面创建的docker context.&lt;&#x2F;p&gt;
+&lt;p&gt;连接容器
+按下 ctrl+shift+p 运行 Remote-Containers:Attach to Running Container..., 选择上面创建的容器名字。&lt;&#x2F;p&gt;
+&lt;p&gt;连接成功后，按下 ctrl+k, ctr+o, 你会发现VSCode弹出的不是本地目录，而是容器内部的目录！现在VSCode只是一个客户端，一切操作都在容器中了！&lt;&#x2F;p&gt;
+&lt;p&gt;尝试一下。选择上面创建的 &#x2F;workspaces&#x2F;newproj，新建一个main.py，保存。再去主机上看，~&#x2F;newproj&#x2F;main.py就躺在那。&lt;&#x2F;p&gt;
+&lt;p&gt;现在，可以愉快地在容器里面编码了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-ruan-guan-fang-tui-jian-de-ban-fa-bi-jiao-ma-fan-lue&quot;&gt;微软官方推荐的办法，比较麻烦?略。&lt;&#x2F;h2&gt;
+</content>
+        
+    </entry>
+</feed>

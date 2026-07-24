@@ -1,0 +1,219 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>lock free vs wait free | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/05/lock-free-vs-wait-free/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/05/lock-free-vs-wait-free/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/05/lock-free-vs-wait-free/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="lock free vs wait free | 墨雪天琊" />
+  <meta name="twitter:title" content="lock free vs wait free | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-05-10" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/05/lock-free-vs-wait-free/">lock free vs wait free</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 五月 10, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>, <a href="https://moxuetianya.github.io/categories/lock-free/">lock-free</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/lock-free/">lock-free</a> </span>
+
+    
+
+
+<h1 id="lock-free-vs-wait-free">lock free vs wait free</h1>
+<p>在提到Concurrent Non-blocking算法的时候，都会遇到对无锁算法的无锁程度理解.</p>
+<h1 id="shen-me-shi-wait-freehe-lock-free">什么是wait-free和lock-free</h1>
+<p>所谓lock-free和wait-free算法是指对于共享的数据并非对其加锁来控制访问，而是多个线程并行的访问。通过该算法可以达到对共享对象并发的读写而不会破坏对象本身。所谓lock-free是指对于线程不加锁，让系统执行所有的步骤。lock-free提到的不加锁是指不使用类似于互斥锁或者信号量之类的排他机制。因为一旦对线程加锁的话，当线程执行中断时，那么对于这个系统来说运行也中断了。所谓wait-free是指，不管其他线程执行什么操作，线程无论有什么操作都能在有限的步骤里面完成。所以对于算法来说达到lock-free不一定能达到wait-free，但是达到wait-free的算法一定是lock-free的。</p>
+<h1 id="make-progress">Make Progress</h1>
+<p>这里需要预先定义什么是Make Progress，在本文中Make Progress被定义为线程在全局进度上有进展，而如果只是在本地生效，那就不是Make Progress，比如经典的CAS，当做完一系列的操作后，执行CAS失败，进而重新读数据再尝试CAS，那么在CAS失败的时候，前边做的一系列操作就没有Make Progress，这里的根本在于当CAS判断为失败的时候，一些工作内容需要被丢弃导致做了无用功，这本质上也体现了乐观锁在高负载情况下性能变差的原因。</p>
+<h1 id="cong-di-ceng-qu-kan-lock-free">从底层去看lock-free</h1>
+<p>lock-free是一个非常底层的东西，lock-free编程需要atomic指令这个指令是cpu提供的，cpu原生的指令有非常多都是atomic的，这些指令集分为2大类，分别是store-and-load 和read-modify-write</p>
+<p>store-and-load
+这些指令用于读，写数据到内存中，许多的cpu架构都保证这些操作是原子的，比如mov</p>
+<p>read-modify-write
+有一些操作需要多个指令比如要对内存中的一个数据进行+1，这至少需要三个原子操作指令，虽然说这3个原子操作是原子的，但是加一起就不是原子的了,read-modify-write就是fill the gap，在一个原子操作下去执行多个操作，比如test-and-set :将1写入到内存的地址中，然后返回旧的值，fetch-and-add:在内存中的值加上一个数字，然后返回老的值</p>
+<h1 id="atomiczhi-ling-de-ceng-ji">atomic指令的层级</h1>
+<p>所有的指令都属于硬件，我们通过指令直接与cpu对话，这样工作太费劲，不同的cpu架构有不同的指令集，所以在此之上非常多的操作系统提供了他们的原子操作，我们就直接叫这些东西叫做atomic operations，但是我们如果用操作系统提供的原子操作就不能跨平台，因为linux的原子操作是一个样子的，windows的原子操作是一个样子的，c++的原子操作是一个样子的，最好的方法还是用编程语言提供的跨平台的原子操作</p>
+<h2 id="atomiccao-zuo">atomic操作</h2>
+<p>假设我们要对一个数字进行++并且打印传统的操作是用mutex</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>std::mutex mu;</span></span>
+<span class="giallo-l"><span>x = 0;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>reader_thread(){</span></span>
+<span class="giallo-l"><span>	mu.lock();</span></span>
+<span class="giallo-l"><span>	print(x);</span></span>
+<span class="giallo-l"><span>	mu.unlock();</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>writer_thread(){</span></span>
+<span class="giallo-l"><span>	mutex.lock();</span></span>
+<span class="giallo-l"><span>	x++</span></span>
+<span class="giallo-l"><span>	mutex.unlock();</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>以上是传统做法，而原子操作则不一样，原子操作中所有的线程执行都是无lock的如下假设load()和fetch_and_add()都是对应底层硬件的原子操作指令</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>x = 0</span></span>
+<span class="giallo-l"><span>reader_thread(){</span></span>
+<span class="giallo-l"><span>	print(load(x))</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>writer_thread(){</span></span>
+<span class="giallo-l"><span>	fetch_and_add(x, 1)</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>在现实的lock-free编程中我们主要用到CAS loop来进行lock-free编程<strong>CAS全称(compare-and-swap loop)</strong> 这个函数一般原型如下</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>bool compare_and_swap(shared_data, expected_value, new_value);</span></span></code></pre>
+<p>这个函数的意思是对shared_data的值expected_value替换成new_value，当expected_value没有改变就返回false(因为shared_data的值可能不是expected_value，而被其他的线程改了)，如下</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>x = 0</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>reader_thread(){</span></span>
+<span class="giallo-l"><span>	print(load(x))</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>writer_thread(){</span></span>
+<span class="giallo-l"><span>	temp = load(x);</span></span>
+<span class="giallo-l"><span>	while(!compare_and_swap(x, temp, temp+1)){  //temp没有改变就返回false，改变了就返回true</span></span>
+<span class="giallo-l"><span>		//retry?</span></span>
+<span class="giallo-l"><span>	}</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>上面也叫自旋锁</p>
+<h2 id="abawen-ti">ABA问题</h2>
+<p>CAS实现的过程是先取出内存中某时刻的数据，在下一时刻比较并替换。</p>
+<p>1号线程从内存位置 α 中取出值 A
+2号线程也从内存位置 α 中取出值 A
+2号线程进行了一些操作将 α 位置的数据从 A 变成了 B
+2号线程又进行了一些操作将 α 位置的数据变成A
+这时候1号线程进行 CAS 操作发现内存中仍然是A，然后操作成功。
+尽管1号线程的CAS操作成功，但是不代表这个过程就是没有问题的。</p>
+<h3 id="wo-men-lai-kan-ge-ju-ti-li-zi">我们来看个具体例子：</h3>
+<blockquote>
+<p>现有一个用单向链表实现的堆栈，栈顶为A，这时线程T1已经知道A.next为B：
+head→A→B
+后希望用CAS将栈顶替换为B</p>
+<p>head.compareAndSet(A,B);
+在T1执行上面这条指令之前，线程T2介入，将A、B出栈，再pushD、C、A，此时堆栈结构如下，而对象B此时处于游离状态：
+head→A→C→D
+B
+此时轮到线程T1执行CAS操作，检测发现栈顶仍为A，所以CAS成功，栈顶变为B，但实际上B.next为null，所以此时的情况变为：
+head→B
+A→C→D
+其中堆栈中只有B一个元素，C和D组成的链表不再存在于堆栈中，平白无故就把C、D丢掉了。</p>
+</blockquote>
+<p>以上就是由于ABA问题带来的隐患，各种乐观锁的实现中通常都会用版本戳version来对记录或对象标记，避免并发操作带来的问题</p>
+<h1 id="wait-free">wait-free</h1>
+<p>所有的原子操作可以分为2大类，分别是lock-free和wait-free</p>
+<p>lock-free可以允许线程继续做他自己的事情(在快被阻塞之前)
+wait-free是lock-free的子集，所有线程都可以在有限的步骤中完成其工作，而不管其他的线程执行速度或者负载水平如何，上面的 fetch-and-add() 就是一个wait-free的示例，没有loop，没有重试</p>
+<h1 id="qi-ta">其他</h1>
+<p>https://zhuanlan.zhihu.com/p/342921323</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/">&#8249; vscode using remote docker</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/04/gdb基础/"> gdb基础 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#lock-free-vs-wait-free">lock free vs wait free</a>
+        </div>
+        <div>
+          <a href="#shen-me-shi-wait-freehe-lock-free">什么是wait-free和lock-free</a>
+        </div>
+        <div>
+          <a href="#make-progress">Make Progress</a>
+        </div>
+        <div>
+          <a href="#cong-di-ceng-qu-kan-lock-free">从底层去看lock-free</a>
+        </div>
+        <div>
+          <a href="#atomiczhi-ling-de-ceng-ji">atomic指令的层级</a>
+        </div>
+        <div class="hpad">
+          <a href="#atomiccao-zuo"><small>- atomic操作</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#abawen-ti"><small>- ABA问题</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wo-men-lai-kan-ge-ju-ti-li-zi"><small>· 我们来看个具体例子：</small></a>
+        </div>
+        <div>
+          <a href="#wait-free">wait-free</a>
+        </div>
+        <div>
+          <a href="#qi-ta">其他</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

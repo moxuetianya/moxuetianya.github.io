@@ -1,0 +1,460 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>GNOME Remote Desktop (RDP) 完整排查与修复记录 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="排查 GNOME Remote Desktop RDP 连接失败的五个问题：证书缺少 X509v3 扩展、凭据未设置、GNOME Keyring 缺失、systemd Type=dbus 与 headless 不兼容、会话创建被锁屏阻止" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/" />
+  <meta property="og:description" content="排查 GNOME Remote Desktop RDP 连接失败的五个问题：证书缺少 X509v3 扩展、凭据未设置、GNOME Keyring 缺失、systemd Type=dbus 与 headless 不兼容、会话创建被锁屏阻止" />
+  <meta name="twitter:description" content="排查 GNOME Remote Desktop RDP 连接失败的五个问题：证书缺少 X509v3 扩展、凭据未设置、GNOME Keyring 缺失、systemd Type=dbus 与 headless 不兼容、会话创建被锁屏阻止" />
+  <meta property="og:title" content="GNOME Remote Desktop (RDP) 完整排查与修复记录 | 墨雪天琊" />
+  <meta name="twitter:title" content="GNOME Remote Desktop (RDP) 完整排查与修复记录 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-06-13" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/">GNOME Remote Desktop (RDP) 完整排查与修复记录</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 13, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/desktop/">desktop</a>] #<a href="https://moxuetianya.github.io/tags/gnome-remote-desktop/">gnome-remote-desktop</a>  #<a href="https://moxuetianya.github.io/tags/rdp/">rdp</a>  #<a href="https://moxuetianya.github.io/tags/freerdp/">freerdp</a>  #<a href="https://moxuetianya.github.io/tags/tls/">tls</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/gnome-keyring/">gnome-keyring</a>  #<a href="https://moxuetianya.github.io/tags/systemd/">systemd</a> </span>
+
+    
+
+
+<h1 id="gnome-remote-desktop-rdp-wan-zheng-pai-cha-yu-xiu-fu-ji-lu">GNOME Remote Desktop (RDP) 完整排查与修复记录</h1>
+<h2 id="huan-jing-xin-xi">环境信息</h2>
+<table><thead><tr><th>项目</th><th>值</th></tr></thead><tbody>
+<tr><td>操作系统</td><td>Debian 13.3 (Trixie)</td></tr>
+<tr><td>内核</td><td>6.12.73+deb13-amd64</td></tr>
+<tr><td>gnome-remote-desktop</td><td>48.1-4</td></tr>
+<tr><td>libfreerdp-server</td><td>3.15.0+dfsg-2.1</td></tr>
+<tr><td>运行模式</td><td>systemd user service (<code>--user</code>)</td></tr>
+<tr><td>用户</td><td>peter (UID 1000)</td></tr>
+<tr><td>主机名</td><td>xiao99</td></tr>
+<tr><td>证书目录</td><td><code>~/.local/share/gnome-remote-desktop/certificates/</code></td></tr>
+<tr><td>凭据存储</td><td>GKeyFile (<code>~/.local/share/gnome-remote-desktop/credentials.ini</code>)</td></tr>
+<tr><td>配置文件</td><td>dconf/gsettings (<code>org.gnome.desktop.remote-desktop.rdp</code>)</td></tr>
+</tbody></table>
+<hr />
+<h2 id="chu-shi-gu-zhang-xian-xiang">初始故障现象</h2>
+<ol>
+<li>RDP 服务可以连接（端口 3389 开放），但客户端输入用户名密码后立即断开</li>
+<li>日志显示 <code>Credentials are not set, denying client</code></li>
+<li>配置好凭据后，连接时日志报 NTLM MIC 验证失败</li>
+<li>通过 NLA 认证后，会话创建被阻止，日志显示 <code>Session creation inhibited</code></li>
+</ol>
+<hr />
+<h2 id="wen-ti-yi-rdp-zheng-shu-que-shao-x509v3-kuo-zhan">问题一：RDP 证书缺少 X509v3 扩展</h2>
+<h3 id="pai-cha">排查</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查证书文件是否存在</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ls</span><span style="color: #F97E72;"> -la</span><span> ~/.local/share/gnome-remote-desktop/certificates/</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：rdp-tls.crt 和 rdp-tls.key 存在</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查 gsettings 证书路径</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> get org.gnome.desktop.remote-desktop.rdp tls-cert</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> get org.gnome.desktop.remote-desktop.rdp tls-key</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：路径正确，指向 /home/peter/...</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查证书包含的 X509v3 扩展</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> rdp-tls.crt</span><span style="color: #F97E72;"> -text -noout</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;Subject Alternative Name|Key Usage|Extended Key Usage&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：无输出 —— 旧证书缺少现代 TLS 必需的 SAN、Key Usage 等扩展字段</span></span></code></pre><h3 id="gen-yin">根因</h3>
+<p>FreeRDP 3.x 严格要求证书包含 <code>subjectAltName</code> (SAN)、<code>Key Usage</code>、<code>Extended Key Usage</code> 等 X509v3 扩展。旧证书由 GNOME 早期版本自动生成，缺少这些扩展。</p>
+<h3 id="xiu-fu">修复</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 1. 停止服务</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> --user</span><span> stop gnome-remote-desktop.service</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 2. 删除旧证书</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">rm</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">rm</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.key</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 3. 重置 gsettings 路径</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> reset org.gnome.desktop.remote-desktop.rdp tls-cert</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> reset org.gnome.desktop.remote-desktop.rdp tls-key</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 4. 生成含正确扩展的证书</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">HOSTNAME</span><span style="color: #FFFFFFEE;">=</span><span>$(</span><span style="color: #FE4450;">hostname</span><span>)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;"> -x509 -newkey</span><span> rsa:4096</span><span style="color: #F97E72;"> -sha384 -days 730 -nodes</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -keyout</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.key</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -out</span><span>    ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -subj</span><span style="color: #FF8B39;">   &quot;/CN=</span><span style="color: #FF7EDB;">$HOSTNAME</span><span style="color: #FF8B39;">&quot;</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -addext</span><span style="color: #FF8B39;"> &quot;subjectAltName=DNS:</span><span style="color: #FF7EDB;">$HOSTNAME</span><span style="color: #FF8B39;">&quot;</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -addext</span><span style="color: #FF8B39;"> &quot;keyUsage=digitalSignature,keyEncipherment&quot;</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -addext</span><span style="color: #FF8B39;"> &quot;extendedKeyUsage=serverAuth&quot;</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -addext</span><span style="color: #FF8B39;"> &quot;nsCertType=server&quot;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 5. 验证证书与密钥匹配</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span><span style="color: #F97E72;"> -noout -modulus</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> md5sum</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> rsa</span><span style="color: #F97E72;">  -in</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.key</span><span style="color: #F97E72;"> -noout -modulus</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> md5sum</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 两个 md5sum 必须一致</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 6. 通过 gsettings 设置证书路径</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> set org.gnome.desktop.remote-desktop.rdp tls-cert</span><span style="color: #FF8B39;"> &quot;/home/peter/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> set org.gnome.desktop.remote-desktop.rdp tls-key</span><span style="color: #FF8B39;">  &quot;/home/peter/.local/share/gnome-remote-desktop/certificates/rdp-tls.key&quot;</span></span></code></pre><h3 id="cai-keng-grdctl-she-lu-jing-shi-bai">踩坑：grdctl 设路径失败</h3>
+<p><code>grdctl rdp set-tls-cert</code> 通过 D-Bus 与 daemon 通信，若 daemon 未运行，D-Bus 激活会以无证书状态启动 daemon，导致 <code>BIO_new failed for certificate</code> 错误。</p>
+<p><strong>解决</strong>：改用 <code>gsettings set</code> 直接写 dconf，避免触发 D-Bus 激活。</p>
+<hr />
+<h2 id="wen-ti-er-rdp-ping-ju-wei-she-zhi">问题二：RDP 凭据未设置</h2>
+<h3 id="pai-cha-1">排查</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span> status</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 输出：Username: (empty), Password: (empty)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">journalctl</span><span style="color: #F97E72;"> --user -u</span><span> gnome-remote-desktop.service</span><span style="color: #F97E72;"> -f</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 日志：[RDP] Credentials are not set, denying client</span></span></code></pre><h3 id="gen-yin-1">根因</h3>
+<p>RDP 服务需要设置登录凭据（用户名 + 密码）才能接受客户端连接。</p>
+<h3 id="xiu-fu-1">修复</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 尝试标准方式 —— 失败（见问题三）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span> rdp set-credentials peter 2021smyl</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 错误：The &#39;/org/freedesktop/secrets/collection/login&#39; object does not exist</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 使用 headless 模式绕过 GNOME Keyring</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span style="color: #F97E72;"> --headless</span><span> rdp set-credentials peter 2021smyl</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 输出：Init TPM credentials failed ... using GKeyFile as fallback.</span></span></code></pre>
+<hr />
+<h2 id="wen-ti-san-gnome-keyring-que-shao-login-mi-yao-huan">问题三：GNOME Keyring 缺少 login 密钥环</h2>
+<h3 id="pai-cha-2">排查</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查是否存在密钥环集合</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">python3</span><span style="color: #F97E72;"> -c</span><span style="color: #FF8B39;"> &quot;</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">import gi</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">gi.require_version(&#39;Secret&#39;, &#39;1&#39;)</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">from gi.repository import Secret</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">service = Secret.Service.get_sync(Secret.ServiceFlags.OPEN_SESSION)</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">collections = service.get_collections()</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">for c in collections:</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    print(f&#39;{c.get_label()} ({c.get_object_path()})&#39;)</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：No collections found</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查密钥环文件</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ls</span><span> ~/.local/share/keyrings/</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：目录不存在</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查 D-Bus Secret Service</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">busctl</span><span style="color: #F97E72;"> --user</span><span> call org.freedesktop.secrets /org/freedesktop/secrets</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  org.freedesktop.DBus.Properties Get ss</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  org.freedesktop.Secret.Service Collections</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：只有一个 session 临时集合，无 login 密钥环</span></span></code></pre><h3 id="gen-yin-2">根因</h3>
+<p>用户的 GNOME Keyring <code>login</code> 密钥环从未被创建。通常由 GDM PAM 模块 (<code>pam_gnome_keyring.so</code>) 在登录时自动创建并解锁。可能原因：</p>
+<ul>
+<li>用户通过 SSH 或 tty 登录而非 GDM</li>
+<li>PAM 配置未正确加载 gnome-keyring 模块</li>
+</ul>
+<p><code>grdctl rdp set-credentials</code> 底层使用 libsecret，要求 <code>login</code> 密钥环存在才能存储密码。</p>
+<h3 id="xiu-fu-2">修复</h3>
+<p><strong>方案</strong>：使用 <code>grdctl --headless</code> 模式，凭据存储到 GKeyFile 文件而非 GNOME Keyring。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span style="color: #F97E72;"> --headless</span><span> rdp set-credentials peter 2021smyl</span></span></code></pre>
+<p>凭据写入 <code>~/.local/share/gnome-remote-desktop/credentials.ini</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[RDP]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">credentials</span><span style="color: #B6B1B1;">=</span><span>{</span><span style="color: #FF8B39;">&#39;username&#39;</span><span>: &lt;</span><span style="color: #FF8B39;">&#39;peter&#39;</span><span>&gt;, </span><span style="color: #FF8B39;">&#39;password&#39;</span><span>: &lt;</span><span style="color: #FF8B39;">&#39;2021smyl&#39;</span><span>&gt;}</span></span></code></pre>
+<p><strong>要点</strong>：daemon 也必须以 <code>--headless</code> 模式运行才能读取 GKeyFile 中的凭据。</p>
+<hr />
+<h2 id="wen-ti-si-systemd-type-dbus-yu-headless-bu-jian-rong">问题四：systemd Type=dbus 与 --headless 不兼容</h2>
+<h3 id="pai-cha-3">排查</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> --user</span><span> status gnome-remote-desktop.service</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 状态：activating (start) —— 卡在启动中</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 90 秒后超时：Failed with result &#39;timeout&#39;</span></span></code></pre><h3 id="gen-yin-3">根因</h3>
+<p>daemon 默认以 <code>Type=dbus</code> 运行，systemd 等待 daemon 注册 D-Bus 名称 <code>org.gnome.RemoteDesktop.User</code>。但 <code>--headless</code> 模式下，daemon 可能在注册 D-Bus 名称前需要额外初始化（如 TPM 尝试），导致超时。</p>
+<h3 id="xiu-fu-3">修复</h3>
+<p>创建 systemd 服务覆盖配置文件：</p>
+<p><strong><code>~/.config/systemd/user/gnome-remote-desktop.service.d/headless.conf</code></strong></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[Service]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">Type</span><span style="color: #B6B1B1;">=</span><span>simple</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">ExecStart</span><span style="color: #B6B1B1;">=</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">ExecStart</span><span style="color: #B6B1B1;">=</span><span>/usr/libexec/gnome-remote-desktop-daemon --headless</span></span></code></pre>
+<p>关键点：</p>
+<ul>
+<li>第一行 <code>ExecStart=</code> 清空上游配置中的 ExecStart</li>
+<li><code>Type=simple</code> 替代 <code>Type=dbus</code>，daemon 启动即视为就绪</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> --user</span><span> daemon-reload</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> --user</span><span> restart gnome-remote-desktop.service</span></span></code></pre>
+<hr />
+<h2 id="wen-ti-wu-session-creation-inhibited-suo-ping-zu-zhi-yuan-cheng-hui-hua">问题五：Session creation inhibited（锁屏阻止远程会话）</h2>
+<h3 id="pai-cha-4">排查</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查屏幕锁状态</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">dbus-send</span><span style="color: #F97E72;"> --session --dest=org.gnome.ScreenSaver --print-reply</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  /org/gnome/ScreenSaver org.gnome.ScreenSaver.GetActive</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：boolean true —— 屏幕已锁定</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查会话状态</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> show-session</span><span style="color: #F97E72;"> 2</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> IdleHint</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 结果：IdleHint=yes —— 会话空闲</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 服务日志</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">journalctl</span><span style="color: #F97E72;"> --user -u</span><span> gnome-remote-desktop.service</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 关键错误：</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   Failed to start remote desktop session:</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   GDBus.Error:org.freedesktop.DBus.Error.Failed: Session creation inhibited</span></span></code></pre><h3 id="gen-yin-4">根因</h3>
+<p>gnome-remote-desktop 依赖活动且未锁定的 GNOME Shell 会话才能创建远程桌面会话。当屏幕锁定或会话休眠时，Mutter 会拒绝远程会话创建请求。这是 GNOME 安全策略 —— 防止在用户离开时通过远程桌面窥探屏幕。</p>
+<p>当前环境的主 GNOME 会话 (seat0, session 2) 已空闲 <strong>近 2 周</strong>。</p>
+<h3 id="xiu-fu-lin-shi">修复（临时）</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 解除屏幕锁</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gdbus</span><span> call</span><span style="color: #F97E72;"> --session --dest</span><span> org.gnome.ScreenSaver</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  --object-path</span><span> /org/gnome/ScreenSaver</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  --method</span><span> org.gnome.ScreenSaver.SetActive</span><span style="color: #F97E72;"> false</span></span></code></pre><h3 id="xiu-fu-yong-jiu">修复（永久）</h3>
+<p>关闭自动锁屏，防止长期无人使用时再次锁屏阻断 RDP：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> set org.gnome.desktop.screensaver lock-enabled</span><span style="color: #F97E72;"> false</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> set org.gnome.desktop.screensaver idle-activation-enabled</span><span style="color: #F97E72;"> false</span></span></code></pre>
+<p><strong>注意</strong>：这会彻底禁用锁屏，降低安全性。生产环境建议在 GNOME 设置中配置为"长时间不活动后锁屏"而非禁用。</p>
+<hr />
+<h2 id="zui-zhong-yan-zheng">最终验证</h2>
+<h3 id="fu-wu-zhuang-tai">服务状态</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> --user</span><span> status gnome-remote-desktop.service</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># Active: active (running) since ...</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span style="color: #F97E72;"> --headless</span><span> status</span><span style="color: #F97E72;"> --show-credentials</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># RDP:</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   Status: enabled</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   Port: 3389</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   TLS certificate: .../rdp-tls.crt</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   TLS fingerprint: 5a:00:fe:60:...</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   TLS key: .../rdp-tls.key</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   View-only: no</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   Username: peter</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#   Password: 2021smyl</span></span></code></pre><h3 id="duan-kou-jian-ting">端口监听</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ss</span><span style="color: #F97E72;"> -tlnp</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> 3389</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># LISTEN  *:3389  users:((&quot;gnome-remote-de&quot;,pid=xxx,fd=xx))</span></span></code></pre><h3 id="zheng-shu-xin-xi">证书信息</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span><span style="color: #F97E72;"> -text -noout</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -E</span><span style="color: #FF8B39;"> &quot;Subject Alternative Name|Key Usage|Extended Key Usage&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#             X509v3 Subject Alternative Name:</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#                DNS:xiao99</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#             X509v3 Key Usage:</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#                Digital Signature, Key Encipherment</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#             X509v3 Extended Key Usage:</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">#                TLS Web Server Authentication</span></span></code></pre>
+<hr />
+<h2 id="chang-yong-pai-cha-ming-ling">常用排查命令</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看实时日志</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">journalctl</span><span style="color: #F97E72;"> --user -u</span><span> gnome-remote-desktop.service</span><span style="color: #F97E72;"> -f --no-pager</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查 RDP 配置</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">grdctl</span><span style="color: #F97E72;"> --headless</span><span> status</span><span style="color: #F97E72;"> --show-credentials</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查 gsettings 完整配置</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">gsettings</span><span> list-recursively org.gnome.desktop.remote-desktop.rdp</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查证书有效期</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span><span style="color: #F97E72;"> -noout -dates</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查证书完整信息</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> ~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</span><span style="color: #F97E72;"> -text -noout</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查 RDP 端口监听</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ss</span><span style="color: #F97E72;"> -tlnp</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> 3389</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查屏幕锁状态</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">dbus-send</span><span style="color: #F97E72;"> --session --dest=org.gnome.ScreenSaver --print-reply</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  /org/gnome/ScreenSaver org.gnome.ScreenSaver.GetActive</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 检查用户会话状态</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> list-sessions</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> show-session</span><span style="color: #FEDE5D;"> &lt;</span><span>session-id</span><span style="color: #FEDE5D;">&gt;</span></span></code></pre>
+<hr />
+<h2 id="xiu-fu-hui-zong">修复汇总</h2>
+<table><thead><tr><th>#</th><th>问题</th><th>根因</th><th>修复方式</th></tr></thead><tbody>
+<tr><td>1</td><td>证书无效</td><td>缺少 X509v3 扩展 (SAN/KeyUsage/EKU)</td><td>用 openssl 重新生成含扩展的证书</td></tr>
+<tr><td>2</td><td>凭据未设置</td><td>从未配置 RDP 用户名密码</td><td><code>grdctl --headless rdp set-credentials</code></td></tr>
+<tr><td>3</td><td>Keyring 不存在</td><td>login 密钥环未创建，grdctl 标准模式无法存储凭据</td><td>使用 <code>--headless</code> 模式写入 GKeyFile</td></tr>
+<tr><td>4</td><td>服务启动超时</td><td><code>Type=dbus</code> 与 <code>--headless</code> 不兼容</td><td>创建 systemd override，改用 <code>Type=simple</code></td></tr>
+<tr><td>5</td><td>会话创建被阻止</td><td>GNOME 桌面锁屏/空闲</td><td>解除锁屏 + 关闭自动锁屏</td></tr>
+</tbody></table>
+<h2 id="guan-jian-wen-jian">关键文件</h2>
+<table><thead><tr><th>文件</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>~/.local/share/gnome-remote-desktop/certificates/rdp-tls.crt</code></td><td>TLS 证书</td></tr>
+<tr><td><code>~/.local/share/gnome-remote-desktop/certificates/rdp-tls.key</code></td><td>TLS 私钥</td></tr>
+<tr><td><code>~/.local/share/gnome-remote-desktop/credentials.ini</code></td><td>RDP 凭据 (headless 模式)</td></tr>
+<tr><td><code>~/.config/systemd/user/gnome-remote-desktop.service.d/headless.conf</code></td><td>systemd 服务覆盖配置</td></tr>
+<tr><td><code>~/.config/dconf/user</code></td><td>dconf 数据库 (gsettings 持久化)</td></tr>
+</tbody></table>
+<h2 id="yi-zhi-xian-zhi">已知限制</h2>
+<ol>
+<li>gnome-remote-desktop 需要活动、未锁定的 GNOME Shell 会话</li>
+<li>使用 headless + GKeyFile 模式，凭据以明文存储（TPM 不可用时）</li>
+<li>若重启系统后问题复现，检查：
+<ul>
+<li>屏幕是否再次锁定</li>
+<li>证书是否过期（有效期 730 天）</li>
+<li>daemon 日志中是否有新的证书或会话错误</li>
+</ul>
+</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-cert-troubleshooting/">&#8249; GNOME Remote Desktop 证书问题排查记录</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/"> virtiofs ENFILE 问题排查手册 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#gnome-remote-desktop-rdp-wan-zheng-pai-cha-yu-xiu-fu-ji-lu">GNOME Remote Desktop (RDP) 完整排查与修复记录</a>
+        </div>
+        <div class="hpad">
+          <a href="#huan-jing-xin-xi"><small>- 环境信息</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#chu-shi-gu-zhang-xian-xiang"><small>- 初始故障现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-yi-rdp-zheng-shu-que-shao-x509v3-kuo-zhan"><small>- 问题一：RDP 证书缺少 X509v3 扩展</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha"><small>· 排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gen-yin"><small>· 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu"><small>· 修复</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#cai-keng-grdctl-she-lu-jing-shi-bai"><small>· 踩坑：grdctl 设路径失败</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-er-rdp-ping-ju-wei-she-zhi"><small>- 问题二：RDP 凭据未设置</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha-1"><small>· 排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gen-yin-1"><small>· 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu-1"><small>· 修复</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-san-gnome-keyring-que-shao-login-mi-yao-huan"><small>- 问题三：GNOME Keyring 缺少 login 密钥环</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha-2"><small>· 排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gen-yin-2"><small>· 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu-2"><small>· 修复</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-si-systemd-type-dbus-yu-headless-bu-jian-rong"><small>- 问题四：systemd Type=dbus 与 --headless 不兼容</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha-3"><small>· 排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gen-yin-3"><small>· 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu-3"><small>· 修复</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-wu-session-creation-inhibited-suo-ping-zu-zhi-yuan-cheng-hui-hua"><small>- 问题五：Session creation inhibited（锁屏阻止远程会话）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha-4"><small>· 排查</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gen-yin-4"><small>· 根因</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu-lin-shi"><small>· 修复（临时）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xiu-fu-yong-jiu"><small>· 修复（永久）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zui-zhong-yan-zheng"><small>- 最终验证</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fu-wu-zhuang-tai"><small>· 服务状态</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#duan-kou-jian-ting"><small>· 端口监听</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zheng-shu-xin-xi"><small>· 证书信息</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#chang-yong-pai-cha-ming-ling"><small>- 常用排查命令</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-hui-zong"><small>- 修复汇总</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-wen-jian"><small>- 关键文件</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-zhi-xian-zhi"><small>- 已知限制</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

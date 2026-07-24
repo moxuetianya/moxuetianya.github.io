@@ -1,0 +1,341 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>cxx-allocator类 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/07/cxx-allocator类/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/07/cxx-allocator类/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/07/cxx-allocator类/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="cxx-allocator类 | 墨雪天琊" />
+  <meta name="twitter:title" content="cxx-allocator类 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-07-01" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/07/cxx-allocator类/">cxx-allocator类</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 01, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>, <a href="https://moxuetianya.github.io/categories/allocator/">allocator</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/allocator/">allocator</a> </span>
+
+    
+
+
+<h1 id="cxx-allocatorlei">cxx-allocator类</h1>
+<h1 id="allocator">allocator</h1>
+<p>new 在灵活性上有一些局限
+可以使用allocator类进行更加强大的内存操作
+分配器也是标准库的一个话题，我们这一片文章不对分配器的角色进行讨论，仅仅结合标准库的源代码对齐进行简单的剖析以及解释它的一些用法。
+双层级配置器,也就是第一级配置器和第二级配置器。
+第一级配置器直接使用 malloc() 和 free() ，
+第二级配置器则视情况采用不同的策略：当配置区块超过128 bytes 时，视之为 “足够大”，便调用第一级配置器；当配置区块小于 128 bytes 时，视之为 “过小” ，为了降低额外负担，便采用复杂的 内存池 管理方式。</p>
+<blockquote>
+<p>allocator<T>                       name;
+.allocate(n)                       分配原始的，未构造的保存n个T类型的空间返回一个指针
+.consstruct(p,args)                构造对象，在p指向的内存中，args是构造类型所需要的参数
+.destory(p)                        p为 T 的指针，对其指向的对象进行析构操作
+.deallocate(p,n)                   释放空间，从p指向开始后的n块内存空间，此指针必须是allocate分配的，在执行此操作之前还要对每一个元素都进行destory操作</p>
+</blockquote>
+<p>首先是构造对象，分为两部
+我们使用后allocate方法的得到的空间是未经过初始化的。
+时候使用construct方法来对每一个对象进行初始化</p>
+<p>如果不再使用对象将其销毁，也分为两步
+首先使用destory方法将其析构
+这个方法不是必须调用的，比如内置基本类型就可以不调用。下面我们会有演示的代码。</p>
+<p>但是，如果要保证模版足够通用，就要调用这个方法了；
+再使用dealloc方法回收空间，这是真正会回收的动作</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;vector&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;algorithm&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;functional&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;array&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;memory&gt;</span></span>
+<span class="giallo-l"><span>class Foo {</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>  Foo(int i): i_(i) { std::cout &lt;&lt; &quot;Foo\n&quot;; }</span></span>
+<span class="giallo-l"><span>  ~Foo() { std::cout &lt;&lt; &quot;~Foo\n&quot;; }</span></span>
+<span class="giallo-l"><span>  int i_;</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void print_int_arr(Foo* data, const int length)</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    using std::cout;</span></span>
+<span class="giallo-l"><span>    using std::endl;</span></span>
+<span class="giallo-l"><span>    for(int i=0; i&lt;length; ++i)</span></span>
+<span class="giallo-l"><span>    {</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; data[i].i_ &lt;&lt; &quot; &quot;;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>void test01()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    using namespace std;</span></span>
+<span class="giallo-l"><span>    std::allocator&lt;Foo&gt; my_allocator;</span></span>
+<span class="giallo-l"><span>    auto data = my_allocator.allocate(10);</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; typeid(data).name() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    print_int_arr(data,10);</span></span>
+<span class="giallo-l"><span>    // my_allocator.construct(data,10);</span></span>
+<span class="giallo-l"><span>    // print_int_arr(data,10);</span></span>
+<span class="giallo-l"><span>    for(int i=0; i&lt;10; ++i)</span></span>
+<span class="giallo-l"><span>    {</span></span>
+<span class="giallo-l"><span>        // construct is deprecated in c++17; and removed in c++20</span></span>
+<span class="giallo-l"><span>        my_allocator.construct(data + i, i);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    print_int_arr(data,10);</span></span>
+<span class="giallo-l"><span>    for(int i=0; i&lt;10; ++i)</span></span>
+<span class="giallo-l"><span>    {</span></span>
+<span class="giallo-l"><span>        my_allocator.destroy(data + i);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    print_int_arr(data, 10);</span></span>
+<span class="giallo-l"><span>    my_allocator.deallocate(data, 10);</span></span>
+<span class="giallo-l"><span>    print_int_arr(data,10);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void * operator new(std::size_t size)</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::cout &lt;&lt; &quot;malloc: &quot; &lt;&lt; size &lt;&lt; &quot;size&quot; &lt;&lt; std::endl;</span></span>
+<span class="giallo-l"><span>    return malloc(size);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void operator delete(void * p) noexcept</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::cout &lt;&lt; &quot;delete&quot; &lt;&lt; std::endl;</span></span>
+<span class="giallo-l"><span>    free(p);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    test01();</span></span>
+<span class="giallo-l"><span>    return 0;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>首先看下allocate的实现:</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span> _GLIBCXX_NODISCARD pointer  //_GLIBCXX_NODISCARD仅仅是一个宏名称 pointer是_Tp *的一个typedef</span></span>
+<span class="giallo-l"><span>      allocate(size_type __n, const void* = static_cast&lt;const void*&gt;(0))</span></span>
+<span class="giallo-l"><span>      {</span></span>
+<span class="giallo-l"><span>	if (__n &gt; this-&gt;max_size())</span></span>
+<span class="giallo-l"><span>	  std::__throw_bad_alloc();</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>#if __cpp_aligned_new</span></span>
+<span class="giallo-l"><span>	if (alignof(_Tp) &gt; __STDCPP_DEFAULT_NEW_ALIGNMENT__)</span></span>
+<span class="giallo-l"><span>	  {</span></span>
+<span class="giallo-l"><span>	    std::align_val_t __al = std::align_val_t(alignof(_Tp));</span></span>
+<span class="giallo-l"><span>	    return static_cast&lt;_Tp*&gt;(::operator new(__n * sizeof(_Tp), __al));</span></span>
+<span class="giallo-l"><span>	  }</span></span>
+<span class="giallo-l"><span>#endif</span></span>
+<span class="giallo-l"><span>	return static_cast&lt;_Tp*&gt;(::operator new(__n * sizeof(_Tp)));</span></span>
+<span class="giallo-l"><span>      }</span></span></code></pre>
+<p>首先，allocarte先进行一个是否超出限制的判断，如果超出限制，就抛出bad_alloc异常。
+我们线不用看第二段的条件编译。直接看最后一行。其调用::new操作符，并将::new返回的结果强转成对应类型的指针。那这样就显而易见了，allocate也不过就是仅仅调用new而已。
+再来看看construct，在观看源码之前，想都不用想，肯定是要用到转发技术的。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>      template&lt;typename _Up, typename... _Args&gt;</span></span>
+<span class="giallo-l"><span>	void</span></span>
+<span class="giallo-l"><span>	construct(_Up* __p, _Args&amp;&amp;... __args)</span></span>
+<span class="giallo-l"><span>	noexcept(noexcept(::new((void *)__p)</span></span>
+<span class="giallo-l"><span>			    _Up(std::forward&lt;_Args&gt;(__args)...)))</span></span>
+<span class="giallo-l"><span>	{ ::new((void *)__p) _Up(std::forward&lt;_Args&gt;(__args)...); }</span></span></code></pre>
+<p>其中，上面的部分是异常声明，我们的关注点不在那，如果读者有兴趣，也可以自行剖析一下。我们只看函数体中唯一的语句即可。
+使用定位new并且将我们传入进的指针转成void*，然后使用转发级数构造一个对象。洗去铅华只剩金，也只不过是调用了定位new而已。</p>
+<p>再来看看destroy方法，就更简单了</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>template&lt;typename _Up&gt;</span></span>
+<span class="giallo-l"><span>	void</span></span>
+<span class="giallo-l"><span>	destroy(_Up* __p)</span></span>
+<span class="giallo-l"><span>	noexcept(noexcept(__p-&gt;~_Up()))</span></span>
+<span class="giallo-l"><span>	{ __p-&gt;~_Up(); }</span></span></code></pre>
+<p>异常声明，然后单纯的显示调用对象的析构函数而已。
+最后剩下的就是deallocate方法，我们也应该能够胸有成竹的剖析。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>      void</span></span>
+<span class="giallo-l"><span>      deallocate(pointer __p, size_type)</span></span>
+<span class="giallo-l"><span>      {</span></span>
+<span class="giallo-l"><span>#if __cpp_aligned_new</span></span>
+<span class="giallo-l"><span>	if (alignof(_Tp) &gt; __STDCPP_DEFAULT_NEW_ALIGNMENT__)</span></span>
+<span class="giallo-l"><span>	  {</span></span>
+<span class="giallo-l"><span>	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));</span></span>
+<span class="giallo-l"><span>	    return;</span></span>
+<span class="giallo-l"><span>	  }</span></span>
+<span class="giallo-l"><span>#endif</span></span>
+<span class="giallo-l"><span>	::operator delete(__p);</span></span>
+<span class="giallo-l"><span>      }</span></span></code></pre>
+<p>也仅仅就是调用的::delete而已；</p>
+<p>现在，分配器的面目已经不是那么的神秘，甚至里面的实现也没有什么过于复杂的手法。要说复杂，应该是麻烦的条件编译和异常声明而已吧。</p>
+<p>下面是一些好用的函数</p>
+<blockquote>
+<p>uninitialized_copy(b,e,b2) 返回类似尾后迭代器（拷贝到此空间最后一个元素的下一个位置）
+uninitialized_copy_n(b,n,b2) 同上
+uninitialized_fill(b,e,t) 同上
+uninitialized_fill_n(b,n,t) 同上</p>
+</blockquote>
+<h1 id="zheng-li-c-zhong-allocator">整理C++中Allocator</h1>
+<p>Allocator（概念）是对访问、寻址、分配、释放、构造和析构策略的封装。是一个满足特定要求的类。标准库中需要分配释放存储空间的容器都需要一个Allocator，除了std::array。</p>
+<h2 id="bi-xuan-cheng-yuan">必选成员</h2>
+<p>Allocator 需要满足的条件有很多，但是大部分都是可选的，只有几个必须存在的成员。</p>
+<ol>
+<li>value_type: 要分配空间的类型</li>
+<li>allocate(n): 分配方法</li>
+<li>deallocate(ptr, n): 释放方法</li>
+<li>拷贝构造:
+对于表达式Alloc a2 = a1; Alloc a2(a1) 要求执行完毕后a2 == a1，不可抛出异常</li>
+<li>移动构造:
+对于表达式Alloc a2 = std::move(a1); Alloc a2(std::move(a1)); 使用a1构造a2，a2应等于a1的先前值。（C++17 起要求a1的值在构造后不发生改变，并且a1 == a2。）</li>
+<li>拷贝赋值和移动赋值
+标准没有声明他们的存在，但是显然他们应该和上面的构造语义相同。</li>
+<li>从另一个allocator类型构造
+用于map等分配的实际类型不是你传入的allocator的value_type的情况。
+对于表达式 AllocA a(b)，其中b是由AllocA::template rebind获得的类型AllocB的实例，构造a，使得AllocB(a) == b, b == AllocA(a)。</li>
+<li>从另一个allocator类型移动构造
+对于表达式 AllocA a(b)，其中b是由AllocA::template rebind获得的类型AllocB的实例，构造a，使得a == 之前的 AllocA(b)
+标准推荐通过 std::allocator_traits<Allocator> 来调用 Allocator 的各种方法，及获取其他类型，这个 trait 类提供了 Allocator 中可选成员的默认实现。</li>
+</ol>
+<h2 id="yi-xie-ke-xuan-cheng-yuan-de-yong-tu">一些可选成员的用途</h2>
+<ol>
+<li>size_type
+如果你不想使用默认的std::size_t，可以用这个来自定义size_type类型，当然对应的allocate和deallocate方法的size参数也应该变成这个类型</li>
+<li>template rebind<U>::other
+rebind用来从已有的allocator类型获取一个新的用来分配另一个类型U的allocator类型
+注意，rebind只对有模板参数的allocator可选
+allocator_traits的默认实现是用U来替换当前类型的第一个模板参数</li>
+<li>allocate(n, ptr)
+分配足够容纳n个对象的连续空间，ptr用作一个hint（比如在ptr地址附近寻找可用内存，用来保持局部性）</li>
+<li>max_size()
+获取可分配的最大对象数目
+allocator_traits会提供一个返回(size_t)-1的实现（或者(size_t)-1 / sizeof(T)，since C++17）</li>
+<li>select_on_container_copy_construction()
+在标准库容器拷贝构造时，由构造函数调用，向源allocator获取一个用来构造新容器的allocator的实例
+allocator_traits会提供一个直接返回源容器的allocator本身的实现
+在构造函数不能够满足allocator的逻辑需求时定义这个函数</li>
+<li>construct(ptr, args…)
+在给定指针指向的内存上构造对象，需要注意的是，ptr指向的对象类型不一定是allocator的value_type，这个函数有必要做成模板的
+在需要自定义对象构造行为时定义它，比如打个log，try_catch一下什么的</li>
+<li>destroy(ptr)
+析构ptr指向的对象，需要注意的是，ptr指向的对象类型也不一定是value_type，这个函数有必要做成模板的</li>
+<li>is_always_equal （since C++17）
+allocator的相等比较的意义是，一个allocator分配的空间，是否可以用另外一个allocator来释放，is_always_equal旨在尽可能消除运行期的比较
+std::allocator就是always_equal的，因为他们都是new和delete的封装，一个std::allocator new的当然可以用另一个std::allocator来delete
+allocator_traits的默认实现是，当你的allocator是空类，那么为true_type</li>
+<li>propagate_on_container_copy_assignment</li>
+<li>propagate_on_container_move_assignment</li>
+<li>propagate_on_container_swap
+此三个类型标记了在容器进行拷贝赋值、移动赋值或交换的时候，allocator是否需要进行对应操作。</li>
+</ol>
+<p>容器在进行拷贝赋值、移动赋值和交换时的逻辑，应该考虑到以上成员和allocator的相等性</p>
+<h2 id="zai-liang-ge-rong-qi-kao-bei-fu-zhi-shi-container1-container2">在两个容器拷贝赋值时（container1 = container2）</h2>
+<p>propagate_on_container_copy_assignment | 两个allocator是否相等 | 拷贝赋值行为
+true | true  | 拷贝allocator，拷贝container2所有元素
+true | false | 析构container1所有元素并释放空间，拷贝allocator，拷贝container2元素
+false| true  | 不拷贝allocator，拷贝container2所有元素
+false| false | 不拷贝allocator，拷贝container2所有元素</p>
+<h2 id="zai-liang-ge-rong-qi-yi-dong-fu-zhi-shi-container1-std-move-container2">在两个容器移动赋值时（container1 = std::move(container2)）</h2>
+<p>propagate_on_container_move_assignment | 两个allocator是否相等 | 移动赋值行为
+true | true  | 析构container1所有元素并释放空间，移动allocator，接管container2的内部指针
+true | false | 析构container1所有元素并释放空间，移动allocator，接管container2的内部指针
+false| true  | 析构container1所有元素并释放空间，不移动allocator，接管container2的内部指针
+false| false | 析构container1所有元素，不释放空间，不移动allocator，分配足够装下container2所有元素的空间，将container2的元素尽数移动过来</p>
+<p>在两个容器交换时，没有更多问题，仅需视propagate_on_container_swap值，交换allocator即可。但需要注意的是，如果allocator不可交换，并且不相等，那么容器交换是UB。
+当然以上只是标准容器的实现，你的容器大可以不必如此麻烦。</p>
+<h1 id="xue-xi-std-pmr-fen-pei-qi">学习std::pmr 分配器</h1>
+<p>std::pmr::vector</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/07/rust-生命周期标记/">&#8249; rust 生命周期标记</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/std-function/"> std::function &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cxx-allocatorlei">cxx-allocator类</a>
+        </div>
+        <div>
+          <a href="#allocator">allocator</a>
+        </div>
+        <div>
+          <a href="#zheng-li-c-zhong-allocator">整理C++中Allocator</a>
+        </div>
+        <div class="hpad">
+          <a href="#bi-xuan-cheng-yuan"><small>- 必选成员</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-xie-ke-xuan-cheng-yuan-de-yong-tu"><small>- 一些可选成员的用途</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zai-liang-ge-rong-qi-kao-bei-fu-zhi-shi-container1-container2"><small>- 在两个容器拷贝赋值时（container1 = container2）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zai-liang-ge-rong-qi-yi-dong-fu-zhi-shi-container1-std-move-container2"><small>- 在两个容器移动赋值时（container1 = std::move(container2)）</small></a>
+        </div>
+        <div>
+          <a href="#xue-xi-std-pmr-fen-pei-qi">学习std::pmr 分配器</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

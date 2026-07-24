@@ -1,0 +1,837 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - SSH</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ssh/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-07-15T09:42:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/ssh/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 界面卡住不动排查</title>
+        <published>2026-07-15T09:42:00+08:00</published>
+        <updated>2026-07-15T09:42:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-卡住排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-卡住排查/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;opencode 交互界面一直显示运行中，不输出任何新内容，像是卡死了一样。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-fan-ying-strace&quot;&gt;第一反应：strace&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 看一下卡在哪个系统调用上：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果有&lt;strong&gt;大量输出&lt;&#x2F;strong&gt;，&lt;code&gt;epoll_wait&lt;&#x2F;code&gt; → &lt;code&gt;read&lt;&#x2F;code&gt; → &lt;code&gt;write&lt;&#x2F;code&gt; → &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 循环不断，并没有阻塞在某个系统调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;这说明进程本身在运行，事件循环在持续工作。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;huan-ge-si-lu-jin-cheng-zhuang-tai-zi-jin-cheng-shu&quot;&gt;换个思路：进程状态 + 子进程树&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 输出太多看不出问题，那就从最常规的进程状态入手。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-jin-cheng-zai-deng-shen-me&quot;&gt;看进程在等什么&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 4188775  Sl+  do_epoll_wait  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt; 只是某个采样时刻的快照。opencode 是事件循环模型，绝大多数时间都&lt;strong&gt;短暂地&lt;&#x2F;strong&gt;阻塞在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待 I&#x2F;O 事件，&lt;code&gt;ps&lt;&#x2F;code&gt; 拍到的 &lt;code&gt;wchan&lt;&#x2F;code&gt; 几乎永远是 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;，不代表一直卡在同一个调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;但这个信息告诉我们一件事：&lt;strong&gt;进程是 S (sleeping) 状态，不是 R (running)，也不是 D (uninterruptible sleep)。没有死循环，没有内核态阻塞。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-zi-jin-cheng-shu&quot;&gt;看子进程树&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pstree&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 4188775&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;opencode(4188775)───git(2867)───ssh(2868)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一目了然：opencode 下面挂着 &lt;code&gt;git push&lt;&#x2F;code&gt;，git 下面挂着 &lt;code&gt;ssh&lt;&#x2F;code&gt;。阻塞链条是 &lt;code&gt;opencode → git → ssh&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 git 进程的状态：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 2867 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,etime,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 2867  Ssl  do_wait  04:13  git push -u myself dev&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;git push 已经跑了 4 分多钟，在 &lt;code&gt;do_wait&lt;&#x2F;code&gt; 等待子进程 ssh 结束。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-xie-zi-jin-cheng-ssh-lian-jie-chu-liao-shen-me-wen-ti&quot;&gt;定位叶子进程：SSH 连接出了什么问题&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;kan-wang-luo-lian-jie&quot;&gt;看网络连接&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -tnp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2868&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → ESTAB  0  293076  192.168.5.99:60362 → 20.205.243.166:22  users:((&amp;quot;ssh&amp;quot;,pid=2868,fd=3))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键信息：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;State&lt;&#x2F;td&gt;&lt;td&gt;ESTAB&lt;&#x2F;td&gt;&lt;td&gt;TCP 连接已建立&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Recv-Q&lt;&#x2F;td&gt;&lt;td&gt;0&lt;&#x2F;td&gt;&lt;td&gt;没有待读数据&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Send-Q&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;293076 (~286KB)&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;发送缓冲区积压了 286KB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;目的地址&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;20.205.243.166:22&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;GitHub SSH 端口&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;TCP 三次握手已完成，但 &lt;strong&gt;Send-Q 积压 286KB&lt;&#x2F;strong&gt;，说明本地发出了数据而 GitHub 端没有确认 TCP 报文。这是典型的网络不通畅：连接能建起来，但数据传不过去。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-huan-jing-bian-liang&quot;&gt;看环境变量&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;2868&#x2F;environ&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; tr&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;\0&amp;#39; &amp;#39;\n&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -i&lt;&#x2F;span&gt;&lt;span&gt; proxy&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HTTPS_PROXY=http:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HTTP_PROXY=http:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;all_proxy=socks5:&#x2F;&#x2F;192.168.5.244:10808&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;strong&gt;SSH 不使用 HTTP&#x2F;SOCKS 环境变量&lt;&#x2F;strong&gt;，它会直连目标主机的 22 端口。HTTP&#x2F;SOCKS 代理只对 HTTP 客户端和部分应用生效，SSH 不受影响。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;git push&lt;&#x2F;code&gt; 使用 SSH 协议推送到 GitHub（&lt;code&gt;git@github.com:...&lt;&#x2F;code&gt;），SSH 直连 &lt;code&gt;github.com:22&lt;&#x2F;code&gt;。本地网络到 GitHub 22 端口的 TCP 路径不畅通（可能被防火墙阻断或被 QoS 限速）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie&quot;&gt;排查思路总结&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;进程状态 (ps)                    ← 宏观：是 sleep &#x2F; run &#x2F; 内核阻塞？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;子进程树 (pstree)                ← 谁在等谁？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;叶子进程网络状态 (ss -tnp)        ← 网络有没有问题？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ▼&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;环境变量 (&#x2F;proc&#x2F;pid&#x2F;environ)      ← 代理&#x2F;环境因素&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看到大量事件循环输出时，不要被干扰。事件循环模型下 &lt;code&gt;ps&lt;&#x2F;code&gt; 看到的 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 几乎永远不变，关键是&lt;strong&gt;它等的那件事有没有进展&lt;&#x2F;strong&gt;——用 &lt;code&gt;pstree&lt;&#x2F;code&gt; 一层层追到最底层，看叶子进程的状态。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-er-ci-pai-cha-suo-zheng-qiang-lock-contention&quot;&gt;第二次排查：锁争抢（Lock Contention）&lt;&#x2F;h1&gt;
+&lt;p&gt;同一天稍晚，另一个 opencode 进程（PID 138479）又卡住了。这次表现不同：CPU 占用 18%，看起来&quot;活着&quot;但响应极慢。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chu-bu-guan-cha&quot;&gt;初步观察&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,pcpu,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 138479  Sl+  do_epoll_wait  18.0  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;138479&#x2F;status&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -E&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;State|VmRSS|Threads&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → State: R (running)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → VmRSS: 790120 kB&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → Threads: 40&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 &lt;code&gt;ps&lt;&#x2F;code&gt; 显示 &lt;code&gt;Sl+&lt;&#x2F;code&gt;（sleep），但 &lt;code&gt;&#x2F;proc&#x2F;pid&#x2F;status&lt;&#x2F;code&gt; 显示 &lt;code&gt;R（running）&lt;&#x2F;code&gt;。790MB RSS，40 个线程，18% CPU —— 进程在干活，但效率极低。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;strace-cai-yang&quot;&gt;strace 采样&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -e&lt;&#x2F;span&gt;&lt;span&gt; trace=all&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c -S&lt;&#x2F;span&gt;&lt;span&gt; time&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1&lt;&#x2F;span&gt;&lt;span&gt; &amp;amp;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sleep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 5&lt;&#x2F;span&gt;&lt;span&gt;;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; kill&lt;&#x2F;span&gt;&lt;span&gt; %1&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; wait&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;5 秒内的系统调用分布：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;% time     seconds  calls    errors  syscall&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; 79.64    0.097539  20345      252  futex&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; 16.14    0.019772   2649            sched_yield&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  2.56    0.003137    389            epoll_pwait2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.67    0.000821   1616            clock_gettime&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.29    0.000359    277            pread64&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  0.18    0.000215    281            read&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键数据：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;79.6% 时间花在 futex&lt;&#x2F;strong&gt; — 20,345 次调用，线程在抢锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;16.1% 花在 sched_yield&lt;&#x2F;strong&gt; — 2,649 次，争不到锁主动让出 CPU&lt;&#x2F;li&gt;
+&lt;li&gt;真正的 I&#x2F;O（read&#x2F;write）占比可以忽略&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Lp 138479 -o&lt;&#x2F;span&gt;&lt;span&gt; lwp,psr,pcpu,stat,wchan:32&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --no-headers&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sort&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -k3 -rn&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  lwp  psr  pcpu  stat  wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138479   0   7.3  Rl+   -                  # 主线程 running&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;142051   3   3.4  Sl+   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138494   2   2.2  Sl+   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138487  14   0.9  Sl+   futex_wait_queue    # 7个线程等锁&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;138484   0   0.9  Rl+   futex_wait_queue     # 1个线程在 futex 中 running&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;~20 个线程&lt;&#x2F;strong&gt; 在 &lt;code&gt;futex_wait_queue&lt;&#x2F;code&gt;，1 个主线程在用户态跑，其余在 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;进一步跟踪 futex 操作：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;strace&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 138479 -e&lt;&#x2F;span&gt;&lt;span&gt; trace=futex&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; 2&amp;gt;&amp;amp;1 |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; head&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -20&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0c0154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0e0150, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;futex(0x7f601c01f154, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME,&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      125123, NULL, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;模式&lt;&#x2F;strong&gt;：大量 &lt;code&gt;FUTEX_WAKE_PRIVATE&lt;&#x2F;code&gt; 唤醒 + 偶尔 &lt;code&gt;FUTEX_WAIT_BITSET_PRIVATE&lt;&#x2F;code&gt; 超时（EAGAIN）。多个 futex 地址集中在同一内存区（&lt;code&gt;0x7f601c0bxxx-0x7f601c0fxxx&lt;&#x2F;code&gt;），像是一个线程池任务队列上的锁。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;结论：惊群效应 + 严重锁争抢。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;有大量线程同时被唤醒去竞争少数任务或资源&lt;&#x2F;li&gt;
+&lt;li&gt;大部分线程发现没活可干又 sleep，如此循环&lt;&#x2F;li&gt;
+&lt;li&gt;CPU 大部分消耗在 futex 调度上而非实际工作&lt;&#x2F;li&gt;
+&lt;li&gt;进程&quot;活着&quot;（能响应请求），但有效吞吐极低&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;可能诱因：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;线程池过大（40 线程 vs 实际 CPU 核数），过多线程争抢同一把锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 本地 LLM 推理慢，IO 线程在等待结果期间造成锁堆积&lt;&#x2F;li&gt;
+&lt;li&gt;39 个 LSP server 同时启动，大量并发初始化请求冲击线程池&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-san-ci-pai-cha-ipv6-lian-jie-qia-zhu-syn-sent&quot;&gt;第三次排查：IPv6 连接卡住 SYN-SENT&lt;&#x2F;h1&gt;
+&lt;p&gt;解决第一个进程后，又启动了一个新的 opencode（PID 183287）。这次 CPU 很低（2.8%），但也不响应。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ji-chu-xin-xi&quot;&gt;基础信息&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ps&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p 183287 -o&lt;&#x2F;span&gt;&lt;span&gt; pid,stat,wchan,pcpu,cmd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 183287  Sl+  do_epoll_wait  2.8  opencode --log-level DEBUG&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;183287&#x2F;status&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -E&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;State|VmRSS|Threads&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → State:  S (sleeping)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → VmRSS: 511812 kB&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → Threads: 16&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;16 线程，512MB，2.8% CPU，状态 S（sleeping）。和上一个完全不同。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu-1&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  lwp    pcpu  wchan&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183348   0.8   do_epoll_wait&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183287   0.6   do_epoll_wait     # 主线程&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;183295   0.1   futex_wait_queue&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;...其他线程都在 sleep...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所有线程 ≤ 0.8% CPU，大部分在 futex 上 sleep。进程完全&lt;strong&gt;空闲&lt;&#x2F;strong&gt;，不是在忙，是真的在等什么。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-wen-jian-miao-shu-fu&quot;&gt;看文件描述符&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ls&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -la&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;proc&#x2F;183287&#x2F;fd&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;35 -&amp;gt; socket:[56963599]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;36 -&amp;gt; socket:[56963601]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;37 -&amp;gt; socket:[56963600]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;38 -&amp;gt; socket:[56962309]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;39 -&amp;gt; socket:[56963602]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;40 -&amp;gt; socket:[56963603]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;共 &lt;strong&gt;6 个 socket&lt;&#x2F;strong&gt;。用 &lt;code&gt;ss&lt;&#x2F;code&gt; 看它们的连接状态：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -npep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 183287&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;fd&lt;&#x2F;th&gt;&lt;th&gt;TCP 状态&lt;&#x2F;th&gt;&lt;th&gt;本地&lt;&#x2F;th&gt;&lt;th&gt;远端&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;38&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:53102&lt;&#x2F;td&gt;&lt;td&gt;172.67.69.147:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv4 ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;40&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:59558&lt;&#x2F;td&gt;&lt;td&gt;20.205.243.165:443&lt;&#x2F;td&gt;&lt;td&gt;Microsoft&#x2F;GitHub ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;35&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:38682&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:a22]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;36&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:60690&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:422]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;37&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:46750&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:222]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;39&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:49118&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:322]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;4 个连接卡在 SYN-SENT&lt;&#x2F;strong&gt;，目标全是 Cloudflare 的 IPv6 地址段 &lt;code&gt;2606:4700::&#x2F;32&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng-ipv6-bu-tong&quot;&gt;验证 IPv6 不通&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ip&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -6&lt;&#x2F;span&gt;&lt;span&gt; route show default&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → default via fe80::c0b1:65ff:fe3e:68c3 dev enp1s0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ping6&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -c 2 -W 2&lt;&#x2F;span&gt;&lt;span&gt; 2606:4700::6810:a22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# → 2 packets transmitted, 0 received, 100% packet loss&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;IPv6 路由存在，但实际不通 —— ping Cloudflare IPv6 地址 100% 丢包。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi-1&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 模型 API 通过 Cloudflare 托管，DNS 同时返回了 A 和 AAAA 记录。Node.js HTTP 客户端默认执行 &lt;strong&gt;Happy Eyeballs（RFC 8305）&lt;&#x2F;strong&gt;：优先尝试 IPv6，如果连接建立缓慢，才回退到 IPv4。&lt;&#x2F;p&gt;
+&lt;p&gt;问题在于：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;DNS 返回了多个 Cloudflare IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;Node.js 尝试并发连接所有 IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;内核发出 SYN 后收不到 SYN-ACK，连接进入 &lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt; 状态&lt;&#x2F;li&gt;
+&lt;li&gt;内核每 20 秒重传一次 SYN，总超时可达 &lt;strong&gt;120 秒以上&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在此之前，IPv4 的请求即使已成功，部分客户端逻辑可能仍在等待 IPv6 尝试完成&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这解释了为什么进程看起来&quot;卡住了&quot;：它不是在死循环，而是事件循环被大量 pending 的 TCP 连接超时拖着，无法及时处理已就绪的请求。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lin-shi-huan-jie&quot;&gt;临时缓解&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方式 1：Node.js 层优先 IPv4&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;NODE_OPTIONS&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;--dns-result-order=ipv4first&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; opencode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方式 2：系统层禁用 IPv6&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv6.conf.all.disable_ipv6=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;gen-ben-xiu-fu&quot;&gt;根本修复&lt;&#x2F;h2&gt;
+&lt;p&gt;排查 IPv6 路由&#x2F;网关问题，或确保 big-pickle API 域名在本地只解析到 IPv4。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie-geng-xin-ban&quot;&gt;排查思路总结（更新版）&lt;&#x2F;h1&gt;
+&lt;p&gt;加上今天的排查，归纳出 opencode 卡住的三种模式：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;卡住了？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ CPU 高 (&amp;gt;10%) + 大量 futex&#x2F;sched_yield&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 锁争抢 &#x2F; 惊群效应&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 检查线程池大小、LSP server 数量&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ├─ CPU 低 (&amp;lt;5%) + 进程 idle (S&#x2F;sleeping)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │     → 看 fd 中的 socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │       ├─ SYN-SENT → IPv6 不通 &#x2F; 防火墙&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │       └─ ESTABLISH + Send-Q 积压 → 网络拥塞&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  │&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  └─ CPU 低 + 有子进程 (pstree)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        → 看 pstree 找到叶子进程&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;          → git? ssh? → 网络问题 &#x2F; 代理配置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;jie-jue-fang-an-git-push-ssh&quot;&gt;解决方案（git push SSH）&lt;&#x2F;h1&gt;
+&lt;p&gt;两种方式让 git push 走代理：&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-yi-ssh-pei-dai-li&quot;&gt;方案一：SSH 配代理&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 中添加：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host github.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ProxyCommand nc -X 5 -x 192.168.5.244:10808 %h %p&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fang-an-er-gai-yong-https-yuan-cheng&quot;&gt;方案二：改用 HTTPS 远程&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; remote set-url myself https:&#x2F;&#x2F;github.com&#x2F;moxuetianya&#x2F;learn-opencode.git&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;HTTPS 协议会使用 &lt;code&gt;HTTPS_PROXY&lt;&#x2F;code&gt; 环境变量，自动走代理。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>git 指定 ssh 密钥</title>
+        <published>2026-06-17T12:00:00+08:00</published>
+        <updated>2026-06-17T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/git指定ssh密钥/"/>
+        <id>https://moxuetianya.github.io/2026/06/git指定ssh密钥/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/git指定ssh密钥/">&lt;p&gt;&lt;code&gt;git clone&lt;&#x2F;code&gt; 不能像 &lt;code&gt;ssh&lt;&#x2F;code&gt; 那样直接在命令中加 &lt;code&gt;-i&lt;&#x2F;code&gt; 指定私钥，但可以通过以下两种方式实现。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;lin-shi-zhi-ding-dan-ci-ming-ling&quot;&gt;临时指定（单次命令）&lt;&#x2F;h1&gt;
+&lt;p&gt;在命令前加 &lt;code&gt;GIT_SSH_COMMAND&lt;&#x2F;code&gt; 环境变量：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;GIT_SSH_COMMAND&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;ssh -i ~&#x2F;.ssh&#x2F;id_rsa_work&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; git&lt;&#x2F;span&gt;&lt;span&gt; clone git@github.com:user&#x2F;repo.git&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;后续的 &lt;code&gt;push&lt;&#x2F;code&gt;、&lt;code&gt;pull&lt;&#x2F;code&gt; 等操作需要同样带上环境变量，比较适合 CI&#x2F;CD 场景。&lt;&#x2F;p&gt;
+&lt;p&gt;调试连接问题时加 &lt;code&gt;-v&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;GIT_SSH_COMMAND&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;ssh -v -i ~&#x2F;.ssh&#x2F;id_rsa_work&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; git&lt;&#x2F;span&gt;&lt;span&gt; clone git@github.com:user&#x2F;repo.git&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;dan-cang-ku-gu-ding-pei-zhi&quot;&gt;单仓库固定配置&lt;&#x2F;h1&gt;
+&lt;p&gt;进入仓库目录后执行：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config core.sshCommand&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;ssh -i ~&#x2F;.ssh&#x2F;id_rsa_work&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;此后仅该仓库的 &lt;code&gt;fetch&lt;&#x2F;code&gt;、&lt;code&gt;push&lt;&#x2F;code&gt;、&lt;code&gt;pull&lt;&#x2F;code&gt; 等操作自动使用指定密钥，其他仓库不受影响。配置保存在 &lt;code&gt;.git&#x2F;config&lt;&#x2F;code&gt; 中，适合长期使用某个特定密钥的仓库。&lt;&#x2F;p&gt;
+&lt;p&gt;查看当前仓库的 SSH 命令配置：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config core.sshCommand&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhu-yi-shi-xiang&quot;&gt;注意事项&lt;&#x2F;h1&gt;
+&lt;p&gt;私钥权限必须为 &lt;code&gt;600&lt;&#x2F;code&gt;，否则 SSH 会拒绝使用：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 600&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.ssh&#x2F;id_rsa_work&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;确保对应公钥已添加到 Git 服务器的 SSH Keys 中。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>sshd 安全加固</title>
+        <published>2026-03-02T14:21:16+08:00</published>
+        <updated>2026-03-02T14:21:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/03/sshd 安全加固/"/>
+        <id>https://moxuetianya.github.io/2026/03/sshd 安全加固/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/03/sshd 安全加固/">&lt;h1 id=&quot;an-zhuang-fail2ban&quot;&gt;安装fail2ban&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt install fail2ban&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl enable&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --now&lt;&#x2F;span&gt;&lt;span&gt; fail2ban&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; fail2ban status sshd&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;sshd-pei-zhi&quot;&gt;sshd 配置&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# &#x2F;etc&#x2F;ssh&#x2F;sshd_config&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowUsers peter.home peter@192.168.2.*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowUsers peter@localhost peter@127.0.0.*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ========== 全局安全策略 ==========&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Port 22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Protocol 2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 默认仅允许密钥登录（公网策略）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PasswordAuthentication no&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PubkeyAuthentication yes&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 禁用不安全的认证方式&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ChallengeResponseAuthentication no&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;KbdInteractiveAuthentication no&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 禁用 root 登录&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PermitRootLogin no&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ========== 内网访问：允许密码登录 ==========&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方案 A：基于服务器本地网卡地址&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Match LocalAddress 192.168.* 10.* 172.16.* 172.17.*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    PasswordAuthentication yes&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 方案 B：基于客户端源地址（二选一，不要同时使用）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Match Address 192.168.0.0&#x2F;16,10.0.0.0&#x2F;8,172.16.0.0&#x2F;12&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    PasswordAuthentication yes&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>为什么ssh长时间空闲后，终端就卡死了</title>
+        <published>2025-11-27T19:21:20+08:00</published>
+        <updated>2025-11-27T19:21:20+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/为什么ssh长时间空闲后，终端就卡死了/"/>
+        <id>https://moxuetianya.github.io/2025/11/为什么ssh长时间空闲后，终端就卡死了/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/为什么ssh长时间空闲后，终端就卡死了/">&lt;h1 id=&quot;wen-ti-yuan-yin&quot;&gt;问题原因&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;SSH 连接在长时间空闲后“卡死”（表现为终端无响应、输入无回显、Ctrl+C 无效等），\&lt;&#x2F;li&gt;
+&lt;li&gt;通常不是 SSH 协议本身“卡”了，而是连接被中间网络设备（如 NAT 网关、防火墙）静默丢弃所致。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ju-ti-fen-xi&quot;&gt;具体分析&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;TCP 连接超时被中间设备丢弃
+&lt;ul&gt;
+&lt;li&gt;多数 NAT 路由器或云服务商（如 AWS、阿里云）的防火墙&#x2F;安全组默认 TCP 空闲超时时间为 5–15 分钟（例如 AWS 默认 350 秒）。&lt;&#x2F;li&gt;
+&lt;li&gt;若 SSH 会话长时间无数据包交换（即使你在终端看着 htop 不动也算“空闲”），中间设备会悄悄丢弃连接状态，但不向两端发送 RST&#x2F;FIN。&lt;&#x2F;li&gt;
+&lt;li&gt;此时：
+&lt;ul&gt;
+&lt;li&gt;客户端仍以为连接 alive，输入无响应（包发出去但被丢，无 ACK）；&lt;&#x2F;li&gt;
+&lt;li&gt;服务端也无感知，直到尝试写数据才发现对端已不可达（但可能延迟很久）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;服务端或客户端的 TCP keepalive 默认关闭或间隔太长
+&lt;ul&gt;
+&lt;li&gt;Linux 默认的 TCP keepalive 是 net.ipv4.tcp_keepalive_time = 7200 秒（2 小时），远晚于中间设备的超时。&lt;&#x2F;li&gt;
+&lt;li&gt;所以 keepalive 包来不及发送，连接已被丢弃。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;终端控制字符阻塞（较少见）
+&lt;ul&gt;
+&lt;li&gt;如误按 Ctrl+S（XOFF 流控），导致终端本地“卡住”，但此情况可通过 Ctrl+Q 解除，且不影响 SSH 底层连接。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;jie-jue-fang-an-tui-jian-zu-he-shi-yong&quot;&gt;解决方案（推荐组合使用）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;qi-yong-ssh-ke-hu-duan-bao-huo-zui-chang-yong&quot;&gt;启用 SSH 客户端保活（最常用）&lt;&#x2F;h2&gt;
+&lt;p&gt;在 客户端 的 ~&#x2F;.ssh&#x2F;config 中为对应主机配置：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;yaml&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host your-server&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 或 * 表示全局&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    HostName example.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    User peter&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ServerAliveInterval 60&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      # 每60秒客户端发一个空包探测&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    ServerAliveCountMax 3&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;       # 连续3次无响应则断开&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    TCPKeepAlive yes&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;            # 同时启用底层 TCP keepalive（可选）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;✅ 效果：每 60 秒发一次 SSH_MSG_CHANNEL_REQUEST &quot;keepalive@openssh.com&quot;，穿透 NAT 设备，防止被丢弃。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fu-wu-duan-bao-huo-xu-you-fu-wu-qi-quan-xian&quot;&gt;服务端保活（需有服务器权限）&lt;&#x2F;h2&gt;
+&lt;p&gt;在服务端 &#x2F;etc&#x2F;ssh&#x2F;sshd_config 中添加：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;yaml&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ClientAliveInterval 60&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ClientAliveCountMax 3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启 sshd：sudo systemctl restart sshd&lt;&#x2F;p&gt;
+&lt;p&gt;⚠️ 注意：若中间设备超时 &amp;lt; 60 秒（如某些企业防火墙为 30 秒），可设为 30。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xi-tong-ji-tcp-keepalive-diao-you-quan-ju-sheng-xiao&quot;&gt;系统级 TCP keepalive 调优（全局生效）&lt;&#x2F;h2&gt;
+&lt;p&gt;临时调整（重启失效）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# Debian&#x2F;Ubuntu&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv4.tcp_keepalive_time=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;300&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv4.tcp_keepalive_intvl=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;60&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv4.tcp_keepalive_probes=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 永久生效：写入 &#x2F;etc&#x2F;sysctl.d&#x2F;99-tcp-keepalive.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhen-duan-ji-qiao&quot;&gt;诊断技巧&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;检查是否真“卡”：另开终端 ping your-server。若 ping 通但 SSH 卡住 → 确认为 SSH 连接被丢弃。&lt;&#x2F;li&gt;
+&lt;li&gt;查看 SSH 日志（服务端）：journalctl -u ssh -f&lt;&#x2F;li&gt;
+&lt;li&gt;抓包验证：sudo tcpdump -i any host your-server and port 22，看是否有 keepalive 包。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>ssh配置</title>
+        <published>2025-11-26T11:16:39+08:00</published>
+        <updated>2025-11-26T11:16:39+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/ssh配置/"/>
+        <id>https://moxuetianya.github.io/2025/11/ssh配置/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/ssh配置/">&lt;h1 id=&quot;pei-zhi-yi-ge-jumperyong-hu&quot;&gt;配置一个jumper用户&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; useradd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -m&lt;&#x2F;span&gt;&lt;span&gt; peter.jumper&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; passwd peter.jumper&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 禁止用户登录&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用usermod命令&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; usermod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;sbin&#x2F;nologin username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或使用chsh命令&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chsh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;sbin&#x2F;nologin username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 直接编辑&#x2F;etc&#x2F;passwd文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; vipw&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 找到对应用户行，将shell改为&#x2F;sbin&#x2F;nologin&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 锁定用户（会在密码前加!使其失效）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; usermod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; passwd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 解锁用户&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; usermod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -U&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; passwd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 立即使用户账户过期&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; usermod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e 1&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 设置特定过期日期&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; usermod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -e&lt;&#x2F;span&gt;&lt;span&gt; 2024-12-31 username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看账户过期信息&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chage&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;span&gt; username&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 公钥登录&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; peter.jumper mkdir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;peter.jumper&#x2F;.ssh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; peter.jumper chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 700&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;peter.jumper&#x2F;.ssh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;粘贴您的公钥内容到这里&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; peter.jumper tee&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;peter.jumper&#x2F;.ssh&#x2F;authorized_keys&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; peter.jumper chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 600&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;peter.jumper&#x2F;.ssh&#x2F;authorized_keys&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;sshd-config&quot;&gt;sshd_config&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowUsers peter.jumper peter@192.168.1.*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowUsers peter@localhost peter@127.0.0.*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;ssh-audit&quot;&gt;ssh-audit&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pip3&lt;&#x2F;span&gt;&lt;span&gt; install ssh-audit&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-audit&lt;&#x2F;span&gt;&lt;span&gt; server.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; sshd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -Q&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;Tab&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>systemd服务配置ssh反向端口转发</title>
+        <published>2025-09-30T17:12:55+08:00</published>
+        <updated>2025-09-30T17:12:55+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/09/systemd服务配置ssh反向端口转发/"/>
+        <id>https://moxuetianya.github.io/2025/09/systemd服务配置ssh反向端口转发/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/09/systemd服务配置ssh反向端口转发/">&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# sudo systemctl daemon-reexec&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl daemon-reload&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl enable&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --now&lt;&#x2F;span&gt;&lt;span&gt; ssh-reverse-tunnel.service&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl start ssh-reverse-tunnel.service&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; useradd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -M -s&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;bin&#x2F;bash ssh-tunnel&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; mkdir&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;ssh-tunnel&#x2F;.ssh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -R 700&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;ssh-tunnel&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; cp &#x2F;home&#x2F;peter&#x2F;.ssh&#x2F;id_rsa &#x2F;home&#x2F;ssh-tunnel&#x2F;.ssh&#x2F;id_rsa&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 600&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;home&#x2F;ssh-tunnel&#x2F;.ssh&#x2F;id_rsa&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chown&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -R&lt;&#x2F;span&gt;&lt;span&gt; ssh-tunnel:ssh-tunnel &#x2F;home&#x2F;ssh-tunnel&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-keyscan&lt;&#x2F;span&gt;&lt;span&gt; aliyun.mydomain.com&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sort&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -u&lt;&#x2F;span&gt;&lt;span&gt; - ~&#x2F;.ssh&#x2F;known_hosts&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.ssh&#x2F;known_hosts.new&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# mv ~&#x2F;.ssh&#x2F;known_hosts.new ~&#x2F;.ssh&#x2F;known_hosts&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; chsh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;sbin&#x2F;nologin ssh-tunnel&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cat&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&amp;lt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span&gt; tee &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;ssh-reverse-tunnel.service&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Unit]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Description=SSH Reverse Tunnel to Aliyun&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;After=network.target&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# User 变量影响id_rsa密钥的选择：~&#x2F;.ssh&#x2F;id_rsa 和用户有关&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;User=ssh-tunnel&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ExecStart=&#x2F;usr&#x2F;bin&#x2F;autossh -M 0 -N -o ServerAliveInterval=30 -o ServerAliveCountMax=3 -o ExitOnForwardFailure=yes -R 6022:localhost:22 -i &#x2F;home&#x2F;ssh-tunnel&#x2F;.ssh&#x2F;id_rsa root@aliyun.mydomain.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Restart=always&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;RestartSec=10&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;StandardOutput=syslog&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;StandardError=syslog&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;SyslogIdentifier=autossh-tunnel&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Install]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;WantedBy=multi-user.target&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;EOF&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>GPG 使用指南</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/gpg/"/>
+        <id>https://moxuetianya.github.io/2025/07/gpg/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/gpg/">&lt;h1 id=&quot;gpg-shi-yong-zhi-nan&quot;&gt;GPG 使用指南&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ji-ben-cao-zuo&quot;&gt;基本操作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;sheng-cheng-mi-yao&quot;&gt;生成密钥&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --full-gen-key --expert&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;cha-kan-mi-yao&quot;&gt;查看密钥&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -k&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -K&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 私钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-keys --with-keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --fingerprint&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;dao-chu-dao-ru&quot;&gt;导出&#x2F;导入&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出公钥（文本格式）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --export&lt;&#x2F;span&gt;&lt;span&gt; peter&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; public.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出私钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --export-secret-key&lt;&#x2F;span&gt;&lt;span&gt; peter&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; private.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导入&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --import&lt;&#x2F;span&gt;&lt;span&gt; key.asc&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;qian-ming-cao-zuo&quot;&gt;签名操作&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --sign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;           # 签名后内嵌原文&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --clearsign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;      # 签名后原文可读&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --detach-sign&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;    # 分离签名，生成 .sig 文件&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --verify&lt;&#x2F;span&gt;&lt;span&gt; file.txt.asc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     # 验证签名&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;jia-mi-jie-mi&quot;&gt;加密&#x2F;解密&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 发送方使用接收方公钥加密&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -r&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;recipient&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --encrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 接收方使用自己的私钥解密&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --decrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt.asc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;tong-shi-qian-ming-he-jia-mi&quot;&gt;同时签名和加密&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --local-user&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;sender&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --recipient&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;receiver&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --armor --sign --encrypt&lt;&#x2F;span&gt;&lt;span&gt; file.txt&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;xin-ren-wang-luo&quot;&gt;信任网络&lt;&#x2F;h3&gt;
+&lt;p&gt;GPG 不依赖 PKI，而是通过&quot;信任网&quot;（Web of Trust）建立信任：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --sign-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;   # 用自己的密钥签名对方的公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --check-sigs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;          # 检查签名&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;zi-mi-yao-guan-li&quot;&gt;子密钥管理&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --expert --edit-key&lt;&#x2F;span&gt;&lt;span&gt; peterxiao&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  gpg&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt; addkey&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;             # 添加子密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  gpg&lt;&#x2F;span&gt;&lt;span&gt;&amp;gt; key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;              # 选择子密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;最佳实践&lt;&#x2F;strong&gt;：生成主密钥后，导出备份到物理存储设备，然后从日常设备中删除主密钥仅保留子密钥：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a --export-secret-keys&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; master-secret-key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -a --export-secret-subkeys&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; sub-secret-keys.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --delete-secret-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --import&lt;&#x2F;span&gt;&lt;span&gt; sub-secret-keys.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;此时 &lt;code&gt;gpg --list-secret-keys&lt;&#x2F;code&gt; 会显示 &lt;code&gt;sec#&lt;&#x2F;code&gt;（主密钥已删除）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gnome-keyring-ji-cheng&quot;&gt;Gnome Keyring 集成&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ssh-key-guan-li&quot;&gt;SSH key 管理&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install seahorse&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 首次 SSH 连接时提示输入 passphrase，可勾选&amp;quot;自动解锁&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;git-ping-ju&quot;&gt;Git 凭据&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install libsecret&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --global&lt;&#x2F;span&gt;&lt;span&gt; credential.helper &#x2F;usr&#x2F;lib&#x2F;git-core&#x2F;git-credential-libsecret&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;gnupg-ji-cheng&quot;&gt;GnuPG 集成&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;#39;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-gnome3&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;gpg-agent.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;shi-yong-gpg-mi-yao-jin-xing-ssh-ren-zheng&quot;&gt;使用 GPG 密钥进行 SSH 认证&lt;&#x2F;h2&gt;
+&lt;p&gt;用 GPG 密钥替代 SSH 密钥，减少需要管理的密钥文件。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span&gt; enable-ssh-support&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;gpg-agent.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 在 .bashrc 中设置&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; SSH_AUTH_SOCK&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpgconf&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-dirs&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; agent-ssh-socket)&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg-connect-agent&lt;&#x2F;span&gt;&lt;span&gt; updatestartuptty &#x2F;bye&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 获取子密钥 keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --list-keys --with-keygrip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 将 keygrip 添加到批准列表&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt;echo&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;keygrip&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; &amp;gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; ~&#x2F;.gnupg&#x2F;sshcontrol&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 查看已加载的 SSH 密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-add&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 导出 SSH 公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --export-ssh-key&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;git-tag-qian-ming&quot;&gt;Git Tag 签名&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; config&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --global&lt;&#x2F;span&gt;&lt;span&gt; user.signingkey&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;git&lt;&#x2F;span&gt;&lt;span&gt; tag&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; v1.0.0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;git-ping-ju-guan-li&quot;&gt;Git 凭据管理&lt;&#x2F;h2&gt;
+&lt;p&gt;安装 Git Credential Manager 后配置：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 使用 GPG 存储凭据&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; GCM_CREDENTIAL_STORE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 或使用内存缓存&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; GCM_CREDENTIAL_STORE&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;cache&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 初始化密码存储&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pass&lt;&#x2F;span&gt;&lt;span&gt; init&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;gpg-key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在 Emacs 中需设置环境变量：&lt;code&gt;(setenv &quot;GCM_CREDENTIAL_STORE&quot; &quot;cache&quot;)&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ti-dai-apt-key&quot;&gt;替代 apt-key&lt;&#x2F;h2&gt;
+&lt;p&gt;从 Ubuntu 22.04 起 apt-key 被弃用，改用 GPG：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 旧方式（弃用）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -nc&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;example.com&#x2F;key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key add key.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 新方式&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;wget&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -O-&lt;&#x2F;span&gt;&lt;span&gt; https:&#x2F;&#x2F;example.com&#x2F;key.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dearmor&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #36F9F6;&quot;&gt; \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;  sudo&lt;&#x2F;span&gt;&lt;span&gt; tee &#x2F;etc&#x2F;apt&#x2F;trusted.gpg.d&#x2F;example.gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;dev&#x2F;null&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 更新 sources.list 添加 signed-by&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;deb&lt;&#x2F;span&gt;&lt;span&gt; [arch=amd64 signed-by=&#x2F;etc&#x2F;apt&#x2F;trusted.gpg.d&#x2F;example.gpg] https:&#x2F;&#x2F;example.com&#x2F;debian stable main&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;迁移旧 apt-key 条目：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key list&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;             # 查看所有旧 key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span&gt; gpg&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dearmor -o&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;usr&#x2F;share&#x2F;keyrings&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;name&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt;.gpg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; apt-key del&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;key-id&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;     # 删除旧条目&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;chang-jian-wen-ti&quot;&gt;常见问题&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;GPG 生成密钥时提示熵不够&lt;&#x2F;strong&gt;：SSH 远程服务器缺乏随机源，安装 &lt;code&gt;rng-tools&lt;&#x2F;code&gt; 或在 GUI 环境下操作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Emacs Magit 与 git credential 冲突&lt;&#x2F;strong&gt;：设置 &lt;code&gt;magit-process-connection-type&lt;&#x2F;code&gt; 为 t，配置 &lt;code&gt;GCM_CREDENTIAL_STORE=cache&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>SSH 安全加固</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/ssh-security/"/>
+        <id>https://moxuetianya.github.io/2025/07/ssh-security/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/ssh-security/">&lt;h1 id=&quot;ssh-an-quan-jia-gu&quot;&gt;SSH 安全加固&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fu-wu-duan-pei-zhi&quot;&gt;服务端配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;etc-ssh-sshd-config&quot;&gt;&#x2F;etc&#x2F;ssh&#x2F;sshd_config&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Port 12345                                     # 修改默认端口&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Protocol 2                                     # 仅使用新协议&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PasswordAuthentication no                      # 禁用密码登录&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PermitEmptyPasswords no                        # 禁止空密码&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PermitRootLogin no                             # 禁止 root 登录&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PubkeyAuthentication yes                       # 启用密钥认证&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;UseDNS no                                      # 禁用 DNS 解析（加速登录）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MaxAuthTries 3                                 # 限制认证尝试次数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;X11Forwarding no                               # 禁用 X11 转发&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowTcpForwarding no                          # 禁用端口转发（按需）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowAgentForwarding no                        # 禁用 agent 转发&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ClientAliveInterval 120                        # 心跳间隔&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ClientAliveCountMax 3                          # 心跳超时次数&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HostBasedAuthentication no                     # 禁用基于主机的认证&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;IgnoreRhosts yes                               # 忽略 .rhosts&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PermitUserEnvironment no                       # 禁止用户环境变量&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;LoginGraceTime 60                              # 登录超时&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;jia-mi-suan-fa-jia-gu&quot;&gt;加密算法加固&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Ciphers aes256-ctr,aes128-ctr,aes192-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MACs umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HostKey &#x2F;etc&#x2F;ssh&#x2F;ssh_host_ed25519_key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;HostKey &#x2F;etc&#x2F;ssh&#x2F;ssh_host_rsa_key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;mi-yao-wen-jian-quan-xian&quot;&gt;密钥文件权限&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0644&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;ssh&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;font-weight: bold;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chmod&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 0600&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;ssh&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;font-weight: bold;&quot;&gt;*&lt;&#x2F;span&gt;&lt;span&gt;key&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chown&lt;&#x2F;span&gt;&lt;span&gt; root:root &#x2F;etc&#x2F;ssh&#x2F;sshd_config&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;chmod&lt;&#x2F;span&gt;&lt;span&gt; og-rwx &#x2F;etc&#x2F;ssh&#x2F;sshd_config&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;zhong-jian-moduli&quot;&gt;重建 Moduli&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-keygen&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -G&lt;&#x2F;span&gt;&lt;span&gt; moduli-2048.candidates&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -b 2048&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-keygen&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -T&lt;&#x2F;span&gt;&lt;span&gt; moduli-2048&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -f&lt;&#x2F;span&gt;&lt;span&gt; moduli-2048.candidates&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cp&lt;&#x2F;span&gt;&lt;span&gt; moduli-2048 &#x2F;etc&#x2F;ssh&#x2F;moduli&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;rm&lt;&#x2F;span&gt;&lt;span&gt; moduli-2048&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ke-hu-duan-pei-zhi&quot;&gt;客户端配置&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 生成 ed25519 密钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-keygen&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -t&lt;&#x2F;span&gt;&lt;span&gt; ed25519&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 上传公钥&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-copy-id&lt;&#x2F;span&gt;&lt;span&gt; user@host&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host short&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  HostName 192.168.1.x&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  Port 12345&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  User peter&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  IdentityFile ~&#x2F;.ssh&#x2F;id_ed25519&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fail2ban-fang-bao-li-po-jie&quot;&gt;Fail2Ban 防暴力破解&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;apt&lt;&#x2F;span&gt;&lt;span&gt; install fail2ban&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;cp&lt;&#x2F;span&gt;&lt;span&gt; &#x2F;etc&#x2F;fail2ban&#x2F;jail.conf &#x2F;etc&#x2F;fail2ban&#x2F;jail.local&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# 编辑 [sshd]: enabled = true&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;systemctl&lt;&#x2F;span&gt;&lt;span&gt; restart fail2ban&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fang-huo-qiang&quot;&gt;防火墙&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# ufw&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; ufw allow from&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span&gt; to any port&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# iptables&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;iptables&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -I&lt;&#x2F;span&gt;&lt;span&gt; INPUT&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -p&lt;&#x2F;span&gt;&lt;span&gt; tcp&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;IP&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --dport 22 -j&lt;&#x2F;span&gt;&lt;span&gt; ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;# firewalld&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;firewall-cmd&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; --permanent --add-rich-rule=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;#39;rule family=&amp;quot;ipv4&amp;quot; source address=&amp;quot;&amp;lt;IP&amp;gt;&amp;quot; port protocol=&amp;quot;tcp&amp;quot; port=&amp;quot;22&amp;quot; accept&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ssh-audit-an-quan-shen-ji&quot;&gt;ssh-audit 安全审计&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;pip3&lt;&#x2F;span&gt;&lt;span&gt; install ssh-audit&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh-audit&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; &amp;lt;&lt;&#x2F;span&gt;&lt;span&gt;remote.server&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;duan-kou-zhuan-fa&quot;&gt;端口转发&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ben-di-zhuan-fa&quot;&gt;本地转发&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -L&lt;&#x2F;span&gt;&lt;span&gt; 本地IP:本地端口:目标IP:目标端口 user@ssh-server&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;DNS 解析发生在 SSH 服务器端（&lt;code&gt;internal_db.local&lt;&#x2F;code&gt; 由 &lt;code&gt;ssh.sshgateway.com&lt;&#x2F;code&gt; 解析）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;dong-tai-zhuan-fa-socks&quot;&gt;动态转发（SOCKS）&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -D 8800&lt;&#x2F;span&gt;&lt;span&gt; user@host&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;export&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt; https_proxy&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;socks5&lt;&#x2F;span&gt;&lt;span&gt;:&#x2F;&#x2F;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;127&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;0&lt;&#x2F;span&gt;&lt;span&gt;.&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;1&lt;&#x2F;span&gt;&lt;span&gt;:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;8800&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：本地有 IPv6 但代理服务器只有 IPv4 时，对 IPv6 站点的访问会失败。临时解决：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sysctl&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -w&lt;&#x2F;span&gt;&lt;span&gt; net.ipv6.conf.eth0.disable_ipv6=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt;1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;tiao-ban-ji-jump-host&quot;&gt;跳板机（Jump Host）&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -J&lt;&#x2F;span&gt;&lt;span&gt; user@jump-host:port target@internal&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host internal&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  HostName 192.168.2.x&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  User peter&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ProxyJump user@jump-host&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;跳板机用户可使用 &lt;code&gt;&#x2F;usr&#x2F;sbin&#x2F;nologin&lt;&#x2F;code&gt; 作为 shell，仅允许端口转发而不允许交互登录。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>Tmux 实践</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/tmux-practice/"/>
+        <id>https://moxuetianya.github.io/2025/07/tmux-practice/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/tmux-practice/">&lt;h1 id=&quot;tmux-shi-jian&quot;&gt;Tmux 实践&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;jian-tie-ban-ji-cheng&quot;&gt;剪贴板集成&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-an-yi-osc-52-zhuan-yi-xu-lie&quot;&gt;方案一：OSC 52 转义序列&lt;&#x2F;h3&gt;
+&lt;p&gt;OSC 52 让 tmux 通过终端转义序列直接设置系统剪贴板。优点：SSH 远程会话也能用，无需 X11 转发。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;三步配置&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;1. 确认 &lt;code&gt;set-clipboard&lt;&#x2F;code&gt; 已启用&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tmux&lt;&#x2F;span&gt;&lt;span&gt; show&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -s&lt;&#x2F;span&gt;&lt;span&gt; set-clipboard&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 应为 on 或 external&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在 &lt;code&gt;.tmux.conf&lt;&#x2F;code&gt; 中：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;set -s set-clipboard external  # tmux &amp;gt;= 2.6&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;external&lt;&#x2F;code&gt; 只允许 tmux 自身设置剪贴板，内部应用不能。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;2. 确认 &lt;code&gt;Ms&lt;&#x2F;code&gt; capability 存在&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;tmux&lt;&#x2F;span&gt;&lt;span&gt; info&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; grep&lt;&#x2F;span&gt;&lt;span&gt; Ms:&lt;&#x2F;span&gt;&lt;span style=&quot;color: #848BBD;font-style: italic;&quot;&gt;  # 应有 (string) \033]52;...&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果是 &lt;code&gt;[missing]&lt;&#x2F;code&gt;，在 &lt;code&gt;.tmux.conf&lt;&#x2F;code&gt; 中添加（tmux &amp;gt;= 3.2）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;set -as terminal-features &amp;#39;,rxvt-unicode-256color:clipboard&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;旧版 tmux：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;set -as terminal-overrides &amp;#39;,rxvt-unicode-256color:Ms=\E]52;%p1%s;%p2%s\007&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;3. 终端侧启用 OSC 52&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;xterm：&lt;code&gt;.Xresources&lt;&#x2F;code&gt; 添加 &lt;code&gt;XTerm*disallowedWindowOps: 20,21,SetXprop&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;VTE 终端（GNOME&#x2F;XFCE&#x2F;terminator）：不支持，需关闭 &lt;code&gt;set-clipboard&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;Kitty：&lt;code&gt;clipboard_control write-primary write-clipboard no-append&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;iTerm2：Preferences → General → &quot;Applications in terminal may access clipboard&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;st：0.8.3 之前有文本长度限制&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;tmux 嵌套&lt;&#x2F;strong&gt;：外层 tmux 需 &lt;code&gt;set-clipboard on&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-an-er-wai-bu-gong-ju-xclip-xsel&quot;&gt;方案二：外部工具（xclip&#x2F;xsel）&lt;&#x2F;h3&gt;
+&lt;p&gt;配置 &lt;code&gt;copy-command&lt;&#x2F;code&gt;（tmux &amp;gt;= 3.2）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;set -s copy-command &amp;#39;xsel -i&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;或修改复制键绑定（旧版）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi Enter send-keys -X copy-pipe-and-cancel &amp;quot;xsel -i --clipboard&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;xclip&lt;&#x2F;code&gt; 有 stdout 不关闭的 bug，需 &lt;code&gt;xclip &amp;gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;X 有多个剪贴板：&lt;code&gt;primary&lt;&#x2F;code&gt;（中键粘贴）、&lt;code&gt;clipboard&lt;&#x2F;code&gt;（Ctrl+V）。用 &lt;code&gt;xclip -selection&lt;&#x2F;code&gt; 或 &lt;code&gt;xsel --clipboard&lt;&#x2F;code&gt; 选择。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gun-dong-huan-chong-qu&quot;&gt;滚动缓冲区&lt;&#x2F;h2&gt;
+&lt;p&gt;tmux 运行在终端的 alternate screen buffer，自身维护 scrollback buffer。进入 copy mode 才能浏览历史。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;推荐配置&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# Alt+Up 进入 copy mode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -n M-Up copy-mode&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 在 copy mode 中滚动&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi M-Up              send-keys -X scroll-up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi M-Down            send-keys -X scroll-down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi M-PageUp          send-keys -X halfpage-up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi M-PageDown        send-keys -X halfpage-down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi PageDown          send-keys -X page-down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi PageUp            send-keys -X page-up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 鼠标滚轮调整为每次滚 2 行（默认 5）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi WheelUpPane select-pane \; send-keys -X -N 2 scroll-up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T copy-mode-vi WheelDownPane select-pane \; send-keys -X -N 2 scroll-down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;set -g mouse on&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;粘贴&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind p paste-buffer&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind C-p choose-buffer&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;qian-tao-tmux-hui-hua&quot;&gt;嵌套 tmux 会话&lt;&#x2F;h2&gt;
+&lt;p&gt;通过 &lt;code&gt;F12&lt;&#x2F;code&gt; 切换 key table，让内层 tmux 不受外层干扰：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T root F12 \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  set prefix None \;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  set key-table off \;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  refresh-client -S \;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;bind -T off F12 \&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  set -u prefix \;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  set -u key-table \;\&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  refresh-client -S&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;自动检测远程会话：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;if-shell &amp;#39;test -n &amp;quot;$SSH_CLIENT&amp;quot;&amp;#39; &amp;#39;source-file ~&#x2F;.tmux&#x2F;tmux.remote.conf&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;yuan-cheng-ssh-hui-hua-fu-zhi-wen-ben&quot;&gt;远程 SSH 会话复制文本&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-fa-ssh-yuan-cheng-sui-dao-systemd-socket-fu-wu&quot;&gt;方法：SSH 远程隧道 + systemd socket 服务&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;1. 创建 xclip socket 服务&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;etc&#x2F;systemd&#x2F;system&#x2F;xclip.socket&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Unit]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Description&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;Network copy backend for tmux based on xclip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Socket]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;ListenStream&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;19988&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Accept&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;yes&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Install]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;WantedBy&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;sockets.target&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;2. 创建对应服务&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;etc&#x2F;systemd&#x2F;system&#x2F;xclip@.service&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;ini&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Unit]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Description&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;Copy backend service piping input to xclip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;[Service]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;Type&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;simple&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;ExecStart&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;&#x2F;usr&#x2F;bin&#x2F;xclip -i -f -selection primary | &#x2F;usr&#x2F;bin&#x2F;xclip -i -selection clipboard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;StandardInput&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;StandardOutput&lt;&#x2F;span&gt;&lt;span style=&quot;color: #B6B1B1;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span&gt;socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl enable xclip.socket &amp;amp;&amp;amp;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; sudo&lt;&#x2F;span&gt;&lt;span&gt; systemctl start xclip.socket&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;3. SSH 远程端口转发&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ssh&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -R&lt;&#x2F;span&gt;&lt;span&gt; 19988:localhost:19988 user@remote&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;或写入 &lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Host remote&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  RemoteForward 19988 localhost:19988&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;4. tmux 中自动选择后端&lt;&#x2F;strong&gt;（&lt;code&gt;yank.sh&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;p&gt;优先 &lt;code&gt;xsel&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;xclip&lt;&#x2F;code&gt;，失败则检测 19988 端口是否有监听：&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;shellscript&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;elif&lt;&#x2F;span&gt;&lt;span&gt; [&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; &amp;quot;$(&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt;ss&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n -4&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; state listening &amp;#39;( sport = 19988 )&amp;#39;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; tail&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -n&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt; +2&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; |&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FE4450;&quot;&gt; wc&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; -l&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;)&amp;quot;&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; -eq&lt;&#x2F;span&gt;&lt;span style=&quot;color: #F97E72;&quot;&gt; 1&lt;&#x2F;span&gt;&lt;span&gt; ];&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt; then&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FF7EDB;&quot;&gt;  copy_backend&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FFFFFFEE;&quot;&gt;=&lt;&#x2F;span&gt;&lt;span style=&quot;color: #FF8B39;&quot;&gt;&amp;quot;nc localhost 19988&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span style=&quot;color: #FEDE5D;&quot;&gt;fi&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;限制&lt;&#x2F;strong&gt;：同一远程机器上多个 SSH 会话共用同一端口只有第一个能正常复制，需分配不同端口。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>Vim、Tmux、系统共用剪切板</title>
+        <published>2017-06-23T00:00:00+08:00</published>
+        <updated>2017-06-23T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2017/06/vim-tmux-clipboard/"/>
+        <id>https://moxuetianya.github.io/2017/06/vim-tmux-clipboard/</id>
+        
+        <summary type="html">&lt;h1 id=&quot;vim-tmux-xi-tong-gong-yong-jian-qie-ban&quot;&gt;Vim、Tmux、系统共用剪切板&lt;&#x2F;h1&gt;
+&lt;p&gt;在 &lt;a href=&quot;&#x2F;2015&#x2F;11&#x2F;06&#x2F;tmux-startup.html&quot;&gt;Tmux 终端复用&lt;&#x2F;a&gt; 中介绍过 Tmux 的使用，
+当你同时有系统剪切板、Tmux Clipboard、Vim Yank Buffer 时互相拷贝是不是很困难？
+本文介绍如何让它们共用一个剪切板。&lt;&#x2F;p&gt;
+&lt;div&gt;</summary>
+        
+    </entry>
+</feed>

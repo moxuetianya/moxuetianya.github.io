@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - wireguard</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/wireguard/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2022-11-19T23:26:26+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/wireguard/atom.xml</id>
+    <entry xml:lang="en">
+        <title>wireguard_netmaker</title>
+        <published>2022-11-19T23:26:26+08:00</published>
+        <updated>2022-11-19T23:26:26+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/11/wireguard-netmaker/"/>
+        <id>https://moxuetianya.github.io/2022/11/wireguard-netmaker/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/11/wireguard-netmaker/">&lt;h1 id=&quot;wireguard-netmaker&quot;&gt;wireguard_netmaker&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;wireguard&quot;&gt;Wireguard&lt;&#x2F;h1&gt;
+&lt;p&gt;新内核一般都已经支持了wireguard，使用如下命令验证&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;modprobe wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;dkms status&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;lsmod | grep wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;modinfo wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果kernel低于5.6需要自己安装wireguar的支持&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;apt-get update&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo apt install resolvconf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo apt-get install -y wireguard-dkms wireguard-tools linux-headers-$(uname -r) &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;dpkg -l | grep wire&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;wireguardxiang-xi-pei-zhi&quot;&gt;wireguard详细配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;vpsfu-wu-qi-ke-yi-zuo-zhong-ji-kai-qi-forwardzhuan-fa&quot;&gt;vps服务器（可以做中继）开启forward转发&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;net.ipv4.ip_forward = 1&amp;quot; &amp;gt;&amp;gt; &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;net.ipv4.conf.all.proxy_arp = 1&amp;quot; &amp;gt;&amp;gt; &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sysctl -p &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 插入转发规则(否则有可能会被其他规则丢掉)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo iptables -I FORWARD -i wg00 -j ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;pei-zhi-mi-yao-gong-yao&quot;&gt;配置密钥公钥&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;cd &#x2F;etc&#x2F;wireguard&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;chmod 0777 &#x2F;etc&#x2F;wireguard#调整目录默认权限&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;umask 077&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;server00.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;server00.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client01.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client01.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client02.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client02.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client03.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client03.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client04.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client04.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client05.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client05.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client06.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client06.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg genkey | tee &#x2F;etc&#x2F;wireguard&#x2F;client07.key| wg pubkey &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;client07.key.pub&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;pei-zhi-zhong-ji-fu-wu&quot;&gt;配置中继服务&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Interface]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PrivateKey = $(cat server00.key)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Address = 10.2.1.254&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -I FORWARD -i %i -j ACCEPT  # 使用-I插入到最前面不然还是会被reject&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -I FORWARD -o %i -j ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# PostUp = iptables -t nat -A POSTROUTING -o ens192 -j MASQUERADE&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -D FORWARD -i %i -j ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -D FORWARD -o %i -j ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# PostDown = iptables -t nat -D POSTROUTING -o ens192 -j MASQUERADE&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ListenPort = 50815&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;DNS = 8.8.8.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MTU = 1420&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat server00.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.254&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PersistentKeepalive = 15&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Endpoint = domain.com:50815&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat client01.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 局域网ip配置的位置：中继配置在对应的peer节中，客户端配置在想访问对方局域网的client中&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 192.168.1.58&#x2F;32,192.168.1.23&#x2F;32,192.168.1.62&#x2F;32,192.168.1.154&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.1&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat client02.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.2&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat client03.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.3&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat client04.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.4&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&amp;quot; &amp;gt; wg00.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;pei-zhi-ke-hu-duan&quot;&gt;配置客户端&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Interface]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PrivateKey = $(cat client01.key)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Address = 10.2.1.1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;DNS = 8.8.8.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MTU = 1420&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 内网的wireguard节点需要开启snat 或者masquerade(访问内网修改源地址(*￣▽￣*)ブ)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 从而实现wg01进来的流量经过enp0s3物理网卡进入nat内网环境时会修改源地址，保证回报正确&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 另外配置snat 不需要配置对应的dnat，dnat也不需要配置对应的snat；&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 这两个是独立的功能， 在配置snat的时， 也会设置上对应的网络的回程包路由&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -I FORWARD -i %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -I FORWARD -o %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -I INPUT -i %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostUp = iptables -t nat -A POSTROUTING -o enp0s3 -j MASQUERADE&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -D FORWARD -i %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -D FORWARD -o %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -D INPUT -i %i -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PostDown = iptables -t nat -D POSTROUTING -o enp0s3 -j MASQUERADE&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat server00.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.0&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PersistentKeepalive = 15&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Endpoint = domain.com:50815&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&amp;quot; &amp;gt; wg01.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Interface]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PrivateKey = $(cat client02.key)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Address = 10.2.1.2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;DNS = 8.8.8.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MTU = 1420&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat server00.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 192.168.1.58&#x2F;32,192.168.1.23&#x2F;32,192.168.1.62&#x2F;32,192.168.1.154&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.0&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PersistentKeepalive = 15&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Endpoint = domain.com:50815&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&amp;quot; &amp;gt; wg02.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Interface]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PrivateKey = $(cat client03.key)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Address = 10.2.1.3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;DNS = 8.8.8.8&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;MTU = 1420&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;[Peer]&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PublicKey =  $(cat server00.key.pub)  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 192.168.1.58&#x2F;32,192.168.1.23&#x2F;32,192.168.1.62&#x2F;32,192.168.1.154&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;AllowedIPs = 10.2.1.0&#x2F;24&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;PersistentKeepalive = 15&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;Endpoint = domain.com:50815&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&amp;quot; &amp;gt; wg03.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;kai-qi-wgfu-wu&quot;&gt;开启wg服务&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# vps上开启wg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl start wg-quick@wg00&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl enable wg-quick@wg00&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 配置客户端&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# copy wg01.conf to client01 &amp;amp;&amp;amp; at client01 run command&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl start  wg-quick@wg01&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl enable wg-quick@wg01&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# copy wg02.conf to client02 &amp;amp;&amp;amp; at client02 run command&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg-quick down wg02 ; wg-quick up wg02&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;tong-shi-xu-yao-zai-yun-fu-wu-ti-gong-shang-kai-fang-dui-ying-duan-kou-ru-xia-tu-suo-shi&quot;&gt;同时需要在云服务提供商开放对应端口,如下图所示&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --zone=public --add-port=50815&#x2F;udp --permanent&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --zone=public --remove-port=50815&#x2F;udp --permanent&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --reload&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --zone=public --list-ports&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo systemctl start wg-quick@wg00.service&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo wg-quick up wg00&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo wg show wg00&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl enable firewalld&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --zone=public --add-port=7000-7500&#x2F;tcp --permanent&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo firewall-cmd --zone=public --remove-port=7000-7500&#x2F;tcp --permanent&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;firewall-cmd --reload&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;firewall-cmd --permanent --add-rich-rule=&amp;quot;rule family=&amp;quot;ipv4&amp;quot; source address=&amp;quot;192.168.0.200&amp;quot; port protocol=&amp;quot;tcp&amp;quot; port=&amp;quot;80&amp;quot; reject&amp;quot;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;firewall-cmd --zone=public --list-rich-rules&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;firewall-cmd --query-service ssh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;firewall-cmd --list-services&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 或者ufw工具&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo ufw allow 50814&#x2F;udp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo ufw allow from 1.2.3.4 to any port 22&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo ufw status&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo ufw enable&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;dui-yu-dai-li-nei-wang-zheng-ge-wang-duan-ling-yi-chong-jie-jue-fang-an&quot;&gt;对于代理内网整个网段另一种解决方案&lt;&#x2F;h2&gt;
+&lt;p&gt;这个需要在需要代理的机器上LocalMachionC上配置网关
+这样就不要在wg client节点上进行nat masquerade了&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# on client1&amp;#39;s local vlan&amp;#39;s machions即需要被wg client代理的机器&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ip route add 10.2.2.0&#x2F;24 via 192.168.1.154  # this is client1 ip&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# on client1, so client1 can do the gate way role&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;net.ipv4.ip_forward = 1&amp;quot; &amp;gt;&amp;gt; &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sysctl -p&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;shou-dong-cao-zuo-wireguardshe-bei-yi-xie-ming-ling&quot;&gt;手动操作wireguard设备一些命令&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ip link add dev wg0 type wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ip address add dev wg0 192.168.1.1&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg set wg0 listen-port 6789 private-key &#x2F;etc&#x2F;wireguard&#x2F;privatekey&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;ip link set wg0 up&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg set wg0 peer $(cat publickey_cli) allowed-ips 192.168.1.2&#x2F;32&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg showconf wg0 &amp;gt; &#x2F;etc&#x2F;wireguard&#x2F;wg0.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;1a Address = 192.168.1.1&#x2F;32&amp;#39; &#x2F;etc&#x2F;wireguard&#x2F;wg0.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg-quick down &#x2F;etc&#x2F;wireguard&#x2F;wg0.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg-quick up &#x2F;etc&#x2F;wireguard&#x2F;wg0.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;## 输出 # 所以wg-quick是ip link的包装脚本&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#[#] ip link add wg0 type wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#[#] wg setconf wg0 &#x2F;dev&#x2F;fd&#x2F;63&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#[#] ip -4 address add 192.168.1.1&#x2F;32 dev wg0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#[#] ip link set mtu 1420 up dev wg0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#[#] ip -4 route add 192.168.1.2&#x2F;32 dev wg&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#上面添加了一条路由192.168.1.2&#x2F;32 dev wg0，这样所有目的地址是192.168.1.2的包都会被丢到wg0网卡中，以便wireguard处理。&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wg show wg0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;可以看到，这个peer没有endpoint，也没有握手信息。接下来我们开始设置客户端&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl enable wg-quick@wg0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl start wg-quick@wg0&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;wen-ti-pai-cha&quot;&gt;问题排查&lt;&#x2F;h2&gt;
+&lt;p&gt;可能原因：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;MTU过大调小？1280？&lt;&#x2F;li&gt;
+&lt;li&gt;检查防火墙！！firewall-cmd --zone=public --remove-port=50814&#x2F;udp --permanent&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;pai-cha-gong-ju&quot;&gt;排查工具&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 抓包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;tcpdump -i eth0  host domain.com and port 50814 -tnX&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 手动发udp包&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;nc -u domain.com  50814&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 检查心跳&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;grep CONFIG_DYNAMIC_DEBUG &#x2F;boot&#x2F;config-$(uname -r)  #  检查内核编译时是否支持&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo modprobe wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo module wireguard +p &amp;gt; &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;dynamic_debug&#x2F;control  # 开启调试&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo module wireguard -p &amp;gt; &#x2F;sys&#x2F;kernel&#x2F;debug&#x2F;dynamic_debug&#x2F;control  # 关闭调试&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;dmesg -wT &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;journalctl -kf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h3 id=&quot;kan-dao-de-yi-xie-shi-bai-xin-xi-han-yi&quot;&gt;看到的一些失败信息含义&lt;&#x2F;h3&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# The icmp-host-prohibited is just the reject message with whom the packet gets rejected. That means that your server will notify the sender that the packet was rejected with that message.&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 查看哪些规则会reject并返回icmp-host-prohibited信息&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables -L INPUT&#x2F;FORWARD | grep icmp  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2022&#x2F;11&#x2F;wireguard-netmaker&#x2F;image-20231225111656-bmweuos.png&quot; alt=&quot;image&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;qiang-diao-rong-yi-fan-cuo-de-wei-zhi&quot;&gt;强调容易犯错的位置&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#1. 内网和中继都需要开启转发功能&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;net.ipv4.ip_forward = 1&amp;quot; &amp;gt;&amp;gt; &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;echo &amp;quot;net.ipv4.conf.all.proxy_arp = 1&amp;quot; &amp;gt;&amp;gt; &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sysctl -p &#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#2. 转发的ip需要在中继和客户端上配置对应的路由(peer中的AllowIps配置)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#3. 内网的wireguard节点需要开启snat 或者masquerade(访问内网修改源地址(*￣▽￣*)ブ)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# 从而实现wg3进来的流量经过enp0s3物理网卡进入nat内网环境时会修改源地址，保证回报可以正确返回（不然源地址是10.2.2.xx，目标机器找不到会走默认路由网关，而我们的内网节点不是网关就会出问题）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables -I FORWARD -i wg3 -j ACCEPT; iptables -I FORWARD -o wg3 -j ACCEPT; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables -I INPUT -i wg3 -j ACCEPT; iptables -t nat -A POSTROUTING -o enp0s3 -j MASQUERADE&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#4 中继上的防火墙关闭后可以正常访问， 开启后需要配置&#x2F;(ㄒoㄒ)&#x2F;~~&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# iptables -L -t filter&#x2F;nat&#x2F;mangle&#x2F;raw&#x2F;security  INPUT&#x2F;PREROUTING&#x2F;OUTPUT&#x2F;POSTROUTING&#x2F;FORWARD&#x2F;SECMARK&#x2F;CONNSECMARK&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables -I FORWARD -j ACCEPT # 开启；-I 插入到最前面不然还是会被reject，报错如下图&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;systemctl restart firewalld   # firewalld 应该需要重启生效？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables-save &amp;gt; &#x2F;root&#x2F;dsl.fw&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables-restore &amp;lt; &#x2F;root&#x2F;dsl.fw&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;full-mesh-netmaker&quot;&gt;full mesh netmaker&lt;&#x2F;h1&gt;
+&lt;p&gt;快速安装netmaker 和netclient客户端&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo apt-get install -y docker.io docker-compose wireguard&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wget -qO - https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;gravitl&#x2F;netmaker&#x2F;master&#x2F;scripts&#x2F;nm-quick.sh | sudo bash -s -- -d mynetmaker.domain.com -e peter@163.com&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;curl -sfL https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;gravitl&#x2F;netmaker&#x2F;master&#x2F;scripts&#x2F;netclient-install.sh | VERSION=v0.9.1 KEY=$NETMAKER_TOKEN bash -&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;centosbu-neng-yong-shi-yong-dockerqi-dong&quot;&gt;centos不能用-使用docker启动&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo yum install -y yum-utils   device-mapper-persistent-data   lvm2&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo yum-config-manager     --add-repo     https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;centos&#x2F;docker-ce.repo&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo yum install docker-ce&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo docker -v&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo curl -L https:&#x2F;&#x2F;github.com&#x2F;docker&#x2F;compose&#x2F;releases&#x2F;download&#x2F;1.22.0&#x2F;docker-compose-$(uname -s)-$(uname -m) -o &#x2F;usr&#x2F;local&#x2F;bin&#x2F;docker-compose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo chmod +x &#x2F;usr&#x2F;local&#x2F;bin&#x2F;docker-compose&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wget https:&#x2F;&#x2F;cdn.jsdelivr.net&#x2F;gh&#x2F;gravitl&#x2F;netmaker@master&#x2F;compose&#x2F;docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&#x2F;usr&#x2F;local&#x2F;bin&#x2F;docker-compose up --help&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&#x2F;usr&#x2F;local&#x2F;bin&#x2F;docker-compose up # docker-compose.yml  &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&#x2F;usr&#x2F;local&#x2F;bin&#x2F;docker-compose down&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;wan-zheng-an-zhuang-bu-zou&quot;&gt;完整安装步骤&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;prepare-dns&quot;&gt;Prepare DNS&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# Create a wildcard A record pointing to the public IP of your VM. As an example, *.netmaker.example.com. Alternatively, create records for these specific subdomains:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;dashboard.domain&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;api.domain&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;broker.domain&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;fang-huo-qiang&quot;&gt;防火墙&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo ufw allow proto tcp from any to any port 443 &amp;amp;&amp;amp; sudo ufw allow 51821:51830&#x2F;udp&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;iptables --policy FORWARD ACCEPT&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;pei-zhi-docker-compose&quot;&gt;配置docker-compose&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;SERVER_IP=$(ip route get 1 | sed -n &amp;#39;s&#x2F;^.*src \([0-9.]*\) .*$&#x2F;\1&#x2F;p&amp;#39;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# SERVER_IP 可能不是公网IP，docker-compose.yml中直接替换为公网IP好像有问题，这里用服务器IP替换&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;*COREDNS_ADDR: &amp;quot;SERVER_PUBLIC_IP&amp;quot;*&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wget -O docker-compose.yml https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;gravitl&#x2F;netmaker&#x2F;master&#x2F;compose&#x2F;docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;s&#x2F;NETMAKER_BASE_DOMAIN&#x2F;&amp;lt;your base domain&amp;gt;&#x2F;g&amp;#39; docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;s&#x2F;SERVER_PUBLIC_IP&#x2F;&amp;lt;your server ip&amp;gt;&#x2F;g&amp;#39; docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;s&#x2F;YOUR_EMAIL&#x2F;&amp;lt;your email&amp;gt;&#x2F;g&amp;#39; docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# Generate a unique master key and insert it:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;tr -dc A-Za-z0-9 &amp;lt;&#x2F;dev&#x2F;urandom | head -c 30 ; echo &amp;#39;&amp;#39;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;s&#x2F;REPLACE_MASTER_KEY&#x2F;&amp;lt;your generated key&amp;gt;&#x2F;g&amp;#39; docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;export MQ_ADMIN_PASSWORD=my_password&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;quot;s&#x2F;REPLACE_MQ_ADMIN_PASSWORD&#x2F;$MQ_ADMIN_PASSWORD&#x2F;g&amp;quot; &#x2F;root&#x2F;docker-compose.yml&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wget -O *&#x2F;root&#x2F;mosquitto.conf* https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;gravitl&#x2F;netmaker&#x2F;master&#x2F;docker&#x2F;mosquitto.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;wget -q -O *&#x2F;root&#x2F;wait.sh* https:&#x2F;&#x2F;raw.githubusercontent.com&#x2F;gravitl&#x2F;netmaker&#x2F;develop&#x2F;docker&#x2F;wait.sh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;chmod +x &#x2F;root&#x2F;wait.sh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# mq报错处理， 不知道会不会引入安全问题？需要把几个docker镜像详细看一下&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;s&#x2F;allow_anonymous true&#x2F;# allow_anonymous true&#x2F;g&amp;#39; mosquitto.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sed -i &amp;#39;&#x2F;allow_anonymous true&#x2F;a allow_anonymous false&amp;#39; mosquitto.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;sudo docker-compose up -d&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker logs netmaker&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker-compose logs --tail 20 --follow&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker exec -it netmaker bash&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker exec -it mq bash&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;ke-hu-duan-shi-yong-dockerqi-dong&quot;&gt;客户端使用docker启动&lt;&#x2F;h2&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;docker run -d --network host  --privileged -e TOKEN=$toker -v &#x2F;etc&#x2F;netclient:&#x2F;etc&#x2F;netclient --name netclient gravitl&#x2F;netclient:v0.16.3&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;但是在win11上--network host并没有生效？！新生成的nm-netmaker虚拟网卡只能在docker-desk中看到，在host主机上看不到？？&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h2 id=&quot;udp-hole-punching&quot;&gt;UDP hole punching&lt;&#x2F;h2&gt;
+&lt;p&gt;简单介绍影响p2p打洞的因素&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;natlei-xing-jie-shao&quot;&gt;NAT类型介绍&lt;&#x2F;h3&gt;
+&lt;p&gt;内部Tuple：（源）内网IP+PORT（例如：192.168.1.5:50007）
+外部Tuple：（源）公网IP+PORT
+目标Tuple：（目标）公网IP+PORT&lt;&#x2F;p&gt;
+&lt;p&gt;NAT分为Symmetric和Cone两种，其中Cone又分为Full Cone、Restricted Cone、Port Restricted Cone三种类型。基本不同是NAT将内部Tuple与外部Tuple的转换和映射关系的不同。Cone NAT与目标Tuple无关，Symmetric NAT将目标Tuple作为建立转换关系之前的重要参考项，与目标Tuple严格一一映射。&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;Full Cone：
+内部Tuple X经过NAT转换至外部Tuple Y，X-Y的建立转换关系，任意外部节点且无限制Tuple Z都可以将Tuple Y作为目标Tuple，向我们的内部Tuple X发送UDP报文。&lt;&#x2F;li&gt;
+&lt;li&gt;Restricted Cone：
+与Full Cone不同的是：多了一个限制，限制是什么，出于安全考虑，NAT设备只转发已知的外部Tuple的IP报文，只有当内部Tuple X曾经发送过UDP报文给目标Tuple Z，才可以与Tuple X发送报文。&lt;&#x2F;li&gt;
+&lt;li&gt;Port Restricted Cone NAT：
+在Restricted Cone上的基础上，出于更加安全的考虑，NAT设备只转发已知的外部Tuple的IP+PORT（过滤条件更为苛刻）报文。&lt;&#x2F;li&gt;
+&lt;li&gt;Symmetric
+通过严格的NAT方式，与目标Tuple建立严格的一一映射关系，确保安全性。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;所以，从安全角度考虑：Symmetric &amp;gt; Port Restricted Cone NAT &amp;gt; Restricted Cone &amp;gt; Full Cone。相反，如果我们做P2P，打通点对点的通信方式的简单程度，与上面排序就相反，最友好的NAT类型就是Full Cone，任意节点且无限制。&lt;&#x2F;p&gt;
+&lt;p&gt;验证NAT类型&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;git clone https:&#x2F;&#x2F;github.com&#x2F;laike9m&#x2F;PyPunchP2P&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;cd PyPunchP2P &amp;amp;&amp;amp; python2 client.py stun.voipbuster.com 3478 1&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.xten.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voipbuster.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voxgratia.org 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.sipgate.net 10000&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.ekiga.net 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.ideasip.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.schlund.de 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voiparound.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voipbuster.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voipstunt.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# numb.viagenie.ca 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.counterpath.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.1und1.de 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.gmx.net 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.callwithus.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.counterpath.net 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.internetcalls.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# stun.voip.aebc.com 3478&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;目标内网是对称NAT，白折腾了ORZ&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dui-yu-dui-cheng-nat-deng-geng-yan-ge-de-nat-shi-fou-huan-ke-yi-da-dong&quot;&gt;对于「对称 NAT」等更严格的 NAT，是否还可以打洞？&lt;&#x2F;h2&gt;
+&lt;p&gt;按照一般逻辑，「对称 NAT」是无法打洞成功的。但是，事实真的是这样吗？
+实际上，运用一点点概率知识，对称 NAT 也是可以打动成功的。让我们先来了解一下「生日问题」：&lt;&#x2F;p&gt;
+&lt;p&gt;生日问题是指，如果在一个房间要多少人，则两个人的生日相同的概率要大于50%? 答案是23人。 这就意味着在一个典型的标准小学班级（30人）中，存在两人生日相同的可能性更高。对于60或者更多的人，这种概率要大于99%。 — Wikipedia&lt;&#x2F;p&gt;
+&lt;p&gt;假设内网设备 A 位于「圆锥形 NAT」之后，内网设备 B 位于「对称 NAT」之后。这时候 A 向 B 发送报文，B 并不知道 A 的报文经过 NAT 之后，公网端口号会被转换为什么，所以无法向 A 发送数据。
+当然，在 B 不知道 A 的外部端口的情况下，也可以用不同的端口号，依次尝试向 A 发送报文，直到发送成功为止。但端口号一共有 65535 个，扫描所有端口并不现实…..
+那么，如果我们运用上「生日问题」，A 随机向 B 以不同的源端口号，发送 256 个报文，形成 256 个 NAT 表项；B 同时也随机以不同的目的端口号，向 A 发送 256 个报文进行探测，打洞成功率就能达到 64%。如果随机探测 1024 个端口，打洞成功率则能达到 98%。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xu-yao-zhu-yi-de-dian&quot;&gt;需要注意的点&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;em&gt;COREDNS_ADDR: &quot;SERVER_PUBLIC_IP&quot;&lt;&#x2F;em&gt;&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;SERVER_IP=$(ip route get 1 | sed -n &amp;#39;s&#x2F;^.*src \([0-9.]*\) .*$&#x2F;\1&#x2F;p&amp;#39;)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;# SERVER_IP 可能不是公网IP，docker-compose.yml中直接替换为公网IP好像有问题，这里用服务器IP替换&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;这些位置一定要和docker-compose.yml的目录信息一致&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;注意yml中的volumes（可以都创建在一个位置中，如：~&#x2F;project&#x2F;netmaker&#x2F;）&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&#x2F;root&#x2F;mosquitto.conf&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;&#x2F;root&#x2F;wait.sh   # 这个需要有执行权限&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;chmod a+x &#x2F;root&#x2F;wait.sh&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;&lt;h1 id=&quot;zhong-yao&quot;&gt;重要：&lt;&#x2F;h1&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;icloudnative.io&#x2F;posts&#x2F;wireguard-docs-practice&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;p&#x2F;447375895&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;p&#x2F;404402933&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;p&#x2F;157121608&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;www.zhihu.com&#x2F;column&#x2F;c_1498091755665240064&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;new.negoces.top&#x2F;posts&#x2F;2fcbf547&#x2F;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;juejin.cn&#x2F;post&#x2F;7080010903256563748&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;netmaker.readthedocs.io&#x2F;en&#x2F;master&#x2F;netclient.html&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;github.com&#x2F;gravitl&#x2F;netmaker&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;netmaker.readthedocs.io&#x2F;en&#x2F;v0.7.1&#x2F;quick-start.html&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;blanboom.org&#x2F;2021&#x2F;nat&#x2F;#-nat-nat-&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;https:&#x2F;&#x2F;blog.csdn.net&#x2F;dlphay&#x2F;article&#x2F;details&#x2F;106243041&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;</content>
+        
+    </entry>
+</feed>

@@ -1,0 +1,259 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>OpenSSL 与 Nginx SSL | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="OpenSSL 证书生成与调试、Nginx SSL 配置、Docker 中 Nginx + SSL 部署、htpasswd 访问认证" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/" />
+  <meta property="og:description" content="OpenSSL 证书生成与调试、Nginx SSL 配置、Docker 中 Nginx + SSL 部署、htpasswd 访问认证" />
+  <meta name="twitter:description" content="OpenSSL 证书生成与调试、Nginx SSL 配置、Docker 中 Nginx + SSL 部署、htpasswd 访问认证" />
+  <meta property="og:title" content="OpenSSL 与 Nginx SSL | 墨雪天琊" />
+  <meta name="twitter:title" content="OpenSSL 与 Nginx SSL | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/">OpenSSL 与 Nginx SSL</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2025 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/tools/">tools</a>] #<a href="https://moxuetianya.github.io/tags/openssl/">openssl</a>  #<a href="https://moxuetianya.github.io/tags/nginx/">nginx</a>  #<a href="https://moxuetianya.github.io/tags/ssl/">ssl</a>  #<a href="https://moxuetianya.github.io/tags/tls/">tls</a>  #<a href="https://moxuetianya.github.io/tags/docker/">docker</a>  #<a href="https://moxuetianya.github.io/tags/nginx/">nginx</a> </span>
+
+    
+
+
+<h1 id="openssl-yu-nginx-ssl">OpenSSL 与 Nginx SSL</h1>
+<h2 id="openssl-zheng-shu-cao-zuo">OpenSSL 证书操作</h2>
+<h3 id="kuai-su-sheng-cheng-zi-qian-ming-zheng-shu">快速生成自签名证书</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;"> -x509 -newkey</span><span> rsa:2048</span><span style="color: #F97E72;"> -nodes -keyout</span><span> my.key</span><span style="color: #F97E72;"> -out</span><span> my.crt</span><span style="color: #F97E72;"> -days 3650</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -subj</span><span style="color: #FF8B39;"> &quot;/C=CN/ST=shanghai/L=shanghai/O=example/OU=it/CN=domain1&quot;</span></span></code></pre>
+<p><code>-subj</code> 字段含义：</p>
+<table><thead><tr><th>字段</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>/C=</code></td><td>国家（Country）</td></tr>
+<tr><td><code>/ST=</code></td><td>省份（State）</td></tr>
+<tr><td><code>/L=</code></td><td>城市（Location）</td></tr>
+<tr><td><code>/O=</code></td><td>组织（Organization）</td></tr>
+<tr><td><code>/OU=</code></td><td>部门（Organization Unit）</td></tr>
+<tr><td><code>/CN=</code></td><td>域名或 IP（Common Name）</td></tr>
+</tbody></table>
+<h3 id="cha-kan-zheng-shu">查看证书</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -text -noout -in</span><span> domain.crt</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> verify</span><span style="color: #F97E72;"> -verbose -CAfile</span><span> ca.crt domain.crt</span></span></code></pre><h3 id="yan-zheng-zheng-shu-yu-si-yao-shi-fou-pi-pei">验证证书与私钥是否匹配</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> rsa</span><span style="color: #F97E72;">  -noout -modulus -in</span><span> domain.key</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> openssl</span><span> md5</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -noout -modulus -in</span><span> domain.crt</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> openssl</span><span> md5</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;">  -noout -modulus -in</span><span> domain.csr</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> openssl</span><span> md5</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 三个 MD5 值一致即匹配</span></span></code></pre><h3 id="si-yao-jia-jie-mi">私钥加/解密</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 加密（DES3 密码保护）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> rsa</span><span style="color: #F97E72;"> -des3 -in</span><span> unencrypted.key</span><span style="color: #F97E72;"> -out</span><span> encrypted.key</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 解密（取消密码保护）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> rsa</span><span style="color: #F97E72;"> -in</span><span> encrypted.key</span><span style="color: #F97E72;"> -out</span><span> decrypted.key</span></span></code></pre><h3 id="pem-der-ge-shi-hu-zhuan">PEM / DER 格式互转</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># PEM → DER（二进制）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> domain.crt</span><span style="color: #F97E72;"> -outform</span><span> der</span><span style="color: #F97E72;"> -out</span><span> domain.der</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># DER → PEM</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -inform</span><span> der</span><span style="color: #F97E72;"> -in</span><span> domain.der</span><span style="color: #F97E72;"> -out</span><span> domain.crt</span></span></code></pre><h3 id="ce-shi-ssl-fu-wu">测试 SSL 服务</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 启动测试 SSL 服务端</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> s_server</span><span style="color: #F97E72;"> --cert</span><span> my.crt</span><span style="color: #F97E72;"> --key</span><span> my.key</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 客户端连接测试</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> s_client localhost:4433</span><span style="color: #FEDE5D;"> &lt;</span><span> /dev/null</span></span></code></pre><h2 id="ca-zheng-shu-zhi-zuo-guo-cheng">CA 证书制作过程</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> demoCA &amp;&amp;</span><span style="color: #36F9F6;"> cd</span><span> demoCA</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 1. 生成 CA 自签名证书</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> genrsa</span><span style="color: #F97E72;"> -out</span><span> ./private/ca.key</span><span style="color: #F97E72;"> 2048</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;"> -new -x509 -days 3650 -key</span><span> ./private/ca.key</span><span style="color: #F97E72;"> -out</span><span> ./private/ca.crt</span><span style="color: #F97E72;"> -config</span><span> openssl.cnf</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 2. 生成服务端私钥和 CSR</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> genrsa</span><span style="color: #F97E72;"> -out</span><span> ./private/server.key</span><span style="color: #F97E72;"> 2048</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;"> -new -key</span><span> ./private/server.key</span><span style="color: #F97E72;"> -out</span><span> ./newcerts/server.csr</span><span style="color: #F97E72;"> -config</span><span> openssl.cnf</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 3. CA 签发服务端证书</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> ca</span><span style="color: #F97E72;"> -in</span><span> ./newcerts/server.csr</span><span style="color: #F97E72;"> -cert</span><span> ./private/ca.crt</span><span style="color: #F97E72;"> -keyfile</span><span> ./private/ca.key</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -config</span><span> openssl.cnf</span><span style="color: #F97E72;"> -policy</span><span> policy_anything</span><span style="color: #F97E72;"> -out</span><span> ./certs/server.crt</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 4. 查看签发的证书</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> x509</span><span style="color: #F97E72;"> -in</span><span> ./certs/server.crt</span><span style="color: #F97E72;"> -noout -text</span></span></code></pre><h3 id="chang-jian-cuo-wu">常见错误</h3>
+<ul>
+<li><code>unable to access ./demoCA/newcerts</code>：修改 <code>openssl.cnf</code> 中 <code>dir = ./demoCA</code> 为 <code>dir = ./</code></li>
+<li><code>TXT_DB error number 2</code>：修改 <code>index.txt.attr</code> 中 <code>unique_subject = yes</code> 为 <code>no</code></li>
+</ul>
+<h2 id="nginx-ssl-pei-zhi">Nginx SSL 配置</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="nginx"><span class="giallo-l"><span style="color: #FEDE5D;">server</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    listen</span><span style="color: #F97E72;"> 443</span><span> ssl;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    server_name</span><span> yourdomain.com;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    ssl_certificate</span><span>     /etc/nginx/ssl/nginx.crt;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    ssl_certificate_key</span><span> /etc/nginx/ssl/nginx.key;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    location</span><span style="color: #FE4450;"> / </span><span>{</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        root</span><span>   /usr/share/nginx/html;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        index</span><span>  index.html index.htm;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">        proxy_pass</span><span> http://192.168.2.23:9090;</span><span style="color: #848BBD;font-style: italic;">  # 反向代理后端服务</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h2 id="docker-nginx-ssl">Docker Nginx + SSL</h2>
+<h3 id="fang-an-yi-gou-jian-zi-ding-yi-jing-xiang">方案一：构建自定义镜像</h3>
+<p><code>Dockerfile</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="docker"><span class="giallo-l"><span style="color: #FEDE5D;">FROM</span><span> nginx</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">COPY</span><span> nginx.conf /etc/nginx/conf.d/default.conf</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">COPY</span><span> ssl /etc/nginx/ssl</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">docker</span><span> build</span><span style="color: #F97E72;"> -t</span><span> mynginx .</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">docker</span><span> run</span><span style="color: #F97E72;"> -d -p</span><span> 443:443 mynginx</span></span></code></pre><h3 id="fang-an-er-gua-zai-mu-lu">方案二：挂载目录</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">docker</span><span> run</span><span style="color: #F97E72;"> -d --name</span><span> nginx nginx</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">docker</span><span> cp nginx:/etc/nginx /opt/nginx</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">docker</span><span> rm</span><span style="color: #F97E72;"> -f</span><span> nginx</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 放入证书</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">mkdir</span><span> /opt/nginx/ssl</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">openssl</span><span> req</span><span style="color: #F97E72;"> -x509 -nodes -days 365 -newkey</span><span> rsa:2048</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -keyout</span><span> /opt/nginx/ssl/nginx.key</span><span style="color: #F97E72;"> -out</span><span> /opt/nginx/ssl/nginx.crt</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 启动</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">docker</span><span> run</span><span style="color: #F97E72;"> -d -p</span><span> 80:80</span><span style="color: #F97E72;"> -p</span><span> 443:443</span><span style="color: #F97E72;"> --name</span><span> nginx</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -v</span><span> /opt/nginx:/etc/nginx nginx</span></span></code></pre><h2 id="nginx-fang-wen-ren-zheng">Nginx 访问认证</h2>
+<p>使用 htpasswd 创建用户名密码文件：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">apt</span><span> install apache2-utils</span><span style="color: #848BBD;font-style: italic;">    # 提供 htpasswd</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 或</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">yum</span><span style="color: #F97E72;"> -y</span><span> install httpd-tools</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">htpasswd</span><span style="color: #F97E72;"> -c</span><span> /etc/nginx/.passwd username</span><span style="color: #848BBD;font-style: italic;">    # 创建文件并添加用户</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">htpasswd</span><span style="color: #F97E72;"> -b</span><span> /etc/nginx/.passwd username2 password</span><span style="color: #848BBD;font-style: italic;">  # 追加用户</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">htpasswd</span><span style="color: #F97E72;"> -D</span><span> /etc/nginx/.passwd username</span><span style="color: #848BBD;font-style: italic;">    # 删除用户</span></span></code></pre>
+<p>Nginx 配置：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="nginx"><span class="giallo-l"><span style="color: #FEDE5D;">location</span><span style="color: #FE4450;"> / </span><span>{</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    auth_basic</span><span style="color: #FF8B39;"> &quot;Please input password&quot;</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    auth_basic_user_file</span><span> /etc/nginx/.passwd;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h3 id="htpasswd-jia-mi-suan-fa-xuan-xiang">htpasswd 加密算法选项</h3>
+<table><thead><tr><th>选项</th><th>算法</th></tr></thead><tbody>
+<tr><td><code>-m</code></td><td>MD5（默认）</td></tr>
+<tr><td><code>-d</code></td><td>CRYPT</td></tr>
+<tr><td><code>-s</code></td><td>SHA</td></tr>
+<tr><td><code>-p</code></td><td>明文（不加密）</td></tr>
+<tr><td><code>-B</code></td><td>bcrypt</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/network-debug/">&#8249; 网络调试与流量控制</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/proxy-network/"> 代理协议与网络穿透 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#openssl-yu-nginx-ssl">OpenSSL 与 Nginx SSL</a>
+        </div>
+        <div class="hpad">
+          <a href="#openssl-zheng-shu-cao-zuo"><small>- OpenSSL 证书操作</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#kuai-su-sheng-cheng-zi-qian-ming-zheng-shu"><small>· 快速生成自签名证书</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#cha-kan-zheng-shu"><small>· 查看证书</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yan-zheng-zheng-shu-yu-si-yao-shi-fou-pi-pei"><small>· 验证证书与私钥是否匹配</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#si-yao-jia-jie-mi"><small>· 私钥加&#x2F;解密</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pem-der-ge-shi-hu-zhuan"><small>· PEM &#x2F; DER 格式互转</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ce-shi-ssl-fu-wu"><small>· 测试 SSL 服务</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ca-zheng-shu-zhi-zuo-guo-cheng"><small>- CA 证书制作过程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chang-jian-cuo-wu"><small>· 常见错误</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nginx-ssl-pei-zhi"><small>- Nginx SSL 配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#docker-nginx-ssl"><small>- Docker Nginx + SSL</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-an-yi-gou-jian-zi-ding-yi-jing-xiang"><small>· 方案一：构建自定义镜像</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-an-er-gua-zai-mu-lu"><small>· 方案二：挂载目录</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nginx-fang-wen-ren-zheng"><small>- Nginx 访问认证</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#htpasswd-jia-mi-suan-fa-xuan-xiang"><small>· htpasswd 加密算法选项</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer>
+</body>
+</html>

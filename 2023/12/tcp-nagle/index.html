@@ -1,0 +1,184 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>tcp-nagle | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2023/12/tcp-nagle/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2023/12/tcp-nagle/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2023/12/tcp-nagle/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="tcp-nagle | 墨雪天琊" />
+  <meta name="twitter:title" content="tcp-nagle | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2023-12-20" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2023/12/tcp-nagle/">tcp-nagle</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十二月 20, 2023 <span class="rpad"></span></span>
+
+    
+
+
+<h1 id="tcp-nagle">tcp-nagle</h1>
+<h1 id="1-hu-tu-chuang-kou-zong-he-zheng-sws">1,糊涂窗口综合征(SWS)</h1>
+<p>(1)什么是糊涂窗口综合症(Silly Window Syndrome)
+当发送端应用进程产生数据很慢,或接收端应用进程处理接收缓冲区数据很慢,或二者兼而有之;就会使应用进程间传送的报文段很小,特别是有效载荷很小.极端情况下,有效载荷可能只有1个字节;而传输开销有40字节(20字节的IP头+20字节的TCP头) 这种现象就叫糊涂窗口综合症.</p>
+<p>(2)造成糊涂窗口综合征的原因
+1)发送端引起的SWS:</p>
+<p>如果发送端为产生数据很慢的应用程序服务(典型的有telnet应用),例如,一次产生一个字节.这个应用程序一次将一个字节的数据写入发送端的TCP的缓存.如果发送端的TCP没有特定的指令,它就产生只包括一个字节数据的报文段.结果有很多41字节的IP数据报就在互连网中传来传去.解决的方法是防止发送端的TCP逐个字节地发送数据.必须强迫发送端的TCP收集数据,然后用一个更大的数据块来发送.发送端的TCP要等待多长时间呢?如果它等待过长,它就会使整个的过程产生较长的时延.如果它的等待时间不够长,它就可能发送较小的报文段,于是,Nagle找到了一个很好的解决方法,发明了Nagle算法.而他选择的等待时间是一个RTT,即下个ACK来到时.</p>
+<p>2)接收端引起的SWS:</p>
+<p>接收端的TCP可能产生糊涂窗口综合症,如果它为消耗数据很慢的应用程序服务,例如,一次消耗一个字节.假定发送应用程序产生了1000字节的数据块,但接收应用程序每次只吸收1字节的数据.再假定接收端的TCP的输入缓存为4000字节.发送端先发送第一个4000字节的数据.接收端将它存储在其缓存中.现在缓存满了.它通知窗口大小为零,这表示发送端必须停止发送数据.接收应用程序从接收端的TCP的输入缓存中读取第一个字节的数据.在入缓存中现在有了1字节的空间.接收端的TCP宣布其窗口大小为1字节,这表示正渴望等待发送数据的发送端的TCP会把这个宣布当作一个好消息,并发送只包括一个字节数据的报文段.这样的过程一直继续下去.一个字节的数据被消耗掉,然后发送只包含一个字节数据的报文段.</p>
+<h1 id="2-naglesuan-fa">2,Nagle算法</h1>
+<p>TCP/IP协议中,无论发送多少数据,总是要在数据前面加上协议头,同时,对方接收到数据,也需要发送ACK表示确认.为了尽可能的利用网络带宽,TCP总是希望尽可能的发送足够大的数据.(一个连接会设置MSS参数,因此,TCP/IP希望每次都能够以MSS尺寸的数据块来发送数据).Nagle算法就是为了尽可能发送大块数据,避免网络中充斥着许多小数据块.
+Nagle算法的基本定义是任意时刻,最多只能有一个未被确认的小段.所谓"小段",指的是小于MSS尺寸的数据块,所谓"未被确认",是指一个数据块发送出去后,没有收到对方发送的ACK确认该数据已收到.</p>
+<p>(1)Nagle算法的规则:
+如果包长度达到MSS,则允许发送;
+如果该包含有FIN,则允许发送;
+设置了TCP_NODELAY选项,则允许发送;
+未设置TCP_CORK选项时,若所有发出去的小数据包(包长度小于MSS)均被确认,则允许发送;
+上述条件都未满足,但发生了超时(一般为200ms),则立即发送.
+Nagle算法只允许一个未被ACK的包存在于网络,它并不管包的大小,因此它事实上就是一个扩展的停-等协议,只不过它是基于包停-等的,而不是基于字节停-等的.Nagle算法完全由TCP协议的ACK机制决定,这会带来一些问题,比如如果对端ACK回复很快的话,Nagle事实上不会拼接太多的数据包,虽然避免了网络拥塞,网络总体的利用率依然很低.另外,他是一个自适应的方法,读者可以自己按上述规则试验一下. (发送方是一收到ACK就检测发送缓冲区,有数据就进行发送,只有在收到ACK之前的时间内才会起到发送小包拼接的作用.)Nagle算法是糊涂窗口综合征预防算法的一个半集.SWS算法预防发送少量的数据,Nagle算法是其在发送方的实现,而接收方要做的时不要通告缓冲空间的很小增长,不通知小窗口,除非缓冲区空间有显著的增长.这里显著的增长定义为完全大小的段(MSS)或增长到大于最大窗口的一半.</p>
+<p>(2)TCP_NODELEY选项
+默认情况下,发送数据采用Negle 算法.这样虽然提高了网络吞吐量,但是实时性却降低了,在一些交互性很强的应用程序来说是不允许的,使用TCP_NODELAY选项可以禁止Nagle 算法.此时,应用程序向内核递交的每个数据包都会立即发送出去.需要注意的是,虽然禁止了Negale 算法,但网络的传输仍然受到TCP确认延迟机制的影响.</p>
+<p>(3)TCP_CORK选项
+另外一种解决糊涂窗口综合症的方法就是Cork算法.这个算法比Nagle算法更激进一些,干脆直接计算出一个值,当发送方的滑动窗口大小小于这个值的时候,不进行数据包的发送.这样这个算法就能有效直接杜绝小包的出现了.当然可能会导致数据有一定的延迟性了.所谓的CORK就是塞子的意思,形象地理解就是用CORK将连接塞住,使得数据先不发出去,等到拔去塞子后再发出去.设置该选项后,内核会尽力把小数据包拼接成一个大的数据包(一个MTU)再发送出去,当然若一定时间后(一般为200ms,该值尚待确认),内核仍然没有组合成一个MTU时也必须发送现有的数据(不可能让数据一直等待吧).
+然而,TCP_CORK的实现可能并不像你想象的那么完美,CORK并不会将连接完全塞住.内核其实并不知道应用层到底什么时候会发送第二批数据用于和第一批数据拼接以达到MTU的大小,因此内核会给出一个时间限制,在该时间内没有拼接成一个大包(努力接近MTU)的话,内核就会无条件发送.也就是说若应用层程序发送小包数据的间隔不够短时,TCP_CORK就没有一点作用,反而失去了数据的实时性(每个小包数据都会延时一定时间再发送).</p>
+<p>(4)Nagle算法与CORK算法区别
+　　Nagle算法和CORK算法非常类似,但是它们的着眼点不一样,Nagle算法主要避免网络因为太多的小包(协议头的比例非常之大)而拥塞,而CORK算法则是为了提高网络的利用率,使得总体上协议头占用的比例尽可能的小.如此看来这二者在避免发送小包上是一致的,在用户控制的层面上,Nagle算法完全不受用户socket的控制,你只能简单的设置TCP_NODELAY而禁用它,CORK算法同样也是通过设置或者清除TCP_CORK使能或者禁用之,然而Nagle算法关心的是网络拥塞问题,只要所有的ACK回来则发包,而CORK算法却可以关心内容,在前后数据包发送间隔很短的前提下(很重要,否则内核会帮你将分散的包发出),即使你是分散发送多个小数据包,你也可以通过使能CORK算法将这些内容拼接在一个包内,如果此时用Nagle算法的话,则可能做不到这一点.</p>
+<p>(5)延迟ACK
+从接收方也有能力防止糊涂窗口综合症.延迟ACK算法就是接收方并不是收到请求之后立刻发送ACK,而是开启一个计时器,等到计时器结束的时候,才发送ACK.或者是接收方在需要回发送请求的时候,顺带着把上个请求的ACK发送回去了.这个机制如果配合Nagle算法,能让连接的滑动窗口达到一个预期的比较好的值.</p>
+<h1 id="3-nian-bao-wen-ti">3,粘包问题</h1>
+<p>(1)粘包问题产生的原因
+TCP是个"流"协议,所谓流,就是没有界限的一串数据.大家可以想想河里的流水,是连成一片的,其间是没有分界线的.但一般通讯程序开发是需要定义一个个相互独立的数据包的,比如用于登陆的数据包,用于注销的数据包.由于TCP"流"的特性以及网络状况,在进行数据传输时会出现以下几种情况.假设我们连续调用两次send分别发送两段数据data1和data2,在接收端有以下几种接收情况(当然不止这几种情况,这里只列出了有代表性的情况).</p>
+<p>A.先接收到data1,然后接收到data2;
+B.先接收到data1的部分数据,然后接收到data1余下的部分以及data2的全部;
+C.先接收到了data1的全部数据和data2的部分数据,然后接收到了data2的余下的数据;
+D.一次性接收到了data1和data2的全部数据;
+对于A这种情况正是我们需要的,不再做讨论.对于B,C,D的情况就是大家经常说的"粘包",就需要我们把接收到的数据进行拆包,拆成一个个独立的数据包.为了拆包就必须在发送端进行封包.另外对于UDP来说就不存在拆包的问题,因为UDP是个"数据包"协议,也就是两段数据间是有界限的,在接收端要么接收不到数据要么就是接收一个完整的一段数据,不会少接收也不会多接收.</p>
+<p>为什么会出现B,C,D的情况?"粘包"可发生在发送端也可发生在接收端:</p>
+<p>1)由Nagle算法造成的发送端的粘包:</p>
+<p>发送方引起的粘包是由TCP协议本身造成的,TCP为提高传输效率,发送方往往要收集到足够多的数据后才发送一包数据.若连续几次发送的数据都很少,通常TCP会根据优化算法把这些数据合成一包后一次发送出去,这样接收方就收到了粘包数据.</p>
+<p>2)接收端接收不及时造成的接收端粘包:</p>
+<p>这是因为接收方先把收到的数据放在系统接收缓冲区,用户进程从该缓冲区取数据,若下一包数据到达时前一包数据尚未被用户进程取走,则下一包数据放到系统接收缓冲区时就接到前一包数据之后,而用户进程根据预先设定的缓冲区大小从系统接收缓冲区取数据,这样就一次取到了多包数据.</p>
+<p>粘包情况有两种,一种是粘在一起的包都是完整的数据包,另一种情况是粘在一起的包有不完整的包.不是所有的粘包现象都需要处理,若传输的数据为不带结构的连续流数据(如文件传输),则不必把粘连的包分开(简称分包).但在实际工程应用中,传输的数据一般为带结构的数据,这时就需要做分包处理.在处理定长结构数据的粘包问题时,分包算法比较简单;在处理不定长结构数据的粘包问题时,分包算法就比较复杂.特别是粘在一起的包有不完整的包的粘包情况,由于一包数据内容被分在了两个连续的接收包中,处理起来难度较大.实际工程应用中应尽量避免出现粘包现象.</p>
+<p>(2)哪些情况下不会出现粘包
+1)如果利用tcp每次发送数据,就与对方建立连接,然后双方发送完一段数据后,就关闭连接,这样就不会出现粘包问题(因为只有一种包结构,类似于http协议).关闭连接主要要双方都发送close连接(参考tcp关闭协议).如:A需要发送一段字符串给B,那么A与B建立连接,然后发送双方都默认好的协议字符如"hello give me sth abour yourself",然后B收到报文后,就将缓冲区数据接收,然后关闭连接,这样粘包问题不用考虑到,因为大家都知道是发送一段字符.</p>
+<p>2)如果发送数据无结构,如文件传输,这样发送方只管发送,接收方只管接收存储就ok,也不用考虑粘包;</p>
+<p>3)UDP不会出现粘包,因为它有消息边界,为什么呢?(参考)</p>
+<p>TCP是一种流模式的协议,通过TCP连接给另一端发送数据,你只调用了一次 write,发送了100个字节,但是对方可以分10次收完,每次10个字节;你也可以调用10次write,每次10个字节,但是对方可以一次就收完.
+UDP和TCP不同,UDP是一种数据报模式的协议,发送端调用了几次write,接收端必须用相同次数的read读完.UPD是基于报文的,在接收的时候,每次最多只能读取一个 报文,报文和报文是不会合并的,如果缓冲区小于报文长度,则多出的部分会被丢弃.也就说,如果不指定MSG_PEEK标志,每次读取操作将消耗一个报文.
+这种不同是由TCP和UDP的特性决定的.TCP是面向连接的,也就是说,在连接持续的过程中,socket中收到的数据都是由同一台主机发出的,因此,知道保证数据是有序的到达就行了,至于每次读取多少数据自己看着办.而UDP是无连接的协议,也就是说,只要知道接收端的IP和端口,且网络是可达的,任何主机都可以向接收端发送数据.这时候,如果一次能读取超过一 个报文的数据,则会乱套.比如,主机A向发送了报文P1,主机B发送了报文P2,如果能够读取超过一个报文的数据,那么就会将P1和P2的数据合并在了一 起,这样的数据是没有意义的.
+(3)如何解决粘包问题
+1)为了避免粘包现象,可采取以下几种措施:</p>
+<p>一是对于发送方引起的粘包现象,用户可通过编程设置来避免,TCP提供了强制数据立即传送的操作指令push,TCP软件收到该操作指令后,就立即将本段数据发送出去,而不必等待发送缓冲区满;
+二是对于接收方引起的粘包,则可通过优化程序设计,精简接收进程工作量,提高接收进程优先级等措施,使其及时接收数据,从而尽量避免出现粘包现象;
+三是由接收方控制,将一包数据按结构字段,人为控制分多次接收,然后合并,通过这种手段来避免粘包.
+以上提到的三种措施,都有其不足之处:</p>
+<p>第一种编程设置方法虽然可以避免发送方引起的粘包,但它关闭了优化算法,降低了网络发送效率,影响应用程序的性能,一般不建议使用:
+第二种方法只能减少出现粘包的可能性,但并不能完全避免粘包,当发送频率较高时,或由于网络突发可能使某个时间段数据包到达接收方较快,接收方还是有可能来不及接收,从而导致粘包;
+第三种方法虽然避免了粘包,但应用程序的效率较低,对实时应用的场合不适合.
+2)封包和拆包(参考):</p>
+<p>封包:封包就是给一段数据加上包头,这样一来数据包就分为包头和包体两部分内容了(以后讲过滤非法包时封包会加入"包尾"内容).包头其实上是个大小固定的结构体,其中有个结构体成员变量表示包体的长度,这是个很重要的变量,其他的结构体成员可根据需要自己定义.根据包头长度固定以及包头中含有包体长度的变量就能正确的拆分出一个完整的数据包.</p>
+<p>拆包:对于拆包大概过程描述如下:</p>
+<p>A,为每一个连接动态分配一个缓冲区,同时把此缓冲区和SOCKET关联,常用的是通过结构体关联.
+B,当接收到数据时首先把此段数据存放在缓冲区中.
+C,判断缓存区中的数据长度是否够一个包头的长度,如不够,则不进行拆包操作.
+D,根据包头数据解析出里面代表包体长度的变量.
+E,判断缓存区中除包头外的数据长度是否够一个包体的长度,如不够,则不进行拆包操作.
+F,取出整个数据包.这里的"取"的意思是不光从缓冲区中拷贝出数据包,而且要把此数据包从缓存区中删除掉.删除的办法就是把此包后面的数据移动到缓冲区的起始地址.</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2023/12/cpp的lambda/">&#8249; C++ 的lambda</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2023/11/wifi-fuzz/"> wifi_fuzz &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#tcp-nagle">tcp-nagle</a>
+        </div>
+        <div>
+          <a href="#1-hu-tu-chuang-kou-zong-he-zheng-sws">1,糊涂窗口综合征(SWS)</a>
+        </div>
+        <div>
+          <a href="#2-naglesuan-fa">2,Nagle算法</a>
+        </div>
+        <div>
+          <a href="#3-nian-bao-wen-ti">3,粘包问题</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

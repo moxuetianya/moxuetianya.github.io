@@ -1,0 +1,255 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>进程状态 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/11/Linux进程的不可中断休眠与可中断休眠状态/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/11/Linux进程的不可中断休眠与可中断休眠状态/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/11/Linux进程的不可中断休眠与可中断休眠状态/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="进程状态 | 墨雪天琊" />
+  <meta name="twitter:title" content="进程状态 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-11-10" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/11/Linux进程的不可中断休眠与可中断休眠状态/">进程状态</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 10, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/linux/">linux</a> </span>
+
+    
+
+
+<h1 id="jin-cheng-zhuang-tai">进程状态</h1>
+<h1 id="jin-cheng-zhuang-tai-pai-cha-gong-ju">进程状态排查工具</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>ps -ef </span></span>
+<span class="giallo-l"><span>ps auxf</span></span>
+<span class="giallo-l"><span>pstree -aps XXX</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span># 记录性能事件，等待大约15秒后按 Ctrl+C 退出</span></span>
+<span class="giallo-l"><span>perf record -g</span></span>
+<span class="giallo-l"><span># 查看报告</span></span>
+<span class="giallo-l"><span>perf report</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>ps -T -p &lt;pid&gt;</span></span>
+<span class="giallo-l"><span>dstat 1 10</span></span>
+<span class="giallo-l"><span>strace -p &lt;pid&gt;</span></span>
+<span class="giallo-l"><span>pidstat -d -p &lt;pid&gt; 1 20</span></span></code></pre>
+<p><img src="https://moxuetianya.github.io/2022/11/Linux%E8%BF%9B%E7%A8%8B%E7%9A%84%E4%B8%8D%E5%8F%AF%E4%B8%AD%E6%96%AD%E4%BC%91%E7%9C%A0%E4%B8%8E%E5%8F%AF%E4%B8%AD%E6%96%AD%E4%BC%91%E7%9C%A0%E7%8A%B6%E6%80%81/image-20231225102753-p01shab.png" alt="image" /></p>
+<p>进程的睡眠状态是进程为了等待特定事件（如：等待IO完成、等待条件变量为真）发生而进行休眠的状态。需休眠的进程会从CPU的运行队列上移除，并放入到休眠队列中等待被唤醒。</p>
+<p>Linux 中的进程睡眠状态有两种：一种是可中断的睡眠状态（S状态），其状态标志位为TASK_INTERRUPTIBLE；另一种是不可中断的睡眠状态（D状态），其状态标志位为TASK_UNINTERRUPTIBLE。</p>
+<p>可中断睡眠状态的进程在睡眠状态等待某特定事件发生，即使其等待的某特定事件没有发生，可中断休眠状态的进程也是可以被唤醒的，如：用户空间等待条件变量，在条件满足之前，也是可以被信号唤醒的。产生一个中断、释放进程正在等待的系统资源或是传递一个信号都可以唤醒可中断休眠状态的进程。用户空间的条件变量和互斥锁、sleep函数、内核空间的互斥锁mutex_lock_interruptible和信号量down_interruptible函数等都可以导致进程进入可中断休眠状态。</p>
+<p>不可中断睡眠状态与可中断睡眠状态类似，但是不可中断休眠的进程必须等到某特定事件发生后才能被唤醒。将信号（如：kill函数发出的信号）传递到这种睡眠状态的进程不能改变它的状态（因为发送给处于不可中断休眠状态的进程的信号会被丢弃掉），也就是说它不响应信号的唤醒或者被调试（如：gdb，pstack等）。等待IO响应（如：磁盘IO，网络IO，其他外设IO等）、内核空间的互斥锁mutex_lock函数等都可以导致进程进入不可中断休眠状态。</p>
+<h1 id="jin-cheng-zhuang-tai-1">进程状态</h1>
+<p>在 linux 下，通过 ps 命令我们能够查看到系统中存在的进程，以及它们的状态：</p>
+<h2 id="r-task-running-ke-zhi-xing-zhuang-tai">R (TASK_RUNNING)，可执行状态</h2>
+<p>只有在该状态的进程才可能在 CPU 上运行
+同一时刻可能有多个进程处于可执行状态，这些进程的 task_struct 结构（进程控制块）被放 入对应 CPU 的可执行队列中（一个进程最多只能出现在一个 CPU 的可执行队列中）</p>
+<p>进程调度器的任务就是 从各个 CPU 的可执行队列中分别选择一个进程在该 CPU 上运行
+只要可执行队列不为空，其对应的 CPU 就不能偷懒，就要执行其中某个进程，一般称此时的 CPU“忙碌”，对应的， CPU“空闲”就是指其对应的 可执行队列为空，以致于 CPU 无事可做</p>
+<p>而 死循环程序基本上总是处于 TASK_RUNNING 状态（进程处于可执行队列中）
+除非一 些非常极端情况（比如系统内存严重紧缺，导致进程的某些需要使用的页面被换出，并且在页面需要换入时又无法分配到内存……），否则这个进程不会睡眠。所以 CPU 的可执行队列总是不为空（至少有这么个进程存在）， CPU 也就不会“空闲”
+许多 将正在 CPU 上执行的进程定义为 RUNNING 状态、而 将可执行但尚未被调度执行的进程 定义为 READY 状态，这两种状态 在 linux 下统一为 TASK_RUNNING 状态</p>
+<h2 id="s-task-interruptible-ke-zhong-duan-de-shui-mian-zhuang-tai">S (TASK_INTERRUPTIBLE)，可中断的睡眠状态：</h2>
+<p>处于这个状态的进程因为等待某某事件的发生（比如等待 socket 连接、等待信号量），而被挂起
+这些进程的 task_struct 结构被放入 对应事件的等待队列中，当这些事件发生时（由外部中断触发、或由其他进程触发），对应的等待队列中的一个或多个进程将被唤醒
+通过 ps 命令我们会看到，一般情况下，进程列表中的绝大多数进程都处于 TASK_INTERRUPTIBLE 状态（除非机器的负载很高）</p>
+<h2 id="d-task-uninterruptible-bu-ke-zhong-duan-de-shui-mian-zhuang-tai">D (TASK_UNINTERRUPTIBLE)，不可中断的睡眠状态：</h2>
+<p>与 TASK_INTERRUPTIBLE 状态类似，进程处于睡眠状态，但是此刻进程是不可中断的
+不可中断，指的并不是 CPU 不响应外部硬件的 中断，而是指进程不响应异步信号</p>
+<p>绝大多数情况下，进程处在睡眠状态时，总是应该能够响应异步信号的
+kill -9 竟然杀不死一个正在睡眠的进程了，所以 ps 命令看到的进程几乎不会出现 TASK_UNINTERRUPTIBLE 状态，而总是 TASK_INTERRUPTIBLE 状态
+TASK_UNINTERRUPTIBLE 状态存在的意义：内核的某些处理流程是不能被打断
+如 响应异步信号，程序的执行流程中就 会被插入一段用于处理异步信号的流程（这个插入的流程可能只存在于内核态，也可能延伸到用户态），于是原有的流程就被中断了</p>
+<p>进程对某些硬件进行操作时（如 进程调用 read 系统调用对某个设备文件进行读操作，而read 系统调用最终执行到对应设备驱动的代码，并与 对应的物理设备进行交互），可能需要使用TASK_UNINTERRUPTIBLE 状态对进程进行保护，以避免进程与设备交互的过程被打断，造成设备陷入不可控的状态</p>
+<p>这种情况下的 TASK_UNINTERRUPTIBLE 状态总是非常短暂的，通过 ps 命令捕捉不到
+linux 系统中也存在容易捕捉的 TASK_UNINTERRUPTIBLE 状态：
+如 执行 vfork 系统调用后，父进程将进入 TASK_UNINTERRUPTIBLE 状态，直到子进程调用 exit 或 exec</p>
+<p>下面的代码 能得到处于 TASK_UNINTERRUPTIBLE 状态的进程：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;unistd.h&gt;</span></span>
+<span class="giallo-l"><span>void main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    if(!vfork())</span></span>
+<span class="giallo-l"><span>    {</span></span>
+<span class="giallo-l"><span>        sleep(100);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>不管 kill 还是 kill -9，这个TASK_UNINTERRUPTIBLE 状态的父进程依然屹立不倒</p>
+<h2 id="t-task-stopped-or-task-traced-zan-ting-zhuang-tai-huo-gen-zong-zhuang-tai">T (TASK_STOPPED or TASK_TRACED)，暂停状态或跟踪状态：</h2>
+<p>向进程发送一个 SIGSTOP 信号，它就会因响应该信号 而进入 TASK_STOPPED 状态（除非该进程本身处于 TASK_UNINTERRUPTIBLE 状态而不响应信号）（SIGSTOP 与 SIGKILL 信号一样，是非常强制的。不允许用户进程通过 signal 系列的系统调用重新设置对应的信号处理函数 ）</p>
+<p>向进程发送一个 SIGCONT 信号，可以让其从 TASK_STOPPED 状态恢复到 TASK_RUNNING 状态
+当进程正在被跟踪时，它处于 TASK_TRACED 这个 特殊的状态</p>
+<p>正在被跟踪”指的是进程暂停下来，等待跟踪它的进程对它进行操作
+如 在 gdb 中对被跟踪的进程下一个断点，进程在断点处停下来的时候就处于 TASK_TRACED 状态。而在其他时候，被跟踪的进程还是处于前面提到的那些状态</p>
+<p>对于进程本身来说， TASK_STOPPED 和 TASK_TRACED 状态很类似，都是表示进程暂停下来
+而 TASK_TRACED 状态相当于在 TASK_STOPPED 之上多了一层保护，处于 TASK_TRACED 状态的进程不能响应 SIGCONT 信号而被唤醒</p>
+<p>只能等到调试进程通过 ptrace 系统调用执行 PTRACE_CONT、PTRACE_DETACH 等操作（通过 ptrace 系统调用的参数指定操作），或调试进程退出，被调试的进程才能恢复 TASK_RUNNING 状态</p>
+<h2 id="z-task-dead-exit-zombie-tui-chu-zhuang-tai-jin-cheng-cheng-wei-jiang-shi-jin-cheng">Z (TASK_DEAD - EXIT_ZOMBIE)，退出状态，进程成为僵尸进程</h2>
+<p>进程在退出的过程中，处于 TASK_DEAD 状态
+在这个退出过程中，进程占有的所有资源将被回收，除了 task_struct 结构（以及少数资源）以外。于是进程就只剩下 task_struct 这么个空壳，故称为僵尸</p>
+<p>之所以保留 task_struct，是因为 task_struct 里面保存了进程的退出码、以及一些统计信息，而其父进程很可能会关心这些信
+如 在 shell 中， $?变量就保存了最后一个退出的前台进程的退出码，而这个退出码往往被作为 if 语句的判断条件</p>
+<p>内核会将这些信息保存在别的地方，而将 task_struct 结构释放掉，以节省一些空间。但 使用 task_struct 结构更为 方便， 因为在内核中已经建立了从 pid 到 task_struct 查找关系，还有进程间的父子关系</p>
+<p>释放掉 task_struct，则需要建立一些新的数据 结构，以便让父进程找到它的子进程的退出信息</p>
+<p>父进程可以通过 wait 系列的系统调用（如 wait4、 waitid）来等待某个或某些子进程的退出，并获取它的退出信息。然后 wait 系列的 系统调用会顺便将子进程的尸体（task_struct）也释放掉</p>
+<p>子进程在退出的过程中，内核会给其父进程发送一个信号，通知父进程来“收尸”。这个信号默认是 SIGCHLD， 但是在通过 clone 系统调用创建子进程时，可以设置这个信号</p>
+<p>只要父进程不退出，这个僵尸状态的子进程就一直存在
+当进程退出的时候，会将它的所有子进程都托管给别的进程（使之成为别的进程的子进程）
+可能退出进程所在进程组的下一个进程（如果存在的话），或者是 1 号进程。所以每个进程、每时每刻都有父进程存在。除非它是 1 号进程</p>
+<h2 id="x-task-dead-exit-dead-tui-chu-zhuang-tai-jin-cheng-ji-jiang-bei-xiao-hui">X (TASK_DEAD - EXIT_DEAD)，退出状态，进程即将被销毁</h2>
+<p>进程在退出过程中也可能不会保留它的 task_struct。比如这个进程是多线程程序中被 detach 过的进程</p>
+<p>或者父进程通过设置 SIGCHLD 信号的handler 为 SIG_IGN，显式的忽略了 SIGCHLD 信号（这是 posix 的规定，尽管子进程的退出信号可以被设置为 SIGCHLD 以外的其他信号）</p>
+<p>进程将被置于 EXIT_DEAD 退出状态，这意味着接下来的代码立即就会将该进程彻底释放。所以 EXIT_DEAD 状态是非常短暂的，几乎不可能通过 ps 命令捕捉到</p>
+<h2 id="jin-cheng-de-chu-shi-zhuang-tai">进程的初始状态</h2>
+<p>进程是通过 fork 系列的系统调用（fork、 clone、 vfork）来创建的，内核（或内核模块）也可以通过 kernel_thread 函 数创建内核进程</p>
+<p>这些创建子进程的函数本质上都完成了相同的功能——将调用进程复制一份，得到子进程。（可以通过选项参数来决定各种资源是共享、还是私有）</p>
+<h2 id="jin-cheng-zhuang-tai-bian-qian">进程状态变迁</h2>
+<p>进程自创建以后，状态可能发生一系列的变化，直到进程退出</p>
+<p>进程状态有好几种，但是进程状态的变迁却只有两个方向——从 TASK_RUNNING 状态变为非 TASK_RUNNING 状态、或者从非TASK_RUNNING 状态变为 TASK_RUNNING 状态</p>
+<p>进程从非 TASK_RUNNING 状态变为 TASK_RUNNING 状态，是由别的进程（也可能是中断处理程序）执行唤醒操作来实现的。执行唤 醒的进程设置被唤醒进程的状态为 TASK_RUNNING，然后将其task_struct 结构加入到某个 CPU 的可执行队列中。于是被唤醒的进程将有机 会被调度执行。</p>
+<p>进程从 TASK_RUNNING 状态变为非 TASK_RUNNING 状态：</p>
+<p>响应信号而进入 TASK_STOPED 状态、或 TASK_DEAD 状态</p>
+<p>执行系统调用主动进入 TASK_INTERRUPTIBLE 状态（如 nanosleep 系统调用）、或TASK_DEAD 状态（如 exit 系统调用）；或由于执行系统调用需要的资源得不到满足，而进入TASK_INTERRUPTIBLE 状态或 TASK_UNINTERRUPTIBLE 状态 （如 select 系统调用）
+只能发生在进程正在CPU上执行的情况</p>
+<h1 id="jiang-shi-jin-cheng">僵尸进程</h1>
+<p>未验证未必可行
+1、进程还在被其它进程使用时退出；
+2、进程的子线程还在执行任务，但主线程已经死掉了（可能主线程已经被杀了，systemd停止服务时会发SIGTERM信号）；
+3、进程阻塞在某一IO请求上,这时控制权已交到内核手上,这时如果子进程被KILL掉, 那么就成为父进程ID为1的僵尸进程,这个进程不会退出,会一直阻塞直到IO请求被满足；</p>
+<p>D 无法中断的休眠状态（通常 IO 的进程）；
+R 正在运行可中在队列中可过行的；
+S 处于休眠状态；
+T 停止或被追踪；
+W 进入内存交换（从内核2.6开始无效）；
+X 死掉的进程（从来没见过）；
+Z 僵尸进程；</p>
+<p>&lt; 优先级高的进程
+N 优先级较低的进程
+L 有些页被锁进内存；
+s 进程的领导者（在它之下有子进程）；
+l 多进程的（使用 CLONE_THREAD, 类似 NPTL pthreads）；</p>
+<ul>
+<li>位于后台的进程组；
+还有个重要的信息，在ps列表中有栏START信息，表示进程的启动时间，这个比较重要，可以看出进程是在哪天的什么时候起来的。</li>
+</ul>
+<p>根据上面贴的进程状态信息，可以知道进程从休眠状态变了停止/被追踪，再根据开始说的 ppid=1的进程如果在被其他进程使用（跟踪调试等），则退出时，会有部分信息残留，导致变成僵死进程；</p>
+<p>那就比较容易处理了，首先查看下是什么时间点变成tsl状态的，那就说明这个时间点该进程被跟踪（不知道这是不是黑客中提到的反调试，反追踪）了，在这个时间点开始查找下看看有没有进程调试跟踪该僵尸进程；</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/11/wsl-x11-gui/">&#8249; wsl_x11_gui</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/11/asan/"> 内存检测工具asan &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#jin-cheng-zhuang-tai">进程状态</a>
+        </div>
+        <div>
+          <a href="#jin-cheng-zhuang-tai-pai-cha-gong-ju">进程状态排查工具</a>
+        </div>
+        <div>
+          <a href="#jin-cheng-zhuang-tai-1">进程状态</a>
+        </div>
+        <div class="hpad">
+          <a href="#r-task-running-ke-zhi-xing-zhuang-tai"><small>- R (TASK_RUNNING)，可执行状态</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#s-task-interruptible-ke-zhong-duan-de-shui-mian-zhuang-tai"><small>- S (TASK_INTERRUPTIBLE)，可中断的睡眠状态：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#d-task-uninterruptible-bu-ke-zhong-duan-de-shui-mian-zhuang-tai"><small>- D (TASK_UNINTERRUPTIBLE)，不可中断的睡眠状态：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#t-task-stopped-or-task-traced-zan-ting-zhuang-tai-huo-gen-zong-zhuang-tai"><small>- T (TASK_STOPPED or TASK_TRACED)，暂停状态或跟踪状态：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#z-task-dead-exit-zombie-tui-chu-zhuang-tai-jin-cheng-cheng-wei-jiang-shi-jin-cheng"><small>- Z (TASK_DEAD - EXIT_ZOMBIE)，退出状态，进程成为僵尸进程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#x-task-dead-exit-dead-tui-chu-zhuang-tai-jin-cheng-ji-jiang-bei-xiao-hui"><small>- X (TASK_DEAD - EXIT_DEAD)，退出状态，进程即将被销毁</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jin-cheng-de-chu-shi-zhuang-tai"><small>- 进程的初始状态</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jin-cheng-zhuang-tai-bian-qian"><small>- 进程状态变迁</small></a>
+        </div>
+        <div>
+          <a href="#jiang-shi-jin-cheng">僵尸进程</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

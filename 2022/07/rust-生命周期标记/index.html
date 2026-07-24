@@ -1,0 +1,120 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>rust 生命周期标记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/07/rust-生命周期标记/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/07/rust-生命周期标记/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/07/rust-生命周期标记/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="rust 生命周期标记 | 墨雪天琊" />
+  <meta name="twitter:title" content="rust 生命周期标记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-07-03" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/07/rust-生命周期标记/">rust 生命周期标记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 03, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/rust/">rust</a>] #<a href="https://moxuetianya.github.io/tags/rust/">rust</a> </span>
+
+    
+
+
+<h1 id="rust-sheng-ming-zhou-qi-biao-ji">rust 生命周期标记</h1>
+<h1 id="sheng-ming-zhou-qi-he-suo-you-quan">生命周期和所有权</h1>
+<h1 id="rustyu-yan-zhong-de-static-sheng-ming-zhou-qi">Rust语言中的 'static 生命周期</h1>
+<p>&amp;'static T是具有 'static 生存期的引用，或者说无限生存期。</p>
+<p>T: 'static 是约束，表示 T 的生存期应当不短于 'static。此时有两种情况：
+T 包含外部引用，那么其中所有引用都要是 'static 生存期。例如 &amp;'static T 和 Cow&lt;'static, T&gt;
+T 不包含引用，或只可能包含自引用，那么它自动具有 'static 生存期。例如 String 和一部分匿名 future 类型。
+T: 'static 要求 T 与上下文没有关联，在难以静态决定生存期的并发环境下很有用。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/07/priority-queue-lambda/">&#8249; priority_queue lambda</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/07/cxx-allocator类/"> cxx-allocator类 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#rust-sheng-ming-zhou-qi-biao-ji">rust 生命周期标记</a>
+        </div>
+        <div>
+          <a href="#sheng-ming-zhou-qi-he-suo-you-quan">生命周期和所有权</a>
+        </div>
+        <div>
+          <a href="#rustyu-yan-zhong-de-static-sheng-ming-zhou-qi">Rust语言中的 &#x27;static 生命周期</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer>
+</body>
+</html>

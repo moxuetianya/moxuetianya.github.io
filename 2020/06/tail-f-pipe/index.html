@@ -1,0 +1,172 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>对 tail -f 使用管道 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2020/06/tail-f-pipe/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2020/06/tail-f-pipe/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2020/06/tail-f-pipe/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="对 tail -f 使用管道 | 墨雪天琊" />
+  <meta name="twitter:title" content="对 tail -f 使用管道 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2020-06-06" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2020/06/tail-f-pipe/">对 tail -f 使用管道</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 06, 2020 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/tty/">TTY</a>  #<a href="https://moxuetianya.github.io/tags/unix/">Unix</a>  #<a href="https://moxuetianya.github.io/tags/guan-dao/">管道</a>  #<a href="https://moxuetianya.github.io/tags/awk/">awk</a>  #<a href="https://moxuetianya.github.io/tags/grep/">grep</a>  #<a href="https://moxuetianya.github.io/tags/sed/">sed</a> </span>
+
+    
+
+
+<h1 id="dui-tail-f-shi-yong-guan-dao">对 tail -f 使用管道</h1>
+<p>最近发现 <code>tail -f</code> 时管道后面的程序都会被卡住，才发现 grep，sed，awk 不直接输出到 TTY 时都是带缓冲的。平时跟在 <code>cat</code> 后使用没问题是因为输入管道关闭触发了 flush。本文详细解释其中的坑，以及怎么让 sed, awk, grep 立即 flush。
+<strong>TL;DR</strong>：grep 添加 <code>--line-buffered</code>，sed 添加 <code>-u</code>，awk 调 <code>fflush()</code>。</p>
+<div>
+<span id="continue-reading"></span></div>
+<h2 id="guan-dao-he-huan-chong">管道和缓冲</h2>
+<p><a rel="noopener external" target="_blank" href="https://man7.org/linux/man-pages/man2/pipe2.2.html">管道</a> 是 Linux/Unix 中进程间通信的一种方式，可以在命令间、进程间传递数据。比如下面的命令用来来打印所有文件不存在的异常。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> log.txt</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> Error</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ENOENT</span></span></code></pre>
+<p>由于 <code>cat</code> 命令会在读完文件后立即退出并关闭 STDOUT，grep 的缓冲会立即 flush，我们会在执行完上述命令后立即看到输出。但如果改成实时打印日志的 <code>tail -f</code> 则会看不到任何输出：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">tail</span><span style="color: #F97E72;"> -f</span><span> log.txt</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> Error</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ENOENT</span></span></code></pre>
+<p>因为当 grep 的输出不是 <a href="/2016/06/08/shell-config-files.html">TTY（终端）</a> 时，会启用缓冲。输入关闭或缓冲区满时才输出。这个例子中第一个 grep 的输入 <code>tail -f</code> 一直没有关闭，因此缓冲一直不会输出，第二个 grep 也永远不会收到输入。
+因此控制台不会有任何输出。</p>
+<p>但如果反过来，grep 的输出是 TTY 时就不会缓冲。也就是说 <code>tail -f log.txt | grep Error</code>（注意少了一个 grep）会正常地持续地输出。</p>
+<h2 id="jian-cha-shu-chu-wen-jian">检查输出文件</h2>
+<p>那么 grep 会检查它输出到哪里？虽然理论上有悖于管道的设计，也不那么函数式。
+难以想象我们有个函数，它的返回值竟然会取决于这个返回值下一步被用于做什么操作。
+不仅是 grep，sed 也有类似的行为，这里不去更多地讨论设计，而是给几个有用的场景：</p>
+<ol>
+<li>当输出到 TTY 时输出带颜色的字符，输出到文件时输出纯文本。</li>
+<li>当输出到 TTY 时执行过程可以提示用户输入，输出到文件时则需要使用默认值或者报错。</li>
+<li>以及 grep 的例子：输出到 TTY 时实时打印，输出到文件或其他程序时缓冲起来（因为尤其是写入磁盘文件时，没必要有输出就写）。</li>
+</ol>
+<p>那么怎么判断标准输出的文件描述符呢？</p>
+<ul>
+<li>Shell 里可以通过 <code>[ -t 1 ]</code> 来判断 stdout（文件描述符 1） 是否是 TTY。</li>
+<li>JavaScript 里可以通过 <code>process.stdout.isTTY</code> 来判断是否是 TTY。</li>
+<li>更多请参考：<a rel="noopener external" target="_blank" href="https://rosettacode.org/wiki/Check_output_device_is_a_terminal">https://rosettacode.org/wiki/Check_output_device_is_a_terminal</a></li>
+</ul>
+<p>注意 <code>[</code> 是一个命令，<code>-t</code> 是它的参数，可以 <code>man [</code> 查看详情。</p>
+<h2 id="huan-chong-qu-man">缓冲区满</h2>
+<p>既然 <code>tail -f</code> 日志看不到输出是因为缓冲区没有 flush，那么缓冲区 flush 有两种情况：</p>
+<ol>
+<li>写完了。比如 <code>cat log.txt | grep Error</code> 的场景 grep 会在写完后 flush 并退出。</li>
+<li>缓冲区满。既然叫做 Buffer 一定是有大小的。</li>
+</ol>
+<p>那么缓冲区是多大呢？既然 <code>tail -f</code> 不足以很快让缓冲区满，我们用下面的办法：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">yes</span><span> Error ENOENT</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> Error</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ENOENT</span></span></code></pre>
+<p>yes 命令用来不断地循环输出它的参数，因此缓冲很快会满。因此上面的命令我们可以看到大量的输出。</p>
+<h2 id="bi-mian-huan-chong">避免缓冲</h2>
+<p>grep 提供了 <code>--line-buffered</code> 来按照行缓冲，也就是每写满一行 flush 一次：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>--line-buffered</span></span>
+<span class="giallo-l"><span>     Force output to be line buffered.  By default, output is line buffered when standard output is</span></span>
+<span class="giallo-l"><span>     a terminal and block buffered otherwise.</span></span></code></pre>
+<p>sed 可以用 <code>--unbuffered</code> 来禁用缓冲：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>-u, --unbuffered</span></span>
+<span class="giallo-l"><span>     load minimal amounts of data from the input files and flush the output buffers more often</span></span></code></pre>
+<p>awk 作为一门完整的编程语言，需要调用 <code>fflush()</code> 方法来清空缓冲：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>The built-in function fflush(expr) flushes any buffered output for the file or pipe expr.</span></span></code></pre>
+<p>因此前面的例子中给 grep 添加 <code>--line-buffered</code> 即可让它持续地输出：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">tail</span><span style="color: #F97E72;"> -f</span><span> log.txt</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> --line-buffered</span><span> Error</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ENOENT</span></span></code></pre>
+<p>注意第二个 grep 不需要添加 <code>--line-buffered</code>，因为它的标准输出是 TTY，默认不会启用缓冲区。
+下面是一个更完整的例子，从 log.txt 文件实时读日志，过滤包含 Error 的行，把 harttle 标记去掉，打印出第一列，再过滤得到 <code>ENOENT</code> 的行：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">tail</span><span style="color: #F97E72;"> -f</span><span> log.txt</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> --line-buffered</span><span> Error</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> sed</span><span style="color: #F97E72;"> -u</span><span style="color: #FF8B39;"> &#39;s/harttle//&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> awk</span><span style="color: #FF8B39;"> &#39;${print $1; fflush()}&#39;</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ENOENT</span></span></code></pre>
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2020/06/bash-quote-escape/">&#8249; Bash 转义和引号的使用</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2019/12/keep-terminal-cwd/"> 从当前位置打开 Terminal &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#dui-tail-f-shi-yong-guan-dao">对 tail -f 使用管道</a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-dao-he-huan-chong"><small>- 管道和缓冲</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jian-cha-shu-chu-wen-jian"><small>- 检查输出文件</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#huan-chong-qu-man"><small>- 缓冲区满</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#bi-mian-huan-chong"><small>- 避免缓冲</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

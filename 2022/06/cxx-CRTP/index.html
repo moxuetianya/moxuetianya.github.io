@@ -1,0 +1,423 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>cxx CRTP | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/06/cxx-CRTP/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/06/cxx-CRTP/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/06/cxx-CRTP/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="cxx CRTP | 墨雪天琊" />
+  <meta name="twitter:title" content="cxx CRTP | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-06-13" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/06/cxx-CRTP/">cxx CRTP</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 13, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a> </span>
+
+    
+
+
+<h1 id="cxx-crtp">cxx CRTP</h1>
+<h1 id="curiously-recurring-template-pattern-de-gai-nian">Curiously Recurring Template Pattern 的概念</h1>
+<p>C++ 通过类的继承与虚函数的动态绑定，实现了多态。这种特性，使得我们能够用基类的指针，访问子类的实例。例如我们可以实现一个名为 Animal 的基类，以及 Cat, Dog 等子类，并通过在子类中重载虚函数 jump，实现不同动物的跳跃动作。而后我们可以通过访问 Zoo 类的实例中存有 Animal 指针的数组，让动物园中所有的动物都跳一遍。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>class Zoo {</span></span>
+<span class="giallo-l"><span> ...</span></span>
+<span class="giallo-l"><span> private:</span></span>
+<span class="giallo-l"><span>    std::vector&lt;shared_ptr&lt;Animal&gt;&gt; animals;</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    void () {</span></span>
+<span class="giallo-l"><span>        for (auto animal : animals) {</span></span>
+<span class="giallo-l"><span>            animal-&gt;jump();</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span> ...</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>在每次执行 animal-&gt;jump() 的时候，系统会检查 animal 指向的实例实际的类型，然后调用对应类型的 jump 函数。这一步骤需要通过查询虚函数表（vtable）来实现；由于实际 animal 指向对象的类型在运行时才确定（而不是在编译时就确定），所以这种方式称为动态绑定（或者运行时绑定）。</p>
+<p>因为每次都需要查询虚函数表，所以动态绑定会降低程序的执行效率。为了兼顾多态与效率，有人提出了 Curiously Recurring Template Pattern 的概念。</p>
+<h1 id="tong-guo-mo-ban-shi-xian-jing-tai-bang-ding">通过模板实现静态绑定</h1>
+<p>把派生类作为基类的模板参数：父类是一个模板类，当子类继承父类时，传入的模板类型为子类本身（这样父类就可以调用子类的相关方法了（通过this））</p>
+<p>为了在编译时绑定，我们就需要放弃 C++ 的虚函数机制，而只是在基类和子类中实现同名的函数；同时，为了在编译时确定类型，我们就需要将子类的名字在编译时提前传给基类。因此，我们需要用到 C++ 的模板。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>using namespace std;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>template&lt;typename T&gt;</span></span>
+<span class="giallo-l"><span>class Base {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    void show () const {</span></span>
+<span class="giallo-l"><span>        static_cast&lt;const T*&gt;(this)-&gt;show();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>class Derived: public Base&lt;Derived&gt; {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    // 这里子类中如果不定义 show; 则调用show时会递归的调用Base中的show，最后爆栈!!!!</span></span>
+<span class="giallo-l"><span>    void show () const {</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;Shown in Derived class.&quot; &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main () {</span></span>
+<span class="giallo-l"><span>    Derived d;</span></span>
+<span class="giallo-l"><span>    Base&lt;Derived&gt; *b = &amp;d;</span></span>
+<span class="giallo-l"><span>    b-&gt;show();</span></span>
+<span class="giallo-l"><span>    return 0;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h1 id="yong-zai-na-li">用在哪里？</h1>
+<p>现在我们考虑这样一个问题。</p>
+<p>在使用虚函数的风格中，我们可以把 Cat <em>, Dog</em>... 等不同子类的指针，复制给基类的指针 Animal*，然后把基类的指针存入容器中（比如 vector&lt;Animal*&gt;）。但是，在 CRTP 中，我们就做不到这样了。这是因为同样是基类的指针 Animal&lt;Cat&gt;* 和 Animal&lt;Dog&gt;* 是两种完全不同的类型的指针。这样一来，我们就没法构造一个动物园了。</p>
+<p>那么，CRTP 到底应该怎么用呢？我们不妨回过头来想一想，最初我们引入 CRTP 是为了什么。文章开头的第一段，我们提到多态是个很好的特性，但是动态绑定比较慢，因为要查虚函数表。而事实上，动态绑定慢，通常是因为多级继承；如果继承很短，那么查虚函数表的开销实际上也没多大。</p>
+<p>在之前举出的例子里，我们运用 CRTP，完全消除了动态绑定；但与此同时，我们也在某种意义上损失了多态性。现在我们希望二者兼顾：保留多态性，同时降低多级继承带来的虚函数表查询开销。答案也很简单：让 CRTP 的模板类继承一个非模板的基类——这相当于这个非模板的基类会有多个平级的不同的子类。一个示例如下。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;vector&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>using std::cout; using std::endl;</span></span>
+<span class="giallo-l"><span>using std::vector;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>class Animal {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    virtual void say () const = 0;</span></span>
+<span class="giallo-l"><span>    virtual ~Animal() {}</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>template &lt;typename T&gt;</span></span>
+<span class="giallo-l"><span>class Animal_CRTP: public Animal {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    void say() const override {</span></span>
+<span class="giallo-l"><span>        static_cast&lt;const T*&gt;(this)-&gt;say();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>class Cat: public Animal_CRTP&lt;Cat&gt; {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    void say() const {</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;Amimal_CRTP:\n&quot;;</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;Meow~ I&#39;m a cat.&quot; &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>class Dog: public Animal_CRTP&lt;Dog&gt; {</span></span>
+<span class="giallo-l"><span> public:</span></span>
+<span class="giallo-l"><span>    void say() const {</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;Wang~ I&#39;m a dog.&quot; &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main () {</span></span>
+<span class="giallo-l"><span>    vector&lt;Animal*&gt; zoo;</span></span>
+<span class="giallo-l"><span>    zoo.push_back(new Cat());</span></span>
+<span class="giallo-l"><span>    zoo.push_back(new Dog());</span></span>
+<span class="giallo-l"><span>    // 这里并不会调用Animal_CRTP 的say函数</span></span>
+<span class="giallo-l"><span>    for (vector&lt;Animal*&gt;::const_iterator iter{zoo.begin()}; iter != zoo.end(); ++iter) {</span></span>
+<span class="giallo-l"><span>        (*iter)-&gt;say();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    for (vector&lt;Animal*&gt;::iterator iter{zoo.begin()}; iter != zoo.end(); ++iter) {</span></span>
+<span class="giallo-l"><span>        delete (*iter);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    return 0;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h1 id="ying-yong">应用</h1>
+<h2 id="icomparable">IComparable</h2>
+<p>我们常常在Java和C的更加强大。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include&lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>using namespace std;</span></span>
+<span class="giallo-l"><span>template&lt;typename T&gt;</span></span>
+<span class="giallo-l"><span>class IComparable</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>    bool less(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return this-&gt;lessImpl(b);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    bool greater(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return b.less(*this);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    bool notLess(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return !this-&gt;less(b);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    bool notGreater(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return !this-&gt;greater(b);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    bool equal(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return !this-&gt;less(b) &amp;&amp; !this-&gt;greater(b);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    bool notEqual(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return !this-&gt;equal(b);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>private:</span></span>
+<span class="giallo-l"><span>    bool lessImpl(const IComparable&lt;T&gt;&amp; b) const {</span></span>
+<span class="giallo-l"><span>        return true;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>}; // Need Derived to override lessImpl().</span></span>
+<span class="giallo-l"><span>class A : public IComparable&lt;A&gt;</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>    A(int num):N(num){}</span></span>
+<span class="giallo-l"><span>    bool lessImpl(const A&amp; b){</span></span>
+<span class="giallo-l"><span>        return N &lt; b.N;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>private:</span></span>
+<span class="giallo-l"><span>    int N;</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span>class B : public IComparable&lt;B&gt;</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>    B(int num1, int num2):N1(num1), N2(num2){}</span></span>
+<span class="giallo-l"><span>    bool lessImpl(const B&amp; b){</span></span>
+<span class="giallo-l"><span>        return N1 &lt; b.N1 || N2 &lt; b.N2;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>private:</span></span>
+<span class="giallo-l"><span>    int N1, N2;</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span>int main(){</span></span>
+<span class="giallo-l"><span>    //cout &lt;&lt; alphabeta;</span></span>
+<span class="giallo-l"><span>    A a(5), b(10);</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; a.less(b) &lt;&lt; endl; // OK</span></span>
+<span class="giallo-l"><span>    B c(5, 10), d(5, 0);</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; c.greater(d) &lt;&lt;endl; // OK</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>这段代码里，我首先定义了一个接口IComparable<T>，然后定义了一系列的比较函数，它们都直接或间接地使用了lessImpl()方法，而定义了派生类A和B之后，在类中覆盖lessImpl()
+方法，并使用CRTP技术，获得IComparable<T>所带有的比较函数，这样，A和B就可以进行比较操作了。</p>
+<p>对于这个例子，可以发现：生成这些操作完全是在编译期完成的，在运行期只是普通的比较，且没有任何空间开销，虽然IComparable<T>是空类，或者说是接口，但它是被继承的可以借助EBO,
+优化空间，变为0空间开销。派生类只要写lessImpl()方法，就可以获得所有比较功能，这也是CRTP最显著的特点：</p>
+<p>基类能够在不直接知道派生类类型的情况下，为派生类提供功能，且无任何的运行时开销。</p>
+<h2 id="counter">Counter</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include&lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>using namespace std;</span></span>
+<span class="giallo-l"><span>template&lt;typename T&gt;</span></span>
+<span class="giallo-l"><span>class Counter</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>    static size_t get(){</span></span>
+<span class="giallo-l"><span>        return Count;   </span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    Counter(){</span></span>
+<span class="giallo-l"><span>        add(1);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    Counter(const Counter&amp; other){</span></span>
+<span class="giallo-l"><span>        add(1);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    ~Counter(){</span></span>
+<span class="giallo-l"><span>        add(-1);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>private:</span></span>
+<span class="giallo-l"><span>    static int Count;</span></span>
+<span class="giallo-l"><span>    static void add(int n){</span></span>
+<span class="giallo-l"><span>        Count += n;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span>template&lt;typename T&gt;</span></span>
+<span class="giallo-l"><span>int Counter&lt;T&gt;::Count = 0;</span></span>
+<span class="giallo-l"><span>class A : public Counter&lt;A&gt;</span></span>
+<span class="giallo-l"><span>{};</span></span>
+<span class="giallo-l"><span>class B : public Counter&lt;B&gt;</span></span>
+<span class="giallo-l"><span>{};</span></span>
+<span class="giallo-l"><span>int main(){</span></span>
+<span class="giallo-l"><span>    // Counter&lt;A&gt;::add(1);  [Error] &#39;static void Counter&lt;T&gt;::add(int) [with T = A]&#39; is private</span></span>
+<span class="giallo-l"><span>    A a1;</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; &quot;A : &quot; &lt;&lt; Counter&lt;A&gt;::get() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    {</span></span>
+<span class="giallo-l"><span>        B b1;</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;B : &quot; &lt;&lt; Counter&lt;B&gt;::get() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>        {</span></span>
+<span class="giallo-l"><span>            A a2;</span></span>
+<span class="giallo-l"><span>            cout &lt;&lt; &quot;A : &quot; &lt;&lt; Counter&lt;A&gt;::get() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>        }</span></span>
+<span class="giallo-l"><span>        cout &lt;&lt; &quot;A : &quot; &lt;&lt; Counter&lt;A&gt;::get() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    cout &lt;&lt; &quot;B : &quot; &lt;&lt; Counter&lt;B&gt;::get() &lt;&lt; endl;</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>对象构造肯定会调用构造函数，析构时也会调用析构函数，我们只要在构造函数和析构函数中添加计数的代码，再让其他类继承。
+在继承Counter<T>时，Counter<T>的模板参数就是派生类，同时就会实例化类模板，创建一个特定为派生类提供的计数器。
+构造函数将会在派生类被构造时隐式调用，从而实现了计数。</p>
+<h2 id="enable-shared-from-this">enable_shared_from_this</h2>
+<p>我们看C++标准库中，最为经典的就是enable_shared_from_this&lt;T&gt;。
+为了实现从类中传出一个安全的shared_ptr&lt;T&gt;来包装this指针，并且只能对现有的类做极小的修改，对实际使用没有影响。
+使用CRTP是最好的选择。通过继承enable_shared_from_this&lt;T&gt;，它可以自动生成派生类的传出this的方法。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>#include &lt;memory&gt;</span></span>
+<span class="giallo-l"><span>#include &lt;iostream&gt;</span></span>
+<span class="giallo-l"><span>struct Good: std::enable_shared_from_this&lt;Good&gt; // 注意：继承</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Good&gt; getptr() {</span></span>
+<span class="giallo-l"><span>        return shared_from_this();</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span>struct Bad</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    // 错误写法：用不安全的表达式试图获得 this 的 shared_ptr 对象</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Bad&gt; getptr() {</span></span>
+<span class="giallo-l"><span>        return std::shared_ptr&lt;Bad&gt;(this);</span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    ~Bad() { std::cout &lt;&lt; &quot;Bad::~Bad() called\n&quot;; }</span></span>
+<span class="giallo-l"><span>};</span></span>
+<span class="giallo-l"><span>int main()</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>    // 正确的示例：两个 shared_ptr 对象将会共享同一对象</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Good&gt; gp1 = std::make_shared&lt;Good&gt;();</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Good&gt; gp2 = gp1-&gt;getptr();</span></span>
+<span class="giallo-l"><span>    std::cout &lt;&lt; &quot;gp2.use_count() = &quot; &lt;&lt; gp2.use_count() &lt;&lt; &#39;\n&#39;;</span></span>
+<span class="giallo-l"><span>    // 错误的使用示例：调用 shared_from_this 但其没有被 std::shared_ptr 占有</span></span>
+<span class="giallo-l"><span>    try {</span></span>
+<span class="giallo-l"><span>        Good not_so_good;</span></span>
+<span class="giallo-l"><span>        std::shared_ptr&lt;Good&gt; gp1 = not_so_good.getptr();</span></span>
+<span class="giallo-l"><span>    } catch(std::bad_weak_ptr&amp; e) {</span></span>
+<span class="giallo-l"><span>        // C++17 前为未定义行为； C++17 起抛出 std::bad_weak_ptr 异常</span></span>
+<span class="giallo-l"><span>        std::cout &lt;&lt; e.what() &lt;&lt; &#39;\n&#39;;    </span></span>
+<span class="giallo-l"><span>    }</span></span>
+<span class="giallo-l"><span>    // 错误的示例，每个 shared_ptr 都认为自己是对象仅有的所有者</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Bad&gt; bp1 = std::make_shared&lt;Bad&gt;();</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Bad&gt; bp2 = bp1-&gt;getptr();</span></span>
+<span class="giallo-l"><span>    std::cout &lt;&lt; &quot;bp2.use_count() = &quot; &lt;&lt; bp2.use_count() &lt;&lt; &#39;\n&#39;;</span></span>
+<span class="giallo-l"><span>} // UB ： Bad 对象将会被删除两次</span></span></code></pre>
+<p>还有就是C++20中的view_interface<T>，其派生类可以变成一个范围，还可以使用各种范围适配器。</p>
+<p>由于ranges库还没有完全完成，暂无示例。</p>
+<h2 id="llvm-mlir">LLVM/MLIR</h2>
+<p>LLVM中大量使用了CRTP技术，如下随便截取一段代码：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>amespace mlir {</span></span>
+<span class="giallo-l"><span>class Operation final</span></span>
+<span class="giallo-l"><span>    : public llvm::ilist_node_with_parent&lt;Operation, Block&gt;,</span></span>
+<span class="giallo-l"><span>      private llvm::TrailingObjects&lt;Operation, BlockOperand, Region,</span></span>
+<span class="giallo-l"><span>                                    detail::OperandStorage&gt; {</span></span>
+<span class="giallo-l"><span>public:</span></span>
+<span class="giallo-l"><span>    /// ...</span></span></code></pre>
+<p>MLIR中极其重要的数据结构之一mlir::Operation的声明处，可以看到它继承自一个模板基类。我们调到这个基类的地方：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>template &lt;typename NodeTy, typename ParentTy, class... Options&gt;</span></span>
+<span class="giallo-l"><span>class ilist_node_with_parent : public ilist_node&lt;NodeTy, Options...&gt; {</span></span>
+<span class="giallo-l"><span>protected:</span></span>
+<span class="giallo-l"><span>  ilist_node_with_parent() = default;</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>private:</span></span>
+<span class="giallo-l"><span>  /// Forward to NodeTy::getParent().</span></span>
+<span class="giallo-l"><span>  ///</span></span>
+<span class="giallo-l"><span>  /// Note: do not use the name &quot;getParent()&quot;.  We want a compile error</span></span>
+<span class="giallo-l"><span>  /// (instead of recursion) when the subclass fails to implement \a</span></span>
+<span class="giallo-l"><span>  /// getParent().</span></span>
+<span class="giallo-l"><span>  const ParentTy *getNodeParent() const {</span></span>
+<span class="giallo-l"><span>    return static_cast&lt;const NodeTy *&gt;(this)-&gt;getParent();</span></span>
+<span class="giallo-l"><span>  }</span></span></code></pre>
+<p>可以看到，在getNodeParent()接口中同样存在static_cast。整个开源项目中这样的用法数不胜数。</p>
+<h1 id="crtpde-yi-yi">CRTP的意义</h1>
+<p>有人喜欢称CRTP为静态多态，不完全正确。我们把CRTP和Interface做个比较，CRTP是通过模板参数获得派生类的类型，并为每个派生类都生成了一个基类，
+每个派生类继承CRTP类都要将自身的类型传给基类，就发生了模板实例化，本质上并没有一个基类（接口）对多个派生类（实现）。</p>
+<p>而对于Interface，Interface本身不知道派生类的类型，但是它有固定的方法规定，参数个数，类型，返回值，都是确定的，并且每个方法都是通过按照vtable调用的，都是指针。
+这样就能真正的做到一个基类（接口）对多个派生类（实现）。</p>
+<p>将CRTP作为快速扩展类的手段，基类可以获得到派生类的类型，提供各种操作，比普通的继承更加灵活。但CRTP基类并不会单独使用，只是作为一个模板的功能。</p>
+<h1 id="lian-jie">链接</h1>
+<p>https://zhuanlan.zhihu.com/p/137879448
+https://zhuanlan.zhihu.com/p/136258767</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/gcc-option/">&#8249; gcc option</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/cxx-std-enable-shared-from-this/"> cxx std::enable_shared_from_this &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cxx-crtp">cxx CRTP</a>
+        </div>
+        <div>
+          <a href="#curiously-recurring-template-pattern-de-gai-nian">Curiously Recurring Template Pattern 的概念</a>
+        </div>
+        <div>
+          <a href="#tong-guo-mo-ban-shi-xian-jing-tai-bang-ding">通过模板实现静态绑定</a>
+        </div>
+        <div>
+          <a href="#yong-zai-na-li">用在哪里？</a>
+        </div>
+        <div>
+          <a href="#ying-yong">应用</a>
+        </div>
+        <div class="hpad">
+          <a href="#icomparable"><small>- IComparable</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#counter"><small>- Counter</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#enable-shared-from-this"><small>- enable_shared_from_this</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#llvm-mlir"><small>- LLVM&#x2F;MLIR</small></a>
+        </div>
+        <div>
+          <a href="#crtpde-yi-yi">CRTP的意义</a>
+        </div>
+        <div>
+          <a href="#lian-jie">链接</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

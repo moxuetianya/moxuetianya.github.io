@@ -1,0 +1,297 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>waypipe + weston 全屏乱码排查：一次被现象带偏的过程 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从 GPU DMABUF、waypipe 版本不匹配一路误判，最终定位到 fontconfig 缓存损坏的完整排查记录，含工具用法与根因分析" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/" />
+  <meta property="og:description" content="从 GPU DMABUF、waypipe 版本不匹配一路误判，最终定位到 fontconfig 缓存损坏的完整排查记录，含工具用法与根因分析" />
+  <meta name="twitter:description" content="从 GPU DMABUF、waypipe 版本不匹配一路误判，最终定位到 fontconfig 缓存损坏的完整排查记录，含工具用法与根因分析" />
+  <meta property="og:title" content="waypipe + weston 全屏乱码排查：一次被现象带偏的过程 | 墨雪天琊" />
+  <meta name="twitter:title" content="waypipe + weston 全屏乱码排查：一次被现象带偏的过程 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-08" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/">waypipe + weston 全屏乱码排查：一次被现象带偏的过程</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 08, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/waypipe/">waypipe</a>  #<a href="https://moxuetianya.github.io/tags/weston/">weston</a>  #<a href="https://moxuetianya.github.io/tags/wayland/">wayland</a>  #<a href="https://moxuetianya.github.io/tags/fontconfig/">fontconfig</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a> </span>
+
+    
+
+
+<h1 id="wen-ti-xian-xiang">问题现象</h1>
+<p>通过 waypipe 把远程主机的 Wayland 应用转发到本地显示：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span> ssh peter@dev weston</span></span></code></pre>
+<p>结果整个 Weston 窗口（包括标题栏和内部终端）<strong>所有文字都是整齐的方块（tofu）</strong>，连 ASCII 字符都无法显示。</p>
+<p>关键对照：</p>
+<ul>
+<li>同样的命令连另一台服务器 <code>douhao</code> <strong>完全正常</strong>。</li>
+<li>直接 <code>ssh dev</code> 用本地终端登录，文字显示<strong>一切正常</strong>。</li>
+</ul>
+<p>这两个对照信息看似缩小了范围，实际上把排查带偏了好几次。本文如实记录整个过程，重点是<strong>每一步用什么工具、看什么输出、为什么某个结论是错的</strong>。</p>
+<h1 id="pai-cha-qian-de-ji-chu-xin-xi-shou-ji">排查前的基础信息收集</h1>
+<p>第一步永远是确认版本和环境，不要凭记忆。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 本地</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span style="color: #F97E72;"> --version</span><span style="color: #848BBD;font-style: italic;">    # -&gt; waypipe 0.8.6</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 两台服务器</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;">    &quot;waypipe --version; weston --version&quot;</span><span style="color: #848BBD;font-style: italic;">   # -&gt; 0.9.2 / weston 14.0.2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> douhao</span><span style="color: #FF8B39;"> &quot;waypipe --version; weston --version&quot;</span><span style="color: #848BBD;font-style: italic;">   # -&gt; 0.9.2 / weston 14.0.2</span></span></code></pre><h1 id="wu-pan-yi-yi-wei-shi-zi-ti-que-shi">误判一：以为是字体缺失</h1>
+<p>最初的直觉：方块 = 缺字体。于是去数远程的字体：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;"> &quot;fc-list | wc -l&quot;</span><span style="color: #848BBD;font-style: italic;">     # -&gt; 168</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;"> &quot;fc-list | grep -iE &#39;mono|dejavu|noto&#39;&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># /usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf: DejaVu Sans Mono ...</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># /usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf ...</span></span></code></pre>
+<p><strong><code>fc-list</code></strong> 列出系统所有已注册字体。dev 上有 168 个字体，DejaVu Sans Mono、Noto 一应俱全。</p>
+<blockquote>
+<p>结论：字体文件不缺。<strong>「缺字体」被排除。</strong></p>
+</blockquote>
+<p>这里其实已经埋下伏笔——<code>fc-list</code> 能列出字体，不代表字体查询系统本身是健康的。但当时没意识到。</p>
+<h1 id="wu-pan-er-yi-wei-shi-gpu-dmabuf-chuan-shu-wen-ti">误判二：以为是 GPU DMABUF 传输问题</h1>
+<p>既然字体不缺，转去看 dev 和 douhao 的硬件差异：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;">    &quot;lspci -nn | grep -iE &#39;vga|3d&#39;; ls -l /dev/dri&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> douhao</span><span style="color: #FF8B39;"> &quot;lspci -nn | grep -iE &#39;vga|3d&#39;; ls -l /dev/dri&quot;</span></span></code></pre>
+<p>发现一个「重大差异」：</p>
+<table><thead><tr><th></th><th>GPU</th><th>缓冲区类型</th></tr></thead><tbody>
+<tr><td><strong>dev</strong>（乱码）</td><td>真实 Intel 显卡 (i915/iris, renderD128)</td><td>硬件 tiled/带 modifier 的 DMABUF</td></tr>
+<tr><td><strong>douhao</strong>（正常）</td><td>virtio-gpu（虚拟机）</td><td>线性 (linear) 缓冲区</td></tr>
+</tbody></table>
+<p>推理链看起来很完美：Weston 在 dev 上用 GL 渲染器输出 Intel 平铺格式的显存缓冲区，waypipe 通过网络传这些 GPU buffer 时 tiling modifier 没正确还原 → 乱码；douhao 是虚拟 GPU、线性缓冲，所以正常。</p>
+<p>于是给出三个方案（对应 <code>waypipe --help</code> 里的选项）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span> ssh peter@dev weston</span><span style="color: #F97E72;"> --renderer=pixman</span><span style="color: #848BBD;font-style: italic;">   # 让 weston 用 CPU 软件渲染，输出线性缓冲</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span style="color: #F97E72;"> --no-gpu</span><span> ssh peter@dev weston</span><span style="color: #848BBD;font-style: italic;">            # 让 waypipe 不转发 GPU dmabuf</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span style="color: #F97E72;"> --allow-tiled</span><span> ssh peter@dev weston</span><span style="color: #848BBD;font-style: italic;">       # 允许带 modifier 的 tiled 缓冲</span></span></code></pre>
+<p><strong>结果三个全部还是乱码。</strong></p>
+<blockquote>
+<p><code>--no-gpu</code> 走的是纯 SHM 内存缓冲路径，理论上完全绕开 GPU。它都乱码，说明<strong>根因不在 GPU / DMABUF 传输</strong>。GPU 差异理论被推翻。</p>
+</blockquote>
+<p><strong>教训：一个「显著差异」不等于「根因」。dev 和 douhao 有很多不同点，GPU 只是最扎眼的那个。</strong></p>
+<h1 id="wu-pan-san-yi-wei-shi-waypipe-ban-ben-bu-pi-pei">误判三：以为是 waypipe 版本不匹配</h1>
+<p>加 <code>--debug</code> 抓真实日志，这是转折点：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span style="color: #F97E72;"> --debug</span><span> ssh peter@dev</span><span style="color: #FF8B39;"> &quot;weston --renderer=pixman&quot;</span><span style="color: #FEDE5D;"> 2&gt;&amp;1 |</span><span style="color: #FE4450;"> head</span><span style="color: #F97E72;"> -60</span></span></code></pre>
+<p>日志里跳出版本号：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>c2951318: ... version: 0.8.6      &lt;- 本地 client</span></span>
+<span class="giallo-l"><span>s747338:  ... version: 0.9.2      &lt;- 远程 server</span></span></code></pre>
+<p>waypipe 0.8.x 和 0.9.x 之间线协议（wire protocol）确实不保证兼容，看起来是铁证。</p>
+<p>但对照 <code>douhao</code> 时立刻自相矛盾：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">waypipe</span><span style="color: #F97E72;"> --version</span><span style="color: #848BBD;font-style: italic;">                       # 本地 0.8.6</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;">    &quot;waypipe --version&quot;</span><span style="color: #848BBD;font-style: italic;">          # 0.9.2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> douhao</span><span style="color: #FF8B39;"> &quot;waypipe --version&quot;</span><span style="color: #848BBD;font-style: italic;">          # 0.9.2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;">    &quot;ls -l </span><span style="color: #36F9F6;">\$</span><span style="color: #FF8B39;">(command -v waypipe)&quot;</span><span style="color: #848BBD;font-style: italic;">    # 236056 字节</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> douhao</span><span style="color: #FF8B39;"> &quot;ls -l </span><span style="color: #36F9F6;">\$</span><span style="color: #FF8B39;">(command -v waypipe)&quot;</span><span style="color: #848BBD;font-style: italic;">    # 236056 字节，完全一致</span></span></code></pre><table><thead><tr><th>连接</th><th>本地 client</th><th>远程 server</th><th>结果</th></tr></thead><tbody>
+<tr><td>dev</td><td>0.8.6</td><td>0.9.2</td><td>乱码</td></tr>
+<tr><td>douhao</td><td>0.8.6</td><td>0.9.2</td><td><strong>正常</strong></td></tr>
+</tbody></table>
+<blockquote>
+<p>两条连接是<strong>完全相同的 0.8.6 ↔ 0.9.2 组合</strong>。如果纯粹是版本协议不兼容，douhao 也该乱码。<strong>版本不匹配被推翻。</strong></p>
+</blockquote>
+<p>顺手也排除了 CPU/SIMD 差异（waypipe 用手写 AVX2/AVX512 内核做缓冲区 diff）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">grep</span><span style="color: #F97E72;"> -m1</span><span> flags /proc/cpuinfo</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span style="color: #F97E72;"> -oE</span><span style="color: #FF8B39;"> &#39;avx512[a-z]*|avx2&#39;</span><span style="color: #848BBD;font-style: italic;">   # 三方都查</span></span></code></pre>
+<p>结果本地是 i7-11700T（有 avx512），两台服务器都是 <strong>i7-14700K（相同，avx2、无 avx512）</strong>。两台服务器 CPU 完全一样，SIMD 路径不是差异点。</p>
+<p>至此，dev 和 douhao 在<strong>版本、CPU、Mesa、字体文件</strong>上全都相同，硬件 GPU 差异又已被 <code>--no-gpu</code> 排除。必须换思路。</p>
+<h1 id="ding-wei-gen-yin-dui-bi-fontconfig-pi-pei-jie-guo">定位根因：对比 fontconfig 匹配结果</h1>
+<p>回到最朴素的观察：<strong>乱码是整齐的方块（tofu），不是彩色雪花噪点。</strong></p>
+<ul>
+<li>缓冲区/传输损坏 → 应该是随机噪点、错位、花屏。</li>
+<li>整齐的 <code>.notdef</code> 方块 → 是<strong>字形（glyph）查询失败</strong>。</li>
+</ul>
+<p>现象一直在说「字体」，只是我前面把「字体文件存在」错当成了「字体系统正常」。直接对比两台的字体<strong>匹配</strong>行为（而不是字体<strong>列表</strong>）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FEDE5D;">for</span><span style="color: #FF7EDB;"> h</span><span style="color: #FEDE5D;"> in</span><span> dev douhao;</span><span style="color: #FEDE5D;"> do</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">  echo</span><span style="color: #FF8B39;"> &quot;===== </span><span style="color: #FF7EDB;">$h</span><span style="color: #FF8B39;"> =====&quot;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">  ssh</span><span style="color: #FF7EDB;"> $h</span><span style="color: #FF8B39;"> &quot;fc-match monospace; fc-match sans-serif; fc-cache -v 2&gt;&amp;1 | grep -iE &#39;invalid|成功&#39;&quot;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">done</span></span></code></pre>
+<p><strong><code>fc-match &lt;类别&gt;</code></strong> 才是关键工具——它模拟应用程序实际拿字体的过程，回答「monospace 这个别名最终解析到哪个字体文件」。输出对比：</p>
+<table><thead><tr><th></th><th><code>fc-match monospace</code></th><th><code>fc-cache</code> 状态</th></tr></thead><tbody>
+<tr><td><strong>dev</strong></td><td><code>Droid Sans Fallback</code></td><td>⚠️ <code>invalid cache file: 21a99156...-le64.cache-9</code></td></tr>
+<tr><td><strong>douhao</strong></td><td><code>Noto Sans Mono CJK SC</code></td><td>正常</td></tr>
+</tbody></table>
+<p>两个问题同时暴露：</p>
+<ol>
+<li><strong>dev 的 fontconfig 缓存损坏</strong>：<code>invalid cache file</code>，douhao 没有这行。</li>
+<li>dev 默认 monospace 解析到了 CJK 覆盖不全的 <code>Droid Sans Fallback</code>，douhao 是完整的 <code>Noto CJK</code>。</li>
+</ol>
+<h1 id="xiu-fu">修复</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 在 dev 上执行</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">rm</span><span style="color: #F97E72;"> -rf</span><span> ~/.cache/fontconfig</span><span style="color: #848BBD;font-style: italic;">            # 删除损坏的缓存</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">sudo</span><span> apt install fonts-noto-cjk fonts-noto-mono</span><span style="color: #848BBD;font-style: italic;">   # 补齐和 douhao 一致的字体</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">fc-cache</span><span style="color: #F97E72;"> -fv</span><span style="color: #848BBD;font-style: italic;">                          # 重建缓存</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">fc-match</span><span> monospace</span><span style="color: #848BBD;font-style: italic;">                    # 验证 -&gt; Noto Sans Mono CJK SC</span></span></code></pre>
+<p>验证：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">ssh</span><span> dev</span><span style="color: #FF8B39;"> &quot;fc-match monospace; fc-cache -v 2&gt;&amp;1 | grep -iE &#39;invalid|成功&#39;&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># NotoSansCJK-Regular.ttc: &quot;Noto Sans Mono CJK SC&quot; &quot;Regular&quot;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># fc-cache: 缓存生成成功          &lt;- 不再有 invalid</span></span></code></pre>
+<p>之后裸命令 <code>waypipe ssh peter@dev weston</code> 恢复正常，不需要任何 <code>--no-gpu</code> / <code>--renderer</code> 参数。</p>
+<h1 id="gen-yin-jie-shi-wei-shen-me-lian-ascii-du-bian-fang-kuai">根因解释：为什么连 ASCII 都变方块？</h1>
+<p>这是最反直觉的一点，也是最值得记住的：</p>
+<blockquote>
+<p><strong>ASCII 字形任何西文字体都有，「monospace 匹配到覆盖不全的字体」根本不该让 ASCII 也变方块。</strong></p>
+</blockquote>
+<p>真正让 <strong>ASCII 也乱码</strong>的是<strong>另一半原因：fontconfig 缓存损坏</strong>。渲染链路是：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>weston-terminal  -&gt;  Cairo / Pango  -&gt;  fontconfig  -&gt;  FreeType</span></span>
+<span class="giallo-l"><span>                                          (查询)        (取字形)</span></span></code></pre>
+<ul>
+<li>每渲染一个字符，Pango 都要先问 fontconfig：「这个码点用哪个字体？文件在哪？glyph 索引多少？」</li>
+<li>fontconfig 的这套查询<strong>依赖磁盘上的缓存文件</strong>。</li>
+<li>当缓存是 <code>invalid</code> 状态时，查询<strong>整体失败</strong>——不是「某个中文字找不到」，而是<strong>连 ASCII 的字形查询都拿不到结果</strong>。</li>
+<li>拿不到 glyph，Pango 对<strong>所有字符</strong>（<code>~</code>、<code>$</code>、字母、中文）一律画成 <code>.notdef</code> 空方块。</li>
+</ul>
+<p>所以现象才是「连 ASCII 都是方块」：<strong>不是字体文件缺失，是字体查询系统整体挂了。</strong></p>
+<p>两个原因各自的作用要分清：</p>
+<table><thead><tr><th>原因</th><th>造成的现象</th><th>修复手段</th></tr></thead><tbody>
+<tr><td><strong>fontconfig 缓存损坏</strong></td><td><strong>连 ASCII 都变方块</strong>（根因）</td><td><code>rm -rf ~/.cache/fontconfig &amp;&amp; fc-cache -fv</code></td></tr>
+<tr><td>默认字体是 Droid Sans Fallback</td><td>中文提示符覆盖不全</td><td>安装 <code>fonts-noto-cjk</code></td></tr>
+</tbody></table>
+<p>真正治好 ASCII 方块的是删缓存重建那一步；装 Noto CJK 只是顺带把中文显示也补全了。</p>
+<h1 id="wei-shen-me-zhi-jie-ssh-dev-jiu-mei-shi">为什么直接 ssh dev 就没事？</h1>
+<p>因为渲染位置不同：</p>
+<ul>
+<li><strong>直接 <code>ssh dev</code></strong>：文字在<strong>本地终端仿真器</strong>里渲染，用的是<strong>本地机器</strong>的字体系统，dev 的 fontconfig 完全没参与。</li>
+<li><strong><code>waypipe ssh dev weston</code></strong>：Weston 及其终端跑在 dev 上，<strong>所有字形渲染都在 dev 完成</strong>，然后把画好的像素缓冲通过 waypipe 传回本地。这条路径才会踩到 dev 上损坏的 fontconfig。</li>
+</ul>
+<h1 id="tui-lun-ben-di-zhi-lian-dev-pao-gui-ye-hui-luan-ma-ma">推论：本地直连 dev 跑 GUI 也会乱码吗？</h1>
+<p>会。判断标准始终是**「谁在画字、用哪台机器的 fontconfig」**，跟 waypipe / 网络无关。</p>
+<p>如果直接坐在 dev 前（或本地登录 dev）用它的显示器跑 GUI 程序（weston、weston-terminal 等），字形渲染就在 dev 上、走 dev 的 fontconfig 完成，同样会命中那份损坏的缓存 → 一样的方块。</p>
+<p>有一个前提要注意：损坏的是<strong>用户 <code>peter</code> 的 <code>~/.cache/fontconfig</code></strong>（用户级缓存）。所以精确说法是：</p>
+<ul>
+<li>以 <strong>peter 身份</strong>在 dev 上跑 GUI → 乱码。</li>
+<li>换成缓存正常的<strong>另一个用户</strong>（或 root 用另一份缓存）→ 未必乱码。</li>
+</ul>
+<p>这也反过来印证了前一节：<code>ssh dev</code> 用本地终端不乱码，是因为渲染在本机、用本机 fontconfig，dev 的坏缓存根本没参与。</p>
+<h1 id="jing-yan-zong-jie">经验总结</h1>
+<ol>
+<li><strong>让现象说话，别让「显著差异」抢戏。</strong> 整齐方块（tofu）= 字形缺失，彩色噪点 = 缓冲区损坏。一开始就该抓住这个区别，而不是先盯着 GPU。</li>
+<li><strong>对照组是双刃剑。</strong> 「douhao 正常」帮我推翻了版本、CPU、GPU 理论，但也一度让我忽略「两台都有字体文件、差异只在匹配结果」这个更细的层面。用对照时要对比到<strong>行为</strong>（<code>fc-match</code>），而不只是<strong>存在性</strong>（<code>fc-list</code>）。</li>
+<li><strong><code>--debug</code> 尽早上。</strong> waypipe/weston 的调试日志一句话就暴露了版本号、dmabuf 权限（<code>renderD128: Permission denied</code>，说明 dmabuf 早已被禁用）等关键事实，省去大量猜测。</li>
+<li><strong>区分「文件存在」和「系统可用」。</strong> <code>fc-list</code> 能列出字体 ≠ fontconfig 能正常查询。缓存损坏是「文件都在但系统坏了」的典型。</li>
+</ol>
+<h1 id="gong-ju-su-cha">工具速查</h1>
+<table><thead><tr><th>工具</th><th>用途</th><th>本次关键输出</th></tr></thead><tbody>
+<tr><td><code>waypipe --version</code></td><td>确认两端版本</td><td>排除/确认版本不匹配</td></tr>
+<tr><td><code>waypipe --debug ...</code></td><td>打印协议级日志</td><td>暴露版本号、dmabuf 权限被拒</td></tr>
+<tr><td><code>waypipe --help</code></td><td>查 <code>--no-gpu</code> / <code>--allow-tiled</code> / <code>--renderer</code></td><td>尝试绕过 GPU</td></tr>
+<tr><td><code>fc-list</code></td><td>列出已安装字体（存在性）</td><td>168 个，文件不缺</td></tr>
+<tr><td><code>fc-match &lt;类别&gt;</code></td><td>模拟应用取字体（匹配行为）</td><td><strong>定位到 Droid Sans Fallback / 缓存 invalid</strong></td></tr>
+<tr><td><code>fc-cache -fv</code></td><td>重建字体缓存</td><td><strong>修复根因</strong></td></tr>
+<tr><td><code>lspci -nn</code> / <code>ls /dev/dri</code></td><td>查 GPU 类型</td><td>发现 Intel vs virtio（最终无关）</td></tr>
+<tr><td><code>/proc/cpuinfo</code> flags</td><td>查 SIMD 指令集</td><td>排除 AVX 差异</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/linux-idle-laptop-as-second-monitor-research/">&#8249; Linux 闲置笔记本做副屏：方案调研与后续研究 TODO</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/理解-linux-usb-sysfs/"> 理解 Linux USB sysfs &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#wen-ti-xian-xiang">问题现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-qian-de-ji-chu-xin-xi-shou-ji">排查前的基础信息收集</a>
+        </div>
+        <div>
+          <a href="#wu-pan-yi-yi-wei-shi-zi-ti-que-shi">误判一：以为是字体缺失</a>
+        </div>
+        <div>
+          <a href="#wu-pan-er-yi-wei-shi-gpu-dmabuf-chuan-shu-wen-ti">误判二：以为是 GPU DMABUF 传输问题</a>
+        </div>
+        <div>
+          <a href="#wu-pan-san-yi-wei-shi-waypipe-ban-ben-bu-pi-pei">误判三：以为是 waypipe 版本不匹配</a>
+        </div>
+        <div>
+          <a href="#ding-wei-gen-yin-dui-bi-fontconfig-pi-pei-jie-guo">定位根因：对比 fontconfig 匹配结果</a>
+        </div>
+        <div>
+          <a href="#xiu-fu">修复</a>
+        </div>
+        <div>
+          <a href="#gen-yin-jie-shi-wei-shen-me-lian-ascii-du-bian-fang-kuai">根因解释：为什么连 ASCII 都变方块？</a>
+        </div>
+        <div>
+          <a href="#wei-shen-me-zhi-jie-ssh-dev-jiu-mei-shi">为什么直接 ssh dev 就没事？</a>
+        </div>
+        <div>
+          <a href="#tui-lun-ben-di-zhi-lian-dev-pao-gui-ye-hui-luan-ma-ma">推论：本地直连 dev 跑 GUI 也会乱码吗？</a>
+        </div>
+        <div>
+          <a href="#jing-yan-zong-jie">经验总结</a>
+        </div>
+        <div>
+          <a href="#gong-ju-su-cha">工具速查</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

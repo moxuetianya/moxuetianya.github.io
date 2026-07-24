@@ -1,0 +1,474 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux动态链接中的PLT和GOT | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/10/Linux动态链接中的PLT和GOT/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/10/Linux动态链接中的PLT和GOT/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/10/Linux动态链接中的PLT和GOT/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="Linux动态链接中的PLT和GOT | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux动态链接中的PLT和GOT | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-10-12" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/10/Linux动态链接中的PLT和GOT/">Linux动态链接中的PLT和GOT</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 12, 2022 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/gcc/">gcc</a> </span>
+
+    
+
+
+<h1 id="linuxdong-tai-lian-jie-zhong-de-plthe-got">Linux动态链接中的PLT和GOT</h1>
+<h1 id="plt-got">PLT &amp; GOT</h1>
+<p>首先, 我们要知道, GOT和PLT只是一种重定向的实现方式. 所以为了理解他们的作用,
+就要先知道什么是重定向, 以及我们为什么需要重定向.</p>
+<p>重定向(relocations), 简单来说就是二进制文件中留下的"坑", 预留给外部变量或函数.
+这里的变量和函数统称为符号(symbols). 在编译期我们通常只知道外部符号的类型
+(变量类型和函数原型), 而不需要知道具体的值(变量值和函数实现). 而这些预留的"坑",
+会在用到之前(链接期间或者运行期间)填上. 在链接期间填上主要通过工具链中的连接器,
+比如GNU链接器ld; 在运行期间填上则通过动态连接器, 或者说解释器(interpreter)来实现.</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>cat &gt; symbol.c &lt;&lt; EOF</span></span>
+<span class="giallo-l"><span>int my_var = 42;</span></span>
+<span class="giallo-l"><span>int my_func(int a, int b) {</span></span>
+<span class="giallo-l"><span>    return a + b;</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>EOF</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>gcc -g -m32 -masm=intel -shared -fPIC symbol.c -o libsymbol.so</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>cat &gt; main.c &lt;&lt; EOF</span></span>
+<span class="giallo-l"><span>int var = 10;</span></span>
+<span class="giallo-l"><span>extern int my_var;</span></span>
+<span class="giallo-l"><span>extern int my_func(int, int);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>int main() {</span></span>
+<span class="giallo-l"><span>    int a, b;</span></span>
+<span class="giallo-l"><span>    a = var;</span></span>
+<span class="giallo-l"><span>    b = my_var;</span></span>
+<span class="giallo-l"><span>    return my_func(a, b);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span>EOF</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span># 位置相关</span></span>
+<span class="giallo-l"><span>gcc -g -m32 -masm=intel -L. -lsymbol -no-pie -fno-pic main.c libsymbol.so -o main</span></span>
+<span class="giallo-l"><span># 位置无关</span></span>
+<span class="giallo-l"><span>gcc -g -m32 -masm=intel -L. -lsymbol main.c libsymbol.so -o main_pi</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>readelf -S ./main</span></span>
+<span class="giallo-l"></span></code></pre><h1 id="dong-tai-lian-jie">动态链接</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>objdump -d main_pi | grep &quot;&lt;main&gt;&quot; -A 20</span></span>
+<span class="giallo-l"><span>00000660 &lt;main&gt;:</span></span>
+<span class="giallo-l"><span> 660:	8d 4c 24 04          	lea    ecx,[esp+0x4]</span></span>
+<span class="giallo-l"><span> 664:	83 e4 f0             	and    esp,0xfffffff0</span></span>
+<span class="giallo-l"><span> 667:	ff 71 fc             	push   DWORD PTR [ecx-0x4]</span></span>
+<span class="giallo-l"><span> 66a:	55                   	push   ebp</span></span>
+<span class="giallo-l"><span> 66b:	89 e5                	mov    ebp,esp</span></span>
+<span class="giallo-l"><span> 66d:	53                   	push   ebx</span></span>
+<span class="giallo-l"><span> 66e:	51                   	push   ecx</span></span>
+<span class="giallo-l"><span> 66f:	83 ec 10             	sub    esp,0x10</span></span>
+<span class="giallo-l"><span> 672:	e8 36 00 00 00       	call   6ad &lt;__x86.get_pc_thunk.ax&gt;</span></span>
+<span class="giallo-l"><span> 677:	05 89 19 00 00       	add    eax,0x1989</span></span>
+<span class="giallo-l"><span> 67c:	8b 90 1c 00 00 00    	mov    edx,DWORD PTR [eax+0x1c]</span></span>
+<span class="giallo-l"><span> 682:	89 55 f4             	mov    DWORD PTR [ebp-0xc],edx</span></span>
+<span class="giallo-l"><span> 685:	8b 90 f0 ff ff ff    	mov    edx,DWORD PTR [eax-0x10]</span></span>
+<span class="giallo-l"><span> 68b:	8b 12                	mov    edx,DWORD PTR [edx]</span></span>
+<span class="giallo-l"><span> 68d:	89 55 f0             	mov    DWORD PTR [ebp-0x10],edx</span></span>
+<span class="giallo-l"><span> 690:	83 ec 08             	sub    esp,0x8</span></span>
+<span class="giallo-l"><span> 693:	ff 75 f0             	push   DWORD PTR [ebp-0x10]</span></span>
+<span class="giallo-l"><span> 696:	ff 75 f4             	push   DWORD PTR [ebp-0xc]</span></span>
+<span class="giallo-l"><span> 699:	89 c3                	mov    ebx,eax</span></span>
+<span class="giallo-l"><span> 69b:	e8 20 fe ff ff       	call   4c0 &lt;my_func@plt&gt;</span></span></code></pre>
+<p>位置无关代码, PIC寄存器为.got.plt的地址, 然后按偏移量
+来获取变量. 上面只看了eax+0x1c即从.data段获取的内容(var), 还有一个参数是通过
+eax-0x10即.got段之中获取的my_var. 后者是在symbol.c中定义的, 所以其内容在编译期
+未知. 如果是静态链接, 则可以在链接时解析符号的值. 我们这里主要考虑动态链接的情况.</p>
+<p>上面说了很多.got, .plt, 那么这些section到底是做什么用的呢. 其实这些都是
+链接器(或解释器, 下面统称为链接器)在执行重定向时会用到的部分, 先来看他们的定义.</p>
+<h3 id="got">.got</h3>
+<p>这是我们常说的GOT, 即Global Offset Table, 全局偏移表. 这是链接器在执行链接时
+实际上要填充的部分, 保存了所有外部符号的地址信息.
+不过值得注意的是, 在i386架构下, 除了每个函数占用一个GOT表项外，GOT表项还保留了
+3个公共表项, 每项32位(4字节), 保存在前三个位置, 分别是:</p>
+<p>got[0]: 本ELF动态段(.dynamic段)的装载地址
+got1: 本ELF的link_map数据结构描述符地址
+got2: _dl_runtime_resolve函数的地址
+其中, link_map数据结构的定义如下:</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>struct link_map</span></span>
+<span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span>   /* Shared library&#39;s load address. */</span></span>
+<span class="giallo-l"><span>   ElfW(Addr) l_addr;                 </span></span>
+<span class="giallo-l"><span>   /* Pointer to library&#39;s name in the string table. */                                 </span></span>
+<span class="giallo-l"><span>   char *l_name;    </span></span>
+<span class="giallo-l"><span>   /* </span></span>
+<span class="giallo-l"><span>        Dynamic section of the shared object.</span></span>
+<span class="giallo-l"><span>        Includes dynamic linking info etc.</span></span>
+<span class="giallo-l"><span>        Not interesting to us.  </span></span>
+<span class="giallo-l"><span>   */                   </span></span>
+<span class="giallo-l"><span>   ElfW(Dyn) *l_ld;   </span></span>
+<span class="giallo-l"><span>   /* Pointer to previous and next link_map node. */                 </span></span>
+<span class="giallo-l"><span>   struct link_map *l_next, *l_prev;   </span></span>
+<span class="giallo-l"><span>};</span></span></code></pre><h3 id="plt">.plt</h3>
+<p>这也是我们常说的PLT, 即Procedure Linkage Table, 进程链接表. 这个表里包含了一些代码,
+用来(1)调用链接器来解析某个外部函数的地址, 并填充到.got.plt中, 然后跳转到该函数; 或者
+(2)直接在.got.plt中查找并跳转到对应外部函数(如果已经填充过).</p>
+<h3 id="got-plt">.got.plt</h3>
+<p>.got.plt相当于.plt的GOT全局偏移表, 其内容有两种情况, 1)如果在之前查找过该符号,
+内容为外部函数的具体地址. 2)如果没查找过, 则内容为跳转回.plt的代码, 并执行查找.
+至于为什么要这么绕, 后面会说明具体原因.</p>
+<h3 id="plt-got-1">.plt.got</h3>
+<p>不知道具体作用</p>
+<h3 id="cha-kan-xu-yao-zhong-ding-xiang-de-fu-hao">查看需要重定向的符号</h3>
+<p>对于我们将要研究的main程序, 这些段的地址如下:</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>readelf -S main | egrep  &#39;.plt|.got&#39;</span></span>
+<span class="giallo-l"><span>readelf --relocs ./main</span></span>
+<span class="giallo-l"><span>readelf -S main | grep 0804a020 -B 2</span></span>
+<span class="giallo-l"><span>(gdb) x/dw 0x0804a020</span></span>
+<span class="giallo-l"><span>(gdb) set environment LD_LIBRARY_PATH=.</span></span>
+<span class="giallo-l"><span>(gdb) watch -l *0x804a020</span></span>
+<span class="giallo-l"><span>(gdb) run</span></span>
+<span class="giallo-l"><span>Starting program: /home/pan/project/cFile/shared_library/plt/main </span></span>
+<span class="giallo-l"><span>Hardware watchpoint 1: -location *0x804a020</span></span>
+<span class="giallo-l"><span>Old value = 0</span></span>
+<span class="giallo-l"><span>New value = 42</span></span>
+<span class="giallo-l"><span>0xf7ff2e08 in ?? () from /lib/ld-linux.so.2</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(gdb) x/xd 0x804a020</span></span></code></pre>
+<p>所以, 确实是链接器/lib/ld-linux.so.2负责填充了该变量的内容.
+而且是在程序运行之前就完成了符号解析.</p>
+<h3 id="han-shu">函数</h3>
+<p>接下来看看外部函数符号. 外部函数的内容(指令)也是像变量一样在
+程序运行之前完成填充的吗? 其实这理论上是可以的, 事实上稍有不同.</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>(gdb) disassemble  main</span></span>
+<span class="giallo-l"><span>Dump of assembler code for function main:</span></span>
+<span class="giallo-l"><span>   0x080484db &lt;+0&gt;:	lea    ecx,[esp+0x4]</span></span>
+<span class="giallo-l"><span>   0x080484df &lt;+4&gt;:	and    esp,0xfffffff0</span></span>
+<span class="giallo-l"><span>   0x080484e2 &lt;+7&gt;:	push   DWORD PTR [ecx-0x4]</span></span>
+<span class="giallo-l"><span>   0x080484e5 &lt;+10&gt;:	push   ebp</span></span>
+<span class="giallo-l"><span>   0x080484e6 &lt;+11&gt;:	mov    ebp,esp</span></span>
+<span class="giallo-l"><span>   0x080484e8 &lt;+13&gt;:	push   ecx</span></span>
+<span class="giallo-l"><span>   0x080484e9 &lt;+14&gt;:	sub    esp,0x14</span></span>
+<span class="giallo-l"><span>   0x080484ec &lt;+17&gt;:	mov    eax,ds:0x804a01c</span></span>
+<span class="giallo-l"><span>   0x080484f1 &lt;+22&gt;:	mov    DWORD PTR [ebp-0xc],eax</span></span>
+<span class="giallo-l"><span>   0x080484f4 &lt;+25&gt;:	mov    eax,ds:0x804a020</span></span>
+<span class="giallo-l"><span>   0x080484f9 &lt;+30&gt;:	mov    DWORD PTR [ebp-0x10],eax</span></span>
+<span class="giallo-l"><span>   0x080484fc &lt;+33&gt;:	sub    esp,0x8</span></span>
+<span class="giallo-l"><span>   0x080484ff &lt;+36&gt;:	push   DWORD PTR [ebp-0x10]</span></span>
+<span class="giallo-l"><span>   0x08048502 &lt;+39&gt;:	push   DWORD PTR [ebp-0xc]</span></span>
+<span class="giallo-l"><span>   0x08048505 &lt;+42&gt;:	call   0x80483b0 &lt;my_func@plt&gt;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>调用的地址是0x80483b0, 在.plt段中, 之前说了PLT的定义, 现在具体看看里面的内容:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(gdb) disassemble 0x80483b0</span></span>
+<span class="giallo-l"><span>Dump of assembler code for function my_func@plt:</span></span>
+<span class="giallo-l"><span>   0x080483b0 &lt;+0&gt;:	jmp    DWORD PTR ds:0x804a00c</span></span>
+<span class="giallo-l"><span>   0x080483b6 &lt;+6&gt;:	push   0x0</span></span>
+<span class="giallo-l"><span>   0x080483bb &lt;+11&gt;:	jmp    0x80483a0</span></span>
+<span class="giallo-l"><span>End of assembler dump.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>首先是跳转到*0x804a00c, 该地址在.got.plt之中, 之前说了, .got.plt相当于</span></span>
+<span class="giallo-l"><span>.plt的GOT, 而GOT本身相当于一个数组, 看看该&quot;数组&quot;的内容:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(gdb) x/4xw 0x804a00c</span></span>
+<span class="giallo-l"><span>0x804a00c:	0x080483b6	0x080483c6	0x00000000	0x00000000</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>所以, 0x080483b0这里的跳转, 相当于跳转到0x080483b6, 即下一条指令!</span></span>
+<span class="giallo-l"><span>这个多余的跳转先打个问号, 把流程走完再说. 接着, 跳转到了0x80483a0,</span></span>
+<span class="giallo-l"><span>这个地址, 是.plt的起始地址, 这里的指令如下:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(gdb) x/2i 0x080483a0</span></span>
+<span class="giallo-l"><span>   0x80483a0:	push   DWORD PTR ds:0x804a004</span></span>
+<span class="giallo-l"><span>   0x80483a6:	jmp    DWORD PTR ds:0x804a008</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>跳转到了0x804a008, 在前面我们知道0x804a000是.got.plt的地址,</span></span>
+<span class="giallo-l"><span>而在上一节的定义中, 也知道了.got表前三项的作用, 0x804a008</span></span>
+<span class="giallo-l"><span>正好是第三项got2, 即_dl_runtime_resolve函数的地址. 0x804a004</span></span>
+<span class="giallo-l"><span>则是调用该函数的参数, 且值为got1, 即本ELF的link_map的地址.</span></span>
+<span class="giallo-l"><span>如下, 在进程未启动前, got1和got2都为0, 在启动时由链接器装填:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>(gdb) x/4xw 0x804a000</span></span>
+<span class="giallo-l"><span>0x804a000:	0x08049f0c	0x00000000	0x00000000	0x080483b6</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>因此, 实际上(第一次)调用my_func@plt就相当于调用了</span></span>
+<span class="giallo-l"><span>_dl_runtime_resolve((link_map *)m, 0)! 其中link_map提供了运行时的必要信息,</span></span>
+<span class="giallo-l"><span>而0则是my_func函数的偏移(在my_func@plt中push 0x0).</span></span>
+<span class="giallo-l"><span>该函数定义在glibc/sysdeps/i386/dl-trampoline.S中, 关键代码如下:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>_dl_runtime_resolve:</span></span>
+<span class="giallo-l"><span>        cfi_adjust_cfa_offset (8)</span></span>
+<span class="giallo-l"><span>        pushl %eax                # Preserve registers otherwise clobbered.</span></span>
+<span class="giallo-l"><span>        cfi_adjust_cfa_offset (4)</span></span>
+<span class="giallo-l"><span>        pushl %ecx</span></span>
+<span class="giallo-l"><span>        cfi_adjust_cfa_offset (4)</span></span>
+<span class="giallo-l"><span>        pushl %edx</span></span>
+<span class="giallo-l"><span>        cfi_adjust_cfa_offset (4)</span></span>
+<span class="giallo-l"><span>        movl 16(%esp), %edx        # Copy args pushed by PLT in register.  Note</span></span>
+<span class="giallo-l"><span>        movl 12(%esp), %eax        # that `fixup&#39; takes its parameters in regs.</span></span>
+<span class="giallo-l"><span>        call _dl_fixup                # Call resolver.</span></span>
+<span class="giallo-l"><span>        popl %edx                # Get register content back.</span></span>
+<span class="giallo-l"><span>        cfi_adjust_cfa_offset (-4)</span></span>
+<span class="giallo-l"><span>        movl (%esp), %ecx</span></span>
+<span class="giallo-l"><span>        movl %eax, (%esp)        # Store the function address.</span></span>
+<span class="giallo-l"><span>        movl 4(%esp), %eax</span></span>
+<span class="giallo-l"><span>        ret $12                        # Jump to function address.</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>从注释里也可以看出来, 该函数实际上做了两件事:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>1)解析出my_func的地址并将值填入.got.plt中.</span></span>
+<span class="giallo-l"><span>2)跳转执行真正的my_func函数.</span></span></code></pre><h3 id="dong-tai-fen-xi">动态分析</h3>
+<p>上面虽然用了gdb, 但程序并未运行, 只是分析静态的汇编代码, 为了验证上面的说法,
+我们需要进行动态分析. 接着上面的分析, 我们这次在调用_dl_runtime_resolve
+前打上断点. 还记得之前在my_func@plt中一次多余的跳转吗? 当时打了个问号,
+现在就来解答这个疑问. 在0x804a00c处打上观察点并运行:</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>(gdb) b *0x80483a6</span></span>
+<span class="giallo-l"><span>(gdb) watch -l *0x804a00c</span></span>
+<span class="giallo-l"><span>(gdb) run</span></span>
+<span class="giallo-l"><span>Breakpoint 1, 0x080483a6 in ?? ()</span></span>
+<span class="giallo-l"><span>(gdb) x/xw 0x804a00c</span></span>
+<span class="giallo-l"><span>0x804a00c:	0x080483b6</span></span>
+<span class="giallo-l"><span>(gdb) continue</span></span>
+<span class="giallo-l"><span>Hardware watchpoint 1: -location *0x804a00c</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>Old value = 0x80483b6</span></span>
+<span class="giallo-l"><span>New value = 0xf7fcf4f0</span></span>
+<span class="giallo-l"><span>0xf7fe8113 in ?? () from /lib/ld-linux.so.2</span></span>
+<span class="giallo-l"><span>(gdb) disassemble 0xf7fcf4f0</span></span>
+<span class="giallo-l"><span>Dump of assembler code for function my_func:</span></span>
+<span class="giallo-l"><span>...</span></span></code></pre>
+<p>可以看到, 在_dl_runtime_resolve之前, 0x804a00c地址的值为0x080483b6,
+即下一条指令. 而运行之后, 该地址的值变为0xf7fcf4f0, 正是my_func的加载地址!
+也就是说, my_func函数的地址是在第一次调用时, 才通过连接器动态解析并加载到
+.got.plt中的. 而这个过程, 也称之为延时加载或者惰性加载.</p>
+<h3 id="yan-shi-jia-zai">延时加载</h3>
+<p>延时加载的好处是, 只有当外部函数被调用了才会去进行动态加载, 降低程序的启动时间.
+而第一次加载之后, 对于后续的调用就可以直接跳转而不需要再去加载.
+这样一方面减少了进程的启动开销, 另一方面也不会造成太多额外的运行时开销,
+所以延时加载在当今也是广泛应用的一个思想. 对于位置无关的代码,
+延时加载的过程也是类似的, 并没有太大区别.</p>
+<h3 id="xiang-guan-gong-ji">相关攻击</h3>
+<h4 id="ret2libc">ret2libc</h4>
+<p>ret2libc的使用场景是当栈不可执行时,
+直接跳转到libc.so某个函数的地址, 比如system(), 来获得shell.
+不过前提是要知道libc.so在运行时的加载地址. 如果没启用ASLR, 这个地址是固定的.
+启用ASLR之后就会有个随机的偏移</p>
+<h4 id="ret2plt">ret2plt</h4>
+<p>但是, 虽然ASLR随机化了上面的几个地址, 在位置相关代码的情况下, PLT的地址还是确定的!
+所以如果没有启用位置无关代码的话, 即使启用了ASLR, 我们还是可以通过PLT来跳转到libc
+中的函数执行, 这种攻击方法就叫ret2plt.</p>
+<p>除此之外, 因为.got.plt是有写入权限的, 攻击者还可以通过代码中的内存破坏漏洞对
+.got.plt段进行覆盖, 从而间接控制代码的执行流程</p>
+<h4 id="gong-ji-huan-jie">攻击缓解</h4>
+<p>ret2plt这么屌, 就没人管管吗? 当然有! 一个最简单的办法就是启用位置无关代码,
+不过就算可执行程序的代码是位置无关的, 链接器还是有可能将其加载到老地方.
+一个更正确的缓解措施是RELRO即relocations read-only.
+RELRO是链接器的一个选项, 可以通过man ld来查看. 主要作用就是令重定向只读.
+有两个RELRO的等级, 部分RELRO和完全RELRO.</p>
+<p>部分RELRO(由ld -z relro启用):</p>
+<p>将.got段映射为只读(但.got.plt还是可以写)
+重新排列各个段来减少全局变量溢出导致覆盖代码段的可能性.
+完全RELRO(由ld -z relro -z now启用)</p>
+<p>执行部分RELRO的所有操作.
+让链接器在链接期间(执行程序之前)解析所有的符号, 然后去除.got的写权限.
+将.got.plt合并到.got段中, 所以.got.plt将不复存在.
+因此可以看到, 只有完全RELRO才能防止攻击者覆盖.got.plt, 因为在链接期间
+就对程序符号进行了解析. 当然同时也放弃了延时绑定所带来的好处.</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>ld -z relro</span></span>
+<span class="giallo-l"><span>ld -z relro -z now</span></span></code></pre><h1 id="diao-yong-guo-cheng">调用过程</h1>
+<p><img src="https://moxuetianya.github.io/2022/10/Linux%E5%8A%A8%E6%80%81%E9%93%BE%E6%8E%A5%E4%B8%AD%E7%9A%84PLT%E5%92%8CGOT/image-20231225112758-s0wqzod.png" alt="image" /><br />
+PLT表结构有以下特点：<br />
+PLT表中的第一项为公共表项，剩下的是每个动态库函数为一项（当然每项是由多条指令组成的，jmp *0xXXXXXXXX这条指令是所有plt的开始指令）<br />
+每项PLT都从对应的GOT表项中读取目标函数地址</p>
+<p>GOT表结构有以下特点：
+GOT表中前3个为特殊项，分别用于保存 .dynamic段地址、本镜像的link_map数据结构地址和_dl_runtime_resolve函数地址；
+但在编译时，无法获取知道link_map地址和_dl_runtime_resolve函数地址，所以编译时填零地址，进程启动时由动态链接器进行填充
+3个特殊项后面依次是每个动态库函数的GOT表项</p>
+<p>如果将PLT和GOT抽象起来描述，可以写成以下的伪代码：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>plt[0]:</span></span>
+<span class="giallo-l"><span>  pushl got[1]</span></span>
+<span class="giallo-l"><span>  jmp  *got[2]</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>plt[n]:                // n &gt;= 1</span></span>
+<span class="giallo-l"><span>  jmp *got[n+2]        // GOT前3项为公共项，第3项开始才是函数项，plt[1]对应的GOT[3]，依次类推</span></span>
+<span class="giallo-l"><span>  push (n-1)*8</span></span>
+<span class="giallo-l"><span>  jmp plt[0]</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>got[0]  = address of .dynamic section</span></span>
+<span class="giallo-l"><span>got[1]  = address of link_map object( 编译时填充0）</span></span>
+<span class="giallo-l"><span>got[2]  = address of _dl_runtime_resolve function (编译时填充为0)</span></span>
+<span class="giallo-l"><span>got[n+2]  = plt[n] + 6 (即plt[n]代码片段的第二条指令）</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>readelf -d test</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>Dynamic section at offset 0x600 contains 24 entries:</span></span>
+<span class="giallo-l"><span>  Tag        Type                         Name/Value</span></span>
+<span class="giallo-l"><span> 0x00000001 (NEEDED)                     Shared library: [libc.so.6]</span></span>
+<span class="giallo-l"><span> 0x0000000c (INIT)                       0x8048274</span></span>
+<span class="giallo-l"><span> 0x0000000d (FINI)                       0x8048488</span></span>
+<span class="giallo-l"><span> 0x00000019 (INIT_ARRAY)                 0x80495f4</span></span>
+<span class="giallo-l"><span> 0x0000001b (INIT_ARRAYSZ)               4 (bytes)</span></span>
+<span class="giallo-l"><span> 0x0000001a (FINI_ARRAY)                 0x80495f8</span></span>
+<span class="giallo-l"><span> 0x0000001c (FINI_ARRAYSZ)               4 (bytes)</span></span>
+<span class="giallo-l"><span> 0x00000004 (HASH)                       0x8048168</span></span>
+<span class="giallo-l"><span> 0x00000005 (STRTAB)                     0x80481e0</span></span>
+<span class="giallo-l"><span> 0x00000006 (SYMTAB)                     0x8048190</span></span>
+<span class="giallo-l"><span> 0x0000000a (STRSZ)                      74 (bytes)</span></span>
+<span class="giallo-l"><span> 0x0000000b (SYMENT)                     16 (bytes)</span></span>
+<span class="giallo-l"><span> 0x00000015 (DEBUG)                      0x0</span></span>
+<span class="giallo-l"><span> 0x00000003 (PLTGOT)                     0x80496ec</span></span>
+<span class="giallo-l"><span> 0x00000002 (PLTRELSZ)                   24 (bytes)</span></span>
+<span class="giallo-l"><span> 0x00000014 (PLTREL)                     REL</span></span>
+<span class="giallo-l"><span> 0x00000017 (JMPREL)                     0x804825c</span></span>
+<span class="giallo-l"><span> 0x00000011 (REL)                        0x8048254</span></span>
+<span class="giallo-l"><span> 0x00000012 (RELSZ)                      8 (bytes)</span></span>
+<span class="giallo-l"><span> 0x00000013 (RELENT)                     8 (bytes)</span></span>
+<span class="giallo-l"><span> 0x6ffffffe (VERNEED)                    0x8048234</span></span>
+<span class="giallo-l"><span> 0x6fffffff (VERNEEDNUM)                 1</span></span>
+<span class="giallo-l"><span> 0x6ffffff0 (VERSYM)                     0x804822a</span></span>
+<span class="giallo-l"><span> 0x00000000 (NULL)                       0x0</span></span></code></pre>
+<p>其实.dynamic段还藏着很多其它信息，都是跟动态运行相关的信息</p>
+<h1 id="zong-jie">总结</h1>
+<p>为了灵活利用虚拟内存空间, 所以编译器可以产生位置无关的代码.
+可执行文件可以是位置无关的, 也可以是位置相关的, 动态链接库
+绝大多数都是位置无关的. GOT表可写不可执行, PLT可执行不可写,
+他们相互作用来实现函数符号的延时绑定. ASLR并不随机化PLT部分,
+所以对ret2plt攻击没有直接影响. 为防止恶意修改got, 链接器提供了RELRO
+选项, 去除got的写权限, 但也牺牲了延时绑定带来的好处.</p>
+<h1 id="footprint">footprint</h1>
+<p>https://www.cnblogs.com/pannengzhi/p/2018-04-09-about-got-plt.html</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/10/xv6-risc-v/">&#8249; xv6/risc-v</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/10/终端字体/"> 终端字体 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#linuxdong-tai-lian-jie-zhong-de-plthe-got">Linux动态链接中的PLT和GOT</a>
+        </div>
+        <div>
+          <a href="#plt-got">PLT &amp; GOT</a>
+        </div>
+        <div>
+          <a href="#dong-tai-lian-jie">动态链接</a>
+        </div>
+        <div class="hpad">
+          <a href="#got"><small>- .got</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#plt"><small>- .plt</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#got-plt"><small>- .got.plt</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#plt-got-1"><small>- .plt.got</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cha-kan-xu-yao-zhong-ding-xiang-de-fu-hao"><small>- 查看需要重定向的符号</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#han-shu"><small>- 函数</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dong-tai-fen-xi"><small>- 动态分析</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-shi-jia-zai"><small>- 延时加载</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiang-guan-gong-ji"><small>- 相关攻击</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ret2libc"><small>· ret2libc</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ret2plt"><small>· ret2plt</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gong-ji-huan-jie"><small>· 攻击缓解</small></a>
+        </div>
+        <div>
+          <a href="#diao-yong-guo-cheng">调用过程</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+        <div>
+          <a href="#footprint">footprint</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

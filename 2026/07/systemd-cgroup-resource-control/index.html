@@ -1,0 +1,297 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>systemd 资源控制：cgroup v2 配置与实践 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="通过 systemd 对 Linux 进程进行 CPU、内存、IO 等资源限制，涵盖 cgroup v1&#x2F;v2 差异和完整配置选项" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/systemd-cgroup-resource-control/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/systemd-cgroup-resource-control/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/systemd-cgroup-resource-control/" />
+  <meta property="og:description" content="通过 systemd 对 Linux 进程进行 CPU、内存、IO 等资源限制，涵盖 cgroup v1&#x2F;v2 差异和完整配置选项" />
+  <meta name="twitter:description" content="通过 systemd 对 Linux 进程进行 CPU、内存、IO 等资源限制，涵盖 cgroup v1&#x2F;v2 差异和完整配置选项" />
+  <meta property="og:title" content="systemd 资源控制：cgroup v2 配置与实践 | 墨雪天琊" />
+  <meta name="twitter:title" content="systemd 资源控制：cgroup v2 配置与实践 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/systemd-cgroup-resource-control/">systemd 资源控制：cgroup v2 配置与实践</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">Linux</a>] #<a href="https://moxuetianya.github.io/tags/systemd/">systemd</a>  #<a href="https://moxuetianya.github.io/tags/cgroup/">cgroup</a>  #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/zi-yuan-kong-zhi/">资源控制</a> </span>
+
+    
+
+
+<p>Linux cgroup（control group）是内核提供的一种机制，用于对进程组进行资源限制、监控和隔离。systemd 将其作为服务管理的基础设施，通过单元配置文件即可完成 CPU、内存、IO 等资源的分配与控制。</p>
+<p>本文基于 <a rel="noopener external" target="_blank" href="https://www.kernel.org/doc/Documentation/cgroup-v2.txt">cgroup v2 内核文档</a> 和 <a rel="noopener external" target="_blank" href="https://man.archlinux.org/man/systemd.resource-control.5">systemd.resource-control(5)</a> 手册，结合实际操作示例，整理 systemd 资源控制的完整用法。</p>
+<span id="continue-reading"></span><h2 id="cgroup-v1-vs-v2">cgroup v1 vs v2</h2>
+<p>cgroup v1 自 Linux 2.6.24 引入，存在多个问题：每个控制器可挂载到独立层级，导致管理复杂；不同控制器间行为不一致；缓冲写入（buffered write）在 IO 控制器中未被正确统计。</p>
+<p>cgroup v2 从 Linux 4.5 开始稳定，采用<strong>统一层级</strong>（unified hierarchy），所有控制器挂载在单一树形结构下，解决了 v1 的诸多问题。</p>
+<table><thead><tr><th>对比项</th><th>cgroup v1</th><th>cgroup v2</th></tr></thead><tbody>
+<tr><td>层级结构</td><td>每个控制器独立层级</td><td>单一统一层级</td></tr>
+<tr><td>CPU 权重</td><td><code>cpu.shares</code>（范围 2-1024）</td><td><code>cpu.weight</code>（范围 1-10000，默认 100）</td></tr>
+<tr><td>CPU 带宽</td><td><code>cpu.cfs_quota_us</code></td><td><code>cpu.max</code></td></tr>
+<tr><td>内存硬限制</td><td><code>memory.limit_in_bytes</code></td><td><code>memory.max</code></td></tr>
+<tr><td>内存保护 / 节流</td><td>不支持</td><td><code>memory.low</code>、<code>memory.high</code>（仅 v2）</td></tr>
+<tr><td>内存交换限制</td><td>无独立控制</td><td><code>memory.swap.max</code></td></tr>
+<tr><td>IO 控制器</td><td><code>blkio</code></td><td><code>io</code></td></tr>
+<tr><td>IO 权重</td><td><code>blkio.weight</code></td><td><code>io.weight</code></td></tr>
+<tr><td>缓冲写入统计</td><td>不统计</td><td>正确统计</td></tr>
+<tr><td>设备控制</td><td>独立 devices 子系统</td><td>eBPF 程序</td></tr>
+<tr><td>进程迁移</td><td>通过 tasks 文件支持线程级独立迁移</td><td>仅进程级，线程模式有严格限制</td></tr>
+</tbody></table>
+<p><strong>同一种资源只能用 v1 或 v2 其中一种方式控制。</strong> 如果 systemd 配置中同时设置了 v1 和 v2 的选项，v2 优先。</p>
+<h2 id="systemd-zi-yuan-kong-zhi-pei-zhi-xuan-xiang">systemd 资源控制配置选项</h2>
+<p>以下选项在单元的 <code>[Service]</code>、<code>[Slice]</code>、<code>[Scope]</code>、<code>[Socket]</code>、<code>[Mount]</code> 或 <code>[Swap]</code> 段落中设置。</p>
+<h3 id="cpu-kong-zhi">CPU 控制</h3>
+<p><strong><code>CPUWeight=</code> / <code>StartupCPUWeight=</code></strong> — CPU 时间权重分配（仅 cgroup v2）</p>
+<p>取值范围 1–10000，默认 100。权重值决定了同一 slice 内各单元之间的 CPU 时间分配比例，值越大获得 CPU 时间越多。<code>StartupCPUWeight=</code> 仅在系统启动和关机阶段生效。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[Service]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">CPUWeight</span><span style="color: #B6B1B1;">=</span><span>200</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">StartupCPUWeight</span><span style="color: #B6B1B1;">=</span><span>500</span></span></code></pre>
+<p>取代旧版本的 <code>CPUShares=</code> / <code>StartupCPUShares=</code>。</p>
+<p><strong><code>CPUQuota=</code></strong> — CPU 时间配额上限</p>
+<p>百分比值，表示最大可占用单核 CPU 的百分比。可超过 100% 以使用多核：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">CPUQuota</span><span style="color: #B6B1B1;">=</span><span>50%    </span><span style="color: #848BBD;font-style: italic;"># 最多使用半个核</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">CPUQuota</span><span style="color: #B6B1B1;">=</span><span>200%   </span><span style="color: #848BBD;font-style: italic;"># 最多使用两个核</span></span></code></pre>
+<p>对应 cgroup v2 的 <code>cpu.max</code> 或 cgroup v1 的 <code>cpu.cfs_quota_us</code>。</p>
+<p><strong><code>CPUAffinity=</code></strong> — CPU 亲和性</p>
+<p>将进程绑定到指定 CPU 核心运行，可在服务文件中配置：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[Service]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">CPUAffinity</span><span style="color: #B6B1B1;">=</span><span>3</span></span></code></pre>
+<p>等价于在命令行使用 <code>taskset</code> 工具：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">taskset</span><span style="color: #F97E72;"> -p -c 2 8928</span><span style="color: #848BBD;font-style: italic;">                # 绑定到 CPU 2</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">taskset</span><span style="color: #F97E72;"> -p -c</span><span> 3,5,7-10</span><span style="color: #F97E72;"> 8928</span><span style="color: #848BBD;font-style: italic;">         # 绑定到多个 CPU</span></span></code></pre><h3 id="nei-cun-kong-zhi">内存控制</h3>
+<p><strong><code>MemoryAccounting=</code></strong> — 开启内存统计</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[Service]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">MemoryAccounting</span><span style="color: #B6B1B1;">=</span><span>true</span></span></code></pre>
+<p><strong><code>MemoryLow=</code></strong> — 内存保护下限（仅 cgroup v2）</p>
+<p>当单元内存使用低于此值时将被保护，内存回收时优先回收未受保护的单元。单位支持 <code>K</code>、<code>M</code>、<code>G</code>、<code>T</code>（以 1024 为基数），也支持百分比值。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">MemoryLow</span><span style="color: #B6B1B1;">=</span><span>512M</span></span></code></pre>
+<p><strong><code>MemoryHigh=</code></strong> — 内存节流上限（仅 cgroup v2）</p>
+<p>超过此值后进程被降速并积极回收内存，不会触发 OOM killer。<code>infinity</code> 表示不限。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">MemoryHigh</span><span style="color: #B6B1B1;">=</span><span>2G</span></span></code></pre>
+<p><strong><code>MemoryMax=</code></strong> — 内存硬限制</p>
+<p>超过此限制将触发 OOM killer 杀死进程。取代旧版本的 <code>MemoryLimit=</code>。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">MemoryMax</span><span style="color: #B6B1B1;">=</span><span>4G</span></span></code></pre>
+<p><strong><code>MemorySwapMax=</code></strong> — Swap 使用硬限制</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">MemorySwapMax</span><span style="color: #B6B1B1;">=</span><span>1G</span></span></code></pre>
+<blockquote>
+<p><strong>注意</strong>：<code>MemoryLimit=</code> 是 cgroup v1 的旧参数，在 v2 下应使用 <code>MemoryMax=</code>。旧参数在 systemd 中仍被支持（自动映射），但建议全部采用新语法。</p>
+</blockquote>
+<h3 id="io-kong-zhi">IO 控制</h3>
+<p><strong><code>IOAccounting=</code></strong> — 开启 Block IO 统计</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IOAccounting</span><span style="color: #B6B1B1;">=</span><span>true</span></span></code></pre>
+<p><strong><code>IOWeight=</code> / <code>StartupIOWeight=</code></strong> — IO 权重（仅 cgroup v2）</p>
+<p>取值范围 1–10000，默认 100。取代旧版本的 <code>BlockIOWeight=</code>。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IOWeight</span><span style="color: #B6B1B1;">=</span><span>500</span></span></code></pre>
+<p><strong><code>IODeviceWeight=</code></strong> — 设备级 IO 权重</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IODeviceWeight</span><span style="color: #B6B1B1;">=</span><span>/dev/sda 1000</span></span></code></pre>
+<p><strong><code>IOReadBandwidthMax=</code> / <code>IOWriteBandwidthMax=</code></strong> — 磁盘读写带宽上限（仅 cgroup v2）</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IOReadBandwidthMax</span><span style="color: #B6B1B1;">=</span><span>/dev/sda 50M</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">IOWriteBandwidthMax</span><span style="color: #B6B1B1;">=</span><span>/dev/sda 30M</span></span></code></pre>
+<p>取代旧版本的 <code>BlockIOReadBandwidth=</code> / <code>BlockIOWriteBandwidth=</code>。</p>
+<p><strong><code>IOReadIOPSMax=</code> / <code>IOWriteIOPSMax=</code></strong> — 磁盘读写 IOPS 上限</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IOReadIOPSMax</span><span style="color: #B6B1B1;">=</span><span>/dev/sda 1K</span></span></code></pre><h3 id="jin-cheng-shu-kong-zhi">进程数控制</h3>
+<p><strong><code>TasksAccounting=</code></strong> — 开启 task 统计</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">TasksAccounting</span><span style="color: #B6B1B1;">=</span><span>true</span></span></code></pre>
+<p><strong><code>TasksMax=</code></strong> — 最大 task 数限制，对应 cgroup v2 的 <code>pids.max</code></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">TasksMax</span><span style="color: #B6B1B1;">=</span><span>512</span></span></code></pre><h3 id="she-bei-fang-wen-kong-zhi">设备访问控制</h3>
+<p><strong><code>DeviceAllow=</code></strong> — 控制对设备节点的读写和创建权限</p>
+<p>格式为 <code>设备名 权限</code>，权限为 <code>r</code>（读）、<code>w</code>（写）、<code>m</code>（mknod 创建设备节点）的组合。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">DeviceAllow</span><span style="color: #B6B1B1;">=</span><span>/dev/sda5 rw</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">DeviceAllow</span><span style="color: #B6B1B1;">=</span><span>char-pts rw</span></span></code></pre>
+<p><strong><code>DevicePolicy=</code></strong> — 设备访问策略</p>
+<ul>
+<li><code>strict</code>：仅允许明确指定的设备访问</li>
+<li><code>closed</code>：额外允许标准伪设备（<code>/dev/null</code>、<code>/dev/zero</code>、<code>/dev/random</code> 等）</li>
+<li><code>auto</code>（默认）：未设置 <code>DeviceAllow=</code> 时允许所有设备</li>
+</ul>
+<h3 id="wang-luo-kong-zhi">网络控制</h3>
+<p><strong><code>IPAccounting=</code></strong> — 开启 IPv4/IPv6 网络流量统计</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IPAccounting</span><span style="color: #B6B1B1;">=</span><span>true</span></span></code></pre>
+<p><strong><code>IPAddressAllow=</code> / <code>IPAddressDeny=</code></strong> — 基于 eBPF 的 IP 地址过滤</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">IPAddressDeny</span><span style="color: #B6B1B1;">=</span><span>any</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">IPAddressAllow</span><span style="color: #B6B1B1;">=</span><span>192.168.1.0/24</span></span></code></pre>
+<p>支持特殊名字：<code>any</code>、<code>localhost</code>、<code>link-local</code>、<code>multicast</code>。需要内核开启 eBPF 支持。</p>
+<h3 id="slice-yu-delegate">Slice 与 Delegate</h3>
+<p><strong><code>Slice=</code></strong> — 指定单元所属的 slice</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">Slice</span><span style="color: #B6B1B1;">=</span><span>test2.slice</span></span></code></pre>
+<p><strong><code>Delegate=</code></strong> — 将 cgroup 子层级的管理权交给进程自身</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FEDE5D;">Delegate</span><span style="color: #B6B1B1;">=</span><span>yes</span></span></code></pre>
+<p>开启后，单元可以在自己的 cgroup 下创建和管理子层级，systemd 不再干预其 cgroup 结构。适用于容器运行时、用户实例管理器等需要自主管理 cgroup 的场景。</p>
+<h2 id="shi-zhan-yong-hu-ji-bie-zi-yuan-xian-zhi">实战：用户级别资源限制</h2>
+<h3 id="lin-shi-sheng-xiao-yun-xing-shi-xiu-gai">临时生效（运行时修改）</h3>
+<p>使用 <code>systemctl set-property</code> 在运行时修改资源限制，立即生效但重启后丢失：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> set-property user-1000.slice CPUQuota=300%</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> set-property user-1000.slice MemoryMax=2G</span></span></code></pre>
+<p>查看生效的配置：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">cat</span><span> /etc/systemd/system.control/user-1000.slice.d/</span><span style="color: #FE4450;font-weight: bold;">*</span></span></code></pre><h3 id="yong-jiu-sheng-xiao-chuang-jian-slice-dan-yuan-wen-jian">永久生效（创建 slice 单元文件）</h3>
+<p>创建 <code>/usr/lib/systemd/system/user-1000.slice</code>：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="ini"><span class="giallo-l"><span style="color: #FF7EDB;">[Unit]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">Description</span><span style="color: #B6B1B1;">=</span><span>User 1000 resource limit slice</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">[Slice]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">MemoryAccounting</span><span style="color: #B6B1B1;">=</span><span>true</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">MemoryMax</span><span style="color: #B6B1B1;">=</span><span>2000M</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">CPUQuota</span><span style="color: #B6B1B1;">=</span><span>300%</span></span></code></pre>
+<p>启用并启动：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> daemon-reload</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> start user-1000.slice</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span style="color: #F97E72;"> -t</span><span> slice</span><span style="color: #848BBD;font-style: italic;">                     # 查看所有 slice</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> status user-1000.slice</span><span style="color: #F97E72;"> -l</span><span style="color: #848BBD;font-style: italic;">    # 查看状态</span></span></code></pre>
+<p>每个用户默认有一个 <code>user-&lt;UID&gt;.slice</code>，可直接用 <code>set-property</code> 修改或放置 drop-in 配置：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># /etc/systemd/system/user-1000.slice.d/50-memory.conf</span></span>
+<span class="giallo-l"><span>[Slice]</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">MemoryMax</span><span style="color: #FFFFFFEE;">=</span><span>4G</span></span></code></pre><h3 id="systemd-run-qi-dong-ce-shi-jin-cheng">systemd-run 启动测试进程</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemd-run</span><span style="color: #F97E72;"> --unit=toptest2 --slice=test2</span><span> top</span><span style="color: #F97E72;"> -b</span></span></code></pre>
+<p>查看状态：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> status toptest2.service</span></span></code></pre>
+<p>可以看到进程位于指定 slice 的 cgroup 下：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>● toptest2.service - /usr/bin/top -b</span></span>
+<span class="giallo-l"><span>   Main PID: 8928 (top)</span></span>
+<span class="giallo-l"><span>   CGroup: /test2.slice/toptest2.service</span></span>
+<span class="giallo-l"><span>           └─8928 /usr/bin/top -b</span></span></code></pre><h3 id="xian-zhi-nei-cun">限制内存</h3>
+<p>创建一个消耗内存的脚本进行测试：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemd-run</span><span style="color: #F97E72;"> --unit=memorytest1 --slice=test2</span><span> /usr/bin/bash /tmp/highmem.sh</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> set-property memorytest1.service MemoryMax=2G</span></span></code></pre>
+<p>通过 <code>top</code> 观察进程内存使用不会超过限制（例如 128G 服务器设定 2G，使用率约 1.5%）。</p>
+<h3 id="xian-zhi-ci-pan-du-qu-su-du">限制磁盘读取速度</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #FE4450;">systemd-run</span><span style="color: #F97E72;"> --unit=ioread --slice=test2</span><span> dd if=/dev/sdk of=/dev/null</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># iotop 显示读取速度 ~180M/s</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FE4450;">systemctl</span><span> set-property ioread IOReadBandwidthMax=</span><span style="color: #FF8B39;">&#39;/dev/sdk 50M&#39;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># iotop 显示读取速度降至 ~50M/s</span></span></code></pre>
+<hr />
+<p><strong>参考链接：</strong></p>
+<ul>
+<li><a rel="noopener external" target="_blank" href="https://www.kernel.org/doc/Documentation/cgroup-v2.txt">Control Group v2 — kernel.org</a></li>
+<li><a rel="noopener external" target="_blank" href="https://man.archlinux.org/man/systemd.resource-control.5">systemd.resource-control(5) — Arch man pages</a></li>
+<li><a rel="noopener external" target="_blank" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">cgroups(7) — Linux manual page</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/linux-proc-文件系统详解/">&#8249; Linux /proc 文件系统详解</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/rust-cargo-link-concurrency-limit/"> Rust Cargo 编译优化：利用 Link Wrapper + 文件锁实现「编译全并行，链接限并发」 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cgroup-v1-vs-v2">cgroup v1 vs v2</a>
+        </div>
+        <div>
+          <a href="#systemd-zi-yuan-kong-zhi-pei-zhi-xuan-xiang">systemd 资源控制配置选项</a>
+        </div>
+        <div class="hpad">
+          <a href="#cpu-kong-zhi"><small>- CPU 控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-cun-kong-zhi"><small>- 内存控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#io-kong-zhi"><small>- IO 控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jin-cheng-shu-kong-zhi"><small>- 进程数控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#she-bei-fang-wen-kong-zhi"><small>- 设备访问控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wang-luo-kong-zhi"><small>- 网络控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#slice-yu-delegate"><small>- Slice 与 Delegate</small></a>
+        </div>
+        <div>
+          <a href="#shi-zhan-yong-hu-ji-bie-zi-yuan-xian-zhi">实战：用户级别资源限制</a>
+        </div>
+        <div class="hpad">
+          <a href="#lin-shi-sheng-xiao-yun-xing-shi-xiu-gai"><small>- 临时生效（运行时修改）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yong-jiu-sheng-xiao-chuang-jian-slice-dan-yuan-wen-jian"><small>- 永久生效（创建 slice 单元文件）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#systemd-run-qi-dong-ce-shi-jin-cheng"><small>- systemd-run 启动测试进程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-zhi-nei-cun"><small>- 限制内存</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-zhi-ci-pan-du-qu-su-du"><small>- 限制磁盘读取速度</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

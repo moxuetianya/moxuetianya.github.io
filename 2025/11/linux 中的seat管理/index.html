@@ -1,0 +1,196 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>linux 中的seat管理 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/11/linux 中的seat管理/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/11/linux 中的seat管理/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/11/linux 中的seat管理/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="linux 中的seat管理 | 墨雪天琊" />
+  <meta name="twitter:title" content="linux 中的seat管理 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-11-06" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/11/linux 中的seat管理/">linux 中的seat管理</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 06, 2025 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/udev/">udev</a>  #<a href="https://moxuetianya.github.io/tags/seat/">seat</a>  #<a href="https://moxuetianya.github.io/tags/logind/">logind</a> </span>
+
+    
+
+
+<h1 id="seatyi-ban-kong-zhi-na-xie-she-bei">seat一般控制哪些设备</h1>
+<ul>
+<li>
+<p>哪些设备属于一个 seat、由谁配置/控制，是掌握 Linux 图形会话、多用户、多终端安全模型的关键</p>
+</li>
+<li>
+<p>Seat 管理的设备主要包括：GPU（DRM/KMS）、输入设备（键盘/鼠标/触摸屏等）、声音设备（可选）和串口/智能卡读卡器（高级场景）</p>
+</li>
+<li>
+<p>这些设备的归属由 udev 规则标记，并由 systemd-logind 在运行时动态分配给活跃的图形会话（session）</p>
+</li>
+<li>
+<p>图形设备	/dev/dri/card0, /dev/dri/renderD128	GPU，用于显示输出和硬件加速</p>
+</li>
+<li>
+<p>输入设备	/dev/input/event*	键盘、鼠标、触摸板、触控屏、Tablet 等</p>
+</li>
+<li>
+<p>TTY 控制台	/dev/tty0, /dev/tty1 ...	虚拟终端（VT），seat 通常绑定到一个 VT</p>
+</li>
+<li>
+<p>音频设备（可选）	/dev/snd/*	某些系统将声卡绑定到 seat（非强制）</p>
+</li>
+<li>
+<p>其他外设（可选）	/dev/ttyS0, /dev/usb/hiddev*	如串口、智能卡读卡器（企业/嵌入式场景）</p>
+</li>
+<li>
+<p>⚠️ 注意：网络设备、存储设备（如 /dev/sda）不属于 seat，它们是全局共享的。</p>
+</li>
+<li>
+<p>如果未设置 ID_SEAT，设备默认属于 seat0（主 seat）</p>
+</li>
+<li>
+<p>/etc/udev/rules.d/99-seat1.rules</p>
+</li>
+<li>
+<p>将特定 USB 键鼠绑定到 seat1</p>
+</li>
+<li>
+<p>SUBSYSTEM=="input", ATTRS{idVendor}=="abcd", ATTRS{idProduct}=="1234", ENV{ID_SEAT}="seat1"</p>
+</li>
+<li>
+<p>将特定 GPU 绑定到 seat1</p>
+</li>
+<li>
+<p>SUBSYSTEM=="drm", KERNEL=="card1", ENV{ID_SEAT}="seat1"</p>
+</li>
+</ul>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 列出所有 seats</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> list-seats</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看 seat0 的详细信息（含设备）</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> show-seat seat0</span><span style="color: #F97E72;"> -p</span><span> ActiveSession</span><span style="color: #F97E72;"> -p</span><span> Devices</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看某个输入设备是否属于 seat0</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">udevadm</span><span> info /dev/input/event4</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> ID_SEAT</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 查看是否有 uaccess 标签</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">udevadm</span><span> info /dev/dri/card0</span><span style="color: #FEDE5D;"> |</span><span style="color: #FE4450;"> grep</span><span> TAGS</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 输出应包含: :uaccess:</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 使用 loginctl 工具将一个设备永久地分配给一个特定的 Seat</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">loginctl</span><span> attach [SEAT_ID] [DEVICE_SYSFS_PATH]</span></span>
+<span class="giallo-l"><span>    [SEAT_ID]</span><span style="color: #36F9F6;">:</span><span> 你想分配到的 Seat 名称，例如 seat1。</span></span>
+<span class="giallo-l"><span>    [DEVICE_SYSFS_PATH]</span><span style="color: #36F9F6;">:</span><span> 设备的 SysFS 路径，例如 /sys/devices/pci0000:00/.../drm/card1。</span></span></code></pre><h1 id="duo-seatkong-zhi-guan-li">多seat控制管理</h1>
+<ul>
+<li>假设你有一台机器，接了两套显示器+键鼠：
+<ul>
+<li>Seat0：主板 HDMI + 内置键盘 → 用户 A 登录 GNOME</li>
+<li>Seat1：PCIe 独立显卡 + USB 键鼠 → 用户 B 登录 Sway</li>
+</ul>
+</li>
+<li>你需要：
+<ul>
+<li>创建 udev 规则，将独显和 USB 设备标记为 ID_SEAT=seat1</li>
+<li>启动两个图形会话（分别绑定到不同 TTY）</li>
+<li>systemd-logind 自动为每个 session 授权对应设备</li>
+</ul>
+</li>
+<li>此时：
+<ul>
+<li>用户 A 无法看到用户 B 的屏幕内容；</li>
+<li>用户 B 的键盘不会影响用户 A；</li>
+<li>GPU 资源完全隔离。</li>
+</ul>
+</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/sunshine moonlight 配置linux第二屏幕/">&#8249; sunshine moonlight 配置linux第二屏幕</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/漏洞挖掘方法/"> 漏洞挖掘方法 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#seatyi-ban-kong-zhi-na-xie-she-bei">seat一般控制哪些设备</a>
+        </div>
+        <div>
+          <a href="#duo-seatkong-zhi-guan-li">多seat控制管理</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

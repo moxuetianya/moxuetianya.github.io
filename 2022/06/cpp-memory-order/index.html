@@ -1,0 +1,293 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>C++ 内存顺序 (Memory Order) | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="深入理解 C++11 六种内存序以及 release-acquire 同步模型，配合代码示例速查" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/06/cpp-memory-order/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/06/cpp-memory-order/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/06/cpp-memory-order/" />
+  <meta property="og:description" content="深入理解 C++11 六种内存序以及 release-acquire 同步模型，配合代码示例速查" />
+  <meta name="twitter:description" content="深入理解 C++11 六种内存序以及 release-acquire 同步模型，配合代码示例速查" />
+  <meta property="og:title" content="C++ 内存顺序 (Memory Order) | 墨雪天琊" />
+  <meta name="twitter:title" content="C++ 内存顺序 (Memory Order) | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-06-01" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/06/cpp-memory-order/">C++ 内存顺序 (Memory Order)</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 01, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/nei-cun-mo-xing/">内存模型</a>  #<a href="https://moxuetianya.github.io/tags/atomic/">atomic</a>  #<a href="https://moxuetianya.github.io/tags/bing-fa/">并发</a> </span>
+
+    
+
+
+<p>内存顺序问题有两个来源：编译器优化可能改变代码中读写指令的顺序；CPU 在运行时也可能重排指令（如 Tomasulo 算法）。单线程或使用 Mutex/Semaphore 时，编译器和 CPU 保证语义一致，开发者无需关心内存顺序；但当使用原子操作进行无锁编程时，内存模型的抽象被打破，开发者必须显式规约。</p>
+<span id="continue-reading"></span><h2 id="ying-jian-nei-cun-mo-xing">硬件内存模型</h2>
+<p>不同 CPU 架构的内存模型不同：</p>
+<ul>
+<li><strong>x86_64 (TSO)</strong>：强顺序模型，只有 Store-Load 可以被重排，因此天然具有 acquire/release 语义。程序员在 x86 上调不出的并发 bug，在 ARM 上可能必现。</li>
+<li><strong>ARM / PowerPC / MIPS</strong>：弱内存模型 (WMO)，允许各种重排，程序员必须主动插入内存屏障。</li>
+</ul>
+<h2 id="nei-cun-shun-xu-de-si-chong-chang-jing">内存顺序的四种场景</h2>
+<p>CPU 对内存的访问只有 Load（读）和 Store（写），跨线程的顺序问题分为四种：</p>
+<table><thead><tr><th>先后</th><th>读-读</th><th>读-写</th><th>写-读</th><th>写-写</th></tr></thead><tbody>
+<tr><td>读在先</td><td>✓</td><td>✓</td><td>—</td><td>—</td></tr>
+<tr><td>写在先</td><td>—</td><td>✓</td><td>✓</td><td>✓</td></tr>
+</tbody></table>
+<ul>
+<li><strong>Release 语义</strong>：写操作之前的读写不能重排到写之后（即约束 write-* 和 read-before-write）</li>
+<li><strong>Acquire 语义</strong>：读操作之后的读写不能重排到读之前（即约束 *-read 之后）</li>
+</ul>
+<h2 id="yuan-zi-cao-zuo">原子操作</h2>
+<p>原子操作要么执行成功，要么尚未开始，不存在中间态，靠硬件指令（如 CAS）保证。C++11 通过 <code>std::atomic</code> 和 <code>memory_order</code> 枚举暴露给开发者。需要注意：对齐的整数读写不一定是原子的（除非明确用原子类型）。</p>
+<h2 id="ji-chu-shu-yu">基础术语</h2>
+<h3 id="sequenced-before">sequenced-before</h3>
+<p>同一线程内，语句 A 在语句 B 之前执行，且 A 的结果对 B 可见：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span>r2 </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF7EDB;"> x</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FE4450;">std</span><span>::memory_order_relaxed);</span><span style="color: #848BBD;font-style: italic;"> // A</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">y</span><span>.</span><span style="color: #36F9F6;">store</span><span>(</span><span style="color: #F97E72;">42</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_relaxed);</span><span style="color: #848BBD;font-style: italic;"> // B  —  A sequenced-before B</span></span></code></pre><h3 id="happens-before">happens-before</h3>
+<p>跨线程操作之间的先后顺序。如果 A happens-before B，则 A 的内存状态在 B 执行前对 B 可见。满足传递性。</p>
+<h3 id="synchronizes-with">synchronizes-with</h3>
+<p>变量被修改后的传播关系。一个线程修改某变量后，另一个线程能看到该修改，则两个操作满足 synchronizes-with。本质是跨线程的 happens-before。</p>
+<h3 id="carries-dependency">carries dependency</h3>
+<p>同一线程内，表达式 B 的值依赖于表达式 A，则是 carries dependency。例如 <code>c = *a + *b</code> 中，<code>c</code> 依赖于 <code>*a</code> 和 <code>*b</code>。</p>
+<h2 id="c-11-liu-chong-nei-cun-xu">C++11 六种内存序</h2>
+<h3 id="memory-order-relaxed">memory_order_relaxed</h3>
+<p>最宽松：仅保证原子性，不提供任何跨线程同步。典型应用场景：多线程引用计数。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;int&gt;</span><span> cnt </span><span style="color: #FFFFFFEE;">=</span><span> {</span><span style="color: #F97E72;">0</span><span>};</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> f</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    for</span><span> (</span><span style="color: #FEDE5D;">int</span><span> n </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>; n </span><span style="color: #FEDE5D;">&lt;</span><span style="color: #F97E72;"> 1000</span><span>;</span><span style="color: #FEDE5D;"> ++</span><span>n)</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">        cnt</span><span>.</span><span style="color: #36F9F6;">fetch_add</span><span>(</span><span style="color: #F97E72;">1</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_relaxed);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 10 个线程并发执行，最终 cnt == 10000 总是成立</span></span></code></pre><h3 id="memory-order-consume-release">memory_order_consume + release</h3>
+<p>仅同步有依赖关系的操作，比 release-acquire 开销更小。<strong>但编译器支持不完整，实际中多被提升为 acquire。</strong></p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;</span><span style="color: #FE4450;">std</span><span>::string</span><span style="color: #FEDE5D;">*&gt;</span><span> ptr;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> data;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 生产者</span></span>
+<span class="giallo-l"><span>data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 42</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">ptr</span><span>.</span><span style="color: #36F9F6;">store</span><span>(</span><span style="color: #FEDE5D;">new</span><span style="color: #FE4450;"> std</span><span>::</span><span style="color: #36F9F6;">string</span><span>(</span><span style="color: #FF8B39;">&quot;Hello&quot;</span><span>),</span><span style="color: #FE4450;"> std</span><span>::memory_order_release);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 消费者</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">std</span><span>::string</span><span style="color: #FEDE5D;">*</span><span> p2;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">while</span><span> (</span><span style="color: #FEDE5D;">!</span><span>(p2 </span><span style="color: #FFFFFFEE;">=</span><span style="color: #FF7EDB;"> ptr</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FE4450;">std</span><span>::memory_order_consume)))</span></span>
+<span class="giallo-l"><span>    ;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">assert</span><span>(</span><span style="color: #FEDE5D;">*</span><span>p2 </span><span style="color: #FEDE5D;">==</span><span style="color: #FF8B39;"> &quot;Hello&quot;</span><span>);</span><span style="color: #848BBD;font-style: italic;">   // ✅ *p2 依赖于 ptr，一定可见</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">assert</span><span>(data </span><span style="color: #FEDE5D;">==</span><span style="color: #F97E72;"> 42</span><span>);</span><span style="color: #848BBD;font-style: italic;">        // ❌ data 无依赖，可能为 0</span></span></code></pre><h3 id="memory-order-acquire-release">memory_order_acquire + release</h3>
+<p>最重要的搭配。release 线程中，该 store 之前的所有写，对 acquire 线程中该 load 之后的所有读都可见。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;bool&gt;</span><span> ready{</span><span style="color: #F97E72;">false</span><span>};</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 线程 A</span></span>
+<span class="giallo-l"><span>data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 42</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">ready</span><span>.</span><span style="color: #36F9F6;">store</span><span>(</span><span style="color: #F97E72;">true</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_release);</span><span style="color: #848BBD;font-style: italic;">    // release</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 线程 B</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">while</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">ready</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FE4450;">std</span><span>::memory_order_acquire))</span><span style="color: #848BBD;font-style: italic;">   // acquire</span></span>
+<span class="giallo-l"><span>    ;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">assert</span><span>(data </span><span style="color: #FEDE5D;">==</span><span style="color: #F97E72;"> 42</span><span>);</span><span style="color: #848BBD;font-style: italic;">  // ✅ 永不失败</span></span></code></pre>
+<p><strong>规则</strong>：对原子写用 release，对原子读用 acquire。release/acquire 定义的是<strong>运行时的同步通知关系</strong>，比锁和信号量的静态规约更弱——不阻塞线程，只在运行时动态检查。</p>
+<h3 id="memory-order-acq-rel">memory_order_acq_rel</h3>
+<p>acq_rel 是 acquire + release 的叠加，用于需要同时读旧值并写新值的原子操作（如 <code>compare_exchange_strong</code>）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;int&gt;</span><span> flag </span><span style="color: #FFFFFFEE;">=</span><span> {</span><span style="color: #F97E72;">0</span><span>};</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">std</span><span>::vector</span><span style="color: #FEDE5D;">&lt;int&gt;</span><span> data;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 线程 1：写数据</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">data</span><span>.</span><span style="color: #36F9F6;">push_back</span><span>(</span><span style="color: #F97E72;">42</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">flag</span><span>.</span><span style="color: #36F9F6;">store</span><span>(</span><span style="color: #F97E72;">1</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_release);</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 线程 2：读旧值，写新值（充当&quot;中间人&quot;）</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> expected </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 1</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">while</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">flag</span><span>.</span><span style="color: #36F9F6;">compare_exchange_strong</span><span>(expected,</span><span style="color: #F97E72;"> 2</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_acq_rel))</span></span>
+<span class="giallo-l"><span>    expected </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 1</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 线程 3：等待线程 2 完成</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">while</span><span> (</span><span style="color: #FF7EDB;">flag</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FE4450;">std</span><span>::memory_order_acquire)</span><span style="color: #FEDE5D;"> &lt;</span><span style="color: #F97E72;"> 2</span><span>)</span></span>
+<span class="giallo-l"><span>    ;</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">assert</span><span>(</span><span style="color: #FF7EDB;">data</span><span>.</span><span style="color: #36F9F6;">at</span><span>(</span><span style="color: #F97E72;">0</span><span>)</span><span style="color: #FEDE5D;"> ==</span><span style="color: #F97E72;"> 42</span><span>);</span><span style="color: #848BBD;font-style: italic;">  // ✅</span></span></code></pre><h3 id="memory-order-seq-cst">memory_order_seq_cst</h3>
+<p>顺序一致性，约束最强。同一线程内执行结果与程序顺序一致，且所有线程之间看到的全局操作顺序也一致。这是 C++ 原子操作的<strong>默认模型</strong>，代价最高。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;bool&gt;</span><span> x{</span><span style="color: #F97E72;">false</span><span>}, y{</span><span style="color: #F97E72;">false</span><span>};</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">std</span><span>::atomic</span><span style="color: #FEDE5D;">&lt;int&gt;</span><span> z{</span><span style="color: #F97E72;">0</span><span>};</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 两个写入线程 + 两个读取线程，</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 无论怎么调度，z 不可能同时为 0 —— 否则出现了非顺序一致的执行</span></span></code></pre><h3 id="su-cha-biao">速查表</h3>
+<table><thead><tr><th>内存序</th><th>保证</th><th>适用场景</th></tr></thead><tbody>
+<tr><td><code>relaxed</code></td><td>仅原子性</td><td>引用计数</td></tr>
+<tr><td><code>consume</code> + <code>release</code></td><td>带依赖的同步（不推荐）</td><td>有明确数据依赖的场景</td></tr>
+<tr><td><code>acquire</code> + <code>release</code></td><td>写前的所有状态对读后的所有操作可见</td><td><strong>最常用</strong></td></tr>
+<tr><td><code>acq_rel</code></td><td>同时具备 acquire 和 release</td><td>CAS 中转线程</td></tr>
+<tr><td><code>seq_cst</code></td><td>全局顺序一致（默认）</td><td>需要严格顺序时</td></tr>
+</tbody></table>
+<h2 id="volatile-vs-atomic">volatile vs atomic</h2>
+<p>volatile 仅保证数据在内存中读写（防编译器优化），但<strong>不提供原子性，不提供跨线程同步</strong>。多线程并发读写 volatile 变量是数据竞争。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #FEDE5D;">volatile int</span><span> count </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// 两个线程分别 ++ 和 -- 各 100 万次，最终 count 几乎不可能为 0</span></span></code></pre><h2 id="shi-zhan-yong-release-acquire-qu-dai-suo-de-tong-zhi-ji-zhi">实战：用 release-acquire 取代锁的通知机制</h2>
+<p>假设线程 A 处理完数据后需要通知线程 B 消费，普通写法存在重排问题：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// ❌ 错误：编译器可能把 if(flag) 提到 data 读之前</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> flag </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> thread_A</span><span>() { data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 42</span><span>; flag </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 1</span><span>; }</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> thread_B</span><span>() {</span><span style="color: #FEDE5D;"> if</span><span> (flag </span><span style="color: #FEDE5D;">==</span><span style="color: #F97E72;"> 1</span><span>)</span><span style="color: #36F9F6;"> printf</span><span>(</span><span style="color: #FF8B39;">&quot;</span><span style="color: #F97E72;">%d</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>, data); }</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="cpp"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">// ✅ 正确：用 release-acquire 保证顺序</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">#include</span><span style="color: #FF8B39;"> &lt;atomic&gt;</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">std</span><span>::</span><span style="color: #FE4450;">atomic_int</span><span style="color: #36F9F6;"> flag</span><span>(</span><span style="color: #F97E72;">0</span><span>);</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">int</span><span> data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 0</span><span>;</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> thread_A</span><span>() {</span></span>
+<span class="giallo-l"><span>    data </span><span style="color: #FFFFFFEE;">=</span><span style="color: #F97E72;"> 42</span><span>;</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    flag</span><span>.</span><span style="color: #36F9F6;">store</span><span>(</span><span style="color: #F97E72;">1</span><span>,</span><span style="color: #FE4450;"> std</span><span>::memory_order_release);</span></span>
+<span class="giallo-l"><span>}</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">void</span><span style="color: #36F9F6;"> thread_B</span><span>() {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span> (</span><span style="color: #FF7EDB;">flag</span><span>.</span><span style="color: #36F9F6;">load</span><span>(</span><span style="color: #FE4450;">std</span><span>::memory_order_acquire)</span><span style="color: #FEDE5D;"> ==</span><span style="color: #F97E72;"> 1</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #36F9F6;">        printf</span><span>(</span><span style="color: #FF8B39;">&quot;</span><span style="color: #F97E72;">%d</span><span style="color: #36F9F6;">\n</span><span style="color: #FF8B39;">&quot;</span><span>, data);</span><span style="color: #848BBD;font-style: italic;">   // 一定能看到 42</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>注意：这段代码只能保证线程 A 的写在线程 B 读到 flag==1 时可见，但<strong>不保证</strong>线程 B 一定读到 flag==1（如果线程 A 还没来得及写）。如需确定性同步，用信号量或忙等待。</p>
+<h2 id="x86-te-bie-shuo-ming">x86 特别说明</h2>
+<p>x86 体系下 store-load 以外的重排都被硬件禁止，因此：</p>
+<ul>
+<li>x86 天然提供 acquire/release 语义</li>
+<li>在 x86 上 <code>memory_order_relaxed</code> 的行为几乎等同于 <code>seq_cst</code></li>
+<li>relaxed 带来的问题在 x86 上很难复现，必须到 ARM 手机上才能测出来</li>
+</ul>
+<p><strong>一句话总结</strong>：基于锁的同步是在代码里静态约定行事顺序，基于原子操作和内存序是在运行时动态发现行事顺序。</p>
+<hr />
+<p><strong>参考链接：</strong></p>
+<ul>
+<li><a rel="noopener external" target="_blank" href="https://en.cppreference.com/w/cpp/atomic/memory_order">std::memory_order — cppreference.com</a></li>
+<li><a rel="noopener external" target="_blank" href="https://zhuanlan.zhihu.com/p/24983412">C++ 内存模型与内存序 — 知乎</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/cxx11内存顺序/">&#8249; cxx11内存顺序</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/"> 内存顺序(Memory Order) &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#ying-jian-nei-cun-mo-xing">硬件内存模型</a>
+        </div>
+        <div>
+          <a href="#nei-cun-shun-xu-de-si-chong-chang-jing">内存顺序的四种场景</a>
+        </div>
+        <div>
+          <a href="#yuan-zi-cao-zuo">原子操作</a>
+        </div>
+        <div>
+          <a href="#ji-chu-shu-yu">基础术语</a>
+        </div>
+        <div class="hpad">
+          <a href="#sequenced-before"><small>- sequenced-before</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#happens-before"><small>- happens-before</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#synchronizes-with"><small>- synchronizes-with</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#carries-dependency"><small>- carries dependency</small></a>
+        </div>
+        <div>
+          <a href="#c-11-liu-chong-nei-cun-xu">C++11 六种内存序</a>
+        </div>
+        <div class="hpad">
+          <a href="#memory-order-relaxed"><small>- memory_order_relaxed</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#memory-order-consume-release"><small>- memory_order_consume + release</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#memory-order-acquire-release"><small>- memory_order_acquire + release</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#memory-order-acq-rel"><small>- memory_order_acq_rel</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#memory-order-seq-cst"><small>- memory_order_seq_cst</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#su-cha-biao"><small>- 速查表</small></a>
+        </div>
+        <div>
+          <a href="#volatile-vs-atomic">volatile vs atomic</a>
+        </div>
+        <div>
+          <a href="#shi-zhan-yong-release-acquire-qu-dai-suo-de-tong-zhi-ji-zhi">实战：用 release-acquire 取代锁的通知机制</a>
+        </div>
+        <div>
+          <a href="#x86-te-bie-shuo-ming">x86 特别说明</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

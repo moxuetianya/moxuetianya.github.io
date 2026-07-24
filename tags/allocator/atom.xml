@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - allocator</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/allocator/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2022-07-01T16:39:13+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/allocator/atom.xml</id>
+    <entry xml:lang="en">
+        <title>cxx-allocator类</title>
+        <published>2022-07-01T16:39:13+08:00</published>
+        <updated>2022-07-01T16:39:13+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/07/cxx-allocator类/"/>
+        <id>https://moxuetianya.github.io/2022/07/cxx-allocator类/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/07/cxx-allocator类/">&lt;h1 id=&quot;cxx-allocatorlei&quot;&gt;cxx-allocator类&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;allocator&quot;&gt;allocator&lt;&#x2F;h1&gt;
+&lt;p&gt;new 在灵活性上有一些局限
+可以使用allocator类进行更加强大的内存操作
+分配器也是标准库的一个话题，我们这一片文章不对分配器的角色进行讨论，仅仅结合标准库的源代码对齐进行简单的剖析以及解释它的一些用法。
+双层级配置器,也就是第一级配置器和第二级配置器。
+第一级配置器直接使用 malloc() 和 free() ，
+第二级配置器则视情况采用不同的策略：当配置区块超过128 bytes 时，视之为 “足够大”，便调用第一级配置器；当配置区块小于 128 bytes 时，视之为 “过小” ，为了降低额外负担，便采用复杂的 内存池 管理方式。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;allocator&lt;T&gt;                       name;
+.allocate(n)                       分配原始的，未构造的保存n个T类型的空间返回一个指针
+.consstruct(p,args)                构造对象，在p指向的内存中，args是构造类型所需要的参数
+.destory(p)                        p为 T 的指针，对其指向的对象进行析构操作
+.deallocate(p,n)                   释放空间，从p指向开始后的n块内存空间，此指针必须是allocate分配的，在执行此操作之前还要对每一个元素都进行destory操作&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;首先是构造对象，分为两部
+我们使用后allocate方法的得到的空间是未经过初始化的。
+时候使用construct方法来对每一个对象进行初始化&lt;&#x2F;p&gt;
+&lt;p&gt;如果不再使用对象将其销毁，也分为两步
+首先使用destory方法将其析构
+这个方法不是必须调用的，比如内置基本类型就可以不调用。下面我们会有演示的代码。&lt;&#x2F;p&gt;
+&lt;p&gt;但是，如果要保证模版足够通用，就要调用这个方法了；
+再使用dealloc方法回收空间，这是真正会回收的动作&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;iostream&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;vector&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;algorithm&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;functional&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;array&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#include &amp;lt;memory&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;class Foo {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;public:&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  Foo(int i): i_(i) { std::cout &amp;lt;&amp;lt; &amp;quot;Foo\n&amp;quot;; }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  ~Foo() { std::cout &amp;lt;&amp;lt; &amp;quot;~Foo\n&amp;quot;; }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;  int i_;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;};&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;void print_int_arr(Foo* data, const int length)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    using std::cout;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    using std::endl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    for(int i=0; i&amp;lt;length; ++i)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        cout &amp;lt;&amp;lt; data[i].i_ &amp;lt;&amp;lt; &amp;quot; &amp;quot;;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    cout &amp;lt;&amp;lt; endl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;void test01()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    using namespace std;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    std::allocator&amp;lt;Foo&amp;gt; my_allocator;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    auto data = my_allocator.allocate(10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    cout &amp;lt;&amp;lt; typeid(data).name() &amp;lt;&amp;lt; endl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    print_int_arr(data,10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    &#x2F;&#x2F; my_allocator.construct(data,10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    &#x2F;&#x2F; print_int_arr(data,10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    for(int i=0; i&amp;lt;10; ++i)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        &#x2F;&#x2F; construct is deprecated in c++17; and removed in c++20&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        my_allocator.construct(data + i, i);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    print_int_arr(data,10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    for(int i=0; i&amp;lt;10; ++i)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;        my_allocator.destroy(data + i);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    print_int_arr(data, 10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    my_allocator.deallocate(data, 10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    print_int_arr(data,10);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;void * operator new(std::size_t size)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    std::cout &amp;lt;&amp;lt; &amp;quot;malloc: &amp;quot; &amp;lt;&amp;lt; size &amp;lt;&amp;lt; &amp;quot;size&amp;quot; &amp;lt;&amp;lt; std::endl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    return malloc(size);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;void operator delete(void * p) noexcept&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    std::cout &amp;lt;&amp;lt; &amp;quot;delete&amp;quot; &amp;lt;&amp;lt; std::endl;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    free(p);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;int main()&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;{&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    test01();&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;    return 0;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;}&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首先看下allocate的实现:&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; _GLIBCXX_NODISCARD pointer  &#x2F;&#x2F;_GLIBCXX_NODISCARD仅仅是一个宏名称 pointer是_Tp *的一个typedef&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      allocate(size_type __n, const void* = static_cast&amp;lt;const void*&amp;gt;(0))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	if (__n &amp;gt; this-&amp;gt;max_size())&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	  std::__throw_bad_alloc();&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt; &lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#if __cpp_aligned_new&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	if (alignof(_Tp) &amp;gt; __STDCPP_DEFAULT_NEW_ALIGNMENT__)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	  {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	    std::align_val_t __al = std::align_val_t(alignof(_Tp));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	    return static_cast&amp;lt;_Tp*&amp;gt;(::operator new(__n * sizeof(_Tp), __al));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	  }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#endif&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	return static_cast&amp;lt;_Tp*&amp;gt;(::operator new(__n * sizeof(_Tp)));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首先，allocarte先进行一个是否超出限制的判断，如果超出限制，就抛出bad_alloc异常。
+我们线不用看第二段的条件编译。直接看最后一行。其调用::new操作符，并将::new返回的结果强转成对应类型的指针。那这样就显而易见了，allocate也不过就是仅仅调用new而已。
+再来看看construct，在观看源码之前，想都不用想，肯定是要用到转发技术的。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      template&amp;lt;typename _Up, typename... _Args&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	void&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	construct(_Up* __p, _Args&amp;amp;&amp;amp;... __args)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	noexcept(noexcept(::new((void *)__p)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;			    _Up(std::forward&amp;lt;_Args&amp;gt;(__args)...)))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	{ ::new((void *)__p) _Up(std::forward&amp;lt;_Args&amp;gt;(__args)...); }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中，上面的部分是异常声明，我们的关注点不在那，如果读者有兴趣，也可以自行剖析一下。我们只看函数体中唯一的语句即可。
+使用定位new并且将我们传入进的指针转成void*，然后使用转发级数构造一个对象。洗去铅华只剩金，也只不过是调用了定位new而已。&lt;&#x2F;p&gt;
+&lt;p&gt;再来看看destroy方法，就更简单了&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;template&amp;lt;typename _Up&amp;gt;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	void&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	destroy(_Up* __p)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	noexcept(noexcept(__p-&amp;gt;~_Up()))&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	{ __p-&amp;gt;~_Up(); }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;异常声明，然后单纯的显示调用对象的析构函数而已。
+最后剩下的就是deallocate方法，我们也应该能够胸有成竹的剖析。&lt;&#x2F;p&gt;
+&lt;pre class=&quot;giallo&quot; style=&quot;color: #FFFFFF; background-color: #262335;&quot;&gt;&lt;code data-lang=&quot;plain&quot;&gt;&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      void&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      deallocate(pointer __p, size_type)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#if __cpp_aligned_new&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	if (alignof(_Tp) &amp;gt; __STDCPP_DEFAULT_NEW_ALIGNMENT__)&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	  {&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	    ::operator delete(__p, std::align_val_t(alignof(_Tp)));&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	    return;&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	  }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;#endif&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;	::operator delete(__p);&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;
+&lt;span class=&quot;giallo-l&quot;&gt;&lt;span&gt;      }&lt;&#x2F;span&gt;&lt;&#x2F;span&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;也仅仅就是调用的::delete而已；&lt;&#x2F;p&gt;
+&lt;p&gt;现在，分配器的面目已经不是那么的神秘，甚至里面的实现也没有什么过于复杂的手法。要说复杂，应该是麻烦的条件编译和异常声明而已吧。&lt;&#x2F;p&gt;
+&lt;p&gt;下面是一些好用的函数&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;uninitialized_copy(b,e,b2) 返回类似尾后迭代器（拷贝到此空间最后一个元素的下一个位置）
+uninitialized_copy_n(b,n,b2) 同上
+uninitialized_fill(b,e,t) 同上
+uninitialized_fill_n(b,n,t) 同上&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;zheng-li-c-zhong-allocator&quot;&gt;整理C++中Allocator&lt;&#x2F;h1&gt;
+&lt;p&gt;Allocator（概念）是对访问、寻址、分配、释放、构造和析构策略的封装。是一个满足特定要求的类。标准库中需要分配释放存储空间的容器都需要一个Allocator，除了std::array。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bi-xuan-cheng-yuan&quot;&gt;必选成员&lt;&#x2F;h2&gt;
+&lt;p&gt;Allocator 需要满足的条件有很多，但是大部分都是可选的，只有几个必须存在的成员。&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;value_type: 要分配空间的类型&lt;&#x2F;li&gt;
+&lt;li&gt;allocate(n): 分配方法&lt;&#x2F;li&gt;
+&lt;li&gt;deallocate(ptr, n): 释放方法&lt;&#x2F;li&gt;
+&lt;li&gt;拷贝构造:
+对于表达式Alloc a2 = a1; Alloc a2(a1) 要求执行完毕后a2 == a1，不可抛出异常&lt;&#x2F;li&gt;
+&lt;li&gt;移动构造:
+对于表达式Alloc a2 = std::move(a1); Alloc a2(std::move(a1)); 使用a1构造a2，a2应等于a1的先前值。（C++17 起要求a1的值在构造后不发生改变，并且a1 == a2。）&lt;&#x2F;li&gt;
+&lt;li&gt;拷贝赋值和移动赋值
+标准没有声明他们的存在，但是显然他们应该和上面的构造语义相同。&lt;&#x2F;li&gt;
+&lt;li&gt;从另一个allocator类型构造
+用于map等分配的实际类型不是你传入的allocator的value_type的情况。
+对于表达式 AllocA a(b)，其中b是由AllocA::template rebind获得的类型AllocB的实例，构造a，使得AllocB(a) == b, b == AllocA(a)。&lt;&#x2F;li&gt;
+&lt;li&gt;从另一个allocator类型移动构造
+对于表达式 AllocA a(b)，其中b是由AllocA::template rebind获得的类型AllocB的实例，构造a，使得a == 之前的 AllocA(b)
+标准推荐通过 std::allocator_traits&lt;Allocator&gt; 来调用 Allocator 的各种方法，及获取其他类型，这个 trait 类提供了 Allocator 中可选成员的默认实现。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;yi-xie-ke-xuan-cheng-yuan-de-yong-tu&quot;&gt;一些可选成员的用途&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;size_type
+如果你不想使用默认的std::size_t，可以用这个来自定义size_type类型，当然对应的allocate和deallocate方法的size参数也应该变成这个类型&lt;&#x2F;li&gt;
+&lt;li&gt;template rebind&lt;U&gt;::other
+rebind用来从已有的allocator类型获取一个新的用来分配另一个类型U的allocator类型
+注意，rebind只对有模板参数的allocator可选
+allocator_traits的默认实现是用U来替换当前类型的第一个模板参数&lt;&#x2F;li&gt;
+&lt;li&gt;allocate(n, ptr)
+分配足够容纳n个对象的连续空间，ptr用作一个hint（比如在ptr地址附近寻找可用内存，用来保持局部性）&lt;&#x2F;li&gt;
+&lt;li&gt;max_size()
+获取可分配的最大对象数目
+allocator_traits会提供一个返回(size_t)-1的实现（或者(size_t)-1 &#x2F; sizeof(T)，since C++17）&lt;&#x2F;li&gt;
+&lt;li&gt;select_on_container_copy_construction()
+在标准库容器拷贝构造时，由构造函数调用，向源allocator获取一个用来构造新容器的allocator的实例
+allocator_traits会提供一个直接返回源容器的allocator本身的实现
+在构造函数不能够满足allocator的逻辑需求时定义这个函数&lt;&#x2F;li&gt;
+&lt;li&gt;construct(ptr, args…)
+在给定指针指向的内存上构造对象，需要注意的是，ptr指向的对象类型不一定是allocator的value_type，这个函数有必要做成模板的
+在需要自定义对象构造行为时定义它，比如打个log，try_catch一下什么的&lt;&#x2F;li&gt;
+&lt;li&gt;destroy(ptr)
+析构ptr指向的对象，需要注意的是，ptr指向的对象类型也不一定是value_type，这个函数有必要做成模板的&lt;&#x2F;li&gt;
+&lt;li&gt;is_always_equal （since C++17）
+allocator的相等比较的意义是，一个allocator分配的空间，是否可以用另外一个allocator来释放，is_always_equal旨在尽可能消除运行期的比较
+std::allocator就是always_equal的，因为他们都是new和delete的封装，一个std::allocator new的当然可以用另一个std::allocator来delete
+allocator_traits的默认实现是，当你的allocator是空类，那么为true_type&lt;&#x2F;li&gt;
+&lt;li&gt;propagate_on_container_copy_assignment&lt;&#x2F;li&gt;
+&lt;li&gt;propagate_on_container_move_assignment&lt;&#x2F;li&gt;
+&lt;li&gt;propagate_on_container_swap
+此三个类型标记了在容器进行拷贝赋值、移动赋值或交换的时候，allocator是否需要进行对应操作。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;容器在进行拷贝赋值、移动赋值和交换时的逻辑，应该考虑到以上成员和allocator的相等性&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zai-liang-ge-rong-qi-kao-bei-fu-zhi-shi-container1-container2&quot;&gt;在两个容器拷贝赋值时（container1 = container2）&lt;&#x2F;h2&gt;
+&lt;p&gt;propagate_on_container_copy_assignment | 两个allocator是否相等 | 拷贝赋值行为
+true | true  | 拷贝allocator，拷贝container2所有元素
+true | false | 析构container1所有元素并释放空间，拷贝allocator，拷贝container2元素
+false| true  | 不拷贝allocator，拷贝container2所有元素
+false| false | 不拷贝allocator，拷贝container2所有元素&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zai-liang-ge-rong-qi-yi-dong-fu-zhi-shi-container1-std-move-container2&quot;&gt;在两个容器移动赋值时（container1 = std::move(container2)）&lt;&#x2F;h2&gt;
+&lt;p&gt;propagate_on_container_move_assignment | 两个allocator是否相等 | 移动赋值行为
+true | true  | 析构container1所有元素并释放空间，移动allocator，接管container2的内部指针
+true | false | 析构container1所有元素并释放空间，移动allocator，接管container2的内部指针
+false| true  | 析构container1所有元素并释放空间，不移动allocator，接管container2的内部指针
+false| false | 析构container1所有元素，不释放空间，不移动allocator，分配足够装下container2所有元素的空间，将container2的元素尽数移动过来&lt;&#x2F;p&gt;
+&lt;p&gt;在两个容器交换时，没有更多问题，仅需视propagate_on_container_swap值，交换allocator即可。但需要注意的是，如果allocator不可交换，并且不相等，那么容器交换是UB。
+当然以上只是标准容器的实现，你的容器大可以不必如此麻烦。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;xue-xi-std-pmr-fen-pei-qi&quot;&gt;学习std::pmr 分配器&lt;&#x2F;h1&gt;
+&lt;p&gt;std::pmr::vector&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

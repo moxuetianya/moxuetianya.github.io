@@ -1,0 +1,281 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="在 opencode 源码中注入统一标记的调试日志，编译正式版本并用 docker 模拟无缓存容器环境，以毫秒级时间戳逐帧还原 ConfigPaths.directories → Npm.install → waitForDependencies 的完整执行流" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/" />
+  <meta property="og:description" content="在 opencode 源码中注入统一标记的调试日志，编译正式版本并用 docker 模拟无缓存容器环境，以毫秒级时间戳逐帧还原 ConfigPaths.directories → Npm.install → waitForDependencies 的完整执行流" />
+  <meta name="twitter:description" content="在 opencode 源码中注入统一标记的调试日志，编译正式版本并用 docker 模拟无缓存容器环境，以毫秒级时间戳逐帧还原 ConfigPaths.directories → Npm.install → waitForDependencies 的完整执行流" />
+  <meta property="og:title" content="opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-22" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/opencode-startup-trace-verification/">opencode 启动耗时验证：注入 [TRACE] 日志实测完整链路</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 22, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/debug/">debug</a>, <a href="https://moxuetianya.github.io/categories/source-analysis/">source-analysis</a>] #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/npm/">npm</a>  #<a href="https://moxuetianya.github.io/tags/plugin/">plugin</a>  #<a href="https://moxuetianya.github.io/tags/effect/">effect</a>  #<a href="https://moxuetianya.github.io/tags/arborist/">arborist</a>  #<a href="https://moxuetianya.github.io/tags/docker/">docker</a>  #<a href="https://moxuetianya.github.io/tags/logging/">logging</a>  #<a href="https://moxuetianya.github.io/tags/performance/">performance</a> </span>
+
+    
+
+
+<h1 id="bei-jing">背景</h1>
+<p>前两篇文章分别从排查和源码分析两个角度，定位了 opencode 设置 <code>OPENCODE_CONFIG_DIR</code> 后启动变慢的根因。</p>
+<ul>
+<li><a href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">排查篇</a>：通过 <code>strace</code>/<code>/proc/fd</code> 发现 plugin 系统在后台下载 <code>@opencode-ai/plugin</code> 的完整依赖树（63MB/27 个包）</li>
+<li><a href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/">分析篇</a>：理清了 <code>ConfigPaths.directories()</code> → <code>npmSvc.install()</code> → <code>waitForDependencies()</code> → <code>Fiber.join</code> 的调用链</li>
+</ul>
+<p>但这些分析是<strong>推理</strong>出来的——代码里每一步怎么写我们知道，但实际跑起来每一步要花多少时间？本文在源码中注入调试日志，编译正式版二进制，docker 模拟容器冷启动，把推理变成实测数据。</p>
+<h1 id="ri-zhi-zhu-ru">日志注入</h1>
+<p>在三个关键文件中，用统一的 <code>[TRACE]</code> 前缀添加 <code>Effect.logDebug()</code> 调用。只加日志，不改逻辑。</p>
+<p><code>packages/core/src/npm.ts</code> — Npm.install 三步逻辑：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>① node_modules 不存在 → reify() 〔直接下载〕</span></span>
+<span class="giallo-l"><span>② 存在 → 读 package.json + package-lock.json</span></span>
+<span class="giallo-l"><span>③ 脏检：声明的包 vs 锁定的包 → 缺了就 reify，都满足就跳过</span></span></code></pre><pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> install</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">fn</span><span>(</span><span style="color: #FF8B39;">&quot;Npm.install&quot;</span><span>)(</span><span style="color: #FEDE5D;">function*</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">dir</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> input</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] Npm.install dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> add=[</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">addPkgs</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">]`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ...</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] Npm.install reify dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> reason=no-node_modules`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">  // ...</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] Npm.install dirty-check dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> declared=[...] locked=[...]`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] Npm.install done dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> reason=deps-satisfied`</span><span>)</span></span>
+<span class="giallo-l"><span>})</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #36F9F6;"> reify</span><span style="color: #FFFFFFEE;"> =</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">input</span><span>)</span><span style="color: #FEDE5D;"> =&gt;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  let</span><span style="color: #FF7EDB;"> tReify</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #F97E72;"> 0</span><span style="color: #848BBD;font-style: italic;">                            // ← 必须在 generator 外部声明</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  return</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">gen</span><span>(</span><span style="color: #FEDE5D;">function*</span><span> () {</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    tReify</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Date</span><span>.</span><span style="color: #36F9F6;">now</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] reify start dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">input</span><span style="color: #B6B1B1;">.</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> add=[...]`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">    // ... arborist.reify() ...</span></span>
+<span class="giallo-l"><span>  }).</span><span style="color: #36F9F6;">pipe</span><span>(</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">    Effect</span><span>.</span><span style="color: #36F9F6;">tap</span><span>(()</span><span style="color: #FEDE5D;"> =&gt;</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] reify done dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">input</span><span style="color: #B6B1B1;">.</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> time=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">Date</span><span style="color: #B6B1B1;">.</span><span style="color: #36F9F6;">now</span><span style="color: #B6B1B1;">()</span><span style="color: #FEDE5D;"> -</span><span style="color: #FF7EDB;"> tReify</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">ms`</span><span>))</span></span>
+<span class="giallo-l"><span>  )</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<blockquote>
+<p><code>let tReify</code> 必须在 <code>Effect.gen</code> 闭包<strong>外面</strong>声明，否则 <code>.pipe(Effect.tap(...))</code> 中的箭头函数无法通过闭包访问到它——第一次测试吃了这个亏，<code>ReferenceError: tReify is not defined</code>。</p>
+</blockquote>
+<p><code>packages/opencode/src/config/config.ts</code> — 目录遍历和 ConfigPlugin.load：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] directories count=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">directories</span><span style="color: #B6B1B1;">.</span><span style="color: #FF7EDB;">length</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> items=[...]`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] npmSvc.install start dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] ConfigPlugin.load dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> found=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">list</span><span style="color: #B6B1B1;">?.</span><span style="color: #FF7EDB;">length</span><span style="color: #FEDE5D;"> ??</span><span style="color: #F97E72;"> 0</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] dir done dir=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">dir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;"> time=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">Date</span><span style="color: #B6B1B1;">.</span><span style="color: #36F9F6;">now</span><span style="color: #B6B1B1;">()</span><span style="color: #FEDE5D;"> -</span><span style="color: #FF7EDB;"> tDir</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">ms`</span><span>)</span></span></code></pre>
+<p><code>packages/opencode/src/plugin/index.ts</code> — 阻塞点：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">if</span><span> (</span><span style="color: #FF7EDB;">plugins</span><span>.</span><span style="color: #FF7EDB;">length</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] waitForDeps start plugins=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">plugins</span><span style="color: #B6B1B1;">.</span><span style="color: #FF7EDB;">length</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">`</span><span>)</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> config</span><span>.</span><span style="color: #36F9F6;">waitForDependencies</span><span>()</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">logDebug</span><span>(</span><span style="color: #FF8B39;">`[TRACE] waitForDeps done time=</span><span style="color: #72F1B8;">${</span><span style="color: #FF7EDB;">Date</span><span style="color: #B6B1B1;">.</span><span style="color: #36F9F6;">now</span><span style="color: #B6B1B1;">()</span><span style="color: #FEDE5D;"> -</span><span style="color: #FF7EDB;"> tWait</span><span style="color: #72F1B8;">}</span><span style="color: #FF8B39;">ms`</span><span>)</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre><h1 id="ce-shi-huan-jing">测试环境</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="shellscript"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># 编译正式版（npm registry 有对应的 @opencode-ai/plugin@1.17.12）</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">OPENCODE_VERSION</span><span style="color: #FFFFFFEE;">=</span><span>1.17.12</span><span style="color: #FF7EDB;"> OPENCODE_CHANNEL</span><span style="color: #FFFFFFEE;">=</span><span>latest</span><span style="color: #FE4450;"> \</span></span>
+<span class="giallo-l"><span>  bun run</span><span style="color: #F97E72;"> --cwd</span><span> packages/opencode build</span><span style="color: #F97E72;"> --single</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;"># docker 模拟容器冷启动，每次 /root 都是空的</span></span>
+<span class="giallo-l"><span style="color: #FE4450;">docker</span><span> run</span><span style="color: #F97E72;"> --rm</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -v</span><span> /tmp/agent-config/:/agent-config/</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span style="color: #F97E72;">  -v</span><span> /tmp/agent-log/:/root/.local/share/opencode/log/</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  debug-image</span><span style="color: #36F9F6;"> \</span></span>
+<span class="giallo-l"><span>  env OPENCODE_CONFIG_DIR=</span><span style="color: #FF8B39;">&quot;/agent-config&quot; &quot;/agent-config/opencode&quot; &quot;--log-level=DEBUG&quot;</span></span></code></pre>
+<p>容器内的情况：</p>
+<ul>
+<li><code>/root/.config/opencode/</code>——<strong>空目录</strong>，无 <code>package.json</code>，无 <code>node_modules</code></li>
+<li><code>/agent-config/</code>——有 <code>package.json</code> + <code>package-lock.json</code> + <code>node_modules</code> + <code>plugins/wfuzz-agent.ts</code></li>
+</ul>
+<p>通过 <code>grep '\[TRACE\]' /root/.local/share/opencode/log/opencode.log</code> 过滤。</p>
+<h1 id="dev-ban-ben-shi-ce-0-0-0-dev">dev 版本实测（<code>0.0.0-dev-*</code>）</h1>
+<p>npm registry 上不存在 <code>@opencode-ai/plugin@0.0.0-dev-*</code>，下载必然失败。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>02:23:18.532  [TRACE] directories count=2 items=[/root/.config/opencode | /agent-config]</span></span>
+<span class="giallo-l"><span>02:23:18.533  [TRACE] npmSvc.install start dir=/root/.config/opencode</span></span>
+<span class="giallo-l"><span>02:23:18.535  [TRACE] Npm.install dir=/root/.config/opencode add=[@opencode-ai/plugin@0.0.0-dev-xxx]</span></span>
+<span class="giallo-l"><span>02:23:18.537  [TRACE] Npm.install reify reason=no-node_modules           ← ① node_modules 不存在</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>02:23:18.559  [TRACE] dir done dir=/root/.config/opencode time=105ms     ← 本地操作返回</span></span>
+<span class="giallo-l"><span>02:23:18.576  [TRACE] npmSvc.install start dir=/agent-config</span></span>
+<span class="giallo-l"><span>02:23:18.578  [TRACE] Npm.install dirty-check ... matched → done         ← ②③ 脏检通过</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>02:23:18.583  [TRACE] ConfigPlugin.load found=1                          ← 发现 wfuzz-agent.ts</span></span>
+<span class="giallo-l"><span>02:23:18.586  [TRACE] waitForDeps start plugins=1                        ← 开始等！</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>02:23:18.653  [TRACE] reify start dir=/root/.config/opencode add=[...]   ← 后台 fiber 开始跑</span></span>
+<span class="giallo-l"><span>── 3.2 秒（npm 上找不到版本，超时退出）──</span></span>
+<span class="giallo-l"><span>02:23:21.874  [TRACE] waitForDeps done time=3217ms                       ← Fiber.join 返回</span></span></code></pre>
+<p><code>Fiber.join</code> 等的是 npm 超时，不是下载。但阻塞已经发生——3.2 秒的空白窗口，TUI 不渲染。</p>
+<h1 id="zheng-shi-ban-shi-ce-1-17-12">正式版实测（<code>1.17.12</code>）</h1>
+<p>这个版本 npm registry 上有，会真正走完下载。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>02:58:28.454  [TRACE] directories count=2 items=[/root/.config/opencode | /agent-config]</span></span>
+<span class="giallo-l"><span>02:58:28.454  [TRACE] npmSvc.install start dir=/root/.config/opencode</span></span>
+<span class="giallo-l"><span>02:58:28.457  [TRACE] Npm.install dir=/root/.config/opencode add=[@opencode-ai/plugin@1.17.12]</span></span>
+<span class="giallo-l"><span>02:58:28.459  [TRACE] Npm.install reify reason=no-node_modules           ← ① 触发完整下载</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>02:58:28.559  [TRACE] dir done dir=/root/.config/opencode time=105ms     ← 本地操作返回(lforkDetach)</span></span>
+<span class="giallo-l"><span>02:58:28.576  [TRACE] npmSvc.install start dir=/agent-config</span></span>
+<span class="giallo-l"><span>02:58:28.578  [TRACE] Npm.install dirty-check declared=[@opencode-ai/plugin, @types/node, typescript]</span></span>
+<span class="giallo-l"><span>02:58:28.578  [TRACE]                  locked=[@opencode-ai/plugin, @types/node, typescript]</span></span>
+<span class="giallo-l"><span>02:58:28.578  [TRACE] Npm.install done dir=/agent-config reason=deps-satisfied</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>02:58:28.580  [TRACE] reify start dir=/root/.config/opencode add=[@opencode-ai/plugin@1.17.12]</span></span>
+<span class="giallo-l"><span>02:58:28.583  [TRACE] ConfigPlugin.load found=1</span></span>
+<span class="giallo-l"><span>02:58:28.586  [TRACE] waitForDeps start plugins=1                        ← 开始等！</span></span>
+<span class="giallo-l"><span>── 18.5 秒（arborist.reify 下载 27 个包）──</span></span>
+<span class="giallo-l"><span>02:58:47.142  [TRACE] reify done time=18562ms                            ← 下载完成</span></span>
+<span class="giallo-l"><span>02:58:47.150  [TRACE] waitForDeps done time=18564ms                      ← 解除阻塞</span></span></code></pre>
+<p>完整下载 <strong>18.6 秒</strong>。从 <code>waitForDeps start</code> 到 <code>done</code>，TUI 窗口一片空白。</p>
+<h1 id="wan-zheng-lian-lu">完整链路</h1>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>ConfigPaths.directories()</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ├─ /root/.config/opencode/ ───── 空目录，无 node_modules</span></span>
+<span class="giallo-l"><span>  │   npmSvc.install() → Npm.install: ① node_modules 不存在 → reify()</span></span>
+<span class="giallo-l"><span>  │   ConfigPlugin.load() → found=0</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ├─ /agent-config/ ────────────── 有完整 node_modules + lock</span></span>
+<span class="giallo-l"><span>  │   npmSvc.install() → Npm.install: ② 存在 → ③ 脏检 matched → 跳过</span></span>
+<span class="giallo-l"><span>  │   ConfigPlugin.load() → found=1</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ▼</span></span>
+<span class="giallo-l"><span>plugin_origins.length = 1</span></span>
+<span class="giallo-l"><span>  │</span></span>
+<span class="giallo-l"><span>  ▼</span></span>
+<span class="giallo-l"><span>waitForDependencies()</span></span>
+<span class="giallo-l"><span>  → Effect.forEach(s.deps, Fiber.join)  ← 等所有 fiber</span></span>
+<span class="giallo-l"><span>  → /root/.config/opencode 的 reify fiber 还在跑...</span></span>
+<span class="giallo-l"><span>  → arborist.reify(): 下载 @opencode-ai/plugin@1.17.12 + 26 个依赖</span></span>
+<span class="giallo-l"><span>  → 18.6 秒后完成</span></span>
+<span class="giallo-l"><span>  → Fiber.join 全部返回</span></span></code></pre>
+<p>每一步对应源码位置和耗时：</p>
+<table><thead><tr><th>步骤</th><th>文件:行</th><th>耗时</th></tr></thead><tbody>
+<tr><td>目录发现</td><td><code>paths.ts:23</code></td><td>&lt;1ms</td></tr>
+<tr><td>Npm.install 可写检查</td><td><code>npm.ts:141-144</code></td><td>&lt;1ms</td></tr>
+<tr><td>node_modules 存在检查</td><td><code>npm.ts:149-150</code></td><td>1ms</td></tr>
+<tr><td>reify（下载依赖）</td><td><code>npm.ts:80-113</code></td><td><strong>18,562ms</strong></td></tr>
+<tr><td>脏检（比对 lock）</td><td><code>npm.ts:161-187</code></td><td>2ms</td></tr>
+<tr><td>ConfigPlugin.load</td><td><code>plugin.ts:18-30</code></td><td>1ms</td></tr>
+<tr><td>waitForDependencies</td><td><code>config.ts:642-646</code></td><td>18,564ms</td></tr>
+</tbody></table>
+<h1 id="dui-bi-liang-chong-you-hua-ce-lue-de-xiao-guo">对比：两种优化策略的效果</h1>
+<p>我们把之前的实验数据也放进来对比：</p>
+<table><thead><tr><th>场景</th><th>对 /root/.config/opencode</th><th>waitForDeps</th><th>TUI 出现时间</th></tr></thead><tbody>
+<tr><td>原始（无优化）</td><td>reify 下载 18.6s</td><td>阻塞 18.6s</td><td>~19s</td></tr>
+<tr><td>guard 跳过</td><td>不调用 npmSvc.install</td><td>0ms</td><td>~1s</td></tr>
+<tr><td>预置 node_modules</td><td>脏检 matched → skip</td><td>0ms</td><td>~1s</td></tr>
+</tbody></table>
+<p>预置 node_modules 是<strong>工程侧最优解</strong>——不碰源码，只需在容器构建时将 <code>package.json</code> + <code>package-lock.json</code> + <code>node_modules</code> 复制到 <code>directories()</code> 返回的每个目录。</p>
+<h1 id="ti-wai-cha-jian-mu-lu-vs-wen-jian">题外：插件目录 vs 文件</h1>
+<p>在验证过程中还有一个发现：open code 的插件<strong>自动发现</strong>只支持单文件，不支持目录。</p>
+<p><code>ConfigPlugin.load()</code> 的 glob 是 <code>{plugin,plugins}/*.{ts,js}</code>，不匹配子目录。但加载层 <code>resolvePathPluginTarget()</code> 已经支持目录（找 <code>index.ts</code> 或 <code>package.json</code>）。如果有目录式插件的需求，需要在 <code>opencode.jsonc</code> 中显式配置 <code>"plugin": ["./plugins/my-plugin"]</code>。</p>
+<h1 id="jie-lun">结论</h1>
+<p>实测数据完整验证了源码分析的每一个推断：</p>
+<ol>
+<li><strong><code>directories()</code> 返回的每个目录都无条件调用 <code>npmSvc.install()</code></strong></li>
+<li><strong>空目录无 <code>node_modules</code> → <code>Npm.install</code> 第 ① 步直接 reify</strong>（后续的脏检根本没机会跑）</li>
+<li><strong>只要有插件被 <code>ConfigPlugin.load</code> 发现 → <code>waitForDependencies</code> 阻塞</strong></li>
+<li><strong>容器冷启动每次都要付这笔 18 秒的下载开销</strong></li>
+</ol>
+<p><code>grep '\[TRACE\]' ~/.local/share/opencode/log/opencode.log</code> 一行命令就能看到完整链路和每步耗时。</p>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-npm-install-source-analysis/"> opencode Npm.install 源码分析：为什么每个 .opencode 目录都会触发依赖安装 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#ri-zhi-zhu-ru">日志注入</a>
+        </div>
+        <div>
+          <a href="#ce-shi-huan-jing">测试环境</a>
+        </div>
+        <div>
+          <a href="#dev-ban-ben-shi-ce-0-0-0-dev">dev 版本实测（0.0.0-dev-*）</a>
+        </div>
+        <div>
+          <a href="#zheng-shi-ban-shi-ce-1-17-12">正式版实测（1.17.12）</a>
+        </div>
+        <div>
+          <a href="#wan-zheng-lian-lu">完整链路</a>
+        </div>
+        <div>
+          <a href="#dui-bi-liang-chong-you-hua-ce-lue-de-xiao-guo">对比：两种优化策略的效果</a>
+        </div>
+        <div>
+          <a href="#ti-wai-cha-jian-mu-lu-vs-wen-jian">题外：插件目录 vs 文件</a>
+        </div>
+        <div>
+          <a href="#jie-lun">结论</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

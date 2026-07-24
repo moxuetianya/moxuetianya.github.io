@@ -1,0 +1,257 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>shared_ptr 和make_shared 介绍 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2022/05/shared-ptr-和make-shared-介绍/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2022/05/shared-ptr-和make-shared-介绍/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2022/05/shared-ptr-和make-shared-介绍/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="shared_ptr 和make_shared 介绍 | 墨雪天琊" />
+  <meta name="twitter:title" content="shared_ptr 和make_shared 介绍 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2022-05-30" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2022/05/shared-ptr-和make-shared-介绍/">shared_ptr 和make_shared 介绍</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 五月 30, 2022 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c/">c++</a>, <a href="https://moxuetianya.github.io/categories/shared-ptr/">shared_ptr</a>] #<a href="https://moxuetianya.github.io/tags/c/">c++</a>  #<a href="https://moxuetianya.github.io/tags/shared-ptr/">shared_ptr</a> </span>
+
+    
+
+
+<h1 id="shared-ptr-he-make-shared-jie-shao">shared_ptr 和make_shared 介绍</h1>
+<h1 id="tiao-kuan-21-jin-liang-shi-yong-std-make-uniquehe-std-make-shareder-bu-zhi-jie-shi-yong-new">条款21：尽量使用std::make_unique和std::make_shared而不直接使用new</h1>
+<p>std::make_unique 和 std::make_shared是三个make函数中的两个，make函数用来把一个任意参数的集合完美转移给一个构造函数从而生成动态分配内存的对象，并返回一个指向那个对象的灵巧指针。
+第三个make是std::allocate_shared。它像std::make_shared一样，除了第一个参数是一个分配器对象，用来进行动态内存分配。</p>
+<h2 id="jian-shao-zhong-fu">减少重复</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>auto upw1(std::make_unique&lt;Widget&gt;());     // with make func</span></span>
+<span class="giallo-l"><span>std::unique_ptr&lt;Widget&gt; upw2(new Widget); // without make func</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>auto spw1(std::make_shared&lt;Widget&gt;());     // with make func</span></span>
+<span class="giallo-l"><span>std::shared_ptr&lt;Widget&gt; spw2(new Widget); // without make func</span></span></code></pre>
+<p>使用new的版本重复了被创建对象的键入，但是make函数则没有。重复类型违背了软件工程的一个重要原则：
+应该避免代码重复，代码中的重复会引起编译次数增加，导致目标代码膨胀，
+最终产生更难以维护的代码，通常会引起代码不一致，而不一致经常导致bug产生。另外，输入两次比输入一次要费力些，谁都想减少敲键盘的负担。</p>
+<h2 id="you-xian-shi-yong-makehan-shu-de-di-er-ge-yuan-yin-shi-he-yi-chang-an-quan-you-guan">优先使用make函数的第二个原因是和异常安全有关</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>int computePriority();</span></span>
+<span class="giallo-l"><span>// 我们在一个调用processWidget时使用new而不使用std::make_shared:</span></span>
+<span class="giallo-l"><span>processWidget(std::shared_ptr&lt;Widget&gt;(new Widget), // potential</span></span>
+<span class="giallo-l"><span>                         computePriority());       // resource</span></span>
+<span class="giallo-l"><span>                                                   // leak!</span></span></code></pre>
+<p>这段代码可能会因为new而引起内存泄漏。但怎么引起的呢？调用代码和被调函数都是在使用std::shared_ptr，这本来就是设计成避免内存泄漏的。它可以保证在对象不被使用时销毁所指的对象。只要一直都在使用std::shared_ptr，怎么会泄漏呢？
+答案是和编译器翻译代码到目标代码有关。在运行期，传递给函数的参数必须先计算，然后才发生函数调用。因此在调用processWidget时，下面的事情必须在processWidget开始执行前发生：</p>
+<p>1.表达式"new Widget"必须先计算，一个Widget对象必须先创建在堆上；
+2.负责new出来的对象指针的std::shared_ptr<Widget>的构造函数必须执行；
+3.computePriority必须运行。</p>
+<p>“new Widget”必须在 std::shared_ptr构造函数前被调用，因为new的结果用作构造函数的参数，但是computePriority可以在上述调用前、后或者中间执行。也就是说编译器可能会产生这样的代码来按如下顺序执行：</p>
+<p>1.执行“new Widget”；
+2.执行computePriority；
+3.调用std::shared_ptr构造函数。</p>
+<p>假如这样的代码生成，在运行期，computePriority产生了异常，那么第一步生成的对象会被泄漏掉，因为没有在第3步被保存到 std::shared_ptr。
+使用std::make_shared可以避免这个问题。调用代码如下：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>processWidget(std::make_shared&lt;Widget&gt;(),       // no potential</span></span>
+<span class="giallo-l"><span>                         computePriority());    // resource leak</span></span></code></pre>
+<p>在运行期，std::make_shared或者computePriority被首先调用。如果是std::make_shared被首先调用，指向动态内存对象的原始指针会被安全的保存在返回的std::shared_ptr对象中，然后是computePriority被调用 。如果computePriority产生了异常，那std::shared_ptr析构会知道于是它所拥有的对象会被销毁。如果computePriority先调用并产生了异常，std::make_shared不会被调用，因此也不会有动态分配的内存担心。</p>
+<p>假如我们把std::shared_ptr和std::make_shared替换成std::unique_ptr 和std::make_unique，会发生相同的事情。使用std::make_unique来代替new在写异常安全的代码里是和使用std::make_shared一样重要。</p>
+<h2 id="ling-yi-ge-shi-yong-std-make-sharedde-you-shi-he-zhi-jie-shi-yong-newxiang-bi-shi-hui-ti-sheng-xing-neng">另一个使用std::make_shared的优势(和直接使用new相比)是会提升性能</h2>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>std::shared_ptr&lt;Widget&gt; spw(new Widget);</span></span></code></pre>
+<p>很显然这段代码会引起一个内存分配，但实际上是有两次内存分配。条款19解释了每个std::shared_ptr会指向一个控制块，这个控制块除了其他一些东西，包含了所指对象的引用计数。控制块的内存分配是std::shared_ptr的构造函数汇总进行的。这样直接用new需要为Widget来分配一次内存，还要为控制块再分配一次内存。</p>
+<p>假如用std::make_shared来代替new，
+auto spw = std::make_shared<Widget>();</p>
+<p>一次内存分配就足够了。那是因为std::make_shared会分配一块独立的内存既保存Widget对象又保存控制块。这个优化减小了程序的静态尺寸，因为代码只包含一次内存分配的调用，同时增加了代码执行速度，因为只有一次内存分配。另外，使用std::make_shared会避免控制块中的一些记录信息，潜在的减少了程序中内存的使用。</p>
+<p>对std::make_shared的性能分析同样适用于std::allocated_shared，因此std::make_shared的性能优势也同样存在于std::allocated_shared。</p>
+<h2 id="huan-you-qing-kuang-bu-neng-huo-zhe-bu-ying-gai-shi-yong-makehan-shu">还有情况不能或者不应该使用make函数</h2>
+<h3 id="makehan-shu-du-bu-yun-xu-shi-yong-ding-zhi-shan-chu-qi">make函数都不允许使用定制删除器</h3>
+<p>make函数的参数相对直接使用new来说也更健壮。尽管有如此多的工程特性、异常安全以及效率优势，我们这个条款是“尽量”使用make函数，而没有说排除其他情况。那是因为还有情况不能或者不应该使用make函数。
+比如，make函数都不允许使用定制删除器（见条款18，条款19），但是std::unique_ptr和std::shared_ptr的构造函数都可以给Widget对象一个定制删除器。</p>
+<p>auto widgetDeleter =  { … };</p>
+<p>直接使用new来构造一个有定制删除器的灵巧指针：</p>
+<p>std::unique_ptr&lt;Widget, decltype(widgetDeleter)&gt;
+upw(new Widget, widgetDeleter);
+std::shared_ptr<Widget> spw(new Widget, widgetDeleter);</p>
+<p>用make函数没法做到这一点。</p>
+<h3 id="makehan-shu-de-di-er-ge-xian-zhi-shi-wu-fa-cong-shi-xian-zhong-huo-de-ju-fa-xi-jie">make函数的第二个限制是无法从实现中获得句法细节</h3>
+<p>条款7解释了当创建一个对象时，如果其类型通过std::initializer_list参数列表来重载构造函数的，尽量用大括号来创建对象而不是std::initializer_list构造函数。相反，用圆括号创建对象时，会调用non-std::initializer_list构造函数。make函数完美传递了参数列表到对象的构造函数，但它们在使用圆括号或大括号时，也是如此吗？对某些类型来说，这个问题的答案有很大不同。比如：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>auto upv = std::make_unique&lt;std::vector&lt;int&gt;&gt;(10, 20);</span></span>
+<span class="giallo-l"><span>auto spv = std::make_shared&lt;std::vector&lt;int&gt;&gt;(10, 20);</span></span></code></pre>
+<p>结果指针是指向一个10个元素的数组每个元素值是20，还是指向2个元素的数组其值分别是10和20 ？或者无限制？</p>
+<p>好消息是并非无限制的 ：两个调用都是构造了10元素的数组，每个元素值都是20。说明在make函数里，转移参数的代码使用了圆括号，而不是大括号。坏消息是，假如你想使用大括号初始化器（ braced initializer）来创建自己的指向对象的指针，你必须直接使用new。使用make函数需要能够完美传递一个大括号初始化器的能力，但是，如条款30中所说的，大括号初始化器不能够完美传递。但条款30也给出了一个补救方案：从大括号初始化器根据auto类型推导来创建一个 std::initializer_list对象，然后把auto对象传递给make函数：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>// create std::initializer_list</span></span>
+<span class="giallo-l"><span>auto initList = { 10, 20 };</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>// create std::vector using std::initializer_list ctor</span></span>
+<span class="giallo-l"><span>auto spv = std::make_shared&lt;std::vector&lt;int&gt;&gt;(initList);</span></span></code></pre><h2 id="ru-he-chu-li-yi-xie-bu-neng-shi-yong-makede-chang-jing">如何处理一些不能使用make的场景</h2>
+<p>对于std::unique_ptr来说，其make函数就只在这两种场景（定制删除器和大括号初始化器）有问题。对于std::shared_pr来说，其make函数的问题会更多一些。这两种都是边缘情况，但是一些开发者就喜欢处理边缘情况，你也许也是其中之一。</p>
+<p>一些类会定义自己的opeator new和operator delete。这表示全局的内存分配和释放函数对该对象不合适。通常情况下，类特定的这两个函数被设计成精确的分配或释放类大小的内存块，比如，类Widget的operator new和operator delete仅仅处理sizeof(Widget)大小的内存块。这两个函数作为定制的分配器（通过std::allocate_shared）和解析器（通过定制解析器），对std::shared_ptr的支持并不是很好的选择。因为std::allocate_shared需要的内存数量并不是动态分配的对象的大小，而是对象的大小加上控制块的大小。因此，对于某些对象，其类有特定的operate new和operator delete，使用make函数去创建并不是很好的选择。</p>
+<p>std::make_shared在尺寸和速度上的优点同直接使用new相比，阻止了std::shared_ptr的控制块作为管理对象在同样的内存块上分配。当对象的引用计数变为0，对象被销毁（析构函数被调）。然而，直到控制块同样也被销毁，它所拥有的内存才被释放，因为两者都在同一块动态分配的内存上。</p>
+<p>我前面提到过，控制块除了引用计数本身还包含了其他一些信息。引用计数记录了有多少std::shared_ptr指针指向控制块。另外控制块中还包含了第二个引用计数，记录了有多少个std::weak_ptr指针指向控制块。这第二个引用计数被称作weak count。当一个std::weak_ptr检查是否过期时（见条款19），它会检查控制块里的引用计数（并不是weak count）。假如引用计数为0（假如被指对象没有std::shared_ptr指向了从而已经被销毁），则过期，否则就没过期。</p>
+<p>只要有std::weak_ptr指向一个控制块（weak count大于0），那控制块就一定存在。只要控制块存在，包含它的内存必定存在。这样通过std::shared_ptr的make函数分配的函数则在最后一个std::shared_ptr和最后一个std::weak_ptr被销毁前不能被释放。</p>
+<p>假如对象类型很大，以至于最后一个std::shared_ptr和最后一个std::weak_ptr的销毁之间的时间不能忽略时，对象的销毁和内存的释放间会有个延迟发生。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>class ReallyBigType { … };</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>auto pBigObj =  // create very large</span></span>
+<span class="giallo-l"><span>     std::make_shared&lt;ReallyBigType&gt;(); // object via std::make_shared</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// create std::shared_ptrs and std::weak_ptrs to</span></span>
+<span class="giallo-l"><span>// large object, use them to work with it</span></span>
+<span class="giallo-l"><span>// final std::shared_ptr to object destroyed here,</span></span>
+<span class="giallo-l"><span>// but std::weak_ptrs to it remain</span></span>
+<span class="giallo-l"><span>// during this period, memory formerly occupied</span></span>
+<span class="giallo-l"><span>// by large object remains allocated</span></span>
+<span class="giallo-l"><span>// final std::weak_ptr to object destroyed here;</span></span>
+<span class="giallo-l"><span>// memory for control block and object is released</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// 当直接使用new时，ReallyBigType对象的内存可以在最后一个std::shared_ptr销毁时被释放：</span></span>
+<span class="giallo-l"><span>class ReallyBigType { … };       // as before</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>std::shared_ptr&lt;ReallyBigType&gt; pBigObj(new ReallyBigType);</span></span>
+<span class="giallo-l"><span>                                                   // create very large object via new</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// as before, create std::shared_ptrs and</span></span>
+<span class="giallo-l"><span>// std::weak_ptrs to object, use them with it</span></span>
+<span class="giallo-l"><span>// final std::shared_ptr to object destroyed here,</span></span>
+<span class="giallo-l"><span>// but std::weak_ptrs to it remain;</span></span>
+<span class="giallo-l"><span>// memory for object is deallocated</span></span>
+<span class="giallo-l"><span>// during this period, only memory for the</span></span>
+<span class="giallo-l"><span>// control block remains allocated</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// final std::weak_ptr to object destroyed here;</span></span>
+<span class="giallo-l"><span>// memory for control block is released</span></span></code></pre>
+<p>你有没有发现，你处在一个不可能或者不适合用std::make_shared的情况下，你会确保避免之前我们见到的这类异常安全问题。最好的办法是确保你直接用new的时候，立即把new的结果传递给一个灵巧指针的构造函数，别的什么先不做。这样会阻止编译器生成代码，避免在new和灵巧指针的构造函数（会接管new出来的对象）直接产生异常。</p>
+<p>举个例子，考虑一个对processWidget函数（我们之前测试过）的非异常安全的调用，这次我们定义一个定制删除器：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>void processWidget(std::shared_ptr&lt;Widget&gt; spw, int priority);</span></span>
+<span class="giallo-l"><span> </span></span>
+<span class="giallo-l"><span>void cusDel(Widget *ptr);      // custom deleter</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>// 这里有个非异常安全的调用:</span></span>
+<span class="giallo-l"><span>processWidget(                                           // as before,</span></span>
+<span class="giallo-l"><span>            std::shared_ptr&lt;Widget&gt;(new Widget, cusDel), // potential</span></span>
+<span class="giallo-l"><span>            computePriority()                            // resource</span></span>
+<span class="giallo-l"><span>);                                                       // leak!</span></span></code></pre>
+<p>回忆下：假如computePriority函数在new Widget之后，但是在std::shared_ptr的构造函数之前被调用，如果computePriority抛了异常，那么动态分配的Widget会被泄露。
+这里因为使用了定制删除器，所以不能使用std::make_shared，这里避免问题的方法是把Widget分配内存和构造std::shared_ptr放置到自己的语句中，然后再用std::shared_ptr去调用processWidget。这是这个技巧的本质，当然我们后面会看到我们可以提升其性能：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>std::shared_ptr&lt;Widget&gt; spw(new Widget, cusDel);</span></span>
+<span class="giallo-l"><span>processWidget(spw, computePriority()); // correct, but not optimal; see below</span></span></code></pre>
+<p>因为std::shared_ptr拥有从构造函数传递给它的原始指针，即使在构造函数产生异常时，所以上述代码运行正常。在这个例子中，如果spw的构造函数抛异常（比如因为不能够为控制块分配到动态内存），它仍然会保证调用cusDel去析构new Widget返回的结果。</p>
+<p>不同之处在于，我们在非异常安全的代码里给processWidget传递了一个右值。</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>processWidget(</span></span>
+<span class="giallo-l"><span>    std::shared_ptr&lt;Widget&gt;(new Widget, cusDel), // arg is rvalue</span></span>
+<span class="giallo-l"><span>     computePriority()</span></span>
+<span class="giallo-l"><span>);</span></span></code></pre>
+<p>而在异常安全的调用中，我们传递了一个左值</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>processWidget(spw, computePriority()); // arg is lvalue</span></span></code></pre>
+<p>因为processWidget的std::shared_ptr参数是通过传值的，从一个右值去构造仅仅需要一个move，而从左值去构造需要一个拷贝。对std::shared_ptr来说，这个区别很重要，因为拷贝一个std::shared_ptr需要对其引用计数进行加1的原子操作，而移动一个std::shared_ptr根本不需要对引用计数进行操作。对于这段异常安全的代码如果要达到非异常安全的代码的性能，我们在spw上应用std::move,而把它转化成一个右值(见条款23)：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>processWidget(std::move(spw),               // both efficient and</span></span>
+<span class="giallo-l"><span>                        computePriority()); // exception safe</span></span></code></pre>
+<p>这个很有趣，也应该知道。但是同时也无关紧要。因为你应该很少有理由不直接使用make函数。除非你有特别的理由不去用它，否则你应该使用make函数来完成你要做的。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/06/内存顺序-Memory-Order/">&#8249; 内存顺序(Memory Order)</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2022/05/为什么不提倡使用vector-bool/"> 为什么不提倡使用vector<bool> &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#shared-ptr-he-make-shared-jie-shao">shared_ptr 和make_shared 介绍</a>
+        </div>
+        <div>
+          <a href="#tiao-kuan-21-jin-liang-shi-yong-std-make-uniquehe-std-make-shareder-bu-zhi-jie-shi-yong-new">条款21：尽量使用std::make_unique和std::make_shared而不直接使用new</a>
+        </div>
+        <div class="hpad">
+          <a href="#jian-shao-zhong-fu"><small>- 减少重复</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#you-xian-shi-yong-makehan-shu-de-di-er-ge-yuan-yin-shi-he-yi-chang-an-quan-you-guan"><small>- 优先使用make函数的第二个原因是和异常安全有关</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ling-yi-ge-shi-yong-std-make-sharedde-you-shi-he-zhi-jie-shi-yong-newxiang-bi-shi-hui-ti-sheng-xing-neng"><small>- 另一个使用std::make_shared的优势(和直接使用new相比)是会提升性能</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#huan-you-qing-kuang-bu-neng-huo-zhe-bu-ying-gai-shi-yong-makehan-shu"><small>- 还有情况不能或者不应该使用make函数</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#makehan-shu-du-bu-yun-xu-shi-yong-ding-zhi-shan-chu-qi"><small>· make函数都不允许使用定制删除器</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#makehan-shu-de-di-er-ge-xian-zhi-shi-wu-fa-cong-shi-xian-zhong-huo-de-ju-fa-xi-jie"><small>· make函数的第二个限制是无法从实现中获得句法细节</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ru-he-chu-li-yi-xie-bu-neng-shi-yong-makede-chang-jing"><small>- 如何处理一些不能使用make的场景</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

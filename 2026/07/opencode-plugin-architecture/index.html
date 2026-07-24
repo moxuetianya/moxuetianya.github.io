@@ -1,0 +1,504 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>OpenCode 插件系统与数据库架构深度解析 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="深入分析 opencode 中 third 目录下两个插件的生效逻辑、Hook 分发机制、LLM 消息构造流程，以及 SQLite 数据库的读写模式与膨胀问题。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/07/opencode-plugin-architecture/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/07/opencode-plugin-architecture/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/07/opencode-plugin-architecture/" />
+  <meta property="og:description" content="深入分析 opencode 中 third 目录下两个插件的生效逻辑、Hook 分发机制、LLM 消息构造流程，以及 SQLite 数据库的读写模式与膨胀问题。" />
+  <meta name="twitter:description" content="深入分析 opencode 中 third 目录下两个插件的生效逻辑、Hook 分发机制、LLM 消息构造流程，以及 SQLite 数据库的读写模式与膨胀问题。" />
+  <meta property="og:title" content="OpenCode 插件系统与数据库架构深度解析 | 墨雪天琊" />
+  <meta name="twitter:title" content="OpenCode 插件系统与数据库架构深度解析 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-07-17" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=4dadcf5f8e52f108b77a"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/07/opencode-plugin-architecture/">OpenCode 插件系统与数据库架构深度解析</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 17, 2026 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/typescript/">typescript</a>  #<a href="https://moxuetianya.github.io/tags/effect/">effect</a>  #<a href="https://moxuetianya.github.io/tags/sqlite/">sqlite</a>  #<a href="https://moxuetianya.github.io/tags/ai-agent/">ai-agent</a>  #<a href="https://moxuetianya.github.io/tags/plugin/">plugin</a> </span>
+
+    
+
+
+<h1 id="opencode-cha-jian-xi-tong-yu-shu-ju-ku-jia-gou-shen-du-jie-xi">OpenCode 插件系统与数据库架构深度解析</h1>
+<p>本文以 <a rel="noopener external" target="_blank" href="https://github.com/anomalyco/opencode">opencode</a> 源码为参照，详细分析 <code>third/</code> 目录下两个第三方插件的生效逻辑、插件的 Hook 分发机制，以及运行时数据库的读写模式。</p>
+<h2 id="yi-cha-jian-jia-zai-ji-zhi">一、插件加载机制</h2>
+<p>openCode 的插件系统入口位于 <code>packages/opencode/src/plugin/index.ts</code>，加载流程如下：</p>
+<h3 id="1-pei-zhi-jie-xi-yu-an-zhuang">1. 配置解析与安装</h3>
+<p>用户在 <code>opencode.json</code> 中声明插件：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="json"><span class="giallo-l"><span>{</span></span>
+<span class="giallo-l"><span style="color: #72F1B8;">  &quot;plugin&quot;</span><span>: [</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    &quot;@devtheops/opencode-plugin-otel&quot;</span><span>,</span></span>
+<span class="giallo-l"><span style="color: #FF8B39;">    &quot;superpowers@git+https://github.com/obra/superpowers.git&quot;</span></span>
+<span class="giallo-l"><span>  ]</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p><code>PluginLoader.loadExternal()</code> 解析每个 specifier，通过 <code>resolvePluginTarget()</code> 安装 npm 包（或从 git URL 拉取），定位入口文件。</p>
+<h3 id="2-ru-kou-ti-qu">2. 入口提取</h3>
+<p>模块加载后，<code>applyPlugin</code> 按两种模式识别插件：</p>
+<ul>
+<li><strong>V1 模式</strong>：<code>readV1Plugin()</code> 检查是否存在 <code>{ id, server: Plugin }</code> 结构的默认导出</li>
+<li><strong>Legacy 模式</strong>：<code>getLegacyPlugins()</code> 遍历模块的所有导出，将函数值直接当作 <code>Plugin</code> 实例</li>
+</ul>
+<h3 id="3-hook-zhu-ce">3. Hook 注册</h3>
+<p>所有插件的 <code>Plugin(input)</code> 被调用后返回 <code>Hooks</code> 对象，按顺序存入内部数组。分发方式有三种：</p>
+<table><thead><tr><th>类型</th><th>触发点</th><th>示例</th></tr></thead><tbody>
+<tr><td><code>config</code> 生命周期 Hook</td><td>初始化时按顺序调用</td><td><code>config(cfg)</code></td></tr>
+<tr><td><code>event</code> 事件 Hook</td><td>通过 EventV2Bridge 订阅所有事件</td><td><code>event({ event })</code></td></tr>
+<tr><td><strong>Trigger Hook</strong></td><td>在 opencode 特定执行点通过 <code>Plugin.trigger()</code> 调用</td><td><code>chat.message</code>、<code>experimental.chat.system.transform</code></td></tr>
+</tbody></table>
+<p>Trigger Hook 的核心逻辑是一个简单的遍历（<code>index.ts:302-315</code>）：</p>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="typescript"><span class="giallo-l"><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> trigger</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">fn</span><span>(</span><span style="color: #FF8B39;">&quot;Plugin.trigger&quot;</span><span>)(</span><span style="color: #FEDE5D;">function*</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">name</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> input</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> output</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  for</span><span> (</span><span style="color: #FEDE5D;">const</span><span style="color: #FF7EDB;"> hook</span><span style="color: #FEDE5D;"> of</span><span style="color: #FF7EDB;"> s</span><span>.</span><span style="color: #FF7EDB;">hooks</span><span>) {</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    const</span><span style="color: #FF7EDB;"> fn</span><span style="color: #FFFFFFEE;"> =</span><span style="color: #FF7EDB;"> hook</span><span>[</span><span style="color: #FF7EDB;">name</span><span>]</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    if</span><span> (</span><span style="color: #FEDE5D;">!</span><span style="color: #FF7EDB;">fn</span><span>)</span><span style="color: #FEDE5D;"> continue</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">    yield*</span><span style="color: #FF7EDB;"> Effect</span><span>.</span><span style="color: #36F9F6;">promise</span><span>(</span><span style="color: #FEDE5D;">async</span><span> ()</span><span style="color: #FEDE5D;"> =&gt;</span><span style="color: #36F9F6;"> fn</span><span>(</span><span style="color: #FF7EDB;">input</span><span>,</span><span style="color: #FF7EDB;"> output</span><span>))</span></span>
+<span class="giallo-l"><span>  }</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">  return</span><span style="color: #FF7EDB;"> output</span></span>
+<span class="giallo-l"><span>})</span></span></code></pre>
+<p><strong>执行顺序</strong>：内置插件（CodexAuth、CopilotAuth 等）先 push，外部插件按 <code>opencode.json</code> 声明顺序依次 push，之后所有 Hook 点按此顺序遍历。没有优先级或排序机制。</p>
+<hr />
+<h2 id="er-superpowers-cha-jian-de-sheng-xiao-luo-ji">二、superpowers 插件的生效逻辑</h2>
+<p><strong>文件</strong>：<code>third/superpowers/.opencode/plugins/superpowers.js</code></p>
+<p>这是一个纯 JavaScript 的单文件插件（107 行），通过两个 Hook 注入技能系统：</p>
+<h3 id="hook-1-config-zhu-ce-skills-lu-jing">Hook 1：<code>config</code>（注册 skills 路径）</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="javascript"><span class="giallo-l"><span style="color: #FE4450;">config</span><span>:</span><span style="color: #FEDE5D;"> async</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">config</span><span>)</span><span style="color: #FEDE5D;"> =&gt;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">  config</span><span>.</span><span style="color: #FF7EDB;">skills</span><span>.</span><span style="color: #FF7EDB;">paths</span><span>.</span><span style="color: #36F9F6;">push</span><span>(</span><span style="color: #FF7EDB;">superpowersSkillsDir</span><span>)</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>初始化时向 opencode 的 <code>config.skills.paths</code> 注入自己的 skills 目录（<code>&lt;installed-dir&gt;/skills/</code>），让 opencode 启动后自动发现所有 14 个技能（brainstorming、systematic-debugging、test-driven-development 等），无需用户手动配置 symlink。</p>
+<h3 id="hook-2-experimental-chat-system-transform-zhu-ru-xi-tong-yin-dao">Hook 2：<code>experimental.chat.system.transform</code>（注入系统引导）</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="javascript"><span class="giallo-l"><span style="color: #FF8B39;">&#39;experimental.chat.system.transform&#39;</span><span>: </span><span style="color: #FEDE5D;">async</span><span> (</span><span style="color: #FF7EDB;font-style: italic;">_input</span><span>,</span><span style="color: #FF7EDB;font-style: italic;"> output</span><span>)</span><span style="color: #FEDE5D;"> =&gt;</span><span> {</span></span>
+<span class="giallo-l"><span style="color: #FF7EDB;">  output</span><span>.</span><span style="color: #FF7EDB;">system</span><span>.</span><span style="color: #36F9F6;">push</span><span>(</span><span style="color: #36F9F6;">getBootstrapContent</span><span>())</span></span>
+<span class="giallo-l"><span>}</span></span></code></pre>
+<p>每次构造 LLM 的 system prompt 时，读取 <code>using-superpowers</code> 技能的 SKILL.md 内容（去 frontmatter），包裹在 <code>&lt;EXTREMELY_IMPORTANT&gt;</code> 标签中追加到 system prompt 数组。这使 AI agent 在每次对话中都被强制要求在行动前检查并调用相关 skill。</p>
+<p>这个 Hook 在<strong>两处</strong>被触发（<code>agent/agent.ts:381</code> 和 <code>session/llm/request.ts:70</code>），因此不止执行一次。但由于 <code>output.system</code> 每次都是调用方新创建的局部数组，不存在重复追加问题。</p>
+<hr />
+<h2 id="san-opencode-plugin-otel-cha-jian-de-sheng-xiao-luo-ji">三、opencode-plugin-otel 插件的生效逻辑</h2>
+<p><strong>文件</strong>：<code>third/opencode-plugin-otel/src/index.ts</code></p>
+<p>这是一个 TypeScript 插件（349 行），将 session 遥测数据通过 OpenTelemetry 协议（OTLP over gRPC/HTTP）导出。所有遥测由 <code>OPENCODE_ENABLE_TELEMETRY</code> 环境变量控制。</p>
+<h3 id="he-xin-jia-gou">核心架构</h3>
+<p>插件函数体内惰性初始化 OTel SDK（MeterProvider、LoggerProvider、TracerProvider），然后返回三个 Hook：</p>
+<h4 id="config-hook"><code>config</code> Hook</h4>
+<p>简单调整日志级别。</p>
+<h4 id="chat-message-hook"><code>chat.message</code> Hook</h4>
+<p>每次用户发送消息时触发（<code>session/prompt.ts</code>），启动 session span（如果尚未存在），记录 <code>user_prompt</code> 日志事件，并初始化 token/cost 计数器。</p>
+<h4 id="event-hook"><code>event</code> Hook</h4>
+<p>订阅所有 opencode 事件，按类型分发给不同 hander：</p>
+<table><thead><tr><th>事件</th><th>Handler</th><th>行为</th></tr></thead><tbody>
+<tr><td><code>session.created</code></td><td><code>handleSessionCreated</code></td><td>创建 session span</td></tr>
+<tr><td><code>session.idle</code></td><td><code>handleSessionIdle</code></td><td>关闭 span，flush 遥测</td></tr>
+<tr><td><code>session.error</code></td><td><code>handleSessionError</code></td><td>记录错误，flush</td></tr>
+<tr><td><code>session.diff</code></td><td><code>handleSessionDiff</code></td><td>统计代码行数增删</td></tr>
+<tr><td><code>command.executed</code></td><td><code>handleCommandExecuted</code></td><td>检测 git commit</td></tr>
+<tr><td><code>message.updated</code></td><td><code>handleMessageUpdated</code></td><td>累加 token/cost 计数</td></tr>
+<tr><td><code>message.part.updated</code></td><td><code>handleMessagePartUpdated</code></td><td>处理工具调用 span 和指标</td></tr>
+<tr><td><code>permission.updated/replied</code></td><td>对应 handler</td><td>跟踪权限请求</td></tr>
+</tbody></table>
+<p>注册 <code>SIGTERM</code>/<code>SIGINT</code>/<code>beforeExit</code> 信号实现优雅 shutdown。</p>
+<h3 id="yao-ce-wu-fa-kua-cha-jian-jian-kong">遥测无法跨插件监控</h3>
+<p>当前架构下，一个插件无法以通用方式监控另一个插件 Hook 的执行。因为 <code>hooks</code> 数组是内部闭包的局部变量，<code>Plugin.trigger()</code> 不产生任何可监听的事件——没有优先级、没有 lifecycle hook。只能通过外部 OTLP 后端间接观察 otel 插件自身的指标，或修改核心代码增加 Hook 生命周期事件。</p>
+<hr />
+<h2 id="si-llm-xiao-xi-de-gou-zao-liu-cheng">四、LLM 消息的构造流程</h2>
+<p>这是理解系统提示词注入和数据库读写模式的关键。每次 LLM 调用时：</p>
+<h3 id="gou-zao-lian-lu-prompt-ts-llm-ts-request-ts">构造链路（<code>prompt.ts</code> → <code>llm.ts</code> → <code>request.ts</code>）</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>1. msgs = 从 session_message 表取出全部消息（从最近 compaction 点起）</span></span>
+<span class="giallo-l"><span>2. system = [...env, ...instructions, ...mcpInstructions, ...skills]</span></span>
+<span class="giallo-l"><span>           └── 每轮重新构造，包含:</span></span>
+<span class="giallo-l"><span>               · 当前模型名称、工作目录、日期（new Date().toDateString()）</span></span>
+<span class="giallo-l"><span>               · 项目 references 列表</span></span>
+<span class="giallo-l"><span>               · agent 可用的 skills 列表</span></span>
+<span class="giallo-l"><span>               · MCP server 的指令</span></span>
+<span class="giallo-l"><span>3. modelMsgs = MessageV2.toModelMessagesEffect(msgs, model)</span></span>
+<span class="giallo-l"><span>4. → Plugin.trigger(&quot;experimental.chat.messages.transform&quot;, {}, { messages: msgs })</span></span>
+<span class="giallo-l"><span>5. → handle.process({ system, messages: modelMsgs })</span></span>
+<span class="giallo-l"><span>6. LLMRequestPrep.prepare() 中:</span></span>
+<span class="giallo-l"><span>   · system 数组 join 成 header 字符串</span></span>
+<span class="giallo-l"><span>   · Plugin.trigger(&quot;experimental.chat.system.transform&quot;, ..., { system })</span></span>
+<span class="giallo-l"><span>   · messages = [{ role: &quot;system&quot;, content: x }, ...] + modelMsgs</span></span>
+<span class="giallo-l"><span>   · 最终传给 LLM</span></span></code></pre>
+<p><code>experimental.chat.system.transform</code> 是<strong>插件修改 system prompt 的唯一入口</strong>。system prompt 不在 session 持久化的历史中——它是每轮动态构造的局部变量。</p>
+<h3 id="dui-llm-huan-cun-de-ying-xiang">对 LLM 缓存的影响</h3>
+<p>由于 system prompt 每轮重新构造，include 的内容可能变化（如 <code>Today's date</code> 跨天变化、references 增删、skills 列表变化），LLM 服务端的 prompt caching（如 Anthropic 的 cache control）无法获得稳定的前缀命中。opencode 选择了<strong>新鲜度优先</strong>的设计原则。</p>
+<hr />
+<h2 id="wu-shu-ju-ku-jia-gou-yu-yun-xing-shi-cao-zuo">五、数据库架构与运行时操作</h2>
+<h3 id="yin-qing-yu-pei-zhi">引擎与配置</h3>
+<ul>
+<li><strong>引擎</strong>：SQLite（WAL 模式）</li>
+<li><strong>文件位置</strong>：<code>~/.local/share/opencode/opencode.db</code></li>
+<li><strong>PRAGMA</strong>：<code>journal_mode=WAL</code>、<code>synchronous=NORMAL</code>、<code>busy_timeout=5000</code>、<code>cache_size=-64000</code>（64MB）、<code>foreign_keys=ON</code></li>
+</ul>
+<h3 id="8-zhang-he-xin-biao">8 张核心表</h3>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>session                              event_sequence</span></span>
+<span class="giallo-l"><span>├── id (PK)                          ├── aggregate_id (PK, FK → session.id)</span></span>
+<span class="giallo-l"><span>├── project_id (FK)                  ├── seq</span></span>
+<span class="giallo-l"><span>├── title, slug, directory           └── owner_id</span></span>
+<span class="giallo-l"><span>├── cost, tokens_*  (实时累加)</span></span>
+<span class="giallo-l"><span>├── permission, model, agent         event</span></span>
+<span class="giallo-l"><span>├── time_compacting                  ├── id (PK)</span></span>
+<span class="giallo-l"><span>└── time_archived (从未写入)         ├── aggregate_id (FK)</span></span>
+<span class="giallo-l"><span>                                     ├── seq</span></span>
+<span class="giallo-l"><span>session_message                      ├── type</span></span>
+<span class="giallo-l"><span>├── id (PK)                          └── data (JSON)</span></span>
+<span class="giallo-l"><span>├── session_id (FK, cascade delete)</span></span>
+<span class="giallo-l"><span>├── type (user/assistant/shell/      message (V1 遗留)     part (V1 遗留)</span></span>
+<span class="giallo-l"><span>│         system/compaction/         (session 级)          (message 级)</span></span>
+<span class="giallo-l"><span>│         synthetic/agent-switched/</span></span>
+<span class="giallo-l"><span>│         model-switched)</span></span>
+<span class="giallo-l"><span>├── seq (unique per session)         session_input          todo</span></span>
+<span class="giallo-l"><span>├── data (JSON)                      ├── id (PK)           ├── session_id+position (PK)</span></span>
+<span class="giallo-l"><span>└── time_created                     ├── session_id (FK)   ├── content, status</span></span>
+<span class="giallo-l"><span>                                     ├── prompt (JSON)     └── priority</span></span>
+<span class="giallo-l"><span>session_context_epoch                ├── delivery</span></span>
+<span class="giallo-l"><span>├── session_id (PK, FK)              ├── admitted_seq</span></span>
+<span class="giallo-l"><span>├── baseline                         └── promoted_seq</span></span>
+<span class="giallo-l"><span>├── snapshot (JSON)</span></span>
+<span class="giallo-l"><span>└── baseline_seq</span></span></code></pre><h3 id="he-xin-du-xie-liu-cheng">核心读写流程</h3>
+<h4 id="du-cao-zuo-mei-ci-llm-qing-qiu-qian">读操作（每次 LLM 请求前）</h4>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="sql"><span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 1. 找到最新 compaction 点</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">SELECT</span><span> seq </span><span style="color: #FEDE5D;">FROM</span><span> session_message</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">WHERE</span><span> session_id </span><span style="color: #FEDE5D;">=</span><span> ? </span><span style="color: #FEDE5D;">AND type =</span><span style="color: #FF8B39;"> &#39;compaction&#39;</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">ORDER BY</span><span> seq </span><span style="color: #FEDE5D;">DESC LIMIT</span><span style="color: #F97E72;"> 1</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 2. 从该点加载全量消息</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">SELECT * FROM</span><span> session_message</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">WHERE</span><span> session_id </span><span style="color: #FEDE5D;">=</span><span> ? </span><span style="color: #FEDE5D;">AND</span><span> seq </span><span style="color: #FEDE5D;">&gt;=</span><span> ?</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">ORDER BY</span><span> seq </span><span style="color: #FEDE5D;">ASC</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span style="color: #848BBD;font-style: italic;">-- 3. 加载系统上下文基线</span></span>
+<span class="giallo-l"><span style="color: #FEDE5D;">SELECT * FROM</span><span> session_context_epoch </span><span style="color: #FEDE5D;">WHERE</span><span> session_id </span><span style="color: #FEDE5D;">=</span><span> ?</span></span></code></pre><h4 id="xie-cao-zuo-mei-ge-shi-jian-hong-fa-ji-lian-xie-ru">写操作（每个事件触发级联写入）</h4>
+<pre class="giallo" style="color: #FFFFFF; background-color: #262335;"><code data-lang="plain"><span class="giallo-l"><span>用户输入 → publish(session.next.prompted):</span></span>
+<span class="giallo-l"><span>  ├── INSERT event (持久化事件)</span></span>
+<span class="giallo-l"><span>  └── SessionProjector:</span></span>
+<span class="giallo-l"><span>        ├── INSERT session_message (type=&quot;user&quot;, seq=N)</span></span>
+<span class="giallo-l"><span>        └── UPSERT session_input (delivery=&quot;steer&quot;, admitted_seq=N)</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>step started → INSERT session_message (type=&quot;assistant&quot;)  ← 新建一行</span></span>
+<span class="giallo-l"><span>text delta   → 纯内存操作，不写 DB (delta 太多)</span></span>
+<span class="giallo-l"><span>text ended   → UPDATE session_message (合并完整文本)</span></span>
+<span class="giallo-l"><span>tool called  → UPDATE session_message (更新 tool state)</span></span>
+<span class="giallo-l"><span>tool success → UPDATE session_message (写入 result)</span></span>
+<span class="giallo-l"><span>step ended   → UPDATE session_message (补 finish, cost, tokens)</span></span>
+<span class="giallo-l"><span>  └── 同时 UPDATE session SET cost += ?, tokens_* += ?</span></span>
+<span class="giallo-l"></span>
+<span class="giallo-l"><span>compaction   → INSERT session_message (type=&quot;compaction&quot;, seq=P)</span></span>
+<span class="giallo-l"><span>  └── 不删除旧行，后续读取只从 seq &gt;= P 处开始</span></span></code></pre>
+<p><strong>关键点</strong>：同一轮 tool-calling 循环中，一个 assistant 消息只占<strong>一行</strong> <code>session_message</code>，后续事件都是 UPDATE 同一行而非 INSERT 新行。</p>
+<h3 id="shu-ju-ku-peng-zhang">数据库膨胀</h3>
+<table><thead><tr><th>表</th><th>增长模式</th><th>清理方式</th></tr></thead><tbody>
+<tr><td><code>session_message</code></td><td>每用户输入、每个事件 INSERT 或 UPDATE 一行</td><td>手动删 session / revert</td></tr>
+<tr><td><code>event</code></td><td>每个事件 INSERT 一行，永不更新</td><td>cascade 删 session</td></tr>
+<tr><td><code>event_sequence</code></td><td>每个事件 UPDATE seq</td><td>cascade</td></tr>
+</tbody></table>
+<p><strong>当前没有自动清理机制</strong>：</p>
+<ul>
+<li>Compaction 只是追加 summary 行 + "跳过"旧消息，不删除任何数据</li>
+<li><code>time_archived</code> 字段存在于 schema 中，但<strong>未被任何代码写入</strong></li>
+<li>没有 TTL、没有到期清理、没有最大行数限制</li>
+</ul>
+<p>唯一删除途径：手动删除 session（<code>DELETE FROM session WHERE id = ?</code>，级联清除所有子表）或执行 revert（删除指定 seq 之后的 <code>session_message</code> 和 <code>session_input</code> 行）。</p>
+<hr />
+<h2 id="liu-hook-yu-event-wan-quan-can-kao">六、Hook 与 Event 完全参考</h2>
+<p>Hook 类型定义在 <code>packages/plugin/src/index.ts:222-335</code>，Event 定义分散在 <code>packages/schema/src/</code> 下的多个文件中。</p>
+<h3 id="6-1-quan-bu-hook-21-ge">6.1 全部 Hook（21 个）</h3>
+<h4 id="sheng-ming-zhou-qi-hook-fei-trigger-mo-shi-6-ge">生命周期 Hook（非 trigger 模式，6 个）</h4>
+<p>这些 Hook 不通过 <code>Plugin.trigger()</code> 调用，而是由 opencode 核心在特定时机直接调用。</p>
+<table><thead><tr><th>#</th><th>Hook 名</th><th>入参</th><th>返回值</th><th>作用</th></tr></thead><tbody>
+<tr><td>1</td><td><code>dispose</code></td><td>无</td><td><code>Promise&lt;void&gt;</code></td><td>插件卸载时调用，用于清理资源</td></tr>
+<tr><td>2</td><td><code>event</code></td><td><code>{ event: { id, type, properties } }</code></td><td><code>Promise&lt;void&gt;</code></td><td>接收每个系统事件——通过 EventV2Bridge 订阅所有事件广播。这是插件感知系统状态的核心入口</td></tr>
+<tr><td>3</td><td><code>config</code></td><td><code>Config</code>（完整配置对象）</td><td><code>Promise&lt;void&gt;</code></td><td>初始化时及配置变更时调用。插件在此注册 skills 路径、调整日志级别、注入自定义配置</td></tr>
+<tr><td>4</td><td><code>tool</code></td><td>—（静态属性）</td><td><code>{ [key: string]: ToolDefinition }</code></td><td>注册自定义工具供 agent 调用</td></tr>
+<tr><td>5</td><td><code>auth</code></td><td>—（静态属性）</td><td><code>AuthHook</code></td><td>注册自定义认证逻辑（如 OAuth）</td></tr>
+<tr><td>6</td><td><code>provider</code></td><td>—（静态属性）</td><td><code>ProviderHook</code></td><td>注册自定义模型 Provider</td></tr>
+</tbody></table>
+<h4 id="trigger-hook-input-output-void-mo-shi-15-ge">Trigger Hook（<code>(input, output) → void</code> 模式，15 个）</h4>
+<p>这些 Hook 在特定执行点通过 <code>Plugin.trigger(name, input, output)</code> 调用，插件通过修改 <code>output</code> 对象来影响后续流程。</p>
+<h5 id="xiao-xi-yu-llm-qing-qiu">消息与 LLM 请求</h5>
+<table><thead><tr><th>#</th><th>Hook 名</th><th>入参 (<code>input</code>)</th><th>出参 (<code>output</code>)</th><th>作用</th><th>触发点</th></tr></thead><tbody>
+<tr><td>7</td><td><code>chat.message</code></td><td><code>{ sessionID, agent?, model?: {providerID,modelID}, messageID?, variant? }</code></td><td><code>{ message, parts }</code></td><td>新消息到达时（处理前），可修改用户消息内容和 parts</td><td><code>prompt.ts:999</code></td></tr>
+<tr><td>8</td><td><code>chat.params</code></td><td><code>{ sessionID, agent, model, provider, message }</code></td><td><code>{ temperature, topP, topK, maxOutputTokens?, options }</code></td><td>修改 LLM 参数（temperature、topP 等）</td><td><code>request.ts:114</code></td></tr>
+<tr><td>9</td><td><code>chat.headers</code></td><td><code>{ sessionID, agent, model, provider, message }</code></td><td><code>{ headers: Record&lt;string,string&gt; }</code></td><td>向 LLM 请求添加自定义 HTTP 头</td><td><code>request.ts:134</code></td></tr>
+<tr><td>10</td><td><code>experimental.chat.messages.transform</code></td><td><code>{}</code>（空）</td><td><code>{ messages: { info, parts }[] }</code></td><td>修改发送给 LLM 的完整消息列表。同时在正常 prompt 和 compaction 时触发</td><td><code>prompt.ts:1255</code>, <code>compaction.ts:350</code></td></tr>
+<tr><td>11</td><td><code>experimental.chat.system.transform</code></td><td><code>{ sessionID?, model }</code></td><td><code>{ system: string[] }</code></td><td>修改 system prompt 数组。<strong>插件向 system prompt 注入额外提示词的唯一入口</strong></td><td><code>request.ts:69</code>, <code>agent.ts:381</code></td></tr>
+</tbody></table>
+<h5 id="gong-ju-sheng-ming-zhou-qi">工具生命周期</h5>
+<table><thead><tr><th>#</th><th>Hook 名</th><th>入参</th><th>出参</th><th>作用</th><th>触发点</th></tr></thead><tbody>
+<tr><td>12</td><td><code>tool.execute.before</code></td><td><code>{ tool, sessionID, callID }</code></td><td><code>{ args }</code></td><td>工具执行前，可修改工具调用参数</td><td><code>tools.ts:106</code>, <code>code-mode.ts:141</code> 等 7 处</td></tr>
+<tr><td>13</td><td><code>tool.execute.after</code></td><td><code>{ tool, sessionID, callID, args }</code></td><td><code>{ title, output, metadata }</code></td><td>工具执行完毕后，可修改输出/标题/元数据</td><td><code>tools.ts:121</code>, <code>code-mode.ts:180</code> 等 7 处</td></tr>
+<tr><td>14</td><td><code>tool.definition</code></td><td><code>{ toolID }</code></td><td><code>{ description, parameters }</code></td><td>发送给 LLM 的工具定义（描述和参数 Schema），按工具逐一调用</td><td><code>registry.ts:313</code></td></tr>
+</tbody></table>
+<h5 id="ming-ling-yu-shell">命令与 Shell</h5>
+<table><thead><tr><th>#</th><th>Hook 名</th><th>入参</th><th>出参</th><th>作用</th><th>触发点</th></tr></thead><tbody>
+<tr><td>15</td><td><code>command.execute.before</code></td><td><code>{ command, sessionID, arguments }</code></td><td><code>{ parts: Part[] }</code></td><td>斜杠命令执行前，可替换命令产生的 parts</td><td><code>prompt.ts:1460</code></td></tr>
+<tr><td>16</td><td><code>shell.env</code></td><td><code>{ cwd, sessionID?, callID? }</code></td><td><code>{ env: Record&lt;string,string&gt; }</code></td><td>向 shell 执行环境注入额外环境变量</td><td><code>tool/shell.ts:417</code>, <code>prompt.ts:554</code>, <code>pty.ts:71</code></td></tr>
+</tbody></table>
+<h5 id="wen-ben-ya-suo-yu-qi-ta">文本、压缩与其他</h5>
+<table><thead><tr><th>#</th><th>Hook 名</th><th>入参</th><th>出参</th><th>作用</th><th>触发点</th></tr></thead><tbody>
+<tr><td>17</td><td><code>experimental.text.complete</code></td><td><code>{ sessionID, messageID, partID }</code></td><td><code>{ text }</code></td><td>LLM 文本流结束时，可转换最终输出的文本</td><td><code>processor.ts:516</code></td></tr>
+<tr><td>18</td><td><code>experimental.session.compacting</code></td><td><code>{ sessionID }</code></td><td><code>{ context: string[], prompt?: string }</code></td><td>压缩前注入额外上下文；若设置 <code>prompt</code> 则替换默认压缩 prompt</td><td><code>compaction.ts:343</code></td></tr>
+<tr><td>19</td><td><code>experimental.compaction.autocontinue</code></td><td><code>{ sessionID, agent, model, provider, message, overflow }</code></td><td><code>{ enabled: boolean }</code></td><td>压缩完成后，设 <code>enabled: false</code> 阻止自动继续</td><td><code>compaction.ts:454</code></td></tr>
+<tr><td>20</td><td><code>permission.ask</code></td><td><code>Permission</code></td><td><code>{ status: "ask"|"deny"|"allow" }</code></td><td>拦截权限请求，自动放行或拒绝</td><td>权限服务</td></tr>
+<tr><td>21</td><td><code>experimental.provider.small_model</code></td><td><code>{ provider }</code></td><td><code>{ model? }</code></td><td>覆盖 lightweight 操作（如标题生成）的 small model 选择</td><td>Provider 服务</td></tr>
+</tbody></table>
+<h3 id="6-2-chi-jiu-shi-jian-32-ge-session-next">6.2 持久事件（32 个，<code>session.next.*</code>）</h3>
+<p>这些事件关联 <code>aggregateID</code>（= sessionID）和 <code>seq</code>，写入 <code>event</code> 表，支持 replay。每个事件 name 即为 <code>type</code> 字段值。</p>
+<table><thead><tr><th>#</th><th>事件类型</th><th>关键字段</th><th>对应 <code>session_message</code> type</th><th>说明</th></tr></thead><tbody>
+<tr><td>1</td><td><code>session.next.agent.switched</code></td><td><code>{ sessionID, messageID, agent }</code></td><td><code>agent-switched</code></td><td>Agent 切换</td></tr>
+<tr><td>2</td><td><code>session.next.model.switched</code></td><td><code>{ sessionID, messageID, model }</code></td><td><code>model-switched</code></td><td>模型切换</td></tr>
+<tr><td>3</td><td><code>session.next.moved</code></td><td><code>{ sessionID, location, subdirectory? }</code></td><td>—</td><td>Session 移动到新位置（不写 session_message）</td></tr>
+<tr><td>4</td><td><code>session.next.prompted</code></td><td><code>{ sessionID, messageID, prompt, delivery }</code></td><td><code>user</code></td><td>用户输入完成投递，将被 LLM 处理。同时写入 <code>session_input</code> 表</td></tr>
+<tr><td>5</td><td><code>session.next.prompt.admitted</code></td><td><code>{ sessionID, messageID, prompt, delivery }</code></td><td>—</td><td>用户输入持久化到 <code>session_input</code> 表（admitted，尚未 promoted）</td></tr>
+<tr><td>6</td><td><code>session.next.context.updated</code></td><td><code>{ sessionID, messageID, text }</code></td><td><code>system</code></td><td>系统上下文更新。更新 <code>session_context_epoch</code> 表</td></tr>
+<tr><td>7</td><td><code>session.next.synthetic</code></td><td><code>{ sessionID, messageID, text }</code></td><td><code>synthetic</code></td><td>合成消息注入（如 compaction 后的 auto-continue）</td></tr>
+<tr><td>8</td><td><code>session.next.shell.started</code></td><td><code>{ sessionID, callID, command }</code></td><td><code>shell</code></td><td>Shell 命令开始执行</td></tr>
+<tr><td>9</td><td><code>session.next.shell.ended</code></td><td><code>{ sessionID, callID, output }</code></td><td>—</td><td>Shell 命令完成，更新 <code>shell</code> 行的 output</td></tr>
+<tr><td>10</td><td><code>session.next.step.started</code></td><td><code>{ sessionID, assistantMessageID, agent, model, snapshot? }</code></td><td><code>assistant</code> + 关闭前一个未完成的 assistant</td><td>一次 LLM 响应 step 开始（agent 循环中的一个 turn）</td></tr>
+<tr><td>11</td><td><code>session.next.step.ended</code></td><td><code>{ sessionID, assistantMessageID, finish, cost, tokens, snapshot?, files? }</code></td><td>更新 <code>assistant</code></td><td>Step 完成：写入 finish、cost、tokens，同时更新 <code>session</code> 表的聚合值</td></tr>
+<tr><td>12</td><td><code>session.next.step.failed</code></td><td><code>{ sessionID, assistantMessageID, error }</code></td><td>更新 <code>assistant</code>（finish="error"）</td><td>Step 因错误失败</td></tr>
+<tr><td>13</td><td><code>session.next.text.started</code></td><td><code>{ sessionID, assistantMessageID, textID }</code></td><td>在 assistant.content 中追加 text 块</td><td>LLM 文本流开始</td></tr>
+<tr><td>14</td><td><code>session.next.text.ended</code></td><td><code>{ sessionID, assistantMessageID, textID, text }</code></td><td>合并完整文本</td><td>文本流完成（提供完整 replayable 值）</td></tr>
+<tr><td>15</td><td><code>session.next.reasoning.started</code></td><td><code>{ sessionID, assistantMessageID, reasoningID, providerMetadata? }</code></td><td>追加 reasoning 块</td><td>推理流开始</td></tr>
+<tr><td>16</td><td><code>session.next.reasoning.ended</code></td><td><code>{ sessionID, assistantMessageID, reasoningID, text, providerMetadata? }</code></td><td>合并完整推理文本</td><td>推理流完成</td></tr>
+<tr><td>17</td><td><code>session.next.tool.input.started</code></td><td><code>{ sessionID, assistantMessageID, callID, name }</code></td><td>追加 tool 块（pending）</td><td>工具输入流开始（LLM 开始生成工具调用参数）</td></tr>
+<tr><td>18</td><td><code>session.next.tool.input.ended</code></td><td><code>{ sessionID, assistantMessageID, callID, text }</code></td><td>更新 tool 输入</td><td>工具输入流完成</td></tr>
+<tr><td>19</td><td><code>session.next.tool.called</code></td><td><code>{ sessionID, assistantMessageID, callID, tool, input, provider }</code></td><td>更新 tool state→running</td><td>工具调用完整，准备执行</td></tr>
+<tr><td>20</td><td><code>session.next.tool.progress</code></td><td><code>{ sessionID, assistantMessageID, callID, structured, content }</code></td><td>更新 tool 进度</td><td>工具执行进度快照（限流，非每个 chunk）</td></tr>
+<tr><td>21</td><td><code>session.next.tool.success</code></td><td><code>{ sessionID, assistantMessageID, callID, structured, content, outputPaths?, result?, provider }</code></td><td>更新 tool state→completed</td><td>工具执行成功</td></tr>
+<tr><td>22</td><td><code>session.next.tool.failed</code></td><td><code>{ sessionID, assistantMessageID, callID, error, result?, provider }</code></td><td>更新 tool state→error</td><td>工具执行失败</td></tr>
+<tr><td>23</td><td><code>session.next.retried</code></td><td><code>{ sessionID, attempt, error }</code></td><td>—（不写 session_message）</td><td>Provider 请求被重试</td></tr>
+<tr><td>24</td><td><code>session.next.compaction.started</code></td><td><code>{ sessionID, messageID, reason }</code></td><td>—</td><td>压缩开始</td></tr>
+<tr><td>25</td><td><code>session.next.compaction.ended</code></td><td><code>{ sessionID, messageID, reason, text, recent }</code></td><td><code>compaction</code></td><td>压缩完成：插入 compaction 行，更新 session.time_compacting。旧数据不删除</td></tr>
+<tr><td>26</td><td><code>session.next.revert.staged</code></td><td><code>{ sessionID, revert }</code></td><td>—</td><td>回退被暂存（更新 session.revert 列）</td></tr>
+<tr><td>27</td><td><code>session.next.revert.cleared</code></td><td><code>{ sessionID }</code></td><td>—</td><td>暂存回退被清除</td></tr>
+<tr><td>28</td><td><code>session.next.revert.committed</code></td><td><code>{ sessionID, messageID }</code></td><td>—</td><td>回退被提交：删除 seq &gt; boundary 的 session_message 和 session_input</td></tr>
+</tbody></table>
+<blockquote>
+<p>**Live-only（不持久化）**的 <code>session.next.*</code> 事件：<code>text.delta</code>、<code>reasoning.delta</code>、<code>tool.input.delta</code>、<code>compaction.delta</code>——这些流式增量事件仅实时广播，不写 <code>event</code> 表。</p>
+</blockquote>
+<h3 id="6-3-v1-yi-liu-session-shi-jian-9-ge">6.3 V1 遗留 Session 事件（9 个）</h3>
+<table><thead><tr><th>#</th><th>事件类型</th><th>持久？</th><th>关键字段</th><th>说明</th></tr></thead><tbody>
+<tr><td>29</td><td><code>session.created</code></td><td>是</td><td><code>{ sessionID, info }</code></td><td>Session 创建（写入 <code>session</code> 表）</td></tr>
+<tr><td>30</td><td><code>session.updated</code></td><td>是</td><td><code>{ sessionID, info }</code></td><td>Session 更新</td></tr>
+<tr><td>31</td><td><code>session.deleted</code></td><td>是</td><td><code>{ sessionID }</code></td><td>Session 删除（级联删除所有子表）</td></tr>
+<tr><td>32</td><td><code>message.updated</code></td><td>是</td><td><code>{ sessionID, info }</code></td><td>消息更新（写入 V1 <code>message</code> 表）</td></tr>
+<tr><td>33</td><td><code>message.removed</code></td><td>是</td><td><code>{ sessionID, messageID }</code></td><td>消息删除</td></tr>
+<tr><td>34</td><td><code>message.part.updated</code></td><td>是</td><td><code>{ sessionID, part }</code></td><td>Part 更新（写入 V1 <code>part</code> 表，扣减/增加 session token/cost）</td></tr>
+<tr><td>35</td><td><code>message.part.removed</code></td><td>是</td><td><code>{ sessionID, messageID, partID }</code></td><td>Part 删除</td></tr>
+<tr><td>36</td><td><code>message.part.delta</code></td><td>否</td><td><code>{ sessionID, messageID, partID, field, delta }</code></td><td>Part 流式增量</td></tr>
+<tr><td>37</td><td><code>session.diff</code></td><td>否</td><td><code>{ sessionID, diff[] }</code></td><td>代码行增删统计</td></tr>
+<tr><td>38</td><td><code>session.error</code></td><td>否</td><td><code>{ sessionID?, error }</code></td><td>Session 错误</td></tr>
+</tbody></table>
+<h3 id="6-4-session-zhuang-tai-shi-jian-2-ge">6.4 Session 状态事件（2 个）</h3>
+<table><thead><tr><th>#</th><th>事件类型</th><th>说明</th></tr></thead><tbody>
+<tr><td>39</td><td><code>session.status</code></td><td><code>{ sessionID, status: "idle"|"retry"|"busy" }</code> — 当前 agent 循环状态</td></tr>
+<tr><td>40</td><td><code>session.idle</code></td><td><code>{ sessionID }</code> — Session 进入空闲（已废弃）</td></tr>
+</tbody></table>
+<h3 id="6-5-qi-ta-v2-shi-jian-48-ge">6.5 其他 V2 事件（48 个）</h3>
+<p>全部为 live-only（不持久化）。</p>
+<table><thead><tr><th>类别</th><th>事件</th></tr></thead><tbody>
+<tr><td>权限（4）</td><td><code>permission.v2.asked</code>, <code>permission.v2.replied</code>（V2）；<code>permission.asked</code>, <code>permission.replied</code>（V1）</td></tr>
+<tr><td>提问（5）</td><td><code>question.v2.asked</code>, <code>question.v2.replied</code>, <code>question.v2.rejected</code>（V2）；<code>question.asked</code>, <code>question.replied</code>（V1）</td></tr>
+<tr><td>TUI（4）</td><td><code>tui.prompt.append</code>, <code>tui.command.execute</code>, <code>tui.toast.show</code>, <code>tui.session.select</code></td></tr>
+<tr><td>PTY（4）</td><td><code>pty.created</code>, <code>pty.updated</code>, <code>pty.exited</code>, <code>pty.deleted</code></td></tr>
+<tr><td>工作区与项目（5）</td><td><code>workspace.ready</code>, <code>workspace.failed</code>, <code>workspace.status</code>, <code>worktree.ready</code>, <code>worktree.failed</code></td></tr>
+<tr><td>服务端（3）</td><td><code>server.connected</code>, <code>global.disposed</code>, <code>server.instance.disposed</code></td></tr>
+<tr><td>安装（2）</td><td><code>installation.updated</code>, <code>installation.update-available</code></td></tr>
+<tr><td>文件系统（2）</td><td><code>file.edited</code>, <code>file.watcher.updated</code></td></tr>
+<tr><td>MCP（2）</td><td><code>mcp.tools.changed</code>, <code>mcp.browser.open.failed</code></td></tr>
+<tr><td>项目（2）</td><td><code>project.updated</code>, <code>project.directories.updated</code></td></tr>
+<tr><td>集成（2）</td><td><code>integration.updated</code>, <code>integration.connection.updated</code></td></tr>
+<tr><td>LSP（1）</td><td><code>lsp.updated</code></td></tr>
+<tr><td>IDE（1）</td><td><code>ide.installed</code></td></tr>
+<tr><td>VCS（1）</td><td><code>vcs.branch.updated</code></td></tr>
+<tr><td>其他（6）</td><td><code>todo.updated</code>, <code>plugin.added</code>, <code>catalog.updated</code>, <code>reference.updated</code>, <code>models-dev.refreshed</code>, <code>command.executed</code></td></tr>
+</tbody></table>
+<h3 id="6-6-hook-yu-event-de-hui-zong">6.6 Hook 与 Event 的汇总</h3>
+<table><thead><tr><th>类别</th><th>数量</th></tr></thead><tbody>
+<tr><td>Hook（总数）</td><td>21</td></tr>
+<tr><td>├─ Trigger Hook</td><td>15（通过 <code>plugin.trigger()</code> 调用）</td></tr>
+<tr><td>└─ 生命周期 Hook</td><td>6（<code>dispose</code>/<code>event</code>/<code>config</code>/<code>tool</code>/<code>auth</code>/<code>provider</code>）</td></tr>
+<tr><td>Event 类型（总数）</td><td>90</td></tr>
+<tr><td>├─ 持久事件</td><td>32（可 replay）</td></tr>
+<tr><td>└─ 瞬态事件</td><td>58（live-only，不持久化）</td></tr>
+<tr><td>最活跃写入表</td><td><code>event</code>（每事件一 INSERT）、<code>session_message</code>（每持久事件一 INSERT 或 UPDATE）</td></tr>
+</tbody></table>
+<p><strong>架构特点</strong>：</p>
+<ul>
+<li><code>event</code> Hook 接收全部 90 种事件的推送，是插件感知系统状态的唯一通道</li>
+<li>只有 32 个 <code>session.next.*</code> 持久事件会同时写入 <code>event</code> 和 <code>session_message</code> 两张表</li>
+<li>同一轮 agent 循环中，一个 assistant 应答对应<strong>一行</strong> <code>session_message</code>；<code>step.started</code> INSERT 该行，后续所有 text/tool step 事件 UPDATE 同一行</li>
+<li><code>experimental.chat.system.transform</code> 是修改 system prompt 的<strong>唯一 trigger Hook</strong></li>
+<li><code>tool.execute.before</code> / <code>tool.execute.after</code> 覆盖所有类型的工具（内置工具 + MCP 工具 + task 子 agent）</li>
+</ul>
+<hr />
+<h2 id="zong-jie">总结</h2>
+<table><thead><tr><th>层面</th><th>设计选择</th></tr></thead><tbody>
+<tr><td>插件 Hook 分发</td><td>遍历内建 hooks 数组，无优先级，无排序机制</td></tr>
+<tr><td>插件间监控</td><td>不可行 — 无 Hook lifecycle 事件，hooks 数组私有</td></tr>
+<tr><td>System prompt 构造</td><td>每轮动态重建，新鲜度优先，牺牲 LLM 缓存命中</td></tr>
+<tr><td>数据库写入</td><td>事件源模式，每事件一条 event + 一条 session_message（仅持久事件）</td></tr>
+<tr><td>数据库读取</td><td>每次 LLM 调用从 compaction 点全量加载 session_message</td></tr>
+<tr><td>数据清理</td><td>无自动清理，靠手动删 session 或 revert</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/rust-cargo-link-concurrency-limit/">&#8249; Rust Cargo 编译优化：利用 Link Wrapper + 文件锁实现「编译全并行，链接限并发」</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/"> opencode 界面卡住不动排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#opencode-cha-jian-xi-tong-yu-shu-ju-ku-jia-gou-shen-du-jie-xi">OpenCode 插件系统与数据库架构深度解析</a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-cha-jian-jia-zai-ji-zhi"><small>- 一、插件加载机制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-pei-zhi-jie-xi-yu-an-zhuang"><small>· 1. 配置解析与安装</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-ru-kou-ti-qu"><small>· 2. 入口提取</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-hook-zhu-ce"><small>· 3. Hook 注册</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#er-superpowers-cha-jian-de-sheng-xiao-luo-ji"><small>- 二、superpowers 插件的生效逻辑</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#hook-1-config-zhu-ce-skills-lu-jing"><small>· Hook 1：config（注册 skills 路径）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#hook-2-experimental-chat-system-transform-zhu-ru-xi-tong-yin-dao"><small>· Hook 2：experimental.chat.system.transform（注入系统引导）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-opencode-plugin-otel-cha-jian-de-sheng-xiao-luo-ji"><small>- 三、opencode-plugin-otel 插件的生效逻辑</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#he-xin-jia-gou"><small>· 核心架构</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yao-ce-wu-fa-kua-cha-jian-jian-kong"><small>· 遥测无法跨插件监控</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#si-llm-xiao-xi-de-gou-zao-liu-cheng"><small>- 四、LLM 消息的构造流程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gou-zao-lian-lu-prompt-ts-llm-ts-request-ts"><small>· 构造链路（prompt.ts → llm.ts → request.ts）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#dui-llm-huan-cun-de-ying-xiang"><small>· 对 LLM 缓存的影响</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wu-shu-ju-ku-jia-gou-yu-yun-xing-shi-cao-zuo"><small>- 五、数据库架构与运行时操作</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yin-qing-yu-pei-zhi"><small>· 引擎与配置</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#8-zhang-he-xin-biao"><small>· 8 张核心表</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#he-xin-du-xie-liu-cheng"><small>· 核心读写流程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shu-ju-ku-peng-zhang"><small>· 数据库膨胀</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#liu-hook-yu-event-wan-quan-can-kao"><small>- 六、Hook 与 Event 完全参考</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-1-quan-bu-hook-21-ge"><small>· 6.1 全部 Hook（21 个）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-2-chi-jiu-shi-jian-32-ge-session-next"><small>· 6.2 持久事件（32 个，session.next.*）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-3-v1-yi-liu-session-shi-jian-9-ge"><small>· 6.3 V1 遗留 Session 事件（9 个）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-4-session-zhuang-tai-shi-jian-2-ge"><small>· 6.4 Session 状态事件（2 个）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-5-qi-ta-v2-shi-jian-48-ge"><small>· 6.5 其他 V2 事件（48 个）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-6-hook-yu-event-de-hui-zong"><small>· 6.6 Hook 与 Event 的汇总</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
