@@ -1,0 +1,847 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>两台机器的 GNOME RDP 排查：xrdp 占端口 / 0x907 证书 / 白屏闪退 / 凭证丢失 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="在 Ubuntu 24.04 和 Debian 13 两台机器上先后遇到的 GNOME Remote Desktop 全套问题：xrdp 抢占 3389、mstsc 0x907 证书错误、GDM 白屏 CPU 飙升（真根因：手动默认路由 → NM primary 为空 → gsd-sharing 判 OFFLINE → --handover 不启动 → greeter 无虚拟显示器）、NTLM MIC 认证失败、Session creation inhibited、grdctl 凭证不持久化、loginctl 远程解锁会话。2026-08-12 补充：系统级凭证写入后不重载、SCREEN_SHARE 凭证只读 keyring（改密码须写 keyring）、重启系统 daemon 连锁踢物理会话（GDM 断言失败）、共享模式默认 mirror-primary，以及 setup.rdp.sh 一键脚本的 --set-password &#x2F; --restart &#x2F; --extend 参数设计。2026-08-18 补充：多显示器共享机制（mirror-primary 只镜像主屏、副屏内容不共享）、Remmina 客户端多显示器选项（Enable multi monitor &#x2F; span &#x2F; List monitor IDs 在 Basic 页下半段）、显示器热插拔对本地会话与共享会话的不同影响（mutter 输出配置与会话解耦）。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/ubuntu-gnome-rdp-mstsc-troubleshooting/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/ubuntu-gnome-rdp-mstsc-troubleshooting/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/ubuntu-gnome-rdp-mstsc-troubleshooting/" />
+  <meta property="og:description" content="在 Ubuntu 24.04 和 Debian 13 两台机器上先后遇到的 GNOME Remote Desktop 全套问题：xrdp 抢占 3389、mstsc 0x907 证书错误、GDM 白屏 CPU 飙升（真根因：手动默认路由 → NM primary 为空 → gsd-sharing 判 OFFLINE → --handover 不启动 → greeter 无虚拟显示器）、NTLM MIC 认证失败、Session creation inhibited、grdctl 凭证不持久化、loginctl 远程解锁会话。2026-08-12 补充：系统级凭证写入后不重载、SCREEN_SHARE 凭证只读 keyring（改密码须写 keyring）、重启系统 daemon 连锁踢物理会话（GDM 断言失败）、共享模式默认 mirror-primary，以及 setup.rdp.sh 一键脚本的 --set-password &#x2F; --restart &#x2F; --extend 参数设计。2026-08-18 补充：多显示器共享机制（mirror-primary 只镜像主屏、副屏内容不共享）、Remmina 客户端多显示器选项（Enable multi monitor &#x2F; span &#x2F; List monitor IDs 在 Basic 页下半段）、显示器热插拔对本地会话与共享会话的不同影响（mutter 输出配置与会话解耦）。" />
+  <meta name="twitter:description" content="在 Ubuntu 24.04 和 Debian 13 两台机器上先后遇到的 GNOME Remote Desktop 全套问题：xrdp 抢占 3389、mstsc 0x907 证书错误、GDM 白屏 CPU 飙升（真根因：手动默认路由 → NM primary 为空 → gsd-sharing 判 OFFLINE → --handover 不启动 → greeter 无虚拟显示器）、NTLM MIC 认证失败、Session creation inhibited、grdctl 凭证不持久化、loginctl 远程解锁会话。2026-08-12 补充：系统级凭证写入后不重载、SCREEN_SHARE 凭证只读 keyring（改密码须写 keyring）、重启系统 daemon 连锁踢物理会话（GDM 断言失败）、共享模式默认 mirror-primary，以及 setup.rdp.sh 一键脚本的 --set-password &#x2F; --restart &#x2F; --extend 参数设计。2026-08-18 补充：多显示器共享机制（mirror-primary 只镜像主屏、副屏内容不共享）、Remmina 客户端多显示器选项（Enable multi monitor &#x2F; span &#x2F; List monitor IDs 在 Basic 页下半段）、显示器热插拔对本地会话与共享会话的不同影响（mutter 输出配置与会话解耦）。" />
+  <meta property="og:title" content="两台机器的 GNOME RDP 排查：xrdp 占端口 &#x2F; 0x907 证书 &#x2F; 白屏闪退 &#x2F; 凭证丢失 | 墨雪天琊" />
+  <meta name="twitter:title" content="两台机器的 GNOME RDP 排查：xrdp 占端口 &#x2F; 0x907 证书 &#x2F; 白屏闪退 &#x2F; 凭证丢失 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/ubuntu-gnome-rdp-mstsc-troubleshooting/">两台机器的 GNOME RDP 排查：xrdp 占端口 / 0x907 证书 / 白屏闪退 / 凭证丢失</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 06, 2026 <span class="rpad"></span>更新: 八月 18, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/remote-desktop/">remote-desktop</a>] #<a href="https://moxuetianya.github.io/tags/gnome/">gnome</a>  #<a href="https://moxuetianya.github.io/tags/rdp/">rdp</a>  #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/mstsc/">mstsc</a>  #<a href="https://moxuetianya.github.io/tags/xrdp/">xrdp</a>  #<a href="https://moxuetianya.github.io/tags/headless/">headless</a>  #<a href="https://moxuetianya.github.io/tags/gdm/">gdm</a>  #<a href="https://moxuetianya.github.io/tags/loginctl/">loginctl</a>  #<a href="https://moxuetianya.github.io/tags/freerdp/">freeRDP</a>  #<a href="https://moxuetianya.github.io/tags/debian/">debian</a>  #<a href="https://moxuetianya.github.io/tags/networkmanager/">networkmanager</a>  #<a href="https://moxuetianya.github.io/tags/handover/">handover</a>  #<a href="https://moxuetianya.github.io/tags/gsd-sharing/">gsd-sharing</a> </span>
+
+    
+
+
+<h1 id="liang-tai-ji-qi-de-gnome-rdp-pai-cha-ji-lu">两台机器的 GNOME RDP 排查记录</h1>
+<p>两台机器一台 Ubuntu 24.04、一台 Debian 13，GNOME 版本不同（46 vs 48），遇到的问题也不同。</p>
+<p><strong>机器清单（2026-08-11 补充）</strong>：</p>
+<table><thead><tr><th>代号</th><th>IP</th><th>主机名</th><th>系统</th><th>GNOME</th><th>grd 版本</th><th>客户端</th><th>状态</th></tr></thead><tbody>
+<tr><td>机器 A</td><td>192.168.5.244</td><td>—</td><td>Ubuntu 24.04.4</td><td>46.0</td><td>46.3</td><td>Windows mstsc</td><td>正常（双守护进程）</td></tr>
+<tr><td>机器 B</td><td>192.168.7.99</td><td>xiao99</td><td>Debian 13 (Trixie)</td><td>48.7</td><td>48.1</td><td>Linux Remmina</td><td>正常（本次修复）</td></tr>
+<tr><td>douhao（对照参考）</td><td>192.168.5.68</td><td>debian13</td><td>Debian 13（QEMU/KVM 虚拟机，跑在机器 B 上）</td><td>48</td><td>48.1</td><td>—</td><td>一直正常</td></tr>
+</tbody></table>
+<h3 id="shu-yu-cheng-qing">术语澄清</h3>
+<p>GNOME Remote Desktop 有两个独立的守护进程，都叫 <code>gnome-remote-desktop</code>，但运行级别不同：</p>
+<table><thead><tr><th></th><th>系统级（远程登录）</th><th>用户级（桌面共享）</th></tr></thead><tbody>
+<tr><td>service 名</td><td><code>gnome-remote-desktop.service</code> (system)</td><td><code>gnome-remote-desktop.service</code> (user)</td></tr>
+<tr><td>管理命令</td><td><code>sudo systemctl start/stop ...</code></td><td><code>systemctl --user start/stop ...</code></td></tr>
+<tr><td>配置命令</td><td><code>sudo grdctl --system rdp ...</code></td><td><code>grdctl rdp ...</code></td></tr>
+<tr><td>功能</td><td>提供 GDM 登录界面</td><td>共享已有桌面会话</td></tr>
+<tr><td>客户端看到</td><td>登录屏 → 新桌面</td><td>直接进入当前桌面</td></tr>
+<tr><td>默认端口</td><td>3389</td><td>3390（自动避让）</td></tr>
+</tbody></table>
+<p><strong><code>--headless</code></strong> 不是守护进程类型，只是用户级守护进程的一个启动参数（drop-in 文件中的 <code>ExecStart=... --headless</code>）。加上：不依赖物理显示器，创建虚拟屏。不加：直接使用/共享已有的 Wayland 桌面。</p>
+<p>机器 B 最终用的是<strong>用户级、非 headless</strong>——它还是一个守护进程。</p>
+<hr />
+<h2 id="ji-qi-a-ubuntu-24-04-4-gnome-46-0">机器 A：Ubuntu 24.04.4 + GNOME 46.0</h2>
+<p><strong>环境：</strong> Ubuntu 24.04.4, GNOME 46.0, gnome-remote-desktop 46.3。客户端：Windows 10/11 mstsc。</p>
+<h3 id="gu-zhang">故障</h3>
+<ol>
+<li>设置里「远程登录」开关一开就自动弹回</li>
+<li>Windows mstsc 连上后报 <strong>0x907「非预期的服务器身份验证证书」</strong></li>
+</ol>
+<h3 id="xian-xiang">现象</h3>
+<ul>
+<li>系统里同时装了 <code>xrdp</code>（<code>xrdp</code> / <code>xrdp-sesman</code> / <code>xorgxrdp</code> / <code>pipewire-module-xrdp</code>）</li>
+<li>mstsc 连接无论 IP 还是主机名都报 0x907，<strong>不弹任何确认框</strong></li>
+<li>但用 Remmina / xfreerdp <code>/cert:ignore</code> 能正常连接</li>
+</ul>
+<h3 id="wen-ti-1-kai-guan-dan-hui-xrdp-zhan-duan-kou">问题 1：开关弹回 — xrdp 占端口</h3>
+<p>服务状态和日志：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">systemctl --user status gnome-remote-desktop.service
+grdctl status          # 用户级守护进程（桌面共享）
+grdctl --system status # 系统级守护进程（远程登录）
+journalctl -u gnome-remote-desktop.service
+</code></pre>
+<p>关键日志（用户每次点开关，系统守护进程都尝试绑 3389）：</p>
+<pre><code>RDP server started
+Failed to bind port 3389 after 10 attempts   ← 重试 10 次失败
+RDP server stopped                            ← 服务停止 → 开关弹回
+</code></pre>
+<p>查谁占了 3389：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ss -tlnp | grep 3389
+# 0.0.0.0:3389  ← xrdp (root)
+journalctl -u xrdp   # listening to port 3389 on 0.0.0.0
+</code></pre>
+<p><strong>根因：<code>xrdp</code> 开机抢先绑定 0.0.0.0:3389</strong>。<code>xrdp.service</code> 虽 <code>disabled</code>，但 <code>Requires=xrdp-sesman.service</code>（enabled），开机被拉起，8 秒内抢走 3389。GNOME 远程桌面绑不上，系统级守护进程重试 10 次后放弃，UI 开关弹回。</p>
+<blockquote>
+<p>附：设置页「某些设置已锁定」横幅是 polkit 动作 <code>org.gnome.controlcenter.remote-session-helper</code> 要求管理员认证，点「解锁」输密码即可，不是故障。</p>
+</blockquote>
+<h3 id="wen-ti-2-mstsc-0x907-zheng-shu-cuo-wu">问题 2：mstsc 0x907 证书错误</h3>
+<p>服务端实测（本机 xfreerdp 一切正常）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">xfreerdp &#x2F;v:127.0.0.1:3389 &#x2F;u:peter &#x2F;p:xxx &#x2F;auth-only &#x2F;cert:ignore
+# 认证测试通过
+# 抓取服务端证书指纹 — 与配置文件一致，证书与私钥匹配，签名有效，有效期正常
+</code></pre>
+<p>但 mstsc 每次在 TLS 协商阶段中止，服务端日志：</p>
+<pre><code>[freerdp_tls_handshake]: BIO_do_handshake failed
+CONNECTION_STATE_NEGO - rdp_server_accept_nego() fail
+</code></pre>
+<p>对照实验（同一台 Windows、同一个 mstsc）：</p>
+<table><thead><tr><th>监听 3389 的进程</th><th>证书</th><th>mstsc 结果</th></tr></thead><tbody>
+<tr><td>xrdp（之前）</td><td>xrdp 自签名</td><td>连过，Windows 缓存了该证书</td></tr>
+<tr><td>grd 用户守护进程</td><td>grd 自签名</td><td><strong>0x907 硬失败，无确认框</strong></td></tr>
+<tr><td>grd 系统守护进程</td><td>grd 自签名</td><td>正常连接</td></tr>
+</tbody></table>
+<p><strong>已确认</strong>：0x907 是 Windows 检测到服务器证书与本地缓存不一致时的硬性终止（防中间人设计，不弹框）。之前 3389 上跑的是 xrdp 的证书，换成 grd 的证书后指纹不同 → 0x907。在**新端口（无缓存）**上连接一次并接受新证书后，3389 也能连了。</p>
+<p><strong>推测</strong>：mstsc 直连用户守护进程时 NLA 凭据校验路径与预期不一致。grd 46 源码中确实有针对 mstsc 的特殊处理（<code>use_system_credentials = is_client_mstsc &amp;&amp; !requested_rdstls</code>）。</p>
+<h3 id="ji-qi-a-jie-jue-fang-an">机器 A 解决方案</h3>
+<p><strong>方案 A1</strong>：同时开启「远程登录」+「桌面共享」（推荐）</p>
+<ul>
+<li>远程登录 → 系统守护进程监听 <strong>3389</strong></li>
+<li>桌面共享 → 用户守护进程监听 <strong>3390</strong>（自动避让）</li>
+<li>mstsc 连 3389 即可</li>
+</ul>
+<p><strong>方案 A2</strong>：Windows 侧清证书缓存</p>
+<pre><code>regedit → HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client\Servers
+删除对应主机名的条目
+</code></pre>
+<p>或换一个从未连过的地址形式（IP ↔ 主机名）连一次，接受新证书后原地址也能连。</p>
+<h3 id="ji-qi-a-zong-jie">机器 A 总结</h3>
+<ul>
+<li>开关弹回根因：<strong>xrdp 抢占 3389</strong>，<code>systemctl stop/disable xrdp xrdp-sesman</code> 后重启 gnome-remote-desktop</li>
+<li>mstsc 0x907 是 <strong>Windows 证书缓存不一致</strong>，清缓存或接受新证书解决</li>
+<li>grd 46 双守护进程下 <strong>mstsc 直连用户守护进程不可靠</strong>，连 3389 由系统守护进程接管最省心</li>
+</ul>
+<h3 id="ji-qi-a-hou-xu-2026-08-12-shuang-shou-hu-jin-cheng-zui-zhong-xing-tai-yu-setup-rdp-sh-gu-hua">机器 A 后续（2026-08-12）：双守护进程最终形态与 setup.rdp.sh 固化</h3>
+<p>机器 A 最终配置即上文「方案 A1」的完整落地（日常使用、改密码全部由 <code>script/setup.rdp.sh</code> 一键固化）：</p>
+<table><thead><tr><th>端口</th><th>角色</th><th>说明</th></tr></thead><tbody>
+<tr><td>3389</td><td>系统级 <code>gnome-remote-desktop.service</code>（<code>--system</code>）</td><td>GDM 登录界面（远程登录），用系统用户密码</td></tr>
+<tr><td>3390</td><td>用户级守护进程（桌面共享，SCREEN_SHARE 模式）</td><td>自动避让端口，用 RDP 凭证</td></tr>
+</tbody></table>
+<p><code>--handover</code>：登录后接管连接，由 gsd-sharing 按需拉起（GNOME 46 无独立 handover unit，不影响）。</p>
+<p>本次踩的新坑（按严重程度排序）：</p>
+<p><strong>坑 1：系统级凭证写入后，运行中的 daemon 不重载 grd.conf</strong></p>
+<p><code>grdctl --system rdp set-credentials</code> 写完后，3389 认证依然 <code>STATUS_LOGON_FAILURE</code>——运行中的系统 daemon 不会自动重读 grd.conf，必须重启才生效（输出里的 <code>tcti:IO failure, using GKeyFile as fallback</code> 是无 TPM 环境的正常回退噪音，凭证仍写入成功）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo systemctl restart gnome-remote-desktop.service
+</code></pre>
+<blockquote>
+<p>前提：重启时<strong>没有活跃的 RDP greeter 会话</strong>（见坑 5，否则会把物理会话一起踢掉）。</p>
+</blockquote>
+<p><strong>坑 2：SCREEN_SHARE 模式改密码不生效——凭证只读 keyring</strong></p>
+<p>上文 Step 1 从源码得出「SCREEN_SHARE 凭证只读 keyring」的结论，机器 A 这次是<strong>反着踩</strong>的：脚本只改了 <code>credentials.ini</code>，3390 依旧用旧密码。改密码必须写 keyring（物理会话活跃、keyring 已解锁时写入即时生效）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">grdctl rdp set-credentials peter &#x27;&lt;新密码&gt;&#x27;
+</code></pre>
+<p><code>--headless</code> 模式（凭证读 credentials.ini）可以绕开 keyring 死结，但代价是自建虚拟屏、<strong>看不到物理屏内容</strong>——共享物理屏场景反而要留在 SCREEN_SHARE 模式并同步 keyring。</p>
+<p><strong>坑 3：自检命令在 SSH 环境跑不起来</strong></p>
+<p><code>xfreerdp</code> 是 X11 客户端，无 DISPLAY 直接报 <code>failed to open display</code>。自检用 <code>xvfb-run</code> 包一层：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">xvfb-run -a xfreerdp &#x2F;v:127.0.0.1:3389 &#x2F;u:peter &#x2F;p:xxx &#x2F;auth-only &#x2F;cert:ignore
+</code></pre>
+<p><strong>坑 4：「解锁后几秒又锁住」实为自动熄屏黑屏（非复锁）</strong></p>
+<p><code>loginctl unlock-session</code> 后轮询 20 秒，<code>LockedHint=no</code> 稳定——会话并未复锁，是<strong>显示器自动熄灭</strong>（黑屏），SSH 解锁不会唤醒物理屏幕，看起来像"又锁了"。防锁屏判断也要小心：<strong>按 headless 服务是否 active 判断</strong>，不能按「服务文件是否存在」——Ubuntu 24.04 自带该文件，即使实际跑的是 SCREEN_SHARE 也会被跳过：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gsettings set org.gnome.desktop.screensaver lock-enabled false
+gsettings set org.gnome.desktop.screensaver idle-activation-enabled false
+gsettings set org.gnome.desktop.session idle-delay 0
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type &#x27;nothing&#x27;
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type &#x27;nothing&#x27;
+</code></pre>
+<p><strong>坑 5（最重）：重启系统级 daemon 会连锁踢掉物理会话</strong></p>
+<p>现象：脚本执行 <code>sudo systemctl restart gnome-remote-desktop.service</code> 时，本机物理会话（seat0）直接退出，GDM 自动登录恢复新会话。</p>
+<p>根因链（journal 实证）：</p>
+<pre><code>其他机器连着 3389 登录界面 → GDM 有活跃 RDP greeter 会话（user=gdm, Remote=yes）
+  → 重启系统 grd daemon → greeter 全被杀（GdmDisplay: Session never registered, failing）
+    → GDM 显示管理连锁出错（on_display_added: assertion &#x27;GDM_IS_REMOTE_DISPLAY (display)&#x27; failed）
+      → GDM 重新拉起 greeter 到 seat → logind 结束当前物理会话（Session N logged out）
+</code></pre>
+<p>对策：<strong>默认不重启系统 daemon</strong>——只写配置，等下次 daemon 启动/开机生效；必须立即生效时，先确认所有机器都关掉 3389 登录窗口（<code>loginctl list-sessions</code> 里没有 user=gdm 的会话）再重启。用户级 daemon（3390）重启无此风险。<code>loginctl terminate-session</code> 手动终止 greeter 也会弄脏 GDM 状态（后续一次 <code>on_display_added</code> 断言失败就能踢会话），尽量让客户端自然断开。</p>
+<p><strong>坑 6：共享模式默认 mirror-primary，extend 必须显式选择</strong></p>
+<p><code>extend</code> 模式自建虚拟扩展屏，RDP 里看不到物理屏内容——用户连 3390 会误以为"变成 headless 了"。脚本曾做「无物理会话自动回退 extend」的探测，实测在物理会话重启的空档 <code>loginctl</code> 查不到 seat0 会话，把 mirror 悄悄切回 extend。最终：<strong>默认 mirror-primary，只有显式 <code>--extend</code> 才配置 extend</strong>。</p>
+<h4 id="setup-rdp-sh-2026-08-12-ban-yong-fa">setup.rdp.sh（2026-08-12 版用法）</h4>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">bash setup.rdp.sh                           # 默认：保留现有模式&#x2F;密码，不重启任何 daemon
+bash setup.rdp.sh --set-password            # 改密码（提示输入新密码）
+bash setup.rdp.sh --set-password --restart  # 改密码并重启 daemon 立即生效（先确认无人在 3389 登录界面）
+bash setup.rdp.sh --headless                # 强制用户级 headless 模式
+bash setup.rdp.sh --screenshare             # 强制 SCREEN_SHARE 模式（默认保留现有模式）
+bash setup.rdp.sh --extend                  # 共享模式用虚拟扩展屏（默认 mirror-primary）
+</code></pre>
+<p>设计要点：</p>
+<ul>
+<li><code>--restart</code> 显式开关：默认<strong>不重启任何 daemon</strong>（坑 5）；重启前检测 gdm 会话并告警</li>
+<li>SCREEN_SHARE 模式自动 <code>grdctl rdp set-credentials</code> 同步 keyring（坑 2），写入即时生效</li>
+<li>系统级凭证写入后仅 <code>--restart</code> 时重启 daemon（坑 1）</li>
+<li>末尾对 3389/3390 双端口做 <code>/auth-only</code> 自检（xvfb-run，坑 3）</li>
+<li>防锁屏按 headless 服务 is-active 判断（坑 4）</li>
+<li>参数冲突检查：<code>--headless</code>×<code>--screenshare</code>、<code>--extend</code>×<code>--mirror</code>、<code>--headless</code>×<code>--extend/--mirror</code> 报错退出</li>
+</ul>
+<hr />
+<h2 id="ji-qi-b-debian-13-trixie-gnome-48">机器 B：Debian 13 (Trixie) + GNOME 48</h2>
+<p><strong>环境：</strong> Debian 13 (Trixie), GNOME Shell 48.7, gnome-remote-desktop 48.1。客户端：Linux Remmina。</p>
+<h3 id="gu-zhang-1">故障</h3>
+<ol>
+<li>连接 3389 <strong>白屏 + 服务端 CPU 飙升</strong></li>
+<li>连接 3390 <strong>闪退</strong>（NTLM 认证失败）</li>
+<li>密码设置后始终不生效</li>
+</ol>
+<h3 id="pai-cha-guo-cheng">排查过程</h3>
+<p>先检查当前状态：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">systemctl --user status gnome-remote-desktop.service
+grdctl status
+ss -tlnp | grep -E &#x27;3389|3390&#x27;
+</code></pre>
+<p>初始状态：用户守护进程以 <code>--headless</code> 模式运行在 3389，<strong>用户名和密码均为空</strong>。不存在 xrdp 冲突。</p>
+<h4 id="step-1-she-zhi-ping-zheng-di-yi-ge-keng">Step 1：设置凭证（第一个坑）</h4>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">grdctl rdp set-credentials peter &#x27;&lt;your-password&gt;&#x27;
+# 无输出，看似成功
+
+grdctl status | grep -E &quot;Username|Password&quot;
+# Username: (hidden)
+# Password: (hidden)  ← 显示正常
+</code></pre>
+<p>客户端连上后日志：</p>
+<pre><code>[ERROR][com.winpr.sspi.NTLM] - [ntlm_read_AuthenticateMessage]: Message Integrity Check (MIC) verification failed!
+[ERROR][com.freerdp.core.transport] - [transport_accept_nla]: client authentication failure
+</code></pre>
+<p>无论怎么重设密码都不行。后来发现：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cat ~&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;credentials.ini
+# [RDP]
+# credentials={&#x27;username&#x27;: &lt;&#x27;peter&#x27;&gt;, &#x27;password&#x27;: &lt;&#x27;旧密码&#x27;&gt;}
+# ↑ 几个月前的旧密码，grdctl 根本没更新它！
+</code></pre>
+<p><strong>根因：<code>grdctl</code> 优先写 GNOME Keyring，如果 keyring 不可用（SSH 环境无 gnome-keyring-daemon），静默回退到 <code>credentials.ini</code>，但回退路径不工作</strong>。直接编辑文件绕过：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">vim ~&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;credentials.ini
+# 改 password 字段为新密码
+systemctl --user restart gnome-remote-desktop.service
+</code></pre>
+<blockquote>
+<p><strong>结论修正（2026-08-11，源码核实）</strong>：上面「直接编辑 credentials.ini 后重启成功」的原因不是 daemon 读了 credentials.ini——grd 48 源码（<code>grd-credentials-libsecret.c</code> + <code>grd-settings.c</code>）证明 <strong>SCREEN_SHARE（用户级无参数）模式的凭证只从 keyring（libsecret）读，lookup 失败直接返回 NULL，不存在 GKeyFile 回退</strong>。当时真正生效的是 keyring 里的凭证：8月6日 通过 3389 GDM 登录界面登录时，<code>gdm-password</code> 的 PAM 配置（<code>pam_gnome_keyring.so</code> auth + session auto_start）创建并解锁了 <code>login.keyring</code>（09:57 创建，379 字节），之后 grdctl 把 RDP 凭证写进了这个<strong>已解锁</strong>的 keyring。所以「vim credentials.ini + 重启」能成功的真实链路是：重启让 daemon 重新从 keyring 读到凭证（恰好那时 keyring 可读），credentials.ini 本身没被读取。credentials.ini 只对 <code>--headless</code>/<code>--system</code> 模式（GKeyFile 后端）有效。</p>
+</blockquote>
+<h4 id="step-2-kai-qi-xi-tong-shou-hu-jin-cheng-yin-ru-xin-wen-ti">Step 2：开启系统守护进程（引入新问题）</h4>
+<p>按照机器 A 的经验，推荐双守护进程。启用系统守护进程：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo grdctl --system rdp enable
+sudo grdctl --system rdp set-credentials peter &#x27;&lt;your-password&gt;&#x27;
+
+# 证书路径问题：系统守护进程以 gnome-remote-desktop 用户运行，
+# 而非 root。正确的证书位置：
+sudo mkdir -p &#x2F;var&#x2F;lib&#x2F;gnome-remote-desktop&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;certificates
+
+HOSTNAME=$(hostname)
+sudo openssl req -x509 -newkey rsa:4096 -sha384 -days 730 -nodes \
+  -keyout &#x2F;var&#x2F;lib&#x2F;gnome-remote-desktop&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;certificates&#x2F;rdp-tls.key \
+  -out &#x2F;var&#x2F;lib&#x2F;gnome-remote-desktop&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;certificates&#x2F;rdp-tls.crt \
+  -subj &quot;&#x2F;CN=$HOSTNAME&quot; \
+  -addext &quot;subjectAltName=DNS:$HOSTNAME&quot; \
+  -addext &quot;keyUsage=digitalSignature,keyEncipherment&quot; \
+  -addext &quot;extendedKeyUsage=serverAuth&quot; \
+  -addext &quot;nsCertType=server&quot;
+
+sudo chown gnome-remote-desktop:gnome-remote-desktop \
+  &#x2F;var&#x2F;lib&#x2F;gnome-remote-desktop&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;certificates&#x2F;rdp-tls.*
+
+# grd.conf 配置文件在 &#x2F;etc&#x2F;gnome-remote-desktop&#x2F;grd.conf
+</code></pre>
+<p>结果：</p>
+<ul>
+<li>系统守护进程启动到 3389</li>
+<li>用户守护进程自动退到 3390</li>
+<li>连接 3389 → <strong>白屏 + CPU 飙升</strong></li>
+<li>连接 3390 → <strong>闪退</strong>（NTLM MIC 失败）</li>
+</ul>
+<h4 id="step-3-bai-ping-pai-cha-gdm-wayland-xuan-ran-yi-chang">Step 3：白屏排查 — GDM Wayland 渲染异常</h4>
+<p>日志显示系统守护进程成功启动并创建了 GDM greeter 会话：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">loginctl list-sessions
+# session c3, c4, c5 ...  Type=wayland  Class=greeter  Remote=yes  RemoteHost=0.0.0.0
+</code></pre>
+<p>但客户端白屏。</p>
+<p><strong>根因：系统级和用户级使用了不同的 compositor</strong>。</p>
+<p>两个端口背后的渲染路径完全不同：</p>
+<table><thead><tr><th></th><th>3389（系统级）</th><th>3390（用户级）</th></tr></thead><tbody>
+<tr><td>运行用户</td><td><code>Debian-gdm</code></td><td><code>peter</code>（实际用户）</td></tr>
+<tr><td>compositor</td><td>GDM 自带的轻量 greeter compositor</td><td>GNOME Shell 完整 compositor</td></tr>
+<tr><td>渲染方式</td><td>GDM 独立启动 Wayland 进程绘制登录界面</td><td>PipeWire screencast portal 抓取已有画面</td></tr>
+<tr><td>是否 GPU 加速</td><td>在 RDP 虚拟输出上初始化失败</td><td>已在物理显示器上正常渲染，只需编码传输</td></tr>
+</tbody></table>
+<p>GDM greeter compositor 极其精简，只负责画一个登录框，对 RDP 虚拟输出的支持不完善。而 GNOME Shell 是完整 compositor，在物理显示器上已经借助 GPU 渲染好了，3390 只是通过 PipeWire 把画面编码成 RDP 流发出去——本质上是屏幕录制，不涉及在新输出上重新渲染。</p>
+<p><strong>登录后进入的还是 GNOME Shell。</strong> GDM 只是门卫——认证通过后启动正常用户会话。问题纯粹出在门卫自己的渲染上。</p>
+<p><strong>能否换掉 GDM？</strong> 不行。<code>gnome-remote-desktop</code> 系统级守护进程通过 D-Bus 直接调 GDM 来创建 <code>gdm-launch-environment</code> 会话，这个接口是 GDM 专有的，LightDM 等没有这些 D-Bus API，grd 也不支持其他显示管理器。要解决系统级白屏，只有三条路：</p>
+<ol>
+<li>
+<p><strong>强制 GDM 用 Xorg</strong>（白屏消失，但 Wayland 洁癖不答应）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo sed -i &#x27;s&#x2F;^#\s*WaylandEnable=false&#x2F;WaylandEnable=false&#x2F;&#x27; &#x2F;etc&#x2F;gdm3&#x2F;custom.conf
+sudo systemctl restart gdm3
+</code></pre>
+</li>
+<li>
+<p><strong>等上游修</strong>：GDM greeter compositor 对 RDP 虚拟输出的支持是 grd/freerdp 的持续工作</p>
+</li>
+<li>
+<p><strong>绕过</strong>：不用系统级，只保留用户级独占 3389（当前方案）</p>
+</li>
+</ol>
+<h4 id="step-3b-bai-ping-zhen-gen-yin-2026-08-11-jie-lun-xiu-zheng-douhao-dui-zhao-shi-ce">Step 3b：白屏真根因（2026-08-11 结论修正，douhao 对照实测）</h4>
+<blockquote>
+<p><strong>过时说明</strong>：上面「GDM Wayland greeter 渲染异常」的结论只描述了表象。后来用正常机器（douhao，同 Debian 13 + GNOME 48）逐项对照排查，发现白屏的真根因在<strong>登录界面渲染链路的前置环节</strong>——<code>--handover</code> daemon 根本没被启动，greeter 会话里从未创建虚拟显示器。修正记录如下。</p>
+</blockquote>
+<p><strong>对照实验发现的关键差异</strong>：</p>
+<table><thead><tr><th></th><th>douhao（正常）</th><th>dev（白屏）</th></tr></thead><tbody>
+<tr><td>greeter 会话（Debian-gdm）进程</td><td>有 <code>gnome-remote-desktop-daemon --handover</code>（gsd-sharing 的<strong>直接子进程</strong>）</td><td><strong>没有</strong> --handover 进程</td></tr>
+<tr><td>greeter gnome-shell 日志</td><td><code>Added virtual monitor Meta-0</code>（创建了虚拟显示器）</td><td>无此日志</td></tr>
+<tr><td><code>nmcli general</code></td><td><code>connected:full</code></td><td><code>connected (local only): limited</code></td></tr>
+<tr><td>NM <code>PrimaryConnection</code> 属性</td><td>非空（ActiveConnection/2）</td><td><code>/</code>（空）</td></tr>
+<tr><td>gsd-sharing 的 SharingStatus</td><td>AVAILABLE(3)</td><td>OFFLINE(0)</td></tr>
+</tbody></table>
+<p><strong>根因链（逐环实测确认）</strong>：</p>
+<pre><code>手动添加的默认路由（ip route add ... proto static，无 metric）
+  → NetworkManager 不认为是自己管理的路由（PrimaryConnection=&#x2F; 空，ActiveConnection.Default=false）
+    → gsd-sharing 的 nm_client_get_primary_connection() 返回 NULL
+      → sharing_status = GSD_SHARING_STATUS_OFFLINE
+        → start_assigned_service() 第一行就 return（源码 gsd-sharing-manager.c）
+          → --handover daemon 永不启动
+            → greeter 会话没有虚拟显示器（缺 &quot;Added virtual monitor&quot; 日志）
+              → 登录界面白屏 + CPU 飙升（mutter 在虚拟输出上空转渲染）
+</code></pre>
+<p><strong>gsd-sharing 的启动逻辑</strong>（gnome-settings-daemon 48 源码 <code>plugins/sharing/gsd-sharing-manager.c</code>）：</p>
+<ul>
+<li><code>assigned_services[]</code> 里注册了 <code>org.gnome.RemoteDesktop</code> → <code>gnome-remote-desktop-handover</code>，<code>remote_session_classes = { "user", "greeter" }</code></li>
+<li>system bus 上 <code>org.gnome.RemoteDesktop</code> 名字出现（系统级 daemon 注册）→ 触发 <code>start_assigned_service()</code></li>
+<li>该函数<strong>第一行</strong>：<code>if (manager-&gt;sharing_status == GSD_SHARING_STATUS_OFFLINE) return;</code> ← 白屏就是被这一行拦住的</li>
+<li><code>sharing_status</code> 由 <code>nm_client_get_primary_connection()</code> 决定：有 active connection 且 carrier type 非空 → AVAILABLE；否则 OFFLINE</li>
+<li>启动方式：<code>sd_pid_get_user_unit()</code> 成功（systemd 管理）→ 走 <code>org.freedesktop.systemd1</code> StartUnit；失败 → 直接 <code>g_desktop_app_info_launch</code> fork <code>.desktop</code>（douhao 就是这条路径）</li>
+</ul>
+<p><strong>修复</strong>（dev 上执行，网络是 bridge 连接 br0）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 重新激活网络连接，让 NM 接管默认路由（NM 配置里已有 ipv4.gateway）
+sudo nmcli con up br0
+
+# 验证（三处全部转好才说明修复到位）：
+nmcli -t -f STATE,CONNECTIVITY general
+# connected:full                                  ← 原来 limited
+
+dbus-send --system --print-reply --dest=org.freedesktop.NetworkManager \
+  &#x2F;org&#x2F;freedesktop&#x2F;NetworkManager org.freedesktop.DBus.Properties.Get \
+  string:org.freedesktop.NetworkManager string:PrimaryConnection
+# variant object path &quot;&#x2F;org&#x2F;freedesktop&#x2F;NetworkManager&#x2F;ActiveConnection&#x2F;5&quot;   ← 原来 &quot;&#x2F;&quot;
+
+dbus-send --session --print-reply --dest=org.gnome.SettingsDaemon.Sharing \
+  &#x2F;org&#x2F;gnome&#x2F;SettingsDaemon&#x2F;Sharing org.freedesktop.DBus.Properties.Get \
+  string:org.gnome.SettingsDaemon.Sharing string:SharingStatus
+# variant uint32 3 (AVAILABLE)                    ← 原来 0 (OFFLINE)
+</code></pre>
+<p>修复后 3389 直接显示 GDM 登录界面，登录 → handover → 桌面完整链路正常，<strong>不需要</strong>停系统级守护进程或强制 GDM Xorg。</p>
+<p><strong>为何之前误判</strong>：白屏期间 greeter 的 EGL/GPU 初始化日志全部正常（<code>Obtained a high priority EGL context</code>），且修好 <code>/dev/dri</code> 的 ACL 后仍白屏，所以最初归因到「greeter 渲染异常」。而 <code>Failed to handle service change: Process org.freedesktop.systemd1 exited with status 1</code> 这类报错是 rygel 等 configurable services 走 systemd 激活失败的噪音（<code>org.freedesktop.systemd1.service</code> 的 Exec=/bin/false 是系统设计如此），<strong>与白屏无关</strong>，别被误导。</p>
+<p><strong>排查口诀</strong>：3389 白屏 → ① <code>nmcli general</code> 看是不是 limited/local only → 是则 <code>nmcli con up &lt;连接&gt;</code> 重新激活；② 看 greeter 会话里有没有 <code>gnome-remote-desktop-daemon --handover</code> 进程和 <code>Added virtual monitor</code> 日志；③ 查 gsd-sharing 的 SharingStatus 是否为 0。</p>
+<h4 id="step-3c-wang-luo-bi-xu-you-networkmanager-guan-li-2026-08-11-bu-chong">Step 3c：网络必须由 NetworkManager 管理（2026-08-11 补充）</h4>
+<p><strong>结论：3389 远程登录（GDM greeter 路径）依赖 NetworkManager，用 systemd-networkd 管理网络不行。</strong></p>
+<p>这是 Step 3b 依赖链的<strong>另一种触发方式</strong>（同一根因，不同起因）：</p>
+<ul>
+<li><strong>手动加默认路由</strong>（机器 B 的起因）：NM 里连接是 active 的，但默认路由不是 NM 添加的 → <code>PrimaryConnection</code> 空 → OFFLINE → 白屏</li>
+<li><strong>systemd-networkd 管理网络</strong>：NM 把设备标为 <code>unmanaged</code>，NM 里<strong>根本没有 active connection</strong> → <code>PrimaryConnection</code> 空 → 同样 OFFLINE → 白屏</li>
+</ul>
+<p>本质都是 <strong>NM 不认为自己有主连接</strong>（详细依赖链见 Step 3b）。</p>
+<p><strong>绕开路径</strong>：</p>
+<ol>
+<li>网络交给 NM 管理（推荐）：<code>nmcli con up &lt;连接&gt;</code> 让 NM 接管，PrimaryConnection 非空即可</li>
+<li>不用 3389 登录界面：用户级独占 3389 直连桌面（本页机器 B 最终方案）<strong>不依赖 NM</strong>——用户级 daemon 由 systemd 管，不经过 gsd-sharing。代价是没有 GDM 登录界面，不能走 handover 登录接管。</li>
+</ol>
+<p><strong>副作用提醒</strong>：<code>nmcli con up &lt;网桥&gt;</code> 重新激活网桥时，会把挂在网桥上的虚拟机 tap 网卡（如 vnet0）<strong>踢出网桥</strong>导致虚拟机失联。修复：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip link set vnet0 master br0   # 重新挂回
+ls &#x2F;sys&#x2F;class&#x2F;net&#x2F;br0&#x2F;brif&#x2F;         # 确认成员里有 vnet0
+</code></pre>
+<h4 id="step-3d-3390-zhi-lian-unknown-monitor-yong-extend-mo-shi-2026-08-11-bu-chong">Step 3d：3390 直连 <code>Unknown monitor</code> — 用 extend 模式（2026-08-11 补充）</h4>
+<p><strong>现象</strong>：直连 3390（用户级桌面共享）时，认证通过、通道协商成功，但随后被服务器断开：</p>
+<pre><code>[ERROR][com.freerdp.core.peer] - ERRINFO_RPC_INITIATED_DISCONNECT [0x00010001]
+gnome-remote-de: Failed to record monitor: GDBus.Error:org.freedesktop.DBus.Error.Failed: Unknown monitor
+</code></pre>
+<p><strong>根因</strong>：用户级 daemon 默认共享模式是 <strong><code>mirror-primary</code></strong>——镜像现有桌面的<strong>主物理显示器</strong>。当物理会话被注销（seat0 上只剩 GDM 登录界面）、目标会话是无 seat 的 headless 会话（gnome-shell 日志 <code>No seat assigned, running headlessly</code>）时，没有物理屏可镜像 → <code>Unknown monitor</code> → 拒绝连接。</p>
+<p><strong>修复</strong>：切换到 <strong><code>extend</code> 模式</strong>（创建虚拟显示器，不依赖物理屏）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gsettings set org.gnome.desktop.remote-desktop.rdp screen-share-mode extend
+systemctl --user restart gnome-remote-desktop.service
+</code></pre>
+<p><strong>结论：extend 模式不需要物理会话登录</strong>。实测在物理会话注销、只剩 RDP 登录的无 seat 会话时，3390 直连成功、桌面正常显示。两种模式对比：</p>
+<table><thead><tr><th>模式</th><th>画面来源</th><th>需要物理屏？</th><th>适用场景</th></tr></thead><tbody>
+<tr><td><code>mirror-primary</code>（默认）</td><td>镜像会话主物理显示器</td><td><strong>是</strong></td><td>有物理登录会话，想看物理屏内容</td></tr>
+<tr><td><code>extend</code></td><td>mutter 创建虚拟显示器（如 Meta-0）</td><td><strong>否</strong></td><td>无头/远程登录会话，或不想暴露物理屏内容</td></tr>
+</tbody></table>
+<blockquote>
+<p>注意：extend 模式下 RDP 会话用的是独立的虚拟显示器，<strong>看不到物理屏上的实际内容</strong>；mirror-primary 才是"看物理屏"。</p>
+<p><strong>补充（2026-08-11 晚）</strong>：extend 设置<strong>只对 SCREEN_SHARE（无参数）模式有意义</strong>。改用 <code>--headless</code> 模式后 daemon 永远自建虚拟显示器，不存在 <code>Unknown monitor</code> 问题——<strong>用 headless 模式可以一劳永逸绕开本坑</strong>（详见下文「grd 的 4 种运行模式」）。且实测发现 dconf 的 extend 设置可能被 GUI 设置面板等重置回 mirror-primary（dev 上 20:17 被覆盖），headless 模式不受此影响。</p>
+</blockquote>
+<h4 id="step-3e-wu-li-hui-hua-vs-yuan-cheng-hui-hua-ssh-wu-fa-chuang-jian-wu-li-hui-hua-2026-08-11-bu-chong">Step 3e：物理会话 vs 远程会话 — SSH 无法创建物理会话（2026-08-11 补充）</h4>
+<p><strong>问题</strong>：物理会话注销后，能否通过 SSH 重新创建 seat0 物理会话？</p>
+<p><strong>结论：不能。</strong> <code>loginctl unlock-session</code> 只能解锁<strong>已存在</strong>的会话，没有创建会话的能力。物理会话（<code>Seat=seat0</code> 的 user 会话）只能由 GDM 在 seat0 上登录产生，路径只有三条：</p>
+<ol>
+<li><strong>物理机前键盘登录</strong>（最直接）</li>
+<li><strong>GDM 自动登录</strong>（模拟物理登录）：<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># &#x2F;etc&#x2F;gdm3&#x2F;custom.conf
+[daemon]
+AutomaticLoginEnable = true
+AutomaticLogin = peter
+</code></pre>
+然后 <code>sudo systemctl restart gdm3</code> 生效</li>
+<li><strong>3389 RDP 登录</strong>：创建的是<strong>远程会话</strong>（<code>Remote=yes</code>、无 seat），不是物理会话——但 RDP 用起来一样</li>
+</ol>
+<p><strong>重启 gdm3 的副作用（执行前想清楚）</strong>：</p>
+<ul>
+<li>终止 GDM 管理的<strong>所有</strong>会话：当前 RDP 会话、远程 greeter 全部断开</li>
+<li>重启后自动登录产生新的 seat0 物理会话 → 用户级 daemon 需要 <code>systemctl --user restart gnome-remote-desktop</code> 重新绑定</li>
+<li><strong>安全代价</strong>：自动登录后物理屏直接进桌面且一直保持登录，任何能碰到机器的人都能操作——比「物理屏停在登录界面」风险高</li>
+</ul>
+<p><strong>会话选择判断标准</strong>（<code>loginctl list-sessions</code>）：</p>
+<table><thead><tr><th>特征</th><th>会话类型</th><th>能否 unlock/lock</th></tr></thead><tbody>
+<tr><td><code>Seat=seat0</code> + <code>Class=user</code></td><td>物理会话（解锁目标）</td><td>✅ <code>unlock-session</code> / <code>lock-session</code></td></tr>
+<tr><td><code>Class=user</code> + <code>Remote=yes</code> + <code>Type=wayland</code></td><td>RDP 远程桌面会话</td><td>❌ 从不锁定，无需操作</td></tr>
+<tr><td><code>Class=greeter</code></td><td>GDM 登录界面</td><td>❌ 别碰</td></tr>
+<tr><td><code>Class=manager</code></td><td>systemd 管理</td><td>❌ 别碰</td></tr>
+</tbody></table>
+<p><strong>实测案例</strong>：dev 的物理会话 803 注销后，seat0 只剩 greeter c27。此时 3390 用 extend 模式共享远程会话 4259 正常工作——<strong>物理会话对 RDP 使用不是必需的</strong>。</p>
+<p><strong>认证通过后如何切到 3390？RDP Server Redirection，不是 fd 传递。</strong></p>
+<p>GDM greeter 完成认证后，系统守护进程并不是把 socket fd 传给用户守护进程（不同于 ZeroMQ 的 <code>SCM_RIGHTS</code> fd 传递）。RDP 协议有自己的重定向机制：</p>
+<ol>
+<li>系统守护进程向客户端发送一个 <code>RDP_SERVER_REDIRECTION</code> 包，内含新目标（IP/端口/证书）</li>
+<li>客户端自动断开 3389，重建连接到用户守护进程（3390）</li>
+<li>两个守护进程始终各自监听各自的端口，不涉及底层 socket 交接</li>
+</ol>
+<p>日志中能看到这条：</p>
+<pre><code>Sending server redirection
+</code></pre>
+<p>整个过程对客户端透明——输完密码后 mstsc/Remmina 内部完成重连。ZeroMQ 的 fd 传递是内核级（<code>SCM_RIGHTS</code> 走 Unix domain socket），RDP 是应用层协议级重连，思路完全不同。</p>
+<h4 id="step-4-shan-tui-pai-cha-ntlm-mic-bu-shi-mstsc-du-you-de">Step 4：闪退排查 — NTLM MIC 不是 mstsc 独有的</h4>
+<p>机器 A 的推测是「mstsc 特有」。但机器 B 用的 <strong>Remmina（Linux）同样出现此问题</strong>：</p>
+<pre><code>[ERROR][com.winpr.sspi.NTLM] - [ntlm_read_AuthenticateMessage]: Message Integrity Check (MIC) verification failed!
+[WARN][com.winpr.sspi] - [winpr_AcceptSecurityContext]: AcceptSecurityContext status SEC_E_MESSAGE_ALTERED [0x8009030F]
+[ERROR][com.freerdp.core.transport] - [transport_accept_nla]: client authentication failure
+</code></pre>
+<p><strong>结论修正：这是 grd 46 用户守护进程与 NLA (CredSSP) 的普遍不兼容，不限于 mstsc</strong>。需要通过系统守护进程的认证路径才能绕过——但要先解决白屏。最终选择了只用用户级独占 3389。</p>
+<h4 id="step-5-session-creation-inhibited-di-er-ge-suo-ping-keng">Step 5：Session creation inhibited（第二个锁屏坑）</h4>
+<p>凭证修复后 NTLM 通过了！但出现新错误：</p>
+<pre><code>gnome-remote-de: Failed to start remote desktop session:
+  GDBus.Error:org.freedesktop.DBus.Error.Failed: Session creation inhibited
+[ERROR][com.freerdp.core.peer] - ERRINFO_RPC_INITIATED_DISCONNECT [0x00010001]
+</code></pre>
+<p>检查会话状态：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">loginctl show-session 803 | grep LockedHint
+# LockedHint=yes
+
+dbus-send --session --dest=org.gnome.ScreenSaver --print-reply \
+  &#x2F;org&#x2F;gnome&#x2F;ScreenSaver org.gnome.ScreenSaver.GetActive
+# boolean true
+</code></pre>
+<p><strong>根因：物理会话锁屏了</strong>（机器闲置一周多）。GNOME Remote Desktop 在会话锁定时拒绝创建远程桌面会话。</p>
+<p><strong>意外发现：SSH 远程登录可以直接解锁物理会话</strong>（同用户间 polkit 信任）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 找到物理会话的 ID
+loginctl list-sessions
+# SESSION  UID USER       SEAT  LEADER CLASS   TTY  IDLE SINCE
+#     803 1000 peter      seat0 38320  user    tty2 yes  1 week ago
+#       3 1000 peter      -     2373   user    -    no   -
+#       4 1000 peter      -     2393   manager -    no   -
+#     c3  110 Debian-gdm -     158722 greeter -    no   -
+
+# 物理会话的特征：有 SEAT（seat0）、有 TTY（tty2）、CLASS=user
+# SSH 等远程会话：SEAT 为 -、CLASS=user、TTY 为 -
+# GDM greeter：CLASS=greeter
+
+# 精准定位当前登录桌面的会话 ID：
+loginctl list-sessions --no-legend | awk &#x27;$4 == &quot;seat0&quot; {print $1}&#x27;
+# → 803
+
+# 解锁
+loginctl unlock-session 803
+# LockedHint=no
+</code></pre>
+<p><strong>如何区分会话 ID：</strong></p>
+<ul>
+<li><strong>物理桌面会话</strong>：<code>SEAT=seat0</code>、<code>TTY=tty2</code>、<code>CLASS=user</code>。这就是你要解锁的目标</li>
+<li><strong>SSH 远程会话</strong>：<code>SEAT=-</code>、<code>TTY=-</code>。不算物理会话，不需要也不能用来解锁</li>
+<li><strong>GDM greeter</strong>：<code>CLASS=greeter</code>、<code>Remote=yes</code>。系统守护进程为 RDP 连接创建的登录界面</li>
+</ul>
+<p>无需物理接触。防止复锁：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 禁止锁屏（注销&#x2F;锁屏后 RDP 无法进入）
+gsettings set org.gnome.desktop.screensaver lock-enabled false
+# 禁止屏保空闲时自动激活（避免再次锁屏）
+gsettings set org.gnome.desktop.screensaver idle-activation-enabled false
+# 屏保&#x2F;锁屏的空闲触发时间设为 0（永不超时）
+gsettings set org.gnome.desktop.session idle-delay 0
+# 接电源时永不自挂起
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type &#x27;nothing&#x27;
+# 用电池时也永不自挂起
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type &#x27;nothing&#x27;
+</code></pre>
+<blockquote>
+<p><strong>安全警告：这些设置会让物理控制台一直处于已登录状态。RDP 断开后，任何能接触到物理机器的人都能直接操作桌面。</strong></p>
+</blockquote>
+<p>也可以写一个 systemd 服务，在 RDP 会话断开时自动锁定（见下文「自动化」）。用<strong>系统级</strong>（远程登录/GDM greeter）天然没有这个问题——注销后回到登录界面。只用<strong>用户级</strong>（桌面共享）才有这个风险。</p>
+<h4 id="step-6-headless-mo-shi-qu-she">Step 6：headless 模式取舍</h4>
+<p>机器 B 初始以 <code>--headless</code> 模式运行（有 drop-in 配置文件）：</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># ~&#x2F;.config&#x2F;systemd&#x2F;user&#x2F;gnome-remote-desktop.service.d&#x2F;headless.conf
+[Service]
+Type=simple
+ExecStart=
+ExecStart=&#x2F;usr&#x2F;libexec&#x2F;gnome-remote-desktop-daemon --headless
+</code></pre>
+<p>在 headless 模式下仍然出现 <code>Session creation inhibited</code>。去掉 <code>--headless</code> 后，守护进程直接共享已有 Wayland 会话，配合解锁，连接成功。</p>
+<h3 id="ji-qi-b-zui-zhong-fang-an">机器 B 最终方案</h3>
+<blockquote>
+<p><strong>方案演进（2026-08-11）</strong>：下文「用户级非 headless 独占 3389」是当时（8月5-6日）的临时方案——它依赖 keyring 里有凭证 + 物理会话可镜像，两个条件都脆弱。后来通过源码确认 SCREEN_SHARE 模式凭证只读 keyring（credentials.ini 无效），并实测 <strong><code>--headless</code> 模式</strong>（凭证走 credentials.ini + 自建虚拟屏）是远程无 GUI 环境下最可靠的用户级方案。新机器推荐直接上「4 种运行模式」章节的 douhao 修复后组合（--system + --headless + --handover），本文方案仅作历史记录。</p>
+</blockquote>
+<p>停掉系统守护进程，用户守护进程<strong>非 headless</strong> 独占 3389：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 停系统守护进程
+sudo systemctl stop gnome-remote-desktop.service
+sudo systemctl disable gnome-remote-desktop.service
+
+# 去 headless
+rm ~&#x2F;.config&#x2F;systemd&#x2F;user&#x2F;gnome-remote-desktop.service.d&#x2F;headless.conf
+systemctl --user daemon-reload
+
+# 确保凭证正确
+vim ~&#x2F;.local&#x2F;share&#x2F;gnome-remote-desktop&#x2F;credentials.ini
+
+# 重启
+systemctl --user restart gnome-remote-desktop.service
+</code></pre>
+<p>客户端直连 <strong>3389</strong>，直接看到已有桌面，不经过 GDM 登录界面。</p>
+<h3 id="ri-chang-shi-yong-liu-cheng-ssh-jie-suo-rdp-shi-yong-zhu-dong-suo-ping">日常使用流程：SSH 解锁 → RDP 使用 → 主动锁屏</h3>
+<p>用<strong>用户级桌面共享</strong>时，每次使用 RDP 的完整流程：</p>
+<p><strong>1. SSH 登录，检查会话状态</strong></p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 查看所有会话
+loginctl list-sessions
+
+# 查看物理会话的锁定和空闲状态
+loginctl show-session &lt;ID&gt; | grep -E &quot;LockedHint|IdleHint|State|Type&quot;
+# LockedHint=yes   → 已锁定，需要解锁
+# IdleHint=yes     → 空闲中（可能锁屏了）
+# State=active     → 会话在运行
+
+# 一行命令判断是否需要解锁
+loginctl show-session $(loginctl list-sessions --no-legend | awk &#x27;$4==&quot;seat0&quot;{print $1}&#x27;) \
+  2&gt;&#x2F;dev&#x2F;null | grep &quot;LockedHint=yes&quot; &amp;&amp; echo &quot;需要解锁&quot; || echo &quot;已解锁&quot;
+</code></pre>
+<p>会话状态组合：</p>
+<table><thead><tr><th>LockedHint</th><th>IdleHint</th><th>含义</th><th>动作</th></tr></thead><tbody>
+<tr><td>yes</td><td>yes</td><td>已锁屏且空闲</td><td>需要解锁</td></tr>
+<tr><td>yes</td><td>no</td><td>已手动锁定</td><td>需要解锁</td></tr>
+<tr><td>no</td><td>yes</td><td>已解锁但空闲（屏保无密码）</td><td>可直接连</td></tr>
+<tr><td>no</td><td>no</td><td>已解锁且活跃</td><td>可直接连</td></tr>
+</tbody></table>
+<p><strong>2. 解锁物理会话</strong></p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">SESSION_ID=$(loginctl list-sessions --no-legend | awk &#x27;$4==&quot;seat0&quot;{print $1}&#x27;)
+loginctl unlock-session &quot;$SESSION_ID&quot;
+</code></pre>
+<p><strong>3. RDP 连接</strong></p>
+<p>用 Remmina / mstsc 连 <code>主机:3389</code>。</p>
+<p><strong>4. 使用完毕后，主动锁屏</strong>（重要！）</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">loginctl lock-session &quot;$SESSION_ID&quot;
+</code></pre>
+<p>不锁的话物理控制台会一直处于已登录状态，任何能碰到机器的人都能操作。</p>
+<p><strong>自动化：RDP 断开时自动锁屏</strong></p>
+<p>监听用户守护进程日志中的断连事件，触发自动锁定：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 方式一：systemd path unit 监听 + shell 脚本
+# ~&#x2F;.local&#x2F;bin&#x2F;rdp-lock-on-disconnect.sh
+#!&#x2F;bin&#x2F;bash
+SESSION_ID=$(loginctl list-sessions --no-legend | awk &#x27;$4==&quot;seat0&quot;{print $1}&#x27;)
+journalctl --user -u gnome-remote-desktop.service -f --no-pager | while read line; do
+    if echo &quot;$line&quot; | grep -q &quot;Network or intentional disconnect&quot;; then
+        loginctl lock-session &quot;$SESSION_ID&quot;
+    fi
+done
+</code></pre>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># ~&#x2F;.config&#x2F;systemd&#x2F;user&#x2F;rdp-auto-lock.service
+[Unit]
+Description=Auto-lock session on RDP disconnect
+After=gnome-remote-desktop.service
+
+[Service]
+ExecStart=%h&#x2F;.local&#x2F;bin&#x2F;rdp-lock-on-disconnect.sh
+Restart=on-failure
+
+[Install]
+WantedBy=default.target
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">chmod +x ~&#x2F;.local&#x2F;bin&#x2F;rdp-lock-on-disconnect.sh
+systemctl --user daemon-reload
+systemctl --user enable --now rdp-auto-lock.service
+</code></pre>
+<p><strong>5. 可选：事后恢复锁屏策略</strong></p>
+<p>如果之前为了 RDP 禁用了自动锁屏，可以在断开后恢复：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gsettings set org.gnome.desktop.screensaver lock-enabled true
+</code></pre>
+<p>或者写进上述自动脚本，RDP 断开时一起执行。</p>
+<hr />
+<h2 id="yuan-cheng-deng-lu-jia-gou-yu-hui-hua-ji-zhi-gnome-45-gdm-douhao-shi-ce">远程登录架构与会话机制（GNOME 45+ / GDM，douhao 实测）</h2>
+<h3 id="grd-de-4-chong-yun-xing-mo-shi-2026-08-11-hui-zong-yuan-ma-grd-daemon-c-que-ren">grd 的 4 种运行模式（2026-08-11 汇总，源码 grd-daemon.c 确认）</h3>
+<p><strong>gnome-remote-desktop 只有一个二进制 <code>gnome-remote-desktop-daemon</code>，4 种运行模式由启动参数决定，互斥</strong>（<code>count_trues(3, headless, system, handover) &gt; 1</code> 时直接报 <code>Invalid option: More than one runtime mode specified</code> 退出）：</p>
+<table><thead><tr><th>参数</th><th>运行模式</th><th>daemon 类</th><th>角色</th><th>端口</th><th>凭证来源</th></tr></thead><tbody>
+<tr><td>无参数</td><td><code>SCREEN_SHARE</code></td><td>用户级 <code>grd_daemon_user_new</code></td><td>共享现有桌面（录制已有画面）</td><td>3389（可避让）</td><td><strong>只读 keyring</strong></td></tr>
+<tr><td><code>--headless</code></td><td><code>HEADLESS</code></td><td>用户级 <code>grd_daemon_user_new</code></td><td>无头共享（自建虚拟显示器，不依赖物理屏）</td><td>3389（可避让）</td><td><strong>读 credentials.ini</strong></td></tr>
+<tr><td><code>--system</code></td><td><code>SYSTEM</code></td><td>系统级 <code>grd_daemon_system_new</code></td><td>GDM 远程登录（登录界面 → handover）</td><td>3389</td><td>读 grd.conf</td></tr>
+<tr><td><code>--handover</code></td><td><code>HANDOVER</code></td><td>用户级 <code>grd_daemon_handover_new</code></td><td>登录接管（等 --system 移交连接）</td><td>不监听</td><td>one-time（system 传）</td></tr>
+</tbody></table>
+<p><strong>对应 4 个 systemd unit</strong>（归属固定，不能混用）：</p>
+<table><thead><tr><th>unit</th><th>归属</th><th>运行用户</th><th>ExecStart</th></tr></thead><tbody>
+<tr><td><code>gnome-remote-desktop.service</code></td><td><strong>system</strong>（<code>sudo systemctl</code>）</td><td><code>gnome-remote-desktop</code> 用户</td><td><code>--system</code></td></tr>
+<tr><td><code>gnome-remote-desktop.service</code></td><td><strong>user</strong>（<code>systemctl --user</code>）</td><td>当前用户</td><td>（无参数）SCREEN_SHARE</td></tr>
+<tr><td><code>gnome-remote-desktop-headless.service</code></td><td><strong>user</strong></td><td>当前用户</td><td><code>--headless</code></td></tr>
+<tr><td><code>gnome-remote-desktop-handover.service</code></td><td><strong>user</strong></td><td>当前用户</td><td><code>--handover</code></td></tr>
+</tbody></table>
+<p><strong>常见疑问（已实测）</strong>：</p>
+<ul>
+<li><strong>每个服务都支持 sudo / --user 启动吗？</strong> 不行，归属是固定的：<code>--system</code> 只作为系统服务（<code>sudo systemctl</code>）跑；其余三个只作为用户服务（<code>systemctl --user</code>）跑。反过来用会因 bus 名/权限不匹配而失败。</li>
+<li><strong><code>--headless</code> 和 <code>--system</code> 能同时设置吗？</strong> <strong>不能</strong>，互斥——同时给直接退出报 <code>Invalid option: More than one runtime mode specified</code>（实测确认）。<code>--handover</code> 与另外两个也同样互斥。</li>
+<li><strong><code>--headless</code> 和 <code>--system</code> 的关系</strong>：<code>--system</code> 的官方帮助文案就是 "Run in headless mode as a system g-r-d service"——它本质也是 headless（无物理屏的 GDM 登录界面），只是以系统用户跑、角色是登录。两者是<strong>不同角色</strong>（登录 vs 共享）而不是同角色的两个变体。</li>
+<li><strong>端口冲突</strong>：SCREEN_SHARE 和 HEADLESS 都是用户级、默认都想绑 3389。<code>--system</code> 占用 3389 时，用户级自动避让到 3390（<code>negotiate-port</code>）。两个用户级（SCREEN_SHARE + HEADLESS）<strong>不能同时跑</strong>（抢同一端口），unit 里 <code>Conflicts=gnome-remote-desktop.service</code> 保证互斥。</li>
+</ul>
+<p><strong>"远程登录"和"桌面共享"不是并列的两种服务，而是流程的两段</strong>：</p>
+<pre><code>远程登录（--system, 3389）→ 看到 GDM 登录界面 → 输密码 → handover（--handover）→ 进入你的桌面
+桌面共享（无参数 或 --headless, 3390）→ 直接看到你的桌面画面（不需要经过登录界面）
+</code></pre>
+<p><strong>本博客各次配置实际用的模式对照</strong>：</p>
+<table><thead><tr><th>配置场景</th><th>--system</th><th>无参数</th><th>--headless</th><th>--handover</th><th>说明</th></tr></thead><tbody>
+<tr><td>机器 A 方案 A1（推荐）</td><td>✅ 3389</td><td>✅ 3390</td><td>—</td><td>✅</td><td>标准双守护进程</td></tr>
+<tr><td>机器 B 初始（headless 试错）</td><td>—</td><td>—</td><td>✅ 3389</td><td>—</td><td>遇到 Session inhibited</td></tr>
+<tr><td>机器 B 最终方案（用户级独占）</td><td>—</td><td>✅ 3389</td><td>—</td><td>—</td><td>共享 803 物理会话</td></tr>
+<tr><td>douhao（正常参照）</td><td>✅ 3389</td><td>✅ 3390</td><td>—</td><td>✅</td><td>一直正常</td></tr>
+<tr><td>dev 当前（修复后）</td><td>✅ 3389</td><td>✅ 3390</td><td>—</td><td>✅</td><td>白屏修复后</td></tr>
+<tr><td>douhao 修复后（本次）</td><td>✅ 3389</td><td>—</td><td>✅ 3390</td><td>✅</td><td>绕开 keyring 死结</td></tr>
+</tbody></table>
+<blockquote>
+<p><strong>为什么 douhao 修复后改用 <code>--headless</code></strong>：SCREEN_SHARE 模式的凭证只从 keyring 读，而 keyring 在无显示环境（SSH）锁定/创建时必然挂起——3390 永远 <code>Credentials are not set</code>。<code>--headless</code> 模式读 credentials.ini，完全不碰 keyring，是远程无 GUI 环境下唯一可靠的 3390 路径（实测 3390 认证通过、画面正常）。</p>
+</blockquote>
+<h3 id="shuang-shou-hu-jin-cheng-handover">双守护进程 + handover</h3>
+<p>douhao 上系统级与用户级守护进程<strong>并存</strong>，各管一段：</p>
+<table><thead><tr><th>进程</th><th>角色</th></tr></thead><tbody>
+<tr><td><code>gnome-remote-desktop-daemon --system</code>（系统级）</td><td>管理 <strong>GDM 登录界面（greeter）</strong> 的 RDP——"远程登录"端</td></tr>
+<tr><td><code>gnome-remote-desktop-daemon</code> + <code>--handover</code>（用户级）</td><td><strong>登录后接管连接</strong>，共享用户桌面</td></tr>
+</tbody></table>
+<p>完整链路：RDP 连 3389 → 看到 GDM 登录界面 → 输密码 → 登录瞬间 handover 把连接交给用户级 daemon → 无缝进入真实桌面。</p>
+<h3 id="hui-hua-lie-biao-jie-du-loginctl-shi-ce-hui-hua">会话列表解读（loginctl，实测会话）</h3>
+<pre><code>c8   Debian-gdm greeter active  wayland  local   seat0 tty1   ← 本地登录界面，永远挂着
+c9   Debian-gdm greeter active  wayland  remote  -      -     ← 第一次 RDP 连接的 greeter
+c10  Debian-gdm greeter active  wayland  remote  -      -     ← 第二次 RDP 连接的 greeter
+3670 peter      user    active  wayland  remote  -      -     ← peter 已登录的 GUI 会话
+</code></pre>
+<ul>
+<li><strong>每个 RDP 连接 = 一个独立远程 greeter 会话</strong>（c9、c10…），不复用，登录 handover 后<strong>也不销毁</strong>（GDM 保留），连几次就几个</li>
+<li><strong>本地 seat0 greeter 永远 active</strong>：物理屏没人登录它就在——"有 greeter = 没登录"的判断是错的</li>
+<li><strong>判断是否已登录 GUI</strong>：看 peter 有没有 <code>active</code> 的 <code>wayland/x11</code> user 会话（<code>loginctl list-sessions | awk '$3==peter &amp;&amp; $4==user &amp;&amp; $6==wayland'</code>），而不是看 greeter 是否在场</li>
+<li>远程会话（含 RDP 的 greeter 和用户会话）<strong>无 seat</strong>（显示 <code>-</code>）；本地物理会话才有 seat0</li>
+</ul>
+<h3 id="xuan-ran-lian-lu-fu-wu-qi-duan-wayland-xuan-ran">渲染链路：服务器端 Wayland 渲染</h3>
+<p>远程登录界面不是 X11 转发，而是服务器端完整渲染：</p>
+<pre><code>RDP 客户端 ←── RDP（H.264 帧编码 + 输入事件） ──→ grd 系统守护进程
+                                                        │
+                      GDM 按需拉起无 seat 的 greeter 会话（c9&#x2F;c10）
+                                                        │
+                                 里面跑 Mutter（Wayland 合成器），渲染进虚拟输出
+                                                        │
+                    grd 用 Mutter ScreenCast API 捕获帧 → 编码 → 推给客户端
+                    客户端鼠标键盘 → RemoteDesktop API 反向注入合成器
+</code></pre>
+<p>登录后同理：handover 后 grd 用户守护进程捕获用户会话合成器的画面。</p>
+<h3 id="xu-ni-shu-chu-de-di-ceng-ji-shu-douhao-shi-ce">虚拟输出的底层技术（douhao 实测）</h3>
+<p>douhao 的 <code>card0-Virtual-1</code> <strong>不是 VKMS</strong>，而是 <strong>virtio-gpu</strong>——douhao 本身是 QEMU/KVM 虚拟机：</p>
+<pre><code>&#x2F;sys&#x2F;class&#x2F;drm&#x2F;card0&#x2F;device&#x2F;uevent: DRIVER=virtio-pci, PCI_ID=1AF4:1050（virtio-gpu）
+lsmod: virtio_gpu
+</code></pre>
+<table><thead><tr><th>技术</th><th>本质</th><th>场景</th></tr></thead><tbody>
+<tr><td>VKMS（drm/vkms）</td><td>纯内核虚拟 KMS，无 PCI 设备</td><td>无头服务器测试 KMS 路径</td></tr>
+<tr><td><strong>virtio-gpu</strong>（douhao 用）</td><td>半虚拟化 GPU，宿主提供真实帧缓冲，自带虚拟 EDID</td><td>虚拟机标准虚拟显卡</td></tr>
+<tr><td>Mutter 虚拟显示器</td><td>合成器内部软件虚拟输出，不进内核 DRM</td><td>gnome-remote-desktop 无头会话</td></tr>
+</tbody></table>
+<p><strong>644x480 之谜</strong>：virtio-gpu 的 Virtual-1 连接器自带 EDID，支持 5120x2160 等大模式——但 RDP greeter 画面仍 644x480，因为<strong>远程 greeter 的合成器走的是 Mutter 内置虚拟显示器（软件路径）默认 640x480</strong>，不经过 KMS 连接器的模式列表。两条渲染路径不冲突：连接器支持大分辨率，不代表 greeter 会用它。</p>
+<hr />
+<h2 id="duo-xian-shi-qi-yu-xian-shi-qi-re-cha-ba-2026-08-18-bu-chong">多显示器与显示器热插拔（2026-08-18 补充）</h2>
+<h3 id="gong-xiang-na-ge-ping-mirror-primary-zhi-jing-xiang-zhu-xian-shi-qi">共享哪个屏：mirror-primary 只镜像主显示器</h3>
+<ul>
+<li>双屏/多屏时，<code>mirror-primary</code> 共享的只是<strong>主显示器</strong>（Primary）的画面，副屏上的窗口/内容<strong>不在 RDP 会话里</strong>——远程端看不到，没有其他"平面"可看。</li>
+<li>想看到副屏内容只有三条路：① 客户端启用多显示器（RDP 多 monitor 会话，见下）；② 换成 <code>extend</code>/<code>--headless</code> 共享虚拟屏（但那是另一块屏，不是副屏内容）；③ 把窗口拖到主屏。</li>
+<li>主显示器判定：GNOME 设置 → 显示器 → 主显示器（或 <code>xrandr --listmonitors</code> 的 <code>*</code> 标记）。</li>
+</ul>
+<h3 id="ke-hu-duan-ce-xuan-xiang-remmina-1-4-43-shi-ce">客户端侧选项（Remmina 1.4.43 实测）</h3>
+<p>Remmina <strong>没有</strong> mstsc 那种字面叫"使用所有显示器"的选项，等价物在 <strong>Basic（基本）标签页下半段</strong>（"智能卡 PIN"一组之后、"分辨率"之前，需向下滚动）：</p>
+<table><thead><tr><th>选项</th><th>含义</th></tr></thead><tbody>
+<tr><td>Enable multi monitor</td><td>每个本地显示器映射为一个独立 RDP monitor（≈ mstsc 的"使用所有显示器"，全屏生效）</td></tr>
+<tr><td>Force multi monitor when toggled</td><td>强制多显示器模式</td></tr>
+<tr><td>Span screen over multiple monitors</td><td>多屏拼接成一个虚拟大桌面（单一逻辑 monitor，窗口可跨屏拖动）</td></tr>
+<tr><td>List monitor IDs</td><td>逗号分隔指定共享哪些显示器（如 <code>0,1</code>），可精确排除某个屏</td></tr>
+</tbody></table>
+<p>服务端（grd 0.4.x / GNOME 46+）侧本身支持多显示器：每个物理显示器独立 ScreenCast 流 → RDP 多 monitor。<strong>两端都要开启</strong>才生效。</p>
+<h3 id="xian-shi-qi-yi-chu-re-cha-ba-dui-gong-xiang-de-ying-xiang">显示器移除（热插拔）对共享的影响</h3>
+<ul>
+<li><strong>本地会话不受影响</strong>：mutter 的"输出配置"与"桌面会话"解耦。拔掉显示器 → DRM connector 断开 → mutter 把该输出从 monitor 配置移除（唯一输出被移除则进入"无活动输出"状态），窗口/进程原样保留；插回 → 热插拔事件 → mutter 自动重建输出恢复显示。</li>
+<li><strong>共享会话受影响</strong>：<code>mirror-primary</code> 镜像的是主物理显示器，主屏被拔 → 没有可镜像的输出 → 远程端黑屏/断开（与 Step 3d 的 <code>Unknown monitor</code> 场景同类，只是触发原因不同：物理会话注销 vs 拔屏）。</li>
+<li>想"拔屏后共享不断"：用 <code>extend</code> 或 <code>--headless</code>（自建虚拟屏），但<strong>看不到物理屏内容</strong>——虚拟屏与物理屏是同一会话的不同输出（扩展布局，窗口各自落位），两边内容不镜像。</li>
+<li><strong>结论：要"远程看到和本地用户同一画面"（远程调试场景），必须物理屏存在 + <code>mirror-primary</code>；headless/虚拟屏是"换一块屏"，不是"镜像本地"</strong>。</li>
+</ul>
+<hr />
+<h2 id="cai-keng-zong-biao">踩坑总表</h2>
+<table><thead><tr><th>问题</th><th>现象</th><th>机器</th><th>根因</th><th>解法</th></tr></thead><tbody>
+<tr><td>xrdp 占端口</td><td>开关弹回</td><td>A</td><td>xrdp-sesman 开机抢先绑 3389</td><td><code>systemctl stop/disable xrdp xrdp-sesman</code></td></tr>
+<tr><td>0x907 证书</td><td>mstsc 硬拒绝</td><td>A</td><td>Windows 缓存了旧证书指纹</td><td>清注册表 / 换地址重连</td></tr>
+<tr><td>GDM 白屏 + CPU 飙升（greeter 无虚拟显示器）</td><td>3389 连上白屏、无渲染错误</td><td>B</td><td>手动默认路由 → NM PrimaryConnection 空 → gsd-sharing 判 OFFLINE → --handover 不启动 → greeter 无虚拟显示器</td><td><code>nmcli con up &lt;连接&gt;</code> 让 NM 接管默认路由（见 Step 3b）；systemd-networkd 同理（见 Step 3c）</td></tr>
+<tr><td>NTLM MIC 失败</td><td>Remmina 闪退</td><td>B</td><td>用户守护进程 NLA 普遍不兼容</td><td>用系统守护进程 / 3389 登录路径</td></tr>
+<tr><td>Session inhibited</td><td>认证通过后断开</td><td>B</td><td>物理会话锁屏</td><td><code>loginctl unlock-session</code></td></tr>
+<tr><td>凭证不持久化</td><td>NTLM 永远失败</td><td>B</td><td>grdctl 写 keyring 失败（SSH 无 keyring daemon），回退 credentials.ini 的写入路径不工作</td><td>通过 3389 GDM 登录一次解锁 keyring 后写凭证，或改用 <code>--headless</code> 模式（凭证走 credentials.ini）</td></tr>
+<tr><td>SSH 可远程解锁</td><td>—</td><td>B</td><td>同用户会话间 polkit 信任</td><td><code>loginctl unlock-session &lt;id&gt;</code></td></tr>
+<tr><td>3390 Unknown monitor</td><td>认证通过后 RPC 断开</td><td>B</td><td>mirror-primary 模式无物理屏可镜像（物理会话注销后）</td><td>短期：<code>screen-share-mode extend</code>；<strong>根治：改用 <code>--headless</code> 模式</strong>（永远自建虚拟屏，见 Step 3d）</td></tr>
+<tr><td>3390 凭证死结</td><td>认证被拒 <code>Credentials are not set</code>，grdctl 写 keyring 挂起</td><td>B/douhao</td><td>SCREEN_SHARE 模式凭证只读 keyring；keyring 锁定/无显示环境无法写入</td><td>改用 <code>--headless</code> 模式（读 credentials.ini，不碰 keyring）</td></tr>
+<tr><td>keyring 解锁弹窗密码错</td><td>RDP 登录后弹解锁框，输登录密码报错</td><td>B</td><td>8月6日 排查期间重建的 login.keyring 密码与当前登录密码不一致（GDM 登录创建的 keyring 密码=当时登录密码，改密码不同步）</td><td>备份后删除 login.keyring，下次 GUI 登录以当前密码重建（丢其中存的少量密码）</td></tr>
+<tr><td>系统级凭证不重载</td><td>3389 改密码后认证仍 <code>STATUS_LOGON_FAILURE</code></td><td>A</td><td>运行中的系统 daemon 不重读 grd.conf</td><td>写凭证后 <code>systemctl restart gnome-remote-desktop.service</code>（先确认无活跃 gdm 会话，见下行）</td></tr>
+<tr><td>重启系统 daemon 踢物理会话</td><td>脚本跑着跑着物理桌面退出、自动登录恢复</td><td>A</td><td>活跃 RDP greeter 被杀 → GDM <code>on_display_added</code> 断言失败 → seat 会话被踢</td><td>默认不重启系统 daemon（<code>--restart</code> 显式才重启，先清空 user=gdm 会话）</td></tr>
+<tr><td>SCREEN_SHARE 改密码不生效</td><td>3390 还是旧密码</td><td>A</td><td>SCREEN_SHARE 凭证只读 keyring，<code>credentials.ini</code> 无效</td><td><code>grdctl rdp set-credentials</code> 写 keyring（物理会话活跃时即时生效）</td></tr>
+<tr><td>共享模式被悄悄切回 extend</td><td>3390 连上看不到物理屏</td><td>A</td><td>「无物理会话自动回退 extend」在会话切换空档误判</td><td>默认 mirror-primary，只有显式 <code>--extend</code> 才配置</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/updated/">&#8249; 最近更新</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/"> 一个容器内进程的 cwd 诊断记录 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#liang-tai-ji-qi-de-gnome-rdp-pai-cha-ji-lu">两台机器的 GNOME RDP 排查记录</a>
+        </div>
+        <div class="hpad">
+          <a href="#shu-yu-cheng-qing"><small>- 术语澄清</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ji-qi-a-ubuntu-24-04-4-gnome-46-0"><small>- 机器 A：Ubuntu 24.04.4 + GNOME 46.0</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gu-zhang"><small>· 故障</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xian-xiang"><small>· 现象</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wen-ti-1-kai-guan-dan-hui-xrdp-zhan-duan-kou"><small>· 问题 1：开关弹回 — xrdp 占端口</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wen-ti-2-mstsc-0x907-zheng-shu-cuo-wu"><small>· 问题 2：mstsc 0x907 证书错误</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ji-qi-a-jie-jue-fang-an"><small>· 机器 A 解决方案</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ji-qi-a-zong-jie"><small>· 机器 A 总结</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ji-qi-a-hou-xu-2026-08-12-shuang-shou-hu-jin-cheng-zui-zhong-xing-tai-yu-setup-rdp-sh-gu-hua"><small>· 机器 A 后续（2026-08-12）：双守护进程最终形态与 setup.rdp.sh 固化</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ji-qi-b-debian-13-trixie-gnome-48"><small>- 机器 B：Debian 13 (Trixie) + GNOME 48</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gu-zhang-1"><small>· 故障</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-cha-guo-cheng"><small>· 排查过程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ji-qi-b-zui-zhong-fang-an"><small>· 机器 B 最终方案</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ri-chang-shi-yong-liu-cheng-ssh-jie-suo-rdp-shi-yong-zhu-dong-suo-ping"><small>· 日常使用流程：SSH 解锁 → RDP 使用 → 主动锁屏</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-cheng-deng-lu-jia-gou-yu-hui-hua-ji-zhi-gnome-45-gdm-douhao-shi-ce"><small>- 远程登录架构与会话机制（GNOME 45+ &#x2F; GDM，douhao 实测）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#grd-de-4-chong-yun-xing-mo-shi-2026-08-11-hui-zong-yuan-ma-grd-daemon-c-que-ren"><small>· grd 的 4 种运行模式（2026-08-11 汇总，源码 grd-daemon.c 确认）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shuang-shou-hu-jin-cheng-handover"><small>· 双守护进程 + handover</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#hui-hua-lie-biao-jie-du-loginctl-shi-ce-hui-hua"><small>· 会话列表解读（loginctl，实测会话）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xuan-ran-lian-lu-fu-wu-qi-duan-wayland-xuan-ran"><small>· 渲染链路：服务器端 Wayland 渲染</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xu-ni-shu-chu-de-di-ceng-ji-shu-douhao-shi-ce"><small>· 虚拟输出的底层技术（douhao 实测）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#duo-xian-shi-qi-yu-xian-shi-qi-re-cha-ba-2026-08-18-bu-chong"><small>- 多显示器与显示器热插拔（2026-08-18 补充）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gong-xiang-na-ge-ping-mirror-primary-zhi-jing-xiang-zhu-xian-shi-qi"><small>· 共享哪个屏：mirror-primary 只镜像主显示器</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ke-hu-duan-ce-xuan-xiang-remmina-1-4-43-shi-ce"><small>· 客户端侧选项（Remmina 1.4.43 实测）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xian-shi-qi-yi-chu-re-cha-ba-dui-gong-xiang-de-ying-xiang"><small>· 显示器移除（热插拔）对共享的影响</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cai-keng-zong-biao"><small>- 踩坑总表</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,331 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ssl</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ssl/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-21T15:30:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/ssl/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Cloudflare 代理(橙云)下 Caddy 能否自动签发 TLS 证书?tls-alpn 失败后的 http-01 回退实测</title>
+        <published>2026-08-21T15:30:00+08:00</published>
+        <updated>2026-08-21T15:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/"/>
+        <id>https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/">&lt;h1 id=&quot;xian-xiang-yu-bei-jing&quot;&gt;现象与背景&lt;&#x2F;h1&gt;
+&lt;p&gt;VPS 上用 233boy 脚本部署了代理栈,Caddy 负责 80&#x2F;443 的自动 TLS(站点配置在 &lt;code&gt;&#x2F;etc&#x2F;caddy&#x2F;sites&#x2F;*.conf&lt;&#x2F;code&gt; 下批量管理)。域名托管在 Cloudflare:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;灰云(仅 DNS)&lt;&#x2F;strong&gt;:首次签发成功&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;橙云(开启代理)&lt;&#x2F;strong&gt;:之后似乎也能自动续期&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;网上流传的说法是&quot;Cloudflare 橙色代理会拦截 ACME 验证请求,导致证书签发失败&quot;,甚至需要为 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 单独配置 Bypass 策略。但直觉存疑:Caddy 支持多挑战类型,为什么回退到 http-01 后会失败?&lt;&#x2F;p&gt;
+&lt;p&gt;本文用真实日志证据 + 一个全新子域的主动实验,完整回答:&lt;strong&gt;橙云下 Caddy 能不能自动签发&#x2F;续期,走的是什么路径,以及&quot;回退&quot;到底是怎么发生的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-zhi-du-qu-zheng-li-shi-xu-qi-dao-di-zou-de-na-tiao-lu&quot;&gt;第一步:只读取证——历史续期到底走的哪条路&lt;&#x2F;h1&gt;
+&lt;p&gt;先不新建任何配置,翻 VPS 上已有的证据(caddy 证书存储 + &lt;code&gt;journalctl -u caddy&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-1-zheng-shu-de-qian-fa-xu-qi-shi-jian-xian&quot;&gt;证据 1:证书的签发&#x2F;续期时间线&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;web1: notBefore=Jun 27 | notAfter=Sep 25   (文件 mtime: Jun 27)
+web2: notBefore=Jun 27 | notAfter=Sep 25
+relay0: notBefore=Jun 27 | notAfter=Sep 25
+relay1: notBefore=Jun 26 | notAfter=Sep 23
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;再配合日志里的 &lt;code&gt;replaced certificate in cache&lt;&#x2F;code&gt; 事件,还原出完整续期史:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;时间&lt;&#x2F;th&gt;&lt;th&gt;事件&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;2-27&lt;&#x2F;td&gt;&lt;td&gt;首次签发(灰云,5 个域名含 web0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;4-28&lt;&#x2F;td&gt;&lt;td&gt;全员续期成功(含 web0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;6-26&#x2F;27&lt;&#x2F;td&gt;&lt;td&gt;4 个域名续期成功(web0 掉队——DNS 已被指到另一台机器)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;7-13 后&lt;&#x2F;td&gt;&lt;td&gt;tls-alpn 直连验证骤停(每天 4 次 -&amp;gt; 总共 4 次)——开启橙云的时间点&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;zheng-ju-2-shui-zai-lian-yuan-zhan-zuo-tls-alpn-yan-zheng&quot;&gt;证据 2:谁在连源站做 tls-alpn 验证?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;journalctl&lt;&#x2F;code&gt; 里 &quot;tls-alpn challenge&quot; 事件 483 次,来源 IP 98% 是 LE 官方验证服务器。&lt;strong&gt;LE 验证服务器能直连源站 443 协商 acme-tls&#x2F;1,只可能在灰云下发生&lt;&#x2F;strong&gt;(橙云下 CF 边缘会终结 TLS)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-3-221-ci-shi-bai-quan-bu-lai-zi-yi-ge-yu-ming&quot;&gt;证据 3:221 次失败全部来自一个域名&lt;&#x2F;h2&gt;
+&lt;p&gt;&quot;could not get certificate from issuer&quot; 共 221 次,&lt;strong&gt;按域名拆分 100% 是 web0&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;web0: n=221  first=Jun 27  last=Aug 10  error: 2.3.4.5: remote error: tls: internal error
+web1&amp;#x2F;web2&amp;#x2F;relay0&amp;#x2F;relay1: n=0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;web0 的 DNS 记录被指到了另一台 VPS(2.3.4.5),LE 验证连接打到那台没有 ACME 服务的机器上,必然失败。它成了天然对照组:证书 7-27 过期,每天制造 4 次失败 + 216 条 &quot;queuing for renewal&quot; 日志噪音。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-4-http-01-cong-wei-bei-shi-ji-shi-yong-guo&quot;&gt;证据 4:http-01 从未被实际使用过&lt;&#x2F;h2&gt;
+&lt;p&gt;&quot;served key authorization&quot;(Caddy 服务 http-01 token 的事件)全日志 &lt;strong&gt;0 次&lt;&#x2F;strong&gt;。而 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 的请求日志有 496 条,全是 &quot;no information found&quot;(无活动挑战时的空请求)——但&lt;strong&gt;这些请求能到达源站,恰好证明 http-01 经 CF 转发的路径本身是通的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-yi-bu-jie-lun&quot;&gt;第一步结论&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;过去所有成功续期(4-28、6-26&#x2F;27)&lt;strong&gt;都发生在灰云下,走 tls-alpn-01 直连&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;橙云下的续期一次都还没发生过&lt;&#x2F;strong&gt;——&quot;开启代理后仍能续期&quot;目前只是未验证的信念&lt;&#x2F;li&gt;
+&lt;li&gt;流传的&quot;第一次失败是 80 端口没放行&quot;不成立(安全组一直放行 22&#x2F;80&#x2F;443)&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;di-er-bu-zhu-dong-shi-yan-quan-xin-zi-yu-cheng-yun-kai-ju&quot;&gt;第二步:主动实验——全新子域橙云开局&lt;&#x2F;h1&gt;
+&lt;p&gt;理论上的预期(来自 ACME 机制):橙云下 tls-alpn-01 必然失败(LE 连到 CF 边缘,协商不了 acme-tls&#x2F;1);Caddy 会&quot;回退&quot;到 http-01;CF 把 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 转发到源站 80&#x2F;443,Caddy 服务 token,签发成功。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cao-zuo&quot;&gt;操作&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;CF 面板新建 &lt;code&gt;cftest&lt;&#x2F;code&gt; 子域 A 记录 -&amp;gt; VPS IP,&lt;strong&gt;代理状态直接选橙云&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;等 &lt;code&gt;dig&lt;&#x2F;code&gt; 解析到 CF IP(104.21.x&#x2F;172.67.x)确认橙云生效&lt;&#x2F;li&gt;
+&lt;li&gt;VPS 写最小测试站点并重启 caddy:&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;# &amp;#x2F;etc&amp;#x2F;caddy&amp;#x2F;sites&amp;#x2F;cftest.conf
+cftest.demo.com {
+    respond &amp;quot;ok&amp;quot;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意:233boy 的 Caddyfile 全局块有 &lt;code&gt;admin off&lt;&#x2F;code&gt;,&lt;code&gt;systemctl reload&lt;&#x2F;code&gt; 走 admin API(:2019)会被拒,只能 &lt;code&gt;systemctl restart&lt;&#x2F;code&gt;(秒级中断,不影响其它入口)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ri-zhi-shi-lu-jie-xuan&quot;&gt;日志实录(节选)&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;12:46:12  trying to solve challenge  identifier=cftest.demo.com  challenge_type=tls-alpn-01
+12:46:13  challenge failed  challenge_type=tls-alpn-01
+          detail: Cannot negotiate ALPN protocol &amp;quot;acme-tls&amp;#x2F;1&amp;quot; for tls-alpn-01 challenge
+          (attempt:1, max_attempts:3)
+          ...同 order 内再重试 2 次,全部失败...
+          [跨 order 切换]
+          trying to solve challenge  challenge_type=http-01
+          served key authentication × 4~5
+          (LE 多视角验证,从不同网络位置各取一次 token,全部经 CF 转发到达源站)
+12:47 左右  certificate obtained successfully
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wai-bu-yan-zheng&quot;&gt;外部验证&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;经 CF 访问 &lt;code&gt;https:&#x2F;&#x2F;cftest.demo.com&#x2F;&lt;&#x2F;code&gt; -&amp;gt; 返回 &lt;code&gt;ok&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;源站证书:&lt;code&gt;CN = cftest.demo.com&lt;&#x2F;code&gt;,Let&#x27;s Encrypt 签发,有效期 8-21 -&amp;gt; 11-19(90 天)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;实验全链路通过,耗时约 1~2 分钟,全程无需人工干预。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ji-zhi-jie-shi&quot;&gt;机制解释&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-wei-shen-me-tls-alpn-01-zai-cheng-yun-xia-bi-shi-bai&quot;&gt;1. 为什么 tls-alpn-01 在橙云下必失败&lt;&#x2F;h2&gt;
+&lt;p&gt;ACME 的 tls-alpn-01 要求 LE 验证服务器与&lt;strong&gt;源站&lt;&#x2F;strong&gt; 443 端口协商 &lt;code&gt;acme-tls&#x2F;1&lt;&#x2F;code&gt; ALPN 协议。橙云下域名解析到 CF 边缘,CF 终结 TLS,LE 的握手根本到不了源站,报 &lt;code&gt;Cannot negotiate ALPN protocol &quot;acme-tls&#x2F;1&quot;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-hui-tui-shi-kua-order-shi-xian-de-bu-shi-yi-ci-ding-dan-nei-xian-a-hou-b&quot;&gt;2. &quot;回退&quot;是跨 order 实现的,不是一次订单内先 A 后 B&lt;&#x2F;h2&gt;
+&lt;p&gt;ACME 流程里&quot;order&quot;是一次证书订单:客户端提交域名列表 -&amp;gt; CA 返回待完成的挑战 -&amp;gt; 全部验证通过才签发。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;同一 order 内&lt;&#x2F;strong&gt;:挑战验证失败但订单未作废,可重试(&lt;code&gt;max_attempts:3&lt;&#x2F;code&gt; = 这单最多试 3 次)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;跨 order&lt;&#x2F;strong&gt;:3 次全失败 -&amp;gt; 订单废弃 -&amp;gt; Caddy 新开一单,禁用刚失败的挑战类型,换 http-01&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以&quot;回退&quot;发生在&lt;strong&gt;订单级别&lt;&#x2F;strong&gt;,中间有重试退避延迟。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-wei-shen-me-http-01-neng-chuan-guo-cf&quot;&gt;3. 为什么 http-01 能穿过 CF&lt;&#x2F;h2&gt;
+&lt;p&gt;http-01 走的是 &lt;code&gt;http:&#x2F;&#x2F;域名&#x2F;.well-known&#x2F;acme-challenge&#x2F;&amp;lt;token&amp;gt;&lt;&#x2F;code&gt;。CF 代理对 80 端口的请求是&lt;strong&gt;普通转发&lt;&#x2F;strong&gt;(不涉及 TLS 终止),&lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 原样转发到源站 80;Caddy 在 80&#x2F;443 上都注册了挑战处理器,服务 token,LE 多视角验证从多个位置各取一次,全部成功。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-hong-fa-shi-ji-yu-ke-hu-duan-fang-wen-wan-quan-wu-guan&quot;&gt;4. 触发时机:与客户端访问完全无关&lt;&#x2F;h2&gt;
+&lt;p&gt;签发&#x2F;续期由 Caddy &lt;strong&gt;主动自动&lt;&#x2F;strong&gt;执行:新域名进配置 -&amp;gt; 加载时自动签发;续期按 LE 的 ARI(ACME Renewal Information)窗口自动进行。普通 https 访问只是&quot;消费&quot;证书,既不能触发也不能阻止。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gua-yong-bian-jie-yu-zhu-yi-shi-xiang&quot;&gt;适用边界与注意事项&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;前提是源站 80 可达&lt;&#x2F;strong&gt;(或 443 可达且无死锁)。安全组&#x2F;防火墙必须放行 80,否则 http-01 转发到了也取不到 token&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;潜在死锁场景&lt;&#x2F;strong&gt;:CF 开启 &quot;Always Use HTTPS&quot; + SSL 模式为 &lt;strong&gt;Full (strict)&lt;&#x2F;strong&gt; 时,http-01 请求被边缘 301 到 https 再回源,Full (strict) 要求源站证书&lt;strong&gt;当前有效&lt;&#x2F;strong&gt;——对首次签发(源站还没有证书)是死锁。本次实验的 CF 配置下没有这个死锁,直接成功&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DNS-01 仍是最稳方案&lt;&#x2F;strong&gt;:需要 CF API token,优点是完全不依赖端口&#x2F;代理状态,适合 Full (strict)+Always Use HTTPS 这类配置,或 80 端口被运营商封禁的场景&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别让 DNS 记录指错机器&lt;&#x2F;strong&gt;:web0 的教训——DNS 指到没有 ACME 服务的机器后,证书过期、续期永远失败,每天产生大量噪音日志。清理配置后噪音消失&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;说法&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&quot;CF 橙云会拦截 ACME 验证&quot;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;不准确&lt;&#x2F;strong&gt;。拦截的只是 tls-alpn-01;http-01 经 CF 的 80 端口转发正常工作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;必须 DNS-01 或临时关代理&quot;&lt;&#x2F;td&gt;&lt;td&gt;对 Caddy 不必须。tls-alpn 失败后自动跨 order 回退 http-01,1~2 分钟完成签发&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;续期失败是因为 80 端口没开&quot;&lt;&#x2F;td&gt;&lt;td&gt;对这台 VPS 不成立(80 一直放行)。真正的失败源是 DNS 指错机器的 web0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;橙云下续期也能正常&quot;&lt;&#x2F;td&gt;&lt;td&gt;实验证实:能。tls-alpn 失败 -&amp;gt; http-01 成功,全程自动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;验证方法论&lt;&#x2F;strong&gt;:先翻证书存储的签发时间 + journal 日志的 ACME 事件还原历史(0 风险),再建全新子域橙云开局做主动实验(可随时清理),比争论理论高效得多。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;chang-jian-yi-wen-faq&quot;&gt;常见疑问(FAQ)&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;q1-tiao-zhan-de-fa-qi-fang-shi-shui-token-shi-shui-sheng-cheng-de&quot;&gt;Q1:挑战的发起方是谁?token 是谁生成的?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;发起方永远是 Caddy(客户端)&lt;&#x2F;strong&gt;,token 是 CA 在响应里生成的。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;步骤&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;内容&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;①&lt;&#x2F;td&gt;&lt;td&gt;Caddy → CA&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;newOrder&lt;&#x2F;code&gt;(我要给 cftest.demo.com 签证书)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;②&lt;&#x2F;td&gt;&lt;td&gt;Caddy → CA&lt;&#x2F;td&gt;&lt;td&gt;获取 authorization&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;③&lt;&#x2F;td&gt;&lt;td&gt;CA → Caddy(&lt;strong&gt;响应&lt;&#x2F;strong&gt;)&lt;&#x2F;td&gt;&lt;td&gt;challenge 对象,内含 &lt;strong&gt;token——CA 侧现场生成的 128 位随机数&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;token 必须由 CA 生成:key authorization = &lt;code&gt;token + &quot;.&quot; + 账户公钥指纹&lt;&#x2F;code&gt;,CA 手里握着 token 的权威副本,验证时才比对得上。Caddy 只是把它挂到挑战路径&#x2F;证书扩展里展示。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q2-http-01-ruo-bei-zhong-ding-xiang-dao-443-yuan-zhan-huan-mei-you-zheng-shu-neng-qu-dao-nei-rong-ma&quot;&gt;Q2:http-01 若被重定向到 443,源站还没有证书能取到内容吗?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;默认根本不会重定向&lt;&#x2F;strong&gt;。Caddy 对 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 不执行 HTTP→HTTPS 自动重定向(挑战处理器优先级最高),VA 直接走 80 明文取 token。&lt;&#x2F;p&gt;
+&lt;p&gt;只有 CF 开启 &quot;Always Use HTTPS&quot; 时才会 301 到 443,此时:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;TLS 握手由 &lt;strong&gt;CF 边缘自己的 Universal SSL 证书&lt;&#x2F;strong&gt;完成——与源站证书毫无关系&lt;&#x2F;li&gt;
+&lt;li&gt;CF 回源按 SSL 模式:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Flexible&lt;&#x2F;strong&gt; → CF 以明文连源站 &lt;strong&gt;80&lt;&#x2F;strong&gt;,照样取到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Full&lt;&#x2F;strong&gt; → CF 连源站 443,Caddy 在证书签发期间用&lt;strong&gt;临时自签证书&lt;&#x2F;strong&gt;完成握手;RFC 8555 §8.3 明确验证时不校验证书链,照样取到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Full (strict)&lt;&#x2F;strong&gt; → 临时证书校验失败 → 526 → 挑战失败(唯一死锁场景)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;结论:&lt;strong&gt;无论哪条路径,token 最终都是经 80 端口取到的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q3-tls-alpn-01-shi-tls-qing-qiu-huan-shi-http-qing-qiu&quot;&gt;Q3:tls-alpn-01 是 TLS 请求还是 HTTP 请求?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;纯 TLS 层,没有任何 HTTP 消息&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;VA → 域名:443(TCP)
+  ClientHello:  ALPN 扩展 = acme-tls&amp;#x2F;1
+域名 → VA
+  ServerHello:  ALPN = acme-tls&amp;#x2F;1
+  Certificate:  特殊证书(id-pe-acmeIdentifier 扩展含 key authorization)
+VA 校验扩展内容 → 断开连接
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;没有路径、没有 GET、没有 HTTP 层数据。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q4-http-01-quan-shi-ming-wen-hen-rong-yi-bei-wei-zao-ma&quot;&gt;Q4:http-01 全是明文,很容易被伪造吗?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;不是漏洞,因为它验证的不是保密性而是控制权&lt;&#x2F;strong&gt;——&quot;谁能响应这个随机路径,谁就控制该域名的 80 服务&quot;,这本身就是 CA 要证明的东西。防伪靠三层:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;token 即时生成 + 128 位随机(2^128 可能)&lt;&#x2F;strong&gt;:挑战发起时才掷骰子,无法预置、无法枚举&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;token 分发走加密通道&lt;&#x2F;strong&gt;:CA → Caddy 通过 TLS 加密 + JWS 签名的 ACME API(LE 的 443 端口)传输,劫持 80 端口的人看不到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;多视角验证 + 短时效&lt;&#x2F;strong&gt;:从多个网络位置独立验证,单点路径被劫持时其他视角失败&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;伪造者要成功,必须实时劫持 VA → 源站的网络路径——那等于控制域名解析&#x2F;网络,&lt;strong&gt;本来就配拿到这张证书&lt;&#x2F;strong&gt;。对比 dns-01:它的 TXT 记录同样是公开明文,靠&quot;只有域名控制者能写记录&quot;防伪。三者都是&quot;证明控制权&quot;模型,没有一个依赖保密。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q5-token-tong-guo-443-fen-fa-caddy-zi-ji-huan-mei-you-zheng-shu-a&quot;&gt;Q5:token 通过 443 分发?Caddy 自己还没有证书啊?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;这个 443 是 Let&#x27;s Encrypt API 服务器的 443,不是源站的 443&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;TLS 只需要&lt;strong&gt;服务器端&lt;&#x2F;strong&gt;有证书:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Caddy(TLS 客户端,无需任何证书)
+   │  主动连接
+   ▼
+acme-v02.api.letsencrypt.org:443(TLS 服务器)
+   │  出示 LE 自己的服务器证书(公网权威 CA 签发)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Caddy 验证 LE 的服务器证书(像浏览器验证任何 https 网站),与&quot;为 cftest.demo.com 申请证书&quot;是&lt;strong&gt;两件独立的事&lt;&#x2F;strong&gt;。Caddy 的 443 只在 tls-alpn-01 验证时被 VA 连接,那时用的是临时证书,也不需要正式证书。整条链路不存在&quot;先有鸡还是先有蛋&quot;问题。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>OpenSSL 与 Nginx SSL</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/"/>
+        <id>https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/openssl-nginx-ssl/">&lt;h1 id=&quot;openssl-yu-nginx-ssl&quot;&gt;OpenSSL 与 Nginx SSL&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;openssl-zheng-shu-cao-zuo&quot;&gt;OpenSSL 证书操作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;kuai-su-sheng-cheng-zi-qian-ming-zheng-shu&quot;&gt;快速生成自签名证书&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openssl req -x509 -newkey rsa:2048 -nodes -keyout my.key -out my.crt -days 3650 \
+  -subj &amp;quot;&amp;#x2F;C=CN&amp;#x2F;ST=shanghai&amp;#x2F;L=shanghai&amp;#x2F;O=example&amp;#x2F;OU=it&amp;#x2F;CN=domain1&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;-subj&lt;&#x2F;code&gt; 字段含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;C=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;国家（Country）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;ST=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;省份（State）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;L=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;城市（Location）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;O=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;组织（Organization）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;OU=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;部门（Organization Unit）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;CN=&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;域名或 IP（Common Name）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;cha-kan-zheng-shu&quot;&gt;查看证书&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openssl x509 -text -noout -in domain.crt
+openssl verify -verbose -CAfile ca.crt domain.crt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yan-zheng-zheng-shu-yu-si-yao-shi-fou-pi-pei&quot;&gt;验证证书与私钥是否匹配&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openssl rsa  -noout -modulus -in domain.key | openssl md5
+openssl x509 -noout -modulus -in domain.crt | openssl md5
+openssl req  -noout -modulus -in domain.csr | openssl md5
+# 三个 MD5 值一致即匹配
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;si-yao-jia-jie-mi&quot;&gt;私钥加&#x2F;解密&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 加密（DES3 密码保护）
+openssl rsa -des3 -in unencrypted.key -out encrypted.key
+
+# 解密（取消密码保护）
+openssl rsa -in encrypted.key -out decrypted.key
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;pem-der-ge-shi-hu-zhuan&quot;&gt;PEM &#x2F; DER 格式互转&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# PEM → DER（二进制）
+openssl x509 -in domain.crt -outform der -out domain.der
+
+# DER → PEM
+openssl x509 -inform der -in domain.der -out domain.crt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ce-shi-ssl-fu-wu&quot;&gt;测试 SSL 服务&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 启动测试 SSL 服务端
+openssl s_server --cert my.crt --key my.key
+
+# 客户端连接测试
+openssl s_client localhost:4433 &amp;lt; &amp;#x2F;dev&amp;#x2F;null
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ca-zheng-shu-zhi-zuo-guo-cheng&quot;&gt;CA 证书制作过程&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir demoCA &amp;amp;&amp;amp; cd demoCA
+
+# 1. 生成 CA 自签名证书
+openssl genrsa -out .&amp;#x2F;private&amp;#x2F;ca.key 2048
+openssl req -new -x509 -days 3650 -key .&amp;#x2F;private&amp;#x2F;ca.key -out .&amp;#x2F;private&amp;#x2F;ca.crt -config openssl.cnf
+
+# 2. 生成服务端私钥和 CSR
+openssl genrsa -out .&amp;#x2F;private&amp;#x2F;server.key 2048
+openssl req -new -key .&amp;#x2F;private&amp;#x2F;server.key -out .&amp;#x2F;newcerts&amp;#x2F;server.csr -config openssl.cnf
+
+# 3. CA 签发服务端证书
+openssl ca -in .&amp;#x2F;newcerts&amp;#x2F;server.csr -cert .&amp;#x2F;private&amp;#x2F;ca.crt -keyfile .&amp;#x2F;private&amp;#x2F;ca.key \
+  -config openssl.cnf -policy policy_anything -out .&amp;#x2F;certs&amp;#x2F;server.crt
+
+# 4. 查看签发的证书
+openssl x509 -in .&amp;#x2F;certs&amp;#x2F;server.crt -noout -text
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;chang-jian-cuo-wu&quot;&gt;常见错误&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;unable to access .&#x2F;demoCA&#x2F;newcerts&lt;&#x2F;code&gt;：修改 &lt;code&gt;openssl.cnf&lt;&#x2F;code&gt; 中 &lt;code&gt;dir = .&#x2F;demoCA&lt;&#x2F;code&gt; 为 &lt;code&gt;dir = .&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;TXT_DB error number 2&lt;&#x2F;code&gt;：修改 &lt;code&gt;index.txt.attr&lt;&#x2F;code&gt; 中 &lt;code&gt;unique_subject = yes&lt;&#x2F;code&gt; 为 &lt;code&gt;no&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-ssl-pei-zhi&quot;&gt;Nginx SSL 配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;nginx&quot; class=&quot;language-nginx &quot;&gt;&lt;code class=&quot;language-nginx&quot; data-lang=&quot;nginx&quot;&gt;server {
+    listen 443 ssl;
+    server_name yourdomain.com;
+
+    ssl_certificate     &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;ssl&amp;#x2F;nginx.crt;
+    ssl_certificate_key &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;ssl&amp;#x2F;nginx.key;
+
+    location &amp;#x2F; {
+        root   &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;nginx&amp;#x2F;html;
+        index  index.html index.htm;
+        proxy_pass http:&amp;#x2F;&amp;#x2F;192.168.2.23:9090;  # 反向代理后端服务
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;docker-nginx-ssl&quot;&gt;Docker Nginx + SSL&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-an-yi-gou-jian-zi-ding-yi-jing-xiang&quot;&gt;方案一：构建自定义镜像&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;Dockerfile&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;dockerfile&quot; class=&quot;language-dockerfile &quot;&gt;&lt;code class=&quot;language-dockerfile&quot; data-lang=&quot;dockerfile&quot;&gt;FROM nginx
+COPY nginx.conf &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;conf.d&amp;#x2F;default.conf
+COPY ssl &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;ssl
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker build -t mynginx .
+docker run -d -p 443:443 mynginx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;fang-an-er-gua-zai-mu-lu&quot;&gt;方案二：挂载目录&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker run -d --name nginx nginx
+docker cp nginx:&amp;#x2F;etc&amp;#x2F;nginx &amp;#x2F;opt&amp;#x2F;nginx
+docker rm -f nginx
+
+# 放入证书
+mkdir &amp;#x2F;opt&amp;#x2F;nginx&amp;#x2F;ssl
+openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+  -keyout &amp;#x2F;opt&amp;#x2F;nginx&amp;#x2F;ssl&amp;#x2F;nginx.key -out &amp;#x2F;opt&amp;#x2F;nginx&amp;#x2F;ssl&amp;#x2F;nginx.crt
+
+# 启动
+docker run -d -p 80:80 -p 443:443 --name nginx \
+  -v &amp;#x2F;opt&amp;#x2F;nginx:&amp;#x2F;etc&amp;#x2F;nginx nginx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nginx-fang-wen-ren-zheng&quot;&gt;Nginx 访问认证&lt;&#x2F;h2&gt;
+&lt;p&gt;使用 htpasswd 创建用户名密码文件：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install apache2-utils    # 提供 htpasswd
+# 或
+yum -y install httpd-tools
+
+htpasswd -c &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;.passwd username    # 创建文件并添加用户
+htpasswd -b &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;.passwd username2 password  # 追加用户
+htpasswd -D &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;.passwd username    # 删除用户
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Nginx 配置：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;nginx&quot; class=&quot;language-nginx &quot;&gt;&lt;code class=&quot;language-nginx&quot; data-lang=&quot;nginx&quot;&gt;location &amp;#x2F; {
+    auth_basic &amp;quot;Please input password&amp;quot;;
+    auth_basic_user_file &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;.passwd;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;htpasswd-jia-mi-suan-fa-xuan-xiang&quot;&gt;htpasswd 加密算法选项&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;选项&lt;&#x2F;th&gt;&lt;th&gt;算法&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-m&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;MD5（默认）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-d&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;CRYPT&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-s&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;SHA&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-p&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;明文（不加密）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-B&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;bcrypt&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+</feed>

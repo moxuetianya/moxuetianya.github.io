@@ -1,0 +1,593 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - iptables</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/iptables/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-21T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/iptables/atom.xml</id>
+    <entry xml:lang="en">
+        <title>自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板</title>
+        <published>2026-08-14T18:14:52+08:00</published>
+        <updated>2026-08-21T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/"/>
+        <id>https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/">&lt;h1 id=&quot;xu-qiu&quot;&gt;需求&lt;&#x2F;h1&gt;
+&lt;p&gt;打通&lt;strong&gt;公司工作机&lt;&#x2F;strong&gt;(Ubuntu 24.04,位于公司 NAT 后)与&lt;strong&gt;家庭机器&lt;&#x2F;strong&gt;(Debian 13,位于家宽 NAT 后)的加密互联。已有&lt;strong&gt;一台阿里云北京 VPS&lt;&#x2F;strong&gt; 可作协商&#x2F;中继节点。用途:SSH 运维、访问公司内部 GitLab&#x2F;Jenkins&#x2F;Wiki、RDP 桌面。&lt;&#x2F;p&gt;
+&lt;p&gt;约束条件:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;VPS 为大陆节点,80&#x2F;443 端口提供服务需 &lt;strong&gt;ICP 备案&lt;&#x2F;strong&gt;,不能走常规端口;&lt;&#x2F;li&gt;
+&lt;li&gt;尽量&lt;strong&gt;不依赖家庭路由器配置&lt;&#x2F;strong&gt;(不强制端口转发);&lt;&#x2F;li&gt;
+&lt;li&gt;数据面优先点对点,&lt;strong&gt;流量不过第三方&lt;&#x2F;strong&gt;;&lt;&#x2F;li&gt;
+&lt;li&gt;维护简单、逻辑清晰。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;fang-an-xuan-xing&quot;&gt;方案选型&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;P2P 直连&lt;&#x2F;th&gt;&lt;th&gt;VPS 角色&lt;&#x2F;th&gt;&lt;th&gt;维护难度&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;headscale&lt;&#x2F;strong&gt;(自托管 Tailscale 控制面)&lt;&#x2F;td&gt;&lt;td&gt;✅ 自动打洞,失败走 DERP&lt;&#x2F;td&gt;&lt;td&gt;控制面 + 中继兜底&lt;&#x2F;td&gt;&lt;td&gt;低&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;选用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;纯 WireGuard 星型&lt;&#x2F;td&gt;&lt;td&gt;❌ 全走 VPS&lt;&#x2F;td&gt;&lt;td&gt;数据中继&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;td&gt;带宽被 VPS 卡死&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WG 手动直连 + VPS 兜底&lt;&#x2F;td&gt;&lt;td&gt;⚠️ 部分&lt;&#x2F;td&gt;&lt;td&gt;中继&lt;&#x2F;td&gt;&lt;td&gt;高&lt;&#x2F;td&gt;&lt;td&gt;NAT 变化要手动改&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;OpenVPN&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;中继&lt;&#x2F;td&gt;&lt;td&gt;高(PKI)&lt;&#x2F;td&gt;&lt;td&gt;无 P2P、性能差&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;tinc &#x2F; n2n &#x2F; zerotier&lt;&#x2F;td&gt;&lt;td&gt;⚠️ 部分&lt;&#x2F;td&gt;&lt;td&gt;协商&#x2F;中继&lt;&#x2F;td&gt;&lt;td&gt;中高&lt;&#x2F;td&gt;&lt;td&gt;维护弱&#x2F;控制面在海外&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;选 headscale 的理由&lt;&#x2F;strong&gt;:真 P2P(打洞成功流量不经 VPS,带宽无瓶颈)、DERP 中继兜底(打洞失败仍可用)、控制面一个 Go 二进制 + 官方客户端,维护最清晰。客户端用 Tailscale 官方客户端(Apache 2.0 开源),控制面完全自建,数据不出自己的节点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jia-gou-yu-yuan-li&quot;&gt;架构与原理&lt;&#x2F;h1&gt;
+&lt;pre&gt;&lt;code&gt;公司机 (Ubuntu 24.04)          VPS (阿里云北京)                 home 机 (Debian 13)
+┌─────────────────┐   ①元数据  ┌──────────────────────┐   ①元数据  ┌─────────────────┐
+│ tailscale       │◀──8443──▶  │ headscale 控制面(8443)│◀──8443──▶  │ tailscale       │
+│                 │            │ DERP 中继(同 8443)     │            │                 │
+│                 │            │ STUN (3478&amp;#x2F;udp)       │            │                 │
+└──────┬──────────┘            └──────────────────────┘            └────────┬────────┘
+       │  ② 直连 UDP(打洞成功,不经 VPS)                                    │
+       └────────────────────────────────────────────────────────────────────┘
+       │  ③ DERP 中继 TCP 8443(打洞失败兜底,仍端到端加密)                  │
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;三种流量路径:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;控制面&lt;&#x2F;strong&gt;(headscale):只交换元数据——公钥、双方公网 IP:端口、NAT 类型、节点列表。不承载业务流量。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;P2P 直连&lt;&#x2F;strong&gt;(打洞成功):两端 UDP 直连,WireGuard 加密,流量完全不经 VPS。&lt;code&gt;tailscale status&lt;&#x2F;code&gt; 显示 &lt;code&gt;direct&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DERP 中继&lt;&#x2F;strong&gt;(打洞失败):走 VPS 上的中继,但只转发端到端加密密文,&lt;strong&gt;中继无法解密内容&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;nat-da-dong-wei-shen-me-you-shi-shi-bai&quot;&gt;NAT 打洞为什么有时失败&lt;&#x2F;h2&gt;
+&lt;p&gt;打洞依赖双方 NAT 的&quot;入站宽容度&quot;,&lt;strong&gt;成功率取决于最严格的那一端,不是最宽松的&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;NAT 类型&lt;&#x2F;th&gt;&lt;th&gt;入站行为&lt;&#x2F;th&gt;&lt;th&gt;打洞结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Full cone&lt;&#x2F;td&gt;&lt;td&gt;任何人发到映射端口都能进&lt;&#x2F;td&gt;&lt;td&gt;几乎必成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Restricted&#x2F;Port-restricted cone(家用路由器)&lt;&#x2F;td&gt;&lt;td&gt;只收&quot;映射记录的源&quot;&lt;&#x2F;td&gt;&lt;td&gt;双端同时发包可成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;Symmetric&lt;&#x2F;strong&gt;(企业防火墙&#x2F;CGNAT)&lt;&#x2F;td&gt;&lt;td&gt;只收&quot;源地址精确匹配&quot;,且每次出站换端口&lt;&#x2F;td&gt;&lt;td&gt;大概率失败 → 走 DERP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;典型死局:home 是 cone(能收到公司的包),公司是 symmetric(收不到 home 的回包,因为每次出站端口都变)→ 单向通,打洞失败,自动降级 DERP。本部署实测:公司 NAT 友好,打洞成功,ping 21ms 直连。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;derp-yu-stun-de-gui-shu&quot;&gt;DERP 与 STUN 的归属&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;STUN(UDP 3478)由 DERP 服务器内置提供&lt;&#x2F;strong&gt;(headscale 内置 DERP 自带),客户端靠它探测自己的公网 IP:端口;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DERP 中继复用 headscale 的 HTTPS 端口 8443&lt;&#x2F;strong&gt;(内置 DERP 与主服务共用 TLS 监听),无独立端口;&lt;&#x2F;li&gt;
+&lt;li&gt;headscale 内置 DERP &lt;strong&gt;默认 &lt;code&gt;verify_clients: true&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——只允许本 tailnet 节点中继,外部客户端直接拒绝(防滥用,零配置)。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;bu-shu-zhun-bei&quot;&gt;部署准备&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;duan-kou-yu-an-quan-zu-bei-an-yue-shu&quot;&gt;端口与安全组(备案约束)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 为大陆节点,80&#x2F;443 需备案,故全部走自定义端口:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;端口&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;TCP 8443&lt;&#x2F;td&gt;&lt;td&gt;headscale 控制面 + 内置 DERP 中继(共用)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;UDP 3478&lt;&#x2F;td&gt;&lt;td&gt;STUN 打洞辅助&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TCP 22&lt;&#x2F;td&gt;&lt;td&gt;SSH(保留)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;阿里云安全组放行 &lt;code&gt;8443&#x2F;tcp 3478&#x2F;udp&lt;&#x2F;code&gt;。部署前实测:VPS 安全组原只放行 22,其余端口全被拦——这是最容易忽略的坑。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yu-ming-yu-zheng-shu-cloudflare-dns-acme-sh&quot;&gt;域名与证书(Cloudflare DNS + acme.sh)&lt;&#x2F;h2&gt;
+&lt;p&gt;域名托管在 Cloudflare,用 acme.sh 的 &lt;strong&gt;&lt;code&gt;dns_cf&lt;&#x2F;code&gt; 插件做 DNS-01 验证&lt;&#x2F;strong&gt;(不依赖 80 端口,正好绕开备案):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Cloudflare 控制台 → My Profile → API Tokens → Create Token
+# 模板 &amp;quot;Edit zone DNS&amp;quot; → Zone 限定你的域名 → 得到 CF_Token &amp;#x2F; CF_Account_ID
+
+curl https:&amp;#x2F;&amp;#x2F;gitee.com&amp;#x2F;neilpang&amp;#x2F;acme.sh&amp;#x2F;raw&amp;#x2F;master&amp;#x2F;install.sh | sh   # GitHub 可能不通,用 gitee
+export CF_Token=&amp;quot;xxx&amp;quot; CF_Account_ID=&amp;quot;xxx&amp;quot;
+~&amp;#x2F;.acme.sh&amp;#x2F;acme.sh --issue --dns dns_cf -d headscale.demo.com
+
+~&amp;#x2F;.acme.sh&amp;#x2F;acme.sh --install-cert -d headscale.demo.com \
+  --key-file ~&amp;#x2F;p2p&amp;#x2F;certs&amp;#x2F;key.pem --fullchain-file ~&amp;#x2F;p2p&amp;#x2F;certs&amp;#x2F;cert.pem \
+  --reloadcmd &amp;quot;docker restart headscale&amp;quot;    # 续期后自动重载容器
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;自动续期由 acme.sh 安装时写入的 cron 负责(每天检查),&lt;code&gt;--reloadcmd&lt;&#x2F;code&gt; 让续期后自动加载新证书,全链路无人值守。&lt;&#x2F;p&gt;
+&lt;p&gt;⚠️ 记录必须 &lt;strong&gt;DNS-only(灰云)&lt;&#x2F;strong&gt;:不要开 Cloudflare 橙色代理,否则 8443 等非标准端口无法穿透。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jing-xiang-zhun-bei-guo-nei-vps-la-bu-dong-docker-hub&quot;&gt;镜像准备(国内 VPS 拉不动 Docker Hub)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 实测连 Docker Hub 超时(DNS 被污染),但 &lt;strong&gt;ghcr.io 可直拉&lt;&#x2F;strong&gt;(headplane 镜像就是 VPS 直拉的)。headscale 镜像走本地中转:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地(公司机,有代理):
+podman pull docker.io&amp;#x2F;headscale&amp;#x2F;headscale:0.29.3
+podman save docker.io&amp;#x2F;headscale&amp;#x2F;headscale:0.29.3 -o headscale.tar
+scp headscale.tar vps:&amp;#x2F;tmp&amp;#x2F;
+# VPS:
+docker load -i &amp;#x2F;tmp&amp;#x2F;headscale.tar
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;vps-bu-shu-headscale-headplane&quot;&gt;VPS 部署(headscale + headplane)&lt;&#x2F;h1&gt;
+&lt;p&gt;部署目录 &lt;code&gt;~&#x2F;p2p&#x2F;&lt;&#x2F;code&gt;(用户有 docker 组权限,全程无需 root)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;docker-compose-yml&quot;&gt;docker-compose.yml&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;services:
+  headscale:
+    image: headscale&amp;#x2F;headscale:0.29.3
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - .&amp;#x2F;config:&amp;#x2F;etc&amp;#x2F;headscale
+      - .&amp;#x2F;data:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale
+      - .&amp;#x2F;certs:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs:ro
+    ports:
+      - &amp;quot;8443:8443&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;3478:3478&amp;#x2F;udp&amp;quot;
+
+  headplane:
+    image: ghcr.io&amp;#x2F;tale&amp;#x2F;headplane:latest
+    container_name: headplane
+    restart: unless-stopped
+    depends_on: [headscale]
+    volumes:
+      - .&amp;#x2F;headplane.yaml:&amp;#x2F;etc&amp;#x2F;headplane&amp;#x2F;config.yaml:ro
+      - .&amp;#x2F;data&amp;#x2F;headplane:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headplane
+      - .&amp;#x2F;config:&amp;#x2F;etc&amp;#x2F;headscale:ro
+    ports:
+      - &amp;quot;127.0.0.1:3000:3000&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;100.64.0.100:3000:3000&amp;#x2F;tcp&amp;quot;   # 更新(2026-08-15):VPS 管理节点加入后双绑定,tailnet 内访问
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;100.64.0.100&lt;&#x2F;code&gt; 是 VPS 节点的&lt;strong&gt;固定&lt;&#x2F;strong&gt; tailnet IP(headscale 无 CLI 指定 IP,直接改 sqlite &lt;code&gt;nodes.ipv4&lt;&#x2F;code&gt; 实现,详见下节)。若节点重新注册导致 IP 变化,需同步改此绑定与 headplane.yaml 的 &lt;code&gt;base_url&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;config-yaml-guan-jian-xiang&quot;&gt;config.yaml 关键项&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;server_url: https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443
+listen_addr: 0.0.0.0:8443
+metrics_listen_addr: 0.0.0.0:9090
+prefixes:
+  v4: 100.64.0.0&amp;#x2F;10                # tailnet 虚拟网段,与家&amp;#x2F;公司网段无冲突
+derp:
+  urls: []                          # ★ 清空官方 DERP 地图,否则客户端会绕海外
+  server:
+    enabled: true
+    region_code: &amp;quot;ali&amp;quot;
+    region_name: &amp;quot;Aliyun Beijing&amp;quot;
+    ipv4: &amp;lt;VPS公网IP&amp;gt;
+    stun_listen_addr: &amp;quot;0.0.0.0:3478&amp;quot;
+    # verify_clients 默认 true:仅本 tailnet 节点可中继
+database:
+  type: sqlite
+tls_cert_path: &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs&amp;#x2F;cert.pem
+tls_key_path: &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs&amp;#x2F;key.pem
+dns:
+  magic_dns: false
+  override_local_dns: false          # 关掉 MagicDNS,避免干扰公司 DNS
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;两个必踩的坑&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;derp.urls&lt;&#x2F;code&gt; 若留默认(指向 controlplane.tailscale.com),客户端会优先尝试官方海外 DERP——必须清空,只留内置;&lt;&#x2F;li&gt;
+&lt;li&gt;headscale 0.29 要求 &lt;code&gt;dns.override_local_dns: true&lt;&#x2F;code&gt; 时必须有 &lt;code&gt;dns.nameservers.global&lt;&#x2F;code&gt;——不用 MagicDNS 就直接两个都关。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;启动验证:&lt;code&gt;curl -k https:&#x2F;&#x2F;headscale.demo.com:8443&#x2F;health&lt;&#x2F;code&gt; 返回 &lt;code&gt;{&quot;status&quot;:&quot;pass&quot;}&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ke-hu-duan-jie-ru-gong-si-ji-home-ji-vps-guan-li-jie-dian&quot;&gt;客户端接入(公司机 + home 机 + VPS 管理节点)&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-15)&lt;&#x2F;strong&gt;:新增 VPS 作为 tailnet 第 3 节点(管理入口),headplane 面板经 tailnet 访问。本节点也按下面流程加入,只是 headplane 部署在本机上。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-15)&lt;&#x2F;strong&gt;:新增 home 局域网 Proxmox 宿主(&lt;code&gt;peter.xiao.com&lt;&#x2F;code&gt;,192.168.2.100,Debian 13)为 tailnet 第 4 节点,headplane 面板中重命名为 &lt;code&gt;peter-xiao100&lt;&#x2F;code&gt;(100.64.0.3)。同时把全部节点在 headplane 面板统一重命名:&lt;code&gt;xiao&lt;&#x2F;code&gt; → &lt;code&gt;xiao200&lt;&#x2F;code&gt;、VPS &lt;code&gt;iz2zehkipqcroqwfrvhwj7z&lt;&#x2F;code&gt; → &lt;code&gt;ali&lt;&#x2F;code&gt;。节点重命名完全可以在 headplane 面板(Machines)操作,无需 CLI。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-16)&lt;&#x2F;strong&gt;:新增 tailnet 第 5、6 节点并上线公司侧双路由器 HA——公司局域网 &lt;code&gt;xiao99&lt;&#x2F;code&gt;(192.168.7.99,100.64.0.5)通告 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt;,与 &lt;code&gt;peter-optiplex-7090&lt;&#x2F;code&gt; 双通告双审批(客户端按连接分配、故障自动切换);home 局域网 &lt;code&gt;peter-megabook-14&lt;&#x2F;code&gt;(192.168.2.147,100.64.0.6)作为普通节点加入。同日踩坑:&lt;strong&gt;子网路由器 accept 自吸&lt;&#x2F;strong&gt;(xiao99 开 &lt;code&gt;--accept-routes&lt;&#x2F;code&gt; 后 LAN 内主机 ping 不通它、tailnet 直连却正常,回包被 table 52 吸进 tailscale0),详见「子网路由原理」一节。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;an-zhuang-guan-fang-apt-yuan-guo-nei-zhi-lian-ke-yong&quot;&gt;安装(官方 apt 源,国内直连可用)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Ubuntu 用 ubuntu&amp;#x2F;noble,Debian 用 debian&amp;#x2F;trixie
+sudo mkdir -p --mode=0755 &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;&amp;lt;发行版&amp;gt;.noarmor.gpg | sudo tee &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings&amp;#x2F;tailscale-archive-keyring.gpg &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;&amp;lt;发行版&amp;gt;.tailscale-keyring.list | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;tailscale.list &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo apt-get update &amp;amp;&amp;amp; sudo apt-get install -y tailscale
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;deng-lu-preauthkey-mian-liu-lan-qi&quot;&gt;登录(preauthkey 免浏览器)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# VPS 创建用户 + key(headscale 0.29 的 --user 参数是数字 ID!)
+docker-compose exec headscale headscale users create peter
+docker-compose exec headscale headscale users list            # 拿 ID
+docker-compose exec headscale headscale preauthkeys create --user &amp;lt;ID&amp;gt; --expiration 24h
+
+# 客户端:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --authkey=&amp;lt;key&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tailscale status
+# 100.64.0.1  company  peter  linux  -
+# 100.64.0.2  home     peter  linux  active; direct &amp;lt;home公网IP&amp;gt;:&amp;lt;端口&amp;gt;, tx 5716 rx 4540
+
+sudo tailscale ping --c 3 100.64.0.2
+# pong from home via &amp;lt;home公网IP&amp;gt;:61761 in 21ms   ← direct,不经 VPS
+
+sudo tailscale netcheck   # 确认 Nearest DERP 是自建节点,无海外
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实测结果:打洞成功(21ms 直连),DERP 地图只有自建节点。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;vps-guan-li-jie-dian-di-3-jie-dian-2026-08-15-jia-ru&quot;&gt;VPS 管理节点(第 3 节点,2026-08-15 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 也加入 tailnet,作为 headplane 面板所在的管理节点——headscale 控制面容器与 tailscaled 客户端共存无冲突(8443&#x2F;3478 与客户端数据面 UDP 41641 不撞端口):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装(Ubuntu noble 官方源,需 sudo)
+sudo mkdir -p --mode=0755 &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;ubuntu&amp;#x2F;noble.noarmor.gpg | sudo tee &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings&amp;#x2F;tailscale-archive-keyring.gpg &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;ubuntu&amp;#x2F;noble.tailscale-keyring.list | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;tailscale.list &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo apt-get update &amp;amp;&amp;amp; sudo apt-get install -y tailscale
+
+# 登录(--operator=peter 让普通用户免 sudo 执行 tailscale 命令)
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --authkey=&amp;lt;key&amp;gt; --operator=peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;tailnet IP &lt;strong&gt;固定为 &lt;code&gt;100.64.0.100&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;(刻意选的易记地址)。headscale 0.29 没有 CLI 指定 IP,固定方式是直接改 sqlite 的 &lt;code&gt;nodes.ipv4&lt;&#x2F;code&gt;(&lt;code&gt;headscale nodes list -o json&lt;&#x2F;code&gt; 确认节点 ID → &lt;code&gt;docker stop headscale&lt;&#x2F;code&gt; → 备份 → 改库 → &lt;code&gt;docker start&lt;&#x2F;code&gt;);若节点重新注册 IP 会变,需同步改 compose 绑定、headplane.yaml 的 &lt;code&gt;base_url&lt;&#x2F;code&gt; 和 @reboot cron 的 grep 模式。headplane 绑定该 IP 供其他节点访问(见下节)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;部署时遇到的 DNS 坑&lt;&#x2F;strong&gt;:VPS 的阿里云 VPC DNS(100.100.2.136&#x2F;138)曾整体不可达,导致 tailscaled 登录控制面失败(DoH 兜底又被大陆屏蔽)。已通过 &lt;code&gt;&#x2F;etc&#x2F;hosts&lt;&#x2F;code&gt; 硬编码 &lt;code&gt;headscale.demo.com&lt;&#x2F;code&gt; + systemd-resolved 改用公共 DNS(223.5.5.5&#x2F;119.29.29.29)修复。&lt;strong&gt;更正(2026-08-21)&lt;&#x2F;strong&gt;:当时判断为&quot;DNS 污染&#x2F;不可达&quot;不完整——真因是 ts-input 防欺骗规则丢 100.x 回包(CGNAT 网段冲突,与下文备份失败同根因),绕过有效但掩盖了根因。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;开机顺序坑&lt;&#x2F;strong&gt;:重启后 docker 先于 tailscaled 启动,headplane 绑定的 &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt; 会绑定失败导致容器起不来。兜底:peter 的 @reboot cron 等待 &lt;code&gt;ts0&lt;&#x2F;code&gt; 出现 tailnet IP 后 &lt;code&gt;docker restart headplane&lt;&#x2F;code&gt;;未生效时手动重启容器即可。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;home-proxmox-su-zhu-di-4-jie-dian-2026-08-15-jia-ru&quot;&gt;home Proxmox 宿主(第 4 节点,2026-08-15 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;tailnet 第 4 节点为 home 局域网内的 Proxmox 宿主(&lt;code&gt;peter.xiao.com&lt;&#x2F;code&gt;,192.168.2.100,Debian 13),与 home 机 xiao200(192.168.2.200)同网段。加入方式与 VPS 节点完全相同:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装(debian&amp;#x2F;trixie 官方源)后登录,同样 --operator=peter 免 sudo
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.juzhong.xyz:8443 --authkey=&amp;lt;key&amp;gt; --operator=peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键点:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;节点重命名走面板&lt;&#x2F;strong&gt;:headscale 0.29 的 CLI 是 &lt;code&gt;headscale nodes rename -i &amp;lt;id&amp;gt; &amp;lt;新名&amp;gt;&lt;&#x2F;code&gt;(需在 VPS 上 exec),但完全可以在 headplane 面板 Machines 里直接改——本次 4 个节点全部在面板统一重命名(&lt;code&gt;peter-optiplex-7090&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;xiao200&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;ali&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;peter-xiao100&lt;&#x2F;code&gt;)。CLI 与面板等效,均即时下发,无需重启服务端或客户端(客户端下次同步 netmap 即生效)。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;实测延迟&lt;&#x2F;strong&gt;:同网段 xiao200 直连 ~5ms(局域网内部,不出网);VPS 直连 ~4ms;公司机打洞直连 ~25-36ms(首包经 DERP(ali) 后切 direct)。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;策略路由表&lt;&#x2F;strong&gt;:tailnet 路由在 Linux 上不占用主路由表,&lt;code&gt;ip route&lt;&#x2F;code&gt; 看不到 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt; 属正常——路由在独立 &lt;code&gt;table 52&lt;&#x2F;code&gt;,由 &lt;code&gt;ip rule&lt;&#x2F;code&gt; 的 &lt;code&gt;5270: from all lookup 52&lt;&#x2F;code&gt; 策略路由承接(优先级低于 fwmark 自保护规则、高于主表),&lt;code&gt;ip route show table 52&lt;&#x2F;code&gt; 才能看到。tailscaled 自身流量(连控制面&#x2F;STUN)打 fwmark &lt;code&gt;0x80000&lt;&#x2F;code&gt;,先查 main&#x2F;default 表,避免走 tailnet 递归。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;preauth key 与节点有效期无关&lt;&#x2F;strong&gt;:&lt;code&gt;--expiration 24h&lt;&#x2F;code&gt; 只限制 key 的注册窗口,节点注册成功后永久有效(nodes list 的 Expiration 为 N&#x2F;A),除非手动 expire&#x2F;delete。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;gong-si-ce-zi-wang-lu-you-qi-xiao99-di-5-jie-dian-2026-08-16-jia-ru-shuang-lu-you-qi-ha&quot;&gt;公司侧子网路由器 xiao99(第 5 节点,2026-08-16 加入,双路由器 HA)&lt;&#x2F;h2&gt;
+&lt;p&gt;公司局域网内 Debian 13 主机(192.168.7.99,100.64.0.5)。此前已入网,本次补通告 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt;,与 peter-optiplex-7090 组成&lt;strong&gt;双路由器 HA&lt;&#x2F;strong&gt;(同一网段双通告双审批,headscale 0.29 &lt;code&gt;node.routes.ha&lt;&#x2F;code&gt; 默认开启,客户端按连接哈希分发、一台挂掉自动切换):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 补通告(已是节点、--operator=peter,免 sudo;tailscale up 需列出全部非默认 flag,含 --login-server)
+tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.juzhong.xyz:8443 --advertise-routes=192.168.4.0&amp;#x2F;22
+
+# ② VPS 审批(ip_forward Debian 13 默认已是 1)
+docker-compose exec headscale headscale nodes approve-routes -i 6 -r 192.168.4.0&amp;#x2F;22
+docker-compose exec headscale headscale nodes list-routes   # 两个节点同一网段均为 Approved+Available
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;查看路由偏好:&lt;code&gt;tailscale status&lt;&#x2F;code&gt; &lt;strong&gt;不显示&lt;&#x2F;strong&gt; advertise&#x2F;accept,要用 &lt;code&gt;tailscale debug prefs&lt;&#x2F;code&gt;(AdvertiseRoutes&#x2F;AcceptRoutes 字段)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;home-ji-peter-megabook-14-di-6-jie-dian-2026-08-16-jia-ru&quot;&gt;home 机 peter-megabook-14(第 6 节点,2026-08-16 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;home 局域网内 Ubuntu 26.04 笔记本(192.168.2.147,100.64.0.6),普通节点,无子网路由角色。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;注册踩坑&lt;&#x2F;strong&gt;:首次接入时没带 &lt;code&gt;--login-server&lt;&#x2F;code&gt;,误注册到了&lt;strong&gt;官方控制面&lt;&#x2F;strong&gt;(login.tailscale.com,登录链接形如 &lt;code&gt;https:&#x2F;&#x2F;login.tailscale.com&#x2F;a&#x2F;xxx&lt;&#x2F;code&gt;)——与自建 headscale 是两个完全不同的控制面,节点列表互不可见。修复:先杀掉等待官方认证的 &lt;code&gt;tailscale up&lt;&#x2F;code&gt; 进程,再用 preauthkey 指向自建控制面重新注册即可,&lt;code&gt;tailscale status&lt;&#x2F;code&gt; 立刻显示 tailnet 全部节点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;an-quan-she-ji-zi-wang-fang-wen-mo-ren-guan-bi-xian-shi-kai-guan&quot;&gt;安全设计:子网访问默认关闭,显式开关&lt;&#x2F;h1&gt;
+&lt;p&gt;默认仅 tailnet 节点互通(虚拟网段内),&lt;strong&gt;任何一侧局域网互访默认关闭&lt;&#x2F;strong&gt;,按需开启:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 开启「公司侧局域网可被 home 访问」三步:
+# ① 公司机宣告路由:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --advertise-routes=192.168.4.0&amp;#x2F;22
+# ② home 机接受路由:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --accept-routes
+# ③ VPS 审批(0.29.3 语法):
+docker-compose exec headscale headscale nodes list-routes
+docker-compose exec headscale headscale nodes approve-routes -i &amp;lt;node_id&amp;gt; -r 192.168.4.0&amp;#x2F;22
+
+# 关闭(任一侧,恢复仅节点互通):
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;home 侧对称操作(宣告 192.168.2.0&#x2F;24)。&lt;code&gt;tailscale up&lt;&#x2F;code&gt; 重复执行只更新偏好,不会掉线。公司网段需注意与 home 网段、tailnet CGNAT 段(100.64.0.0&#x2F;10)无冲突。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zi-wang-lu-you-yuan-li-xuan-gao-jie-shou-ip-forward-snat-yu-hui-cheng-2026-08-15-shi-ce-zheng-li&quot;&gt;子网路由原理:宣告&#x2F;接受、ip_forward、SNAT 与回程(2026-08-15 实测整理)&lt;&#x2F;h2&gt;
+&lt;p&gt;子网访问能通依赖三件套,缺一不可:&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;① 宣告 vs 接受(方向配对)&lt;&#x2F;strong&gt;:&lt;code&gt;--advertise-routes&lt;&#x2F;code&gt; = 宣告方(我所在的局域网可被 tailnet 访问,需 headscale &lt;code&gt;nodes approve-routes&lt;&#x2F;code&gt; 审批才生效);&lt;code&gt;--accept-routes&lt;&#x2F;code&gt; = 接受方(把对端宣告的子网注入本机路由表)。&lt;strong&gt;⚠️ 子网路由器不要 accept&lt;&#x2F;strong&gt;(见下方「accept 自吸」),本方案 &lt;code&gt;scripts&#x2F;*-routes-on.sh&lt;&#x2F;code&gt; 已改为只通告,需要接受对端网段时单独跑 &lt;code&gt;*-accept.sh&lt;&#x2F;code&gt;——同一台机器不要同时跑两个脚本。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;② IP 转发(最容易漏)&lt;&#x2F;strong&gt;:子网路由器必须 &lt;code&gt;net.ipv4.ip_forward = 1&lt;&#x2F;code&gt;,&lt;strong&gt;tailscale 不会自动设置&lt;&#x2F;strong&gt;(Linux 上;macOS 才自动)。Ubuntu 工作站默认是 0——实测本方案中 home 侧 Proxmox 宿主天然为 1(PVE 桥接需要),但公司机极可能为 0,子网流量会静默不通。已在 &lt;code&gt;scripts&#x2F;*-routes-on.sh&lt;&#x2F;code&gt; 里加入启动时自动检查并开启(&lt;code&gt;sysctl -w&lt;&#x2F;code&gt; 仅本次生效,持久化需写 &lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-tailscale.conf&lt;&#x2F;code&gt;)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;③ SNAT(默认开启,零配置)&lt;&#x2F;strong&gt;:&lt;code&gt;--snat-subnet-routes&lt;&#x2F;code&gt; 默认 true,tailscale 自动对子网转发流量做 masquerade。效果:子网内主机看到的源 IP 是&lt;strong&gt;子网路由器的局域网 IP&lt;&#x2F;strong&gt;(不是 tailnet 的 100.64.0.x),回包只需发给默认网关(即子网路由器),conntrack 对称恢复后送回隧道——&lt;strong&gt;子网内主机完全不需要知道 tailnet 路由,回程天然通畅&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;home(100.64.0.2) → tailscale0 → 子网路由器解密 → 内核转发 eth0
+    ↑                                 │ 并发包 SNAT:源 100.64.0.2 → 路由器 LAN IP
+    └── conntrack 恢复源地址 ← 子网内主机回包给默认网关(路由器)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;何时需要手动回程路由&lt;&#x2F;strong&gt;:只有关闭 SNAT(&lt;code&gt;--snat-subnet-routes=false&lt;&#x2F;code&gt;,需保留真实源 IP 做日志审计时)才有此需求——此时子网内主机收到源为 &lt;code&gt;100.64.0.x&lt;&#x2F;code&gt; 的包,必须给它加 &lt;code&gt;100.64.0.0&#x2F;10 → 子网路由器 LAN IP&lt;&#x2F;code&gt; 的静态路由(DHCP&#x2F;VPC 下发),否则回程丢包。默认 SNAT 开启时无此坑。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;排障顺序&lt;&#x2F;strong&gt;:① 两端 accept&#x2F;advertise 是否配对(&lt;code&gt;tailscale debug prefs&lt;&#x2F;code&gt; 查 AdvertiseRoutes&#x2F;AcceptRoutes);② headscale &lt;code&gt;nodes list-routes&lt;&#x2F;code&gt; 的 Approved 列是否包含该网段;③ 子网路由器 &lt;code&gt;sysctl net.ipv4.ip_forward&lt;&#x2F;code&gt; 是否为 1;④ 目标机防火墙;⑤ 子网路由器是否误开 accept(见下条)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;accept-routes 自吸(2026-08-16 实测 xiao99,全网段断连 20 分钟的元凶)&lt;&#x2F;strong&gt;:机器&lt;strong&gt;自己就在通告的网段内&lt;&#x2F;strong&gt;时开 &lt;code&gt;--accept-routes&lt;&#x2F;code&gt;,tailscale 会把本网段路由也装进 table 52(策略路由 &lt;code&gt;5270 lookup 52&lt;&#x2F;code&gt; 优先于 &lt;code&gt;32766 lookup main&lt;&#x2F;code&gt;),于是——&lt;strong&gt;本机发往局域网的包(含对 LAN 主机的回包)全部被吸进 tailscale0&lt;&#x2F;strong&gt;,tailscaled 视其为不可达丢弃。症状极具迷惑性:&lt;strong&gt;局域网内主机 ping 这台机器 100% 丢包,但 tailnet 直连(&lt;code&gt;tailscale ping 100.64.0.x&lt;&#x2F;code&gt;)完全正常&lt;&#x2F;strong&gt;——先怀疑隧道&#x2F;打洞坏了,实际是回包自吸。抓包特征:回包从 &lt;code&gt;tailscale0 Out&lt;&#x2F;code&gt; 出去(&lt;code&gt;ICMP ... udp port xxx unreachable&lt;&#x2F;code&gt;),br0 上只有入包没有回包。修复:&lt;code&gt;tailscale set --accept-routes=false&lt;&#x2F;code&gt; 秒恢复。tailscale 官方文档对 HA 双路由器场景同样警告:&quot;standby 会接受 primary 宣告的同一路由,导致本可直接连接的子网绕道 primary&quot;——&lt;strong&gt;双通告的路由器应该只用 &lt;code&gt;--advertise-routes&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;双路由器 HA(2026-08-16 实测)&lt;&#x2F;strong&gt;:同一网段 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt; 由 peter-optiplex-7090 与 xiao99 双通告并逐个审批后,headscale &lt;code&gt;node.routes.ha&lt;&#x2F;code&gt;(默认开启)使客户端同时拿到两条候选路由,按连接(五元组哈希)分发、单台掉线自动切换;&lt;code&gt;headscale nodes list-routes&lt;&#x2F;code&gt; 两个节点均显示 Approved+Available。局限:无法配置优先级(主备),负载近似均分;两台都别开 accept。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;与 OpenVPN 路由共存(2026-08-16 实测 peter-xiao100)&lt;&#x2F;strong&gt;:home 本机已有 OpenVPN 路由 &lt;code&gt;192.168.4.0&#x2F;22 via 10.8.0.5 dev tun0&lt;&#x2F;code&gt;(main 表),与 tailnet 宣告的公司网段&lt;strong&gt;完全重叠&lt;&#x2F;strong&gt;。实测结论:&lt;strong&gt;不冲突,但 tailscale 会接管&lt;&#x2F;strong&gt;——tailnet 子网路由进独立 table 52,策略路由优先级 &lt;code&gt;5270 lookup 52&lt;&#x2F;code&gt; &amp;lt; &lt;code&gt;32766 lookup main&lt;&#x2F;code&gt;,accept 后访问 192.168.4.x 全部走 tailscale 隧道(公司机作子网路由器 + SNAT),OpenVPN 那条路由休眠但保留。两条隧道本质是&quot;到同一网段的两个入口&quot;,谁的路由表优先级高谁生效。想继续走 OpenVPN(如 443 穿透公司严格 NAT)就&lt;strong&gt;不要&lt;&#x2F;strong&gt;执行 accept;接管情况用 &lt;code&gt;ip route show table 52&lt;&#x2F;code&gt; 确认。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;guan-li-mian-ban-headplane-fang-wen&quot;&gt;管理面板(headplane)访问&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更正(2026-08-15)&lt;&#x2F;strong&gt;:本文初稿的&quot;headplane 公网访问&quot;方案(CF Tunnel &#x2F; Zero Trust)当时并未实际启用——&lt;code&gt;panel.juzhong.xyz&lt;&#x2F;code&gt; 未建 DNS 记录、cloudflared 也未配对应 ingress。实际落地改为&lt;strong&gt;经 tailnet 内访问&lt;&#x2F;strong&gt;(headplane 不监听公网,只绑 &lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; 与 tailnet IP &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt;)。原方案对比保留,作为未来公网访问的备选资料。为何不用 &lt;code&gt;tailscale serve&lt;&#x2F;code&gt; 暴露见文末&quot;踩坑记录&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;headplane 绑定:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;# docker-compose.yml
+    ports:
+      - &amp;quot;127.0.0.1:3000:3000&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;100.64.0.100:3000:3000&amp;#x2F;tcp&amp;quot;
+
+# headplane.yaml
+  base_url: &amp;quot;http:&amp;#x2F;&amp;#x2F;100.64.0.100:3000&amp;quot;   # tailnet IP,须与绑定一致
+  cookie_secure: false                  # tailnet 内走 HTTP;WireGuard 已加密,无需 secure cookie
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;访问:任意 tailnet 节点浏览器开 &lt;code&gt;http:&#x2F;&#x2F;100.64.0.100:3000&#x2F;admin&lt;&#x2F;code&gt;,用 headscale API key 登录。安全模型:公网安全组不放行 3000 + 容器不监听 0.0.0.0 + WireGuard 端到端加密 + API key 认证,四层无公网暴露面。&lt;&#x2F;p&gt;
+&lt;p&gt;运维速查(常用命令):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p
+docker-compose exec headscale headscale users list                # 用户及 ID
+docker-compose exec headscale headscale users create &amp;lt;名称&amp;gt;        # 新增用户
+docker-compose exec headscale headscale nodes list                # 节点与状态
+docker-compose exec headscale headscale nodes expire -i &amp;lt;id&amp;gt;      # 踢下线
+docker-compose exec headscale headscale preauthkeys create --user &amp;lt;id&amp;gt; --expiration 24h   # 新设备入网 key
+docker-compose exec headscale headscale apikeys create            # headplane 登录 key(只显示一次)
+docker-compose exec headscale headscale nodes list-routes                # 子网路由审批(0.29.3 语法;旧 routes list&amp;#x2F;enable 已移除)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;固定节点 IP(headscale 无 CLI,直接改库;先备份,改完重启 headscale 和客户端):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker exec headscale headscale nodes list -o json | grep -i given_name   # 确认节点 ID
+docker stop headscale
+cp &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p&amp;#x2F;data&amp;#x2F;db.sqlite* &amp;#x2F;tmp&amp;#x2F;
+python3 -c &amp;quot;import sqlite3; d=sqlite3.connect(&amp;#x27;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p&amp;#x2F;data&amp;#x2F;db.sqlite&amp;#x27;); d.execute(\&amp;quot;UPDATE nodes SET ipv4=&amp;#x27;100.64.0.100&amp;#x27; WHERE id=3\&amp;quot;); d.commit()&amp;quot;
+docker start headscale
+tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --operator=peter   # 重新拉取地图
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gong-wang-fang-wen-bei-xuan-fang-an-yi-chun-cloudflare-tunnel-wei-qi-yong-bei-xuan&quot;&gt;公网访问备选方案一:纯 Cloudflare Tunnel(未启用,备选)&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;关键认知:Tunnel(通道)不需要 Zero Trust 组织、不需要信用卡;Access(认证门)才需要&lt;&#x2F;strong&gt;。纯 CLI 路线全程只碰 CF 基础 DNS + 隧道:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cloudflared tunnel login                      # 浏览器授权
+cloudflared tunnel create caddy-tunnel        # 建隧道
+cloudflared tunnel route dns caddy-tunnel panel.demo.com   # 加 CNAME
+# &amp;#x2F;etc&amp;#x2F;cloudflared&amp;#x2F;config.yml 在 404 兜底前插入:
+#   - hostname: panel.demo.com
+#     service: http:&amp;#x2F;&amp;#x2F;localhost:3000
+sudo systemctl restart cloudflared
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;headplane 侧同步改配置并重启(启用公网方案时,与 tailnet 内访问二选一或共存):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;server:
+  base_url: &amp;quot;https:&amp;#x2F;&amp;#x2F;panel.demo.com&amp;quot;   # 必须改,否则登录后跳转回 localhost
+  cookie_secure: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;访问 &lt;code&gt;https:&#x2F;&#x2F;panel.demo.com&#x2F;admin&lt;&#x2F;code&gt;,用 headscale API key 登录。安全模型:无端口暴露 + TLS + API key 单层认证。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-wang-fang-wen-bei-xuan-fang-an-er-zero-trust-access-wei-qi-yong-bei-xuan-bang-qia-bian-yuan-shuang-yin-zi&quot;&gt;公网访问备选方案二:Zero Trust + Access(未启用,备选,绑卡边缘双因子)&lt;&#x2F;h2&gt;
+&lt;p&gt;创建 Zero Trust 组织时 CF 要求添加付款方式(风控,Free 计划 50 用户不扣费)。之后:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;Tunnel → Public Hostname 添加 &lt;code&gt;panel.demo.com&lt;&#x2F;code&gt; → HTTP → &lt;code&gt;localhost:3000&lt;&#x2F;code&gt;;&lt;&#x2F;li&gt;
+&lt;li&gt;Access → Applications → Self-hosted → 配置 Email OTP(或 Google)策略。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;访问流程:浏览器 → CF 边缘邮箱验证码(未认证请求到不了 VPS)→ 隧道 → headplane API key。双因子 + 边缘审计,代价是绑卡一次 + 依赖 CF 零信任产品线(国内 VPS↔CF 边缘稳定性需实测)。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;维度&lt;&#x2F;th&gt;&lt;th&gt;方案一 纯隧道&lt;&#x2F;th&gt;&lt;th&gt;方案二 Zero Trust + Access&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;成本&lt;&#x2F;td&gt;&lt;td&gt;0 元,无卡&lt;&#x2F;td&gt;&lt;td&gt;0 元(Free),绑卡验证一次&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;认证&lt;&#x2F;td&gt;&lt;td&gt;headplane API key 单层&lt;&#x2F;td&gt;&lt;td&gt;CF 双因子 + API key 两层&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;攻击面&lt;&#x2F;td&gt;&lt;td&gt;无端口,有认证入口&lt;&#x2F;td&gt;&lt;td&gt;认证在边缘,请求到不了 VPS&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;审计&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;CF 登录审计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;个人场景方案一已够用;两方案可随时切换,隧道配置完全复用。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fei-qi-wg-easy&quot;&gt;废弃 wg-easy&lt;&#x2F;h1&gt;
+&lt;p&gt;VPS 上原有 wg-easy(WireGuard 管理面板)与新方案并存无冲突,确认废弃后清理:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker-compose rm -sf wg-easy          # 停并删容器
+docker volume rm wg-easy_etc_wireguard # 删数据卷(已空)
+# 从 docker-compose.yaml 移除服务块(先备份)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;残留:旧配置目录(root 属主,需 sudo 删)、安全组 51820&#x2F;udp 放行(无害可留)。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;a-li-yun-nei-wang-fu-wu-bei-tailnet-cgnat-wang-duan-chong-tu-zu-duan-2026-08-21-shi-ce&quot;&gt;阿里云内网服务被 tailnet CGNAT 网段冲突阻断(2026-08-21 实测)&lt;&#x2F;h1&gt;
+&lt;p&gt;2026-08-21,VPS 上阿里云自动备份(hbrclient)持续失败,排查后定位为 &lt;strong&gt;tailnet CGNAT 网段与阿里云 VPC 内网服务网段重叠&lt;&#x2F;strong&gt;,入向回包被 tailscale 防火墙丢弃。这也是 8-14 部署时&quot;VPC DNS 不可达&quot;坑的真身(见本节末尾关联)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;hbrclient.service&lt;&#x2F;code&gt;(Alibaba Cloud Backup Service)反复重启,日志反复报 &lt;code&gt;NoAvailableEndpoint&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ss -tn&lt;&#x2F;code&gt; 可见发往 &lt;code&gt;100.100.105.60:443&lt;&#x2F;code&gt; 的连接永远卡在 &lt;code&gt;SYN-SENT&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;VPC 内网 DNS(100.100.2.136)解析一度超时&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;gen-yin-liang-ge-100-wang-duan-zhuang-che&quot;&gt;根因:两个&quot;100 网段&quot;撞车&lt;&#x2F;h2&gt;
+&lt;p&gt;headscale 默认给 tailnet 分配 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt;(config &lt;code&gt;prefixes.v4&lt;&#x2F;code&gt;)。Tailscale 客户端为防 IP 欺骗,在 &lt;code&gt;ts-input&lt;&#x2F;code&gt; 链装了丢弃规则:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;-A ts-input -s 100.64.0.0&amp;#x2F;10 ! -i tailscale0 -j DROP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;而阿里云 VPC 内网服务恰好也落在 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt; 内:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;地址&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;稳定性&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;100.100.2.136&#x2F;138&lt;&#x2F;td&gt;&lt;td&gt;VPC 内网 DNS&lt;&#x2F;td&gt;&lt;td&gt;固定(DHCP 同步推送路由)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;100.100.100.200&lt;&#x2F;td&gt;&lt;td&gt;ECS metadata(实例身份)&lt;&#x2F;td&gt;&lt;td&gt;固定&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;100.100.105.60&lt;&#x2F;td&gt;&lt;td&gt;HBR 备份 MQTT 通道(&lt;code&gt;post-cn-xxx-internal.mqtt.aliyuncs.com&lt;&#x2F;code&gt; 解析)&lt;&#x2F;td&gt;&lt;td&gt;域名稳定,IP 可能轮换&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;机制:&lt;strong&gt;出站请求正常&lt;&#x2F;strong&gt;(路由走 eth0,table 52 无覆盖路由),但&lt;strong&gt;回包&lt;&#x2F;strong&gt;源地址落在 CGNAT 段且非来自 tailscale0 → 命中 DROP → TCP 永远建不起连接。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-yao-dian-shi-ce-ming-ling&quot;&gt;排查要点(实测命令)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip rule show                       # 5270: from all lookup 52(优先级高于主表 32766)
+ip route show table 52             # 只有 tailnet peer IP,无 100.100.x 覆盖路由 → 路由没问题
+ip route get 100.100.2.136         # via &amp;lt;VPC网关&amp;gt; dev eth0 → 出站正常
+ss -tn | grep 100\.                # SYN-SENT 100.100.105.60:443 ← 实锤
+sudo iptables -S ts-input          # 看到 -s 100.64.0.0&amp;#x2F;10 ! -i tailscale0 -j DROP
+tail -30 &amp;#x2F;opt&amp;#x2F;alibabacloud&amp;#x2F;hbrclient&amp;#x2F;logs&amp;#x2F;hbrclient.log
+# &amp;quot;Cannot connect to wss:&amp;#x2F;&amp;#x2F;post-cn-xxx-internal.mqtt.aliyuncs.com:443 ... i&amp;#x2F;o timeout&amp;quot;
+# &amp;quot;Failed to get ECS metadata ... 100.100.100.200:80 i&amp;#x2F;o timeout&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一句话定位:&lt;strong&gt;路由没坏,坏在防火墙对&quot;内网回包&quot;的防欺骗丢弃&lt;&#x2F;strong&gt;(先查 &lt;code&gt;ip route get&lt;&#x2F;code&gt; 排除路由,再看 &lt;code&gt;ss&lt;&#x2F;code&gt; 抓 SYN-SENT 定位目标 IP,最后 iptables 确认 DROP 规则)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xiu-fu-fang-xing-a-li-yun-nei-wang-fu-wu-duan&quot;&gt;修复:放行阿里云内网服务段&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo iptables -I ts-input 1 -s 100.100.0.0&amp;#x2F;16 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;100.100.0.0&#x2F;16&lt;&#x2F;code&gt; 是阿里云内网服务固定段,一条覆盖 DNS&#x2F;metadata&#x2F;MQTT 及后续新增内网 endpoint,换 IP 无需维护。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chi-jiu-hua-bi-cai-de-keng&quot;&gt;持久化(必踩的坑)&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;tailscaled 每次启动会重建 ts-* 链并冲掉自定义规则&lt;&#x2F;strong&gt;;&lt;code&gt;iptables-persistent&lt;&#x2F;code&gt; 恢复时机在 tailscaled 之前,同样会被清。需 systemd oneshot(&lt;code&gt;After=tailscaled.service&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;ts-input-aliyun-allow.service
+[Unit]
+Description=Allow Aliyun internal 100.100.0.0&amp;#x2F;16 in ts-input
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;iptables -C ts-input -s 100.100.0.0&amp;#x2F;16 -j ACCEPT 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || &amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;iptables -I ts-input 1 -s 100.100.0.0&amp;#x2F;16 -j ACCEPT
+
+[Install]
+WantedBy=multi-user.target
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yan-zheng-1&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;timeout 3 bash -c &amp;#x27;&amp;lt;&amp;#x2F;dev&amp;#x2F;tcp&amp;#x2F;100.100.105.60&amp;#x2F;443&amp;#x27; &amp;amp;&amp;amp; echo OK   # 之前 SYN-SENT 卡死,现在应连通
+curl -m 3 -s http:&amp;#x2F;&amp;#x2F;100.100.100.200&amp;#x2F;latest&amp;#x2F;meta-data&amp;#x2F;instance-id   # metadata 恢复
+grep -i NoAvailableEndpoint &amp;#x2F;opt&amp;#x2F;alibabacloud&amp;#x2F;hbrclient&amp;#x2F;logs&amp;#x2F;hbrclient.log | tail   # 不再新增
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;实测结果(2026-08-21 15:31 起)&lt;&#x2F;strong&gt;:加规则后 TCP 建连立即 OK、metadata 返回 instance-id、&lt;code&gt;ss&lt;&#x2F;code&gt; 从 SYN-SENT 变 ESTAB;hbrclient 重启后日志不再报 &lt;code&gt;Cannot connect&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;NoAvailableEndpoint&lt;&#x2F;code&gt;,MQ 注册成功、任务轮询正常,备份链路恢复。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an-ji-lu-bei-cha&quot;&gt;备选方案(记录备查)&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;安全性&lt;&#x2F;th&gt;&lt;th&gt;维护量&lt;&#x2F;th&gt;&lt;th&gt;静默失败风险&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;精确 IP 白名单(按日志逐个加)&lt;&#x2F;td&gt;&lt;td&gt;最高&lt;&#x2F;td&gt;&lt;td&gt;低,但要盯日志&lt;&#x2F;td&gt;&lt;td&gt;高(阿里云换 IP 即挂)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;ipset + 内网域名定时刷新&lt;&#x2F;strong&gt;(折中)&lt;&#x2F;td&gt;&lt;td&gt;高&lt;&#x2F;td&gt;&lt;td&gt;中&lt;&#x2F;td&gt;&lt;td&gt;低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;放行 100.100.0.0&#x2F;16(当前采用)&lt;&#x2F;td&gt;&lt;td&gt;中(有意放宽)&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;ipset 方案:i 一条 iptables 规则引用 ipset 集合,cron 按&lt;strong&gt;内网 DNS&lt;&#x2F;strong&gt;(&lt;code&gt;dig @100.100.2.136&lt;&#x2F;code&gt;)解析 &lt;code&gt;*-internal.aliyuncs.com&lt;&#x2F;code&gt; 域名刷新集合——必须用内网 DNS 解析,公网 DNS 拿到的是公网 IP,白名单失效;域名清单需随 agent 演进手动增补;ipset 与规则同样需要重启后恢复。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;an-quan-shuo-ming&quot;&gt;安全说明&lt;&#x2F;h2&gt;
+&lt;p&gt;放行 &#x2F;16 使 ts-input 防欺骗对该段失效(tailnet 成员可伪造该段源 IP 直达本机服务)。实际风险低:tailnet 全为自有设备、外部攻击者受阿里云安全组 + vSwitch 源地址校验限制、本机服务无按源 IP 做信任判断者。若未来 tailnet 加入不可信节点,应收窄回精确 IP&#x2F;ipset 方案。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-lian-8-14-bu-shu-shi-de-dns-keng-jiu-shi-ta&quot;&gt;关联:8-14 部署时的 DNS 坑就是它&lt;&#x2F;h2&gt;
+&lt;p&gt;部署时&quot;VPC DNS 不可达&quot;当时用 &lt;code&gt;&#x2F;etc&#x2F;hosts&lt;&#x2F;code&gt; 硬编码 + 公共 DNS 绕过,判断为&quot;DNS 污染&#x2F;不可达&quot;。现在看,那次&quot;不可达&quot;正是 ts-input 丢回包(当时 VPS 节点刚加入 tailnet),绕过方案有效但掩盖了根因;本次备份失败把真凶暴露出来,一次解决了两类症状。教训:&lt;strong&gt;加入 tailnet 后阿里云内网服务异常,优先怀疑 CGNAT 网段冲突,而不是 DNS 污染&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;方案&lt;&#x2F;strong&gt;:headscale 控制面 + Tailscale 官方客户端,打洞直连优先、DERP 中继兜底,数据面完全自主可控;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;坑&lt;&#x2F;strong&gt;:备案约束 → 自定义端口;官方 DERP 地图不清空会绕海外;0.29 的 preauthkey 用数字用户 ID;国内 VPS 拉 Docker Hub 需本地中转;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;安全&lt;&#x2F;strong&gt;:默认仅节点互通 + 子网显式开关;DERP 默认 verify_clients;面板经 tailnet 内访问(无公网暴露,四层防护);&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;实测&lt;&#x2F;strong&gt;:打洞成功 21ms 直连,DERP 只走自建节点,证书续期全自动。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;cai-keng-ji-lu-tailscale-serve-zai-ben-tuo-bu-xia-bu-ke-yong-2026-08-15&quot;&gt;踩坑记录:tailscale serve 在本拓扑下不可用(2026-08-15)&lt;&#x2F;h1&gt;
+&lt;p&gt;曾尝试用 &lt;code&gt;tailscale serve --bg --http 3000 3000&lt;&#x2F;code&gt; 把 headplane 暴露到 tailnet,实测失败,两个原因:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;代理端口与 docker-proxy 冲突&lt;&#x2F;strong&gt;:serve 的代理监听端口与 headplane 容器已占用的 &lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; 冲突(headplane 容器先于 tailscaled 启动),请求全部返回 &lt;code&gt;404 page not found&lt;&#x2F;code&gt;(Go 默认 404,19 字节);&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;挂载按主机名匹配 Host&lt;&#x2F;strong&gt;:serve 挂载 key 是 tailnet 主机名 &lt;code&gt;iz2zehkipqcroqwfrvhwj7z:3000&lt;&#x2F;code&gt;,而本 tailnet &lt;code&gt;magic_dns: false&lt;&#x2F;code&gt;,其他节点无法解析该主机名、只能用 IP 访问 → Host 匹配失败同样 404。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;:改用 docker 双绑定(&lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; + &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt;)直连,无 serve 的匹配与端口冲突问题;若要恢复 MagicDNS 才能发挥 serve 价值,而 MagicDNS 会干扰公司 DNS(见 config 注释),故弃用 serve。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>QEMU 虚拟机无法访问网关&#x2F;公网排查</title>
+        <published>2026-06-13T02:30:00+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"/>
+        <id>https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/">&lt;h1 id=&quot;qemu-xu-ni-ji-wu-fa-fang-wen-wang-guan-gong-wang-pai-cha-wen-dang&quot;&gt;QEMU 虚拟机无法访问网关&#x2F;公网 排查文档&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU 虚拟机（libvirt）无法 ping 通网关 &lt;code&gt;192.168.2.1&lt;&#x2F;code&gt;，也无法访问公网。宿主机网络正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;huan-jing-xin-xi&quot;&gt;环境信息&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.100&#x2F;24&lt;&#x2F;code&gt; (vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网关&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.1&lt;&#x2F;code&gt; (MAC: &lt;code&gt;74:45:2d:96:7f:cc&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.156&lt;&#x2F;code&gt; (MAC: &lt;code&gt;52:54:00:3c:13:73&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理网卡&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eno1&lt;&#x2F;code&gt; (桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟网桥&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vmbr0&lt;&#x2F;code&gt; (含 eno1 + vnet0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TAP 设备&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vnet0&lt;&#x2F;code&gt; (VM 接口，桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟化&lt;&#x2F;td&gt;&lt;td&gt;QEMU&#x2F;KVM (libvirt 管理)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-que-ren-su-zhu-ji-wang-luo-zheng-chang&quot;&gt;1. 确认宿主机网络正常&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ping -c 2 192.168.2.1
+# 结果：正常，0% 丢包
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-que-ren-wang-qiao-tuo-bu-zheng-que&quot;&gt;2. 确认网桥拓扑正确&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;brctl show vmbr0
+# vmbr0:
+#   eno1    (物理网卡)
+#   vnet0   (虚拟机 TAP 接口)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-zai-vmbr0-shang-zhua-bao-fa-xian-vm-fa-chu-de-icmp-qing-qiu&quot;&gt;3. 在 vmbr0 上抓包 — 发现 VM 发出的 ICMP 请求&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i vmbr0 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;22:28:13.582982 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc, ethertype IPv4 (0x0800), length 98: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request, id 10485, seq 68, length 64
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 发出的包到达了网桥 vmbr0，但没有收到任何 reply。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-zai-wu-li-wang-qia-eno1-shang-zhua-bao-fa-xian-bao-mei-you-dao-da-wu-li-jie-kou&quot;&gt;4. 在物理网卡 eno1 上抓包 — 发现包没有到达物理接口&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp and host 192.168.2.156
+# 结果：0 packets captured
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 的 ICMP 请求在 vmbr0 到 eno1 之间被丢弃了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-jian-cha-bridge-netfilter-she-zhi-fa-xian-guan-jian-wen-ti&quot;&gt;5. 检查 bridge netfilter 设置 — 发现关键问题&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl net.bridge.bridge-nf-call-iptables
+# net.bridge.bridge-nf-call-iptables = 1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：&lt;&#x2F;strong&gt; &lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt; 意味着桥接的 L2 流量也会经过 iptables 处理。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然 &lt;code&gt;&#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;code&gt; 中配置的是 &lt;code&gt;=0&lt;&#x2F;code&gt;，但 Docker 启动时会将其设为 &lt;code&gt;1&lt;&#x2F;code&gt;（Docker 依赖此设置来实现容器网络隔离和端口映射）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-jian-cha-iptables-forward-lian-que-ren-diu-bao-dian&quot;&gt;6. 检查 iptables FORWARD 链 — 确认丢包点&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP 3727K packets, 1454M bytes)
+ pkts bytes target     prot opt in     out     source               destination
+  229 24446 ACCEPT     all  --  vmbr0  tun0    192.168.2.0&amp;#x2F;24       192.168.4.0&amp;#x2F;22
+  477  513K ACCEPT     all  --  tun0   vmbr0   192.168.4.0&amp;#x2F;22       192.168.2.0&amp;#x2F;24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因确认：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;FORWARD 链默认策略为 &lt;code&gt;DROP&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仅有的两条涉及 vmbr0 的规则只允许 &lt;code&gt;vmbr0 &amp;lt;-&amp;gt; tun0&lt;&#x2F;code&gt; 的 VPN 流量（192.168.2.0&#x2F;24 &amp;lt;-&amp;gt; 192.168.4.0&#x2F;22）&lt;&#x2F;li&gt;
+&lt;li&gt;没有规则允许 vmbr0 的普通桥接流量（如 VM -&amp;gt; 网关）&lt;&#x2F;li&gt;
+&lt;li&gt;因此 VM 发出的包在到达网桥后被 iptables DROP 掉，无法到达物理网卡 eno1&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;shu-ju-liu-shi-yi&quot;&gt;数据流示意&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;VM (192.168.2.156)
+    │
+    ▼ ICMP echo request
+ vnet0 ─── vmbr0 ─── ✗ iptables FORWARD DROP ─── eno1 (物理网卡)
+                       (无匹配规则)                │
+                                                   ▼
+                                             Gateway (192.168.2.1)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;li-ji-xiu-fu&quot;&gt;立即修复&lt;&#x2F;h3&gt;
+&lt;p&gt;添加规则允许桥接流量通过 iptables：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -m physdev --physdev-is-bridged -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-m physdev --physdev-is-bridged&lt;&#x2F;code&gt; 精确匹配经过桥接转发的流量&lt;&#x2F;li&gt;
+&lt;li&gt;将该规则插入 FORWARD 链首部，优先于 Docker 的链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chi-jiu-hua&quot;&gt;持久化&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;netfilter-persistent save
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该命令将当前 iptables 规则保存到 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;，重启后自动恢复。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP)
+ pkts bytes target     prot opt in     out     source               destination
+  155 44480 ACCEPT     all  --  *      *       0.0.0.0&amp;#x2F;0            0.0.0.0&amp;#x2F;0            PHYSDEV match --physdev-is-bridged
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;22:30:08.217904 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request
+22:30:08.218266 74:45:2d:96:7f:cc &amp;gt; 52:54:00:3c:13:73: 192.168.2.1 &amp;gt; 192.168.2.156: ICMP echo reply
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 ICMP 请求和网关的回复均已正常到达物理网卡，问题解决。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h2&gt;
+&lt;p&gt;如果不想依赖 iptables 规则，也可以禁用 bridge netfilter：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl -w net.bridge.bridge-nf-call-iptables=0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但此方案会导致 Docker 的端口映射和容器间隔离失效，&lt;strong&gt;不推荐&lt;&#x2F;strong&gt;在有 Docker 运行的环境中采用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2026-08-07-wen-ti-fu-fa-gen-yin-shi-chi-jiu-hua-jing-mo-shi-xiao&quot;&gt;2026-08-07 问题复发：根因是持久化静默失效&lt;&#x2F;h2&gt;
+&lt;p&gt;同一环境（宿主机 192.168.2.100、vmbr0、网关 192.168.2.1、VM 192.168.2.156）两个月后再次出现 VM 无法 ping 通网关，且 VM 无法访问公网。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-yao-dian-ben-ci-shi-ce&quot;&gt;排查要点（本次实测）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;VM → 宿主 ping 正常（0.15ms）&lt;&#x2F;strong&gt;：目标为宿主本机 IP，走 INPUT 链，不受 FORWARD 影响&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VM → 网关 ICMP 100% 丢包&lt;&#x2F;strong&gt;，但 &lt;code&gt;tcpdump -i vnet1&lt;&#x2F;code&gt; 能抓到 VM 发出的 &lt;code&gt;ICMP echo request&lt;&#x2F;code&gt;——包已离开 VM&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;tcpdump -i eno1&lt;&#x2F;code&gt; 抓不到 VM 的任何 ICMP&#x2F;ARP&lt;&#x2F;strong&gt;——包在网桥转发阶段被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;：&lt;code&gt;Chain FORWARD (policy DROP 2917 packets, 1032K bytes)&lt;&#x2F;code&gt;——大量包已被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;lsmod | grep br_netfilter&lt;&#x2F;code&gt;：已加载（Docker 依赖），&lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;排查小技巧——对比抓包定位丢包点：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;观测点&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;VM 内 ping 宿主&lt;&#x2F;td&gt;&lt;td&gt;通&lt;&#x2F;td&gt;&lt;td&gt;INPUT 链正常&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;vnet1 上有 ICMP 出包&lt;&#x2F;td&gt;&lt;td&gt;有&lt;&#x2F;td&gt;&lt;td&gt;包已离开 VM&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;eno1 上无 ICMP&#x2F;ARP&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;丢弃发生在网桥&#x2F;IP 转发（FORWARD）阶段&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;ben-ci-xiu-fu&quot;&gt;本次修复&lt;&#x2F;h3&gt;
+&lt;p&gt;相比上文的 physdev 通用规则，按网桥接口的规则更直观、易维护：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT
+iptables -I FORWARD -o vmbr0 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：VM ping 网关 0.5ms、ping 公网 8.8.8.8 正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fu-fa-gen-yin-chi-jiu-hua-jing-mo-shi-xiao-zhong-yao-jiao-xun&quot;&gt;复发根因：持久化静默失效（重要教训）&lt;&#x2F;h3&gt;
+&lt;p&gt;上文的 &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 其实一直没生效：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;宿主只安装了 &lt;code&gt;netfilter-persistent&lt;&#x2F;code&gt;，但 &lt;strong&gt;iptables 插件（iptables-persistent）从未安装&lt;&#x2F;strong&gt;，&lt;code&gt;&#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt; 为空&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 输出为空、退出码为 0，但 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 从未生成——&lt;strong&gt;静默失败&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;因此一旦重启（或 iptables 规则被清空），上次的 FORWARD 规则全部丢失，问题必然复发&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;修复持久化：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install iptables-persistent   # 安装 15-ip4tables &amp;#x2F; 25-ip6tables 插件
+netfilter-persistent save          # 这次输出 run-parts: executing ... 插件真正生效
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 已生成且包含 vmbr0 规则。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训：&lt;&#x2F;strong&gt; 任何&quot;保存&#x2F;持久化&quot;类操作，执行后必须验证产物存在（文件已生成、内容正确），不能只依赖退出码。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-jian-ming-ling-su-cha&quot;&gt;关键命令速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;查看网桥成员&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl show&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 bridge netfilter 状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sysctl net.bridge.bridge-nf-call-iptables&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 iptables FORWARD 链&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;放行网桥转发流量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;-o vmbr0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网桥上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i vmbr0 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理接口上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i eno1 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;检查持久化插件&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;相关：Wi-Fi 宿主上 VM 无法从局域网访问（macvtap 被 AP 丢弃单播 → proxy-ARP 路由方案）的完整排查记录见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;07&#x2F;virtualization&#x2F;&quot;&gt;虚拟化笔记&lt;&#x2F;a&gt;。
+| 保存 iptables 规则 | &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt;（确认生成 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;） |&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+</content>
+        
+    </entry>
+</feed>

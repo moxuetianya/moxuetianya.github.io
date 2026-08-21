@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - learn</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/learn/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-21T16:28:09+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/learn/atom.xml</id>
+    <entry xml:lang="en">
+        <title>开启 TCP BBR 实测：代理隧道发送端才有收益</title>
+        <published>2026-08-21T16:28:09+08:00</published>
+        <updated>2026-08-21T16:28:09+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/"/>
+        <id>https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;sing-box 代理链路（本机客户端 → 服务端 → 目标站）部署完成后，常听说「服务端开 TCP BBR 可以提速」。是否属实、在哪个环节有效，用内网测试拓扑实测一把：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;本机为客户端（mixed 入站 127.0.0.1:2080），内网一台测试机为服务端（VLESS + Reality，回源握手走 amazon.com）&lt;&#x2F;li&gt;
+&lt;li&gt;只测国内站点：清华镜像 3.3GB ISO 下载吞吐 + baidu&#x2F;bilibili 页面可达性&lt;&#x2F;li&gt;
+&lt;li&gt;两端系统参数基线为 &lt;code&gt;cubic&lt;&#x2F;code&gt; + &lt;code&gt;fq_codel&lt;&#x2F;code&gt;，开启后为 &lt;code&gt;bbr&lt;&#x2F;code&gt; + &lt;code&gt;fq&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;交错 A&#x2F;B 对比（cubic&#x2F;bbr 交替各 3 轮），每轮 30s 窗口取平均下载速率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;ji-zhi-bbr-shi-fa-song-duan-yong-sai-kong-zhi&quot;&gt;机制：BBR 是发送端拥塞控制&lt;&#x2F;h1&gt;
+&lt;p&gt;TCP 拥塞控制由&lt;strong&gt;数据发送方&lt;&#x2F;strong&gt;决定。下载场景下发送方是目标站（如镜像站），本机&#x2F;代理服务端是接收方——&lt;strong&gt;接收方内核开不开 BBR，对下载吞吐没有直接影响&lt;&#x2F;strong&gt;。BBR 的收益体现在：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;发送方（你自己）→ 接收方的路径：如代理服务端把数据发给客户端（VPS → 本机）&lt;&#x2F;li&gt;
+&lt;li&gt;高带宽时延积 + 有丢包的路径：cubic 遇丢包就线性退避，BBR 不因丢包降速&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;shi-ce-shu-ju&quot;&gt;实测数据&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-zhi-lian-guo-nei-zhan-dian-fa-song-fang-jing-xiang-zhan&quot;&gt;1. 直连国内站点（发送方 = 镜像站）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;轮次&lt;&#x2F;th&gt;&lt;th&gt;cubic&lt;&#x2F;th&gt;&lt;th&gt;bbr&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;3.82 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;0.43 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;3.50 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;4.88 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;3&lt;&#x2F;td&gt;&lt;td&gt;0.21 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;0.38 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;两者无稳定差异（第三轮是路径整体拥塞，双双掉底）。本机是接收方，本地开 BBR 与直连下载速度无关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-fu-wu-duan-jing-xiang-zhan-fu-wu-duan-wei-jie-shou-fang&quot;&gt;2. 服务端 → 镜像站（服务端为接收方）&lt;&#x2F;h2&gt;
+&lt;p&gt;cubic 0.5~3.4 MB&#x2F;s，bbr 0.3~3.7 MB&#x2F;s，同样无差异——再次印证接收方 CC 无关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-jing-lian-quan-lian-lu-ben-ji-fu-wu-duan-jing-xiang-zhan&quot;&gt;3. 经链全链路（本机 → 服务端 → 镜像站）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;轮次&lt;&#x2F;th&gt;&lt;th&gt;cubic（两端）&lt;&#x2F;th&gt;&lt;th&gt;bbr（两端）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;2.23 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;3.01 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;1.22 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;4.14 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;3&lt;&#x2F;td&gt;&lt;td&gt;1.33 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;3.42 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;bbr 稳定 3.0~4.1 MB&#x2F;s 不掉底，cubic 掉底到 1.2~1.8 MB&#x2F;s。进一步拆分确认：&lt;strong&gt;只有服务端（隧道发送端）开 BBR 有效&lt;&#x2F;strong&gt;——&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;本机 cubic + 服务端 bbr（发送端 BBR）&lt;&#x2F;td&gt;&lt;td&gt;3.86 &#x2F; 4.18 &#x2F; 2.78 MB&#x2F;s，稳定&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本机 bbr + 服务端 cubic（接收端 BBR）&lt;&#x2F;td&gt;&lt;td&gt;0.26 &#x2F; 4.01 &#x2F; 1.77 MB&#x2F;s，掉底&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;4-chun-nei-wang-sui-dao-duan-dui-zhao&quot;&gt;4. 纯内网隧道段对照&lt;&#x2F;h2&gt;
+&lt;p&gt;服务端本地起 HTTP 服务（1GB 文件）走隧道下载：cubic 与 bbr 均为 117 MB&#x2F;s 满速——内网段本身无丢包，CC 无差异，问题出在跨网路径。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-lun&quot;&gt;结论&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;直连国内站点&lt;&#x2F;strong&gt;：本机（接收方）开 BBR 没有收益，开启与否不影响下载速度&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;经链场景&lt;&#x2F;strong&gt;：&lt;strong&gt;服务端（隧道发送端）开 BBR 有收益&lt;&#x2F;strong&gt;——实测吞吐更稳、不掉底；这正是境外 VPS 部署的对应位置：VPS 是隧道发送端，跨境链路丢包率高，是 BBR 的典型受益场景，建议开启&lt;&#x2F;li&gt;
+&lt;li&gt;本机开 BBR 无副作用；唯一的本机受益场景是&lt;strong&gt;上传&lt;&#x2F;strong&gt;（本机为发送方时）&lt;&#x2F;li&gt;
+&lt;li&gt;内网测试无法完全复现跨境长路径的丢包特征，收益方向明确，幅度随路径而异&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;kai-qi-ming-ling&quot;&gt;开启命令&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;modprobe tcp_bbr
+sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;持久化（&lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-bbr.conf&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl net.ipv4.tcp_congestion_control   # 应输出 bbr
+ls &amp;#x2F;sys&amp;#x2F;module&amp;#x2F;tcp_bbr                   # 模块已加载
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

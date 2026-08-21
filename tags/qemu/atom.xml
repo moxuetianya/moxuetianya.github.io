@@ -1,0 +1,1089 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - qemu</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/qemu/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-16T00:30:04+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/qemu/atom.xml</id>
+    <entry xml:lang="en">
+        <title>TUN &#x2F; TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍</title>
+        <published>2026-08-16T00:30:04+08:00</published>
+        <updated>2026-08-16T00:30:04+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/"/>
+        <id>https://moxuetianya.github.io/2026/08/tun-tap-technical-details/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/">&lt;h1 id=&quot;bei-jing-ben-ji-wang-luo-zhan-li-na-xie-kan-bu-jian-de-wang-qia&quot;&gt;背景:本机网络栈里那些看不见的&quot;网卡&quot;&lt;&#x2F;h1&gt;
+&lt;p&gt;日常 &lt;code&gt;ip link&lt;&#x2F;code&gt; 会看到一堆奇怪的接口——&lt;code&gt;tun0&lt;&#x2F;code&gt;、&lt;code&gt;tap0&lt;&#x2F;code&gt;、&lt;code&gt;tailscale0&lt;&#x2F;code&gt;、&lt;code&gt;docker0&lt;&#x2F;code&gt;、&lt;code&gt;veth&lt;&#x2F;code&gt;。它们不是物理网卡,而是内核虚拟设备。本机(Proxmox 宿主)实测:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;tailscale0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...    ← TUN,三层
+    inet 100.64.0.3&amp;#x2F;32 scope global tailscale0
+tun0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...          ← TUN,OpenVPN
+    inet 10.8.0.6 peer 10.8.0.5&amp;#x2F;32 scope global tun0
+vmbr0: ...                                        ← 网桥,二层
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;TUN 和 TAP 是 Linux 提供的一对&quot;用户空间 ↔ 内核协议栈&quot;的虚拟管道设备:程序打开 &lt;code&gt;&#x2F;dev&#x2F;net&#x2F;tun&lt;&#x2F;code&gt;,通过 read&#x2F;write 收发数据包。区别只在&lt;strong&gt;收发的是什么东西&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;tun-yu-tap-de-ji-ben-gai-nian&quot;&gt;TUN 与 TAP 的基本概念&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;TUN&lt;&#x2F;th&gt;&lt;th&gt;TAP&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;工作层级&lt;&#x2F;td&gt;&lt;td&gt;三层(网络层)&lt;&#x2F;td&gt;&lt;td&gt;二层(数据链路层)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;处理的数据&lt;&#x2F;td&gt;&lt;td&gt;IP 数据包&lt;&#x2F;td&gt;&lt;td&gt;以太网帧&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;有 MAC 地址?&lt;&#x2F;td&gt;&lt;td&gt;没有(&lt;code&gt;link&#x2F;none&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;td&gt;有(&lt;code&gt;link&#x2F;ether&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;有 IP 地址?&lt;&#x2F;td&gt;&lt;td&gt;有(手动配置)&lt;&#x2F;td&gt;&lt;td&gt;有(手动配置)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;能加入网桥?&lt;&#x2F;td&gt;&lt;td&gt;不能&lt;&#x2F;td&gt;&lt;td&gt;可以&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;典型应用&lt;&#x2F;td&gt;&lt;td&gt;VPN(OpenVPN、WireGuard、Tailscale&#x2F;Headscale)&lt;&#x2F;td&gt;&lt;td&gt;虚拟机网络(QEMU&#x2F;KVM)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;tun-she-bei-xiang-jie-san-ceng-wu-mac-dian-dui-dian&quot;&gt;TUN 设备详解:三层、无 MAC、点对点&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ji-ben-shu-xing&quot;&gt;基本属性&lt;&#x2F;h2&gt;
+&lt;p&gt;TUN 是&lt;strong&gt;三层(网络层)设备&lt;&#x2F;strong&gt;,只处理 IP 包,不涉及以太网帧,因此&lt;strong&gt;没有 MAC 地址&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;# TUN 设备 —— link&amp;#x2F;none,没有 MAC
+5: tun0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...
+    link&amp;#x2F;none
+# ifconfig 视角:硬件地址全是零
+tun0  Link encap:UNSPEC  HWaddr 00-00-00-00-00-00-...
+      inet addr:10.8.0.5  P-T-P:10.8.0.5  Mask:255.255.255.0
+      UP POINTOPOINT RUNNING NOARP MULTICAST
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wei-shen-me-bu-xu-yao-mac&quot;&gt;为什么不需要 MAC?&lt;&#x2F;h2&gt;
+&lt;p&gt;TUN 工作在三层,数据直接以 &lt;strong&gt;IP 包&lt;&#x2F;strong&gt;形式在内核协议栈和用户空间程序之间传递,不经过以太网帧封装,自然不需要 MAC 做二层寻址。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;POINTOPOINT&lt;&#x2F;code&gt;(点对点)标志揭示了它的本质:一条&lt;strong&gt;虚拟点对点链路&lt;&#x2F;strong&gt;——一端是宿主机内核协议栈,另一端是用户空间的 VPN 程序。数据通过这条管道直接传递 IP 包,不存在二层寻址的概念。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;这也是 Tailscale&#x2F;OpenVPN 等 VPN 选择 TUN 的根本原因&lt;&#x2F;strong&gt;:省去 ARP、MAC、广播等二层烦恼,VPN 程序只需专注&quot;路由 IP 包 → 加密 → UDP&#x2F;TCP 发到远端&quot;。本机 &lt;code&gt;tailscale0&lt;&#x2F;code&gt; 就是 TUN,100.64.0.3&#x2F;32 点对点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;tap-she-bei-xiang-jie-er-ceng-bi-xu-you-mac-wei-gei-wang-qiao&quot;&gt;TAP 设备详解:二层、必须&quot;有&quot;MAC、喂给网桥&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;chuang-jian-yu-pei-zhi&quot;&gt;创建与配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip tuntap add dev tap0 mode tap user $(whoami)   # user 参数允许普通用户读写
+sudo ip link set tap0 up
+sudo ip addr add 10.0.0.1&amp;#x2F;24 dev tap0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;mac-di-zhi-de-liang-ge-can-yu-zhe-bi-xu-bu-tong&quot;&gt;MAC 地址的两个&quot;参与者&quot;必须不同&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;tap0 自身的 MAC&lt;&#x2F;strong&gt;:创建时内核&lt;strong&gt;随机生成&lt;&#x2F;strong&gt;(常以 &lt;code&gt;fe:&lt;&#x2F;code&gt; 开头),只是占位符,不是虚拟机的 MAC。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;虚拟机网卡的 MAC&lt;&#x2F;strong&gt;:QEMU 打开 tap0 后,在 VM 内部模拟网卡硬件(virtio-net),分配自己的 MAC(常以 &lt;code&gt;52:54:&lt;&#x2F;code&gt; 开头;可用 &lt;code&gt;-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56&lt;&#x2F;code&gt; 固定)。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;两者必须不同&lt;&#x2F;strong&gt;,原因在网桥:br0 依靠 MAC 地址表决定帧的转发端口,若 tap0 与 VM 网卡 MAC 相同,网桥将无法判断该 MAC 对应的设备在 tap0 端口侧还是外部物理网络侧,转发混乱。libvirt 的规律:把 VM MAC 首字节改为 &lt;code&gt;0xFE&lt;&#x2F;code&gt; 生成 tap0 的 MAC(如 VM &lt;code&gt;52:54:d7:18:09:2a&lt;&#x2F;code&gt; → tap0 &lt;code&gt;fe:54:d7:18:09:2a&lt;&#x2F;code&gt;)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;tap0-de-mac-ji-hu-mei-you-shi-ji-zuo-yong&quot;&gt;tap0 的 MAC 几乎没有实际作用&lt;&#x2F;h2&gt;
+&lt;p&gt;回顾数据流:网桥学习的是&lt;strong&gt;帧里的源 MAC&lt;&#x2F;strong&gt;(VM 的),不是 tap0 接口自身的 MAC;帧经过 tap0 时 MAC 不被替换;TAP 设备设了 NOARP,没人 ARP 查询它。&lt;strong&gt;那为什么它还存在?&lt;&#x2F;strong&gt;——Linux 内核 &lt;code&gt;net_device&lt;&#x2F;code&gt; 结构体的硬性要求:任何网络设备都必须有一个 MAC 地址,即使实际用不到。它是&quot;存在即合理&quot;的占位符。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;shu-ju-bao-ru-he-lu-you-dao-xu-ni-ji-wang-qiao-de-mac-biao-dong-tai-xue-xi&quot;&gt;数据包如何路由到虚拟机:网桥的 MAC 表动态学习&lt;&#x2F;h2&gt;
+&lt;p&gt;数据包路由到 VM 依赖的是网桥 MAC 转发表,由 VM 发出帧的源 MAC &lt;strong&gt;动态学习&lt;&#x2F;strong&gt;建立:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;初始:br0 转发表为空
+VM1 发帧(src MAC 52:54:d7:18:09:2a)从 tap0 进入
+  → 网桥记录:52:54:d7:18:09:2a → tap0 端口
+VM2 发帧(src MAC 52:54:aa:bb:cc:dd)从 tap1 进入
+  → 网桥记录:52:54:aa:bb:cc:dd → tap1 端口
+回包:外部帧 dst=52:54:d7:18:09:2a
+  → 网桥查表 → 从 tap0 端口转发 → QEMU 读帧注入 VM1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;shu-ju-bao-jiao-hu-liu-cheng-vm-wai-wang&quot;&gt;数据包交互流程:VM → 外网&lt;&#x2F;h1&gt;
+&lt;p&gt;拓扑:VM(eth0 10.0.0.2) ↔ QEMU 进程 ↔ 宿主机 tap0 ↔ 网桥 br0(10.0.0.1) ↔ 物理网卡 eth0 ↔ 外网。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;发送(VM1 → 外网)&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;VM1 应用 → VM1 内核查路由表 → 虚拟网卡 eth0
+  → QEMU 进程把帧写入宿主机 tap0
+  → 内核发现 tap0 挂在 br0 上,转发到网桥
+  → br0 查 MAC 表,目标不在本地 VM → 从物理网卡 eth0 发出
+  → (VM 访问外网通常还需宿主机 NAT:iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE)
+  → 路由器 → 外网目标
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;接收(外网 → VM1)&lt;&#x2F;strong&gt;:对称反向——物理网卡收帧 → br0 查 MAC 表找到 tap0 端口 → 帧交给 QEMU → 注入 VM 虚拟网卡 → VM 内核协议栈 → 应用。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;核心要点&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;TAP 是&lt;strong&gt;桥梁&lt;&#x2F;strong&gt;:一头连内核网桥,一头被 QEMU 持有,负责搬运帧&lt;&#x2F;li&gt;
+&lt;li&gt;网桥 br0 是&lt;strong&gt;交换机&lt;&#x2F;strong&gt;:二层按 MAC 决定转发端口&lt;&#x2F;li&gt;
+&lt;li&gt;NAT 是&lt;strong&gt;可选的&lt;&#x2F;strong&gt;:VM 要出外网才需要 MASQUERADE&lt;&#x2F;li&gt;
+&lt;li&gt;QEMU 是&lt;strong&gt;搬运工&lt;&#x2F;strong&gt;:read&#x2F;write tap0 与 VM 网卡之间持续搬运&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;50-xing-python-jian-yi-vpn-yan-zheng-vpn-ben-zhi&quot;&gt;50 行 Python 简易 VPN:验证&quot;VPN 本质&quot;&lt;&#x2F;h1&gt;
+&lt;p&gt;核心逻辑:打开 &lt;code&gt;&#x2F;dev&#x2F;net&#x2F;tun&lt;&#x2F;code&gt; → ioctl 配置为 tap0 → 死循环读包&#x2F;写包。示例程序只处理 ARP 请求,构造假回复声称&quot;10.0.0.2 存在&quot;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;import os, struct
+from fcntl import ioctl
+
+TUNSETIFF = 0x400454ca
+IFF_TAP   = 0x0002
+IFF_NO_PI = 0x1000
+
+def create_tap(ifname):
+    tap_fd = os.open(&amp;quot;&amp;#x2F;dev&amp;#x2F;net&amp;#x2F;tun&amp;quot;, os.O_RDWR)
+    ifr = struct.pack(&amp;quot;16sH&amp;quot;, ifname.encode(&amp;quot;utf-8&amp;quot;), IFF_TAP | IFF_NO_PI)
+    ioctl(tap_fd, TUNSETIFF, ifr)
+    return tap_fd
+
+def handle_arp_request(packet, tap_fd):
+    host_mac = packet[6:12]          # 提取 ARP 请求源 MAC
+    fake_mac = bytes([0x00,0x11,0x22,0x33,0x44,0x55])
+    arp_reply = (host_mac + fake_mac + b&amp;#x27;\x08\x06&amp;#x27; + b&amp;#x27;\x00\x01&amp;#x27; + b&amp;#x27;\x08\x00&amp;#x27; +
+                 b&amp;#x27;\x06&amp;#x27; + b&amp;#x27;\x04&amp;#x27; + b&amp;#x27;\x00\x02&amp;#x27; + fake_mac +
+                 b&amp;#x27;\x0a\x00\x00\x02&amp;#x27; + host_mac + b&amp;#x27;\x0a\x00\x00\x01&amp;#x27;)
+    os.write(tap_fd, arp_reply)
+    print(&amp;quot;捕获到 ARP 请求,已伪造 10.0.0.2 的回复!&amp;quot;)
+
+def main():
+    tap_fd = create_tap(&amp;quot;tap0&amp;quot;)
+    print(&amp;quot;启动简易 VPN 程序,正在监听 tap0...&amp;quot;)
+    while True:
+        packet = os.read(tap_fd, 1514)
+        if packet[12:14] == b&amp;#x27;\x08\x06&amp;#x27;:   # ARP
+            handle_arp_request(packet, tap_fd)
+        else:
+            pass                            # 其他包(IP)直接丢弃
+
+if __name__ == &amp;quot;__main__&amp;quot;:
+    main()
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;运行与现象&lt;&#x2F;strong&gt;:&lt;code&gt;python3 simple_vpn.py&lt;&#x2F;code&gt; + 另一终端 &lt;code&gt;ping 10.0.0.2&lt;&#x2F;code&gt;——先通(ARP 被拦截伪造了假回复),随后 &lt;code&gt;Destination Host Unreachable&lt;&#x2F;code&gt; 或卡住。&lt;strong&gt;为什么卡住&lt;&#x2F;strong&gt;:ping 拿到假 MAC 后发出 ICMP IP 包,程序在 else 分支直接丢弃——没有完整 TCP&#x2F;IP 协议栈就回不了 ICMP Echo Reply。&lt;&#x2F;p&gt;
+&lt;p&gt;这揭示了 &lt;strong&gt;VPN 的本质&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;TAP 模式&lt;&#x2F;strong&gt;:读的是完整以太网帧,要实现完整网络功能,程序内部必须实现一套虚拟协议栈(ARP&#x2F;ICMP&#x2F;TCP 握手),或把帧转发到真实物理网络——复杂&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;TUN 模式&lt;&#x2F;strong&gt;(Tailscale 用):读的是纯 IP 包(无 MAC 头),省去 ARP 烦恼,VPN 程序只需路由、加密、UDP&#x2F;TCP 传输——简单,这正是 tailscale0 走的路&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;ge-xu-ni-hua-ping-tai-de-tap-tun-guan-li&quot;&gt;各虚拟化平台的 TAP&#x2F;TUN 管理&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;需要手动创建?&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;QEMU&#x2F;KVM 手动配置&lt;&#x2F;td&gt;&lt;td&gt;需要&lt;&#x2F;td&gt;&lt;td&gt;每个 VM 一个 TAP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libvirt &#x2F; virt-manager&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;libvirt 自动管理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMware &#x2F; VirtualBox&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;工具内部自动处理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Docker&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;用 veth pair,非 TAP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Tailscale&#x2F;Headscale&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;每节点自动创建自己的 TUN&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;TUN = 三层点对点管道,&lt;strong&gt;无 MAC&lt;&#x2F;strong&gt;,只管 IP 包 → VPN 首选(OpenVPN&#x2F;WireGuard&#x2F;Tailscale)&lt;&#x2F;li&gt;
+&lt;li&gt;TAP = 二层以太网管道,&lt;strong&gt;有 MAC&lt;&#x2F;strong&gt;(内核硬性要求,实际是占位符),能进网桥 → 虚拟机网络首选(QEMU&#x2F;KVM)&lt;&#x2F;li&gt;
+&lt;li&gt;网桥靠&lt;strong&gt;帧内源 MAC 动态学习&lt;&#x2F;strong&gt;转发表,与 tap0 自身 MAC 无关&lt;&#x2F;li&gt;
+&lt;li&gt;&quot;为什么 VPN 不用 TAP&quot;:二层帧需要完整协议栈或桥接转发,三层 TUN 省掉 ARP&#x2F;MAC&#x2F;广播,实现和排障都简单得多&lt;&#x2F;li&gt;
+&lt;li&gt;虚拟化为什么不用 TUN:VM 需要完整二层语义(广播&#x2F;ARP&#x2F;交换机行为),TAP + 网桥正是干这个的&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>virtiofs ENFILE 问题排查手册</title>
+        <published>2026-06-13T12:00:00+08:00</published>
+        <updated>2026-08-13T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/">&lt;h1 id=&quot;virtiofs-enfile-wen-ti-pai-cha-shou-ce&quot;&gt;virtiofs ENFILE 问题排查手册&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;2026-08-07 重要更正&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;本文 2026-06-13 首发时把根因错误归为「&lt;code&gt;fs.file-max = INT64_MAX&lt;&#x2F;code&gt; 触发内核 fd table 整数溢出」。
+2026-08-07 故障复发后，对照 virtiofsd 1.13.2 源码逐行核实，&lt;strong&gt;该结论是错的&lt;&#x2F;strong&gt;：
+ENFILE 来自 virtiofsd 内部的 guest fd 信号量耗尽（&lt;code&gt;src&#x2F;passthrough&#x2F;guest_fd_limit.rs&lt;&#x2F;code&gt;），
+与宿主内核 &lt;code&gt;file-max&lt;&#x2F;code&gt; 无关。
+原文的错误分析没有删除，压缩保留在文末「曾经的错误结论（勿再犯）」一节，防止误信或重复踩坑。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h2&gt;
+&lt;p&gt;VM 内对 virtiofs 挂载点执行文件操作时报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ls: 无法打开目录 &amp;#x27;.&amp;#x27;: 系统中打开的文件过多
+# 对应系统错误: ENFILE (Too many open files in system)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;特点：整棵挂载树所有读写（cat &#x2F; ls &#x2F; 新建文件 &#x2F; python os.listdir）全部报错，
+本地磁盘正常；持续存在、不会自动恢复（除非触发句柄释放）。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai&quot;&gt;1. 系统级文件句柄状态&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr
+# 输出格式: &amp;lt;已分配数量&amp;gt; &amp;lt;空闲数量&amp;gt; &amp;lt;最大限制&amp;gt;
+# 注意: 现代内核（≥2.6.27）第 2 列恒为 0，不代表文件表耗尽！
+
+cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-max
+cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;nr_open
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-ding-wei-virtiofsd-jin-cheng&quot;&gt;2. 定位 virtiofsd 进程&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pgrep -a virtiofsd
+
+ps -o pid,ppid,user,etime,rss,args -p $(pgrep -d&amp;#x27;,&amp;#x27; virtiofsd)
+# rss: 内存占用  etime: 运行时长
+# 注意: virtiofsd RSS 很大（几十 GB）是 vhost-user 映射了 guest RAM，属正常现象
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-jian-cha-virtiofsd-fd-shu-liang-he-xin-zhi-biao&quot;&gt;3. 检查 virtiofsd fd 数量（核心指标）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd | wc -l
+# 对比 guest fd 池上限: rlimit_nofile - 610（默认 = 1,000,000 - 610 = 999,390）
+# 接近上限 ≈ 池子即将耗尽，就是 ENFILE 的前兆
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-cha-kan-fd-lei-xing-fen-bu&quot;&gt;4. 查看 fd 类型分布&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | awk &amp;#x27;{
+  target=$NF
+  if (target ~ &amp;#x2F;^socket:&amp;#x2F;)       type=&amp;quot;socket&amp;quot;
+  else if (target ~ &amp;#x2F;^pipe:&amp;#x2F;)    type=&amp;quot;pipe&amp;quot;
+  else if (target ~ &amp;#x2F;^anon_inode:&amp;#x2F;) type=&amp;quot;anon_inode&amp;quot;
+  else if (target ~ &amp;#x2F;\(deleted\)$&amp;#x2F;) type=&amp;quot;deleted_file&amp;quot;
+  else if (target ~ &amp;#x2F;^\&amp;#x2F;&amp;#x2F;)       type=&amp;quot;regular_file&amp;quot;
+  else if (target ~ &amp;#x2F;^\&amp;#x2F;dev\&amp;#x2F;&amp;#x2F;)  type=&amp;quot;dev&amp;quot;
+  else                           type=&amp;quot;other&amp;quot;
+  count[type]++
+} END { for(t in count) print count[t], t }&amp;#x27; | sort -rn
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;5-cha-kan-fd-zhi-xiang-na-xie-mu-lu&quot;&gt;5. 查看 fd 指向哪些目录&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | awk &amp;#x27;{print $NF}&amp;#x27; | \
+  sed &amp;#x27;s|&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project||&amp;#x27; | \
+  awk -F&amp;#x27;&amp;#x2F;&amp;#x27; &amp;#x27;{print $1&amp;quot;&amp;#x2F;&amp;quot;$2&amp;quot;&amp;#x2F;&amp;quot;$3&amp;quot;&amp;#x2F;&amp;quot;$4}&amp;#x27; | \
+  sort | uniq -c | sort -rn | head -30
+# virtiofsd 的 fd 目标路径是相对共享目录的 guest 视角路径（如 &amp;#x2F;agent-code&amp;#x2F;... 对应宿主 &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;agent-code&amp;#x2F;...）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-cai-yang-cha-kan-fd-ju-ti-nei-rong&quot;&gt;6. 采样查看 fd 具体内容&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 前 40 个
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | head -40
+
+# 中间段
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | sed -n &amp;#x27;5000,5020p&amp;#x27;
+
+# 末尾
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | tail -20
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;7-jian-cha-virtiofsd-zi-yuan-xian-zhi&quot;&gt;7. 检查 virtiofsd 资源限制&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;for pid in &amp;lt;PID_LIST&amp;gt;; do
+  echo &amp;quot;=== PID $pid ===&amp;quot;
+  cat &amp;#x2F;proc&amp;#x2F;$pid&amp;#x2F;limits | grep -E &amp;quot;open files|processes&amp;quot;
+  cat &amp;#x2F;proc&amp;#x2F;$pid&amp;#x2F;status | grep -E &amp;quot;VmRSS|VmSize|Threads&amp;quot;
+done
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;8-jian-cha-su-zhu-nei-he-shi-fou-zhen-de-zhuang-guo-file-max&quot;&gt;8. 检查宿主内核是否真的撞过 file-max&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 环形缓冲覆盖故障窗口的前提下，出现该警告 = 宿主 file-max 真被撞到（另一种墙）
+sudo dmesg | grep -i &amp;quot;file-max&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;9-quan-xi-tong-fd-tong-ji&quot;&gt;9. 全系统 fd 统计&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;total=0
+for p in &amp;#x2F;proc&amp;#x2F;[0-9]*&amp;#x2F;fd&amp;#x2F;; do
+  total=$((total + $(ls &amp;quot;$p&amp;quot; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | wc -l)))
+done
+echo &amp;quot;用户可见: $total&amp;quot;
+echo &amp;quot;系统分配: $(awk &amp;#x27;{print $1}&amp;#x27; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr)&amp;quot;
+echo &amp;quot;差值(root): $(( $(awk &amp;#x27;{print $1}&amp;#x27; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr) - total ))&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi-2026-08-07-geng-zheng-hou-jie-lun&quot;&gt;根因分析（2026-08-07 更正后结论）&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhen-zheng-gen-yin-virtiofsd-de-guest-fd-chi-hao-jin&quot;&gt;真正根因：virtiofsd 的 guest fd 池耗尽&lt;&#x2F;h3&gt;
+&lt;p&gt;virtiofsd 1.13（Rust 版）为了确保自己内部总有 fd 可用，给 guest 分配 fd 时
+走一个信号量（&lt;code&gt;GuestFdSemaphore&lt;&#x2F;code&gt;），上限是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;guest_fd_limit = RLIMIT_NOFILE - internal_fd_reserve
+               = 1,000,000 - (509 + 100 + 1)   &amp;#x2F;&amp;#x2F; MAX_MEM_SLOTS + 100 + thread_pool_size
+               = 999,390
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;触发链：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;guest 内 find &amp;#x2F; grep -rl 递归扫描数十万文件
+  → 每个 lookup&amp;#x2F;open&amp;#x2F;readdir 的 inode，virtiofsd 通过 GuestFdSemaphore::allocate()
+    分配一个 O_PATH fd（src&amp;#x2F;passthrough&amp;#x2F;mod.rs:880&amp;#x2F;961&amp;#x2F;1281&amp;#x2F;1782）
+  → 这些句柄在 guest dcache 驱逐 inode（FUSE_FORGET）之前不释放
+  → 扫描几十万文件后池子归零
+  → 池空后任何 virtiofs 操作（哪怕 cat 已缓存文件）都拿不到新 fd
+  → allocate() 返回 ENFILE（guest_fd_limit.rs:72）
+  → guest 所有 virtiofs 系统调用报 ENFILE，整棵挂载树不可用
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键源码（virtiofsd 1.13.2）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;passthrough&#x2F;guest_fd_limit.rs:72&lt;&#x2F;code&gt;&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&amp;#x2F;&amp;#x2F; Since this error is likely returned to the guest (and not logged), prefer an
+&amp;#x2F;&amp;#x2F; error with a reasonable errno number over a useful error message.
+io::Error::from_raw_os_error(libc::ENFILE)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;main.rs:51&#x2F;791-793&lt;&#x2F;code&gt; — 池子上限计算&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;limits.rs:50-64&lt;&#x2F;code&gt; — &lt;code&gt;--rlimit-nofile&lt;&#x2F;code&gt; 默认取 &lt;code&gt;min(1_000_000, nr_open)&lt;&#x2F;code&gt;；若继承的软限已 ≥ 1M 则沿用继承值&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;旁证（为什么排除宿主 file-max）：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;宿主 &lt;code&gt;dmesg&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;journalctl&lt;&#x2F;code&gt; 中没有任何 &lt;code&gt;VFS: file-max limit reached&lt;&#x2F;code&gt; 警告
+（环形缓冲覆盖了整个故障窗口，可信）&lt;&#x2F;li&gt;
+&lt;li&gt;6&#x2F;13 实测宿主 &lt;code&gt;file-nr = 1,015,480&lt;&#x2F;code&gt; ≈ 999,390（池子）+ 系统其他 fd，严丝合缝&lt;&#x2F;li&gt;
+&lt;li&gt;故障期间宿主 &lt;code&gt;file-max = INT64_MAX&lt;&#x2F;code&gt;——按内核源码（&lt;code&gt;fs&#x2F;file_table.c&lt;&#x2F;code&gt; 的
+&lt;code&gt;alloc_empty_file&lt;&#x2F;code&gt;），该值下比较 &lt;code&gt;nr_files &amp;gt;= max_files&lt;&#x2F;code&gt; 永远为假，不可能返回 ENFILE&lt;&#x2F;li&gt;
+&lt;li&gt;症状&quot;持续不恢复&quot;符合句柄滞留模型：恢复只能靠 guest 缓存逐出（FUSE_FORGET）
+或重启 virtiofsd&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;pan-duan-biao-zhun-geng-zheng-ban&quot;&gt;判断标准（更正版）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;症状&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd fd 数接近 rlimit（默认 999,390 池）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;guest fd 池即将&#x2F;已经耗尽 ← 核心指标&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;宿主 dmesg 有 &lt;code&gt;VFS: file-max limit reached&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;宿主 file-max 真被撞到（另一种、更罕见的墙）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd fd 99% 为 O_PATH 常规文件&lt;&#x2F;td&gt;&lt;td&gt;guest 在遍历文件系统&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;fd 集中在 &lt;code&gt;target&#x2F;debug&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&lt;&#x2F;code&gt;、&lt;code&gt;build&#x2F;cache&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;构建工具 &#x2F; IDE &#x2F; 搜索扫描&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;file-max = INT64_MAX&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;无碍&lt;&#x2F;strong&gt;（曾误判为根因，见文末）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;file-nr&lt;&#x2F;code&gt; 第 2 列 = 0&lt;&#x2F;td&gt;&lt;td&gt;无意义（现代内核恒为 0）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd RSS 数十 GB&lt;&#x2F;td&gt;&lt;td&gt;正常（guest RAM 映射），非泄漏&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-kuo-da-guest-fd-chi-zhi-ben&quot;&gt;1. 扩大 guest fd 池（治本）&lt;&#x2F;h3&gt;
+&lt;p&gt;virtiofsd 由 libvirtd 派生，继承其 soft rlimit。把 libvirtd 的系统服务限额调大即可
+（virtiofsd 启动时若继承的软限 ≥ 1M 会直接沿用，见 &lt;code&gt;limits.rs:60-63&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl edit libvirtd
+# [Service]
+# LimitNOFILE=4194304
+sudo systemctl restart libvirtd   # 会断开所有 VM 的 virtiofs，需重启域
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;池子变成 ≈ 4,194,304 - 610。&lt;strong&gt;注意与宿主 &lt;code&gt;file-max&lt;&#x2F;code&gt; 配平&lt;&#x2F;strong&gt;：
+若 &lt;code&gt;file-max&lt;&#x2F;code&gt; 设为真实值，必须 &lt;code&gt;file-max ≥ 池子上限 + 余量&lt;&#x2F;code&gt;（如 file-max=8M &#x2F; 池子=4M），
+否则宿主内核会变成更矮的墙（届时 dmesg 会真的出现 VFS 警告）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;宿主内存成本&lt;&#x2F;strong&gt;（只有池子实际用满时才发生，设上限本身零成本）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;资源&lt;&#x2F;th&gt;&lt;th&gt;4M 全占用量&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;内核 slab（struct file，本机实测 192B&#x2F;个）&lt;&#x2F;td&gt;&lt;td&gt;≈ 768 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd 进程 fd 表（8B&#x2F;项）&lt;&#x2F;td&gt;&lt;td&gt;≈ 32 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;2-gen-ben-jiang-hao-gai-yong-file-handle-dai-ti-o-path-fd-tui-jian&quot;&gt;2. 根本降耗：改用 file handle 代替 O_PATH fd（推荐）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# virtiofsd 1.13+ 支持 --inode-file-handles=prefer
+# 用 name_to_handle_at &amp;#x2F; open_by_handle_at 引用 inode，句柄不再消耗 fd
+&amp;#x2F;usr&amp;#x2F;libexec&amp;#x2F;virtiofsd --inode-file-handles=prefer --shared-dir &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project ...
+# 要求宿主文件系统支持 file handle（ext4 支持；virtiofsd 以 root 运行，具备所需能力）
+# 注意: 当前 libvirt 的 &amp;lt;binary&amp;gt; XML 元素可能不暴露该参数，需验证或走 hook
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-vm-nei-jia-su-ju-bing-shi-fang-zhi-biao&quot;&gt;3. VM 内加速句柄释放（治标）&lt;&#x2F;h3&gt;
+&lt;p&gt;句柄在 guest dcache 驱逐 inode（FUSE_FORGET）时才释放，而 &lt;strong&gt;dcache 驱逐只由内存压力
+驱动、没有时间老化&lt;&#x2F;strong&gt;——guest 内存充足时（本机实测 26GB 内存、空闲 12GB），扫描留下的
+近百万 dentry 会永久驻留，FUSE_FORGET 一个都不发，故障&quot;持续不恢复&quot;是符合设计的必然。&lt;&#x2F;p&gt;
+&lt;p&gt;所以真正有效的主动手段是定时 &lt;code&gt;drop_caches&lt;&#x2F;code&gt;；&lt;code&gt;vfs_cache_pressure&lt;&#x2F;code&gt; 只是回收发生时的
+权重系数，&lt;strong&gt;没有内存压力时它什么都不做&lt;&#x2F;strong&gt;，仅作可选加速：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 故障中立即恢复（主动杠杆，几秒内恢复）
+sudo sh -c &amp;#x27;echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches&amp;#x27;
+
+# 长期: 定时执行 drop_caches，把故障窗口压到 ≤ 定时周期
+cat &amp;gt; &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh &amp;lt;&amp;lt; &amp;#x27;EOF&amp;#x27;
+#!&amp;#x2F;bin&amp;#x2F;bash
+CACHED_MB=$(free -m | awk &amp;#x27;&amp;#x2F;^Mem:&amp;#x2F; {print $6}&amp;#x27;)
+if [ $CACHED_MB -gt 4096 ]; then
+    sync
+    echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches
+fi
+EOF
+chmod +x &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh
+# crontab: *&amp;#x2F;30 * * * * &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh
+
+# 可选加速（非必须）: 让碰巧发生的自然回收优先清 dentry 而非 page cache
+echo 1000 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;vfs_cache_pressure
+echo 1000 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;dirty_writeback_centisecs
+
+# 持久化
+cat &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;sysctl.conf &amp;lt;&amp;lt; EOF
+vm.vfs_cache_pressure=1000
+vm.dirty_writeback_centisecs=1000
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：&lt;code&gt;vfs_cache_pressure&lt;&#x2F;code&gt; 不是定时器，没有内存压力时它不会触发任何回收，
+单独设置它无法解决句柄滞留；真正起作用的是定时 &lt;code&gt;drop_caches&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;4-bi-mian-da-fan-wei-di-gui-sao-miao-virtiofs-gua-zai&quot;&gt;4. 避免大范围递归扫描 virtiofs 挂载&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;find&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;grep -rl&lt;&#x2F;code&gt; 大范围扫描会快速耗尽池子（每个 touched inode 都占一个槽）&lt;&#x2F;li&gt;
+&lt;li&gt;大扫描尽量在宿主侧直接执行，或限制范围（&lt;code&gt;-prune&lt;&#x2F;code&gt; 掉 &lt;code&gt;target&#x2F;debug&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&lt;&#x2F;code&gt; 等）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;5-ying-ji-hui-fu&quot;&gt;5. 应急恢复&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# guest 内立即 drop_caches（最快，几秒内恢复）
+sudo sh -c &amp;#x27;echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches&amp;#x27;
+
+# 或重启 virtiofsd &amp;#x2F; 重启 VM（挂载会短暂断开）
+# 注意: kill -HUP 对 Rust 版 virtiofsd 不一定有效，可靠做法是重启域
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-13-shi-shi-yu-yan-zheng-ji-lu&quot;&gt;2026-08-13 实施与验证记录&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;前面的「修复方案」只是建议；本节记录 2026-08-13 实际落地方式、踩到的坑与压测结果。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;shi-ji-fang-an-a-kuo-chi-b-file-handle-shuang-bao-xian&quot;&gt;实际方案（A 扩池 + B file handle 双保险）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;A. 用 &lt;code&gt;&amp;lt;openfiles max&amp;gt;&lt;&#x2F;code&gt; 扩池&lt;&#x2F;strong&gt;——libvirt 11.3 原生支持，比上文改 &lt;code&gt;libvirtd LimitNOFILE&lt;&#x2F;code&gt; 更精准（只影响本域）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- debian13.xml 的 &amp;lt;filesystem&amp;gt; 段 --&amp;gt;
+&amp;lt;binary path=&amp;#x27;&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles&amp;#x27; xattr=&amp;#x27;on&amp;#x27;&amp;gt;
+  &amp;lt;openfiles max=&amp;#x27;4194304&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;binary&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;&amp;lt;openfiles max=&#x27;N&#x27;&#x2F;&amp;gt;&lt;&#x2F;code&gt; 被 libvirt 映射为 &lt;code&gt;--rlimit-nofile=N&lt;&#x2F;code&gt;（&lt;code&gt;libvirt_driver_qemu.so&lt;&#x2F;code&gt; 里有 &lt;code&gt;--rlimit-nofile=%llu&lt;&#x2F;code&gt;）。池上限从 999,390 提到 ≈ 4,193,694，作兜底。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;B. &lt;code&gt;--inode-file-handles=prefer&lt;&#x2F;code&gt; 经 wrapper 传入&lt;&#x2F;strong&gt;——libvirt 的 &lt;code&gt;&amp;lt;binary&amp;gt;&lt;&#x2F;code&gt; 没有 &lt;code&gt;inode-file-handles&lt;&#x2F;code&gt; 元素（schema 查无），只能包一层：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles（root:root 0755）
+#!&amp;#x2F;bin&amp;#x2F;bash
+exec &amp;#x2F;usr&amp;#x2F;libexec&amp;#x2F;virtiofsd --inode-file-handles=prefer &amp;quot;$@&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;keng-libvirtd-de-apparmor-profile-ju-jue-zhi-xing-wrapper&quot;&gt;坑：libvirtd 的 AppArmor profile 拒绝执行 wrapper&lt;&#x2F;h3&gt;
+&lt;p&gt;第一次 &lt;code&gt;virsh start&lt;&#x2F;code&gt; 直接失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;error: 内部错误：子进程（&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles --print-capabilities）意外 退出状态 126: ... 无法执行二进制文件 ...: 权限不够
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;dmesg 定位到 &lt;code&gt;apparmor=&quot;DENIED&quot; operation=&quot;exec&quot; profile=&quot;libvirtd&quot; name=&quot;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles&quot;&lt;&#x2F;code&gt;。
+libvirtd 的 profile 默认只白名单 &lt;code&gt;&#x2F;usr&#x2F;{lib,lib64,lib&#x2F;qemu,libexec}&#x2F;virtiofsd PUx&lt;&#x2F;code&gt;，新路径被拒。&lt;&#x2F;p&gt;
+&lt;p&gt;解法写在 site 级 override（随 libvirtd 升级不丢）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo &amp;#x27;&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles PUx,&amp;#x27; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;local&amp;#x2F;usr.sbin.libvirtd
+apparmor_parser -r &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;usr.sbin.libvirtd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yan-zheng-jie-guo-quan-shu-find-ya-ce-dui-bi&quot;&gt;验证结果（全树 &lt;code&gt;find&lt;&#x2F;code&gt; 压测对比）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;指标&lt;&#x2F;th&gt;&lt;th&gt;修复前&lt;&#x2F;th&gt;&lt;th&gt;修复后&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd worker fd&lt;&#x2F;td&gt;&lt;td&gt;999,410（池满→ENFILE）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;22&lt;&#x2F;strong&gt;（几乎不涨）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;宿主 &lt;code&gt;file-nr&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1,023,072&lt;&#x2F;td&gt;&lt;td&gt;~24,200（持平）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;guest &lt;code&gt;find&lt;&#x2F;code&gt; 全树&lt;&#x2F;td&gt;&lt;td&gt;报 ENFILE&lt;&#x2F;td&gt;&lt;td&gt;正常（agent-code 152,380 文件）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wei-shen-me-file-handle-neng-xiao-chu-fd-zhan-yong&quot;&gt;为什么 file handle 能消除 fd 占用&lt;&#x2F;h3&gt;
+&lt;p&gt;默认 &lt;code&gt;never&lt;&#x2F;code&gt; 模式，virtiofsd 用 &lt;strong&gt;O_PATH fd&lt;&#x2F;strong&gt; 去「记住」guest 触碰过的每个 inode：O_PATH fd 虽不读内容，但照样占 fd 表一个槽位、计入 &lt;code&gt;rlimit_nofile&lt;&#x2F;code&gt;（默认 1M）。扫 N 个文件就占 N 个 fd，池子被吃光。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;prefer&lt;&#x2F;code&gt; 模式改用内核 file handle 接口：&lt;code&gt;name_to_handle_at&lt;&#x2F;code&gt; 给 inode 生成「文件句柄」（一段内存字节，含 inode 号+代次+文件系统 id），需要时 &lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 转回临时 fd。句柄只占内存、不占 fd 槽——「记住一百万 inode」从消耗 fd 变成消耗内存，fd 池不再是瓶颈。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;wei-shen-me-mo-ren-bu-kai-qi-file-handle-de-que-dian&quot;&gt;为什么默认不开启（file handle 的缺点）&lt;&#x2F;h3&gt;
+&lt;p&gt;既然省 fd，virtiofsd 为何默认 &lt;code&gt;never&lt;&#x2F;code&gt; 而不是 &lt;code&gt;prefer&lt;&#x2F;code&gt;？几个正确性&#x2F;可移植性代价：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;句柄不 pin 住 inode&lt;&#x2F;strong&gt;（最大的坑）：O_PATH fd 持有 inode 引用，文件被 unlink 后 fd 仍有效、inode 延迟回收；file handle 只是一段「inode 号+代次+文件系统 id」字节、不持引用，文件删除后 &lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 可能返回 &lt;code&gt;ESTALE&lt;&#x2F;code&gt;，且 inode 号+代次理论上可复用。所以 &lt;code&gt;prefer&lt;&#x2F;code&gt; 对删不掉&#x2F;无句柄的文件仍要回退 O_PATH fd。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 需要 &lt;code&gt;CAP_DAC_READ_SEARCH&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：按 inode 直接打开、绕过路径权限检查，是特权操作；virtiofsd 以 root 跑才有此能力，若未来降权&#x2F;沙箱即失效。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;文件系统支持不普遍&lt;&#x2F;strong&gt;：不少文件系统不支持 file handle（&lt;code&gt;name_to_handle_at&lt;&#x2F;code&gt; 返回 &lt;code&gt;EOPNOTSUPP&lt;&#x2F;code&gt;），如部分 FUSE&#x2F;网络文件系统、overlayfs 某些场景，默认开启会直接坏掉。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;两套路径都要维护&lt;&#x2F;strong&gt;：&lt;code&gt;prefer&lt;&#x2F;code&gt; 是「能用就用、不能则回退」，O_PATH fd 逻辑一点不能删，复杂度不减反增。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;迁移&#x2F;快照序列化更难&lt;&#x2F;strong&gt;：句柄是 opaque 数字、跨主机（不同文件系统实例）无效，需额外重建路径（上文日志里的 &lt;code&gt;preserialization::proc_paths&lt;&#x2F;code&gt; 告警即此类）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;一句话：O_PATH fd = 简单、永远正确、费 fd 槽；file handle = 省 fd、但有删除&#x2F;复用&#x2F;可移植性边角。所以 &lt;code&gt;never&lt;&#x2F;code&gt; 是保守默认，&lt;code&gt;prefer&lt;&#x2F;code&gt; 留给确定支持的场景显式开启——本机（共享目录固定在 ext4、virtiofsd 以 root 跑）恰好覆盖了这些边角。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;hong-fa-yuan-geng-zheng&quot;&gt;触发源更正&lt;&#x2F;h3&gt;
+&lt;p&gt;实测复现的触发是 &lt;code&gt;du -sh *&#x2F;&lt;&#x2F;code&gt; 这类对挂载树的递归遍历。此前怀疑的两者其实都&lt;strong&gt;不是&lt;&#x2F;strong&gt;主要触发源：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ncdu -x &#x2F;home&#x2F;peter&#x2F;&lt;&#x2F;code&gt;：&lt;code&gt;-x&lt;&#x2F;code&gt; 不跨文件系统，根本没进 virtiofs 挂载；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;localsearch-3&lt;&#x2F;code&gt;（GNOME tracker 文件索引器，tracker-miners 更名）：默认 &lt;code&gt;index-single-directories=$HOME&lt;&#x2F;code&gt; 只索引单层不递归，实测仅 88 个文件。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;ceng-jing-de-cuo-wu-jie-lun-bao-liu-bei-cha-wu-zai-fan&quot;&gt;曾经的错误结论（保留备查，勿再犯）&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;以下为 2026-06-13 初版的错误分析。保留它不是为了参考，而是为了记住为什么错。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;错误结论：&lt;&#x2F;strong&gt; &lt;code&gt;fs.file-max&lt;&#x2F;code&gt; 被设为 &lt;code&gt;9223372036854775807&lt;&#x2F;code&gt;（INT64_MAX）导致内核
+fd table 扩容公式 &lt;code&gt;n = last * 2 + 1&lt;&#x2F;code&gt; 整数溢出 → &lt;code&gt;kvmalloc&lt;&#x2F;code&gt; 分配巨大数组失败 → 返回 ENFILE。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;为什么错（2026-08-07 对照内核 6.12 源码核实）：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;内核 fd table 扩容（&lt;code&gt;fs&#x2F;file.c&lt;&#x2F;code&gt;）的硬上限是 &lt;code&gt;sysctl_nr_open&lt;&#x2F;code&gt;（即 &lt;code&gt;fs.nr_open&lt;&#x2F;code&gt;），
+超了返回 &lt;strong&gt;EMFILE(24)&lt;&#x2F;strong&gt;，整个 &lt;code&gt;fs&#x2F;file.c&lt;&#x2F;code&gt; 中根本不存在 &lt;code&gt;files_stat.max_files&lt;&#x2F;code&gt; 的引用——
+扩容与 &lt;code&gt;file-max&lt;&#x2F;code&gt; 零关系&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;file-max&lt;&#x2F;code&gt; 唯一出现在 &lt;code&gt;fs&#x2F;file_table.c&lt;&#x2F;code&gt; 的 &lt;code&gt;alloc_empty_file()&lt;&#x2F;code&gt;：
+&lt;code&gt;nr_files &amp;gt;= max_files&lt;&#x2F;code&gt; 才返回 ENFILE(23)。&lt;code&gt;INT64_MAX&lt;&#x2F;code&gt; 下该比较永远为假，
+恰恰&lt;strong&gt;不可能&lt;&#x2F;strong&gt;产生 ENFILE&lt;&#x2F;li&gt;
+&lt;li&gt;当时&quot;修复&quot;（把 file-max 设为 2097152）与根因无关；真正让系统恢复的是
+扫描结束 &#x2F; 缓存逐出 &#x2F; virtiofsd 重启等并发因素&lt;&#x2F;li&gt;
+&lt;li&gt;复发时宿主 dmesg 无 VFS 警告，最终在 virtiofsd 1.13.2 源码
+&lt;code&gt;guest_fd_limit.rs:72&lt;&#x2F;code&gt; 找到真正的 ENFILE 出处&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;教训：&lt;&#x2F;strong&gt; ① 症状（ENFILE）不一定来自最显眼的配置（file-max），先找 ENFILE 的
+唯一内核出口，再顺着代码追；② 排查&quot;大值参数&quot;时要先确认内核里它到底被谁引用；
+③ 实测 dmesg 环形缓冲覆盖窗口内的&quot;无警告&quot;是有效证据。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;he-xin-pai-cha-luo-ji&quot;&gt;核心排查逻辑&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;guest 内 virtiofs 操作报 ENFILE
+  → 宿主 dmesg 有无 &amp;quot;VFS: file-max limit reached&amp;quot;？（区分两种墙）
+  → ps 找 virtiofsd → sudo ls &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;fd | wc -l
+  → 对比 guest fd 池上限（rlimit - 610，默认 999,390）
+  → 池满 → 看 fd 指向（O_PATH、guest 相对路径）→ 定位 guest 内扫描进程
+  → guest 内 drop_caches（主动）&amp;#x2F; 定时 cron 防复发
+  → 根治: 扩池子（libvirtd LimitNOFILE）&amp;#x2F; --inode-file-handles=prefer
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>QEMU 虚拟机无法访问网关&#x2F;公网排查</title>
+        <published>2026-06-13T02:30:00+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"/>
+        <id>https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/">&lt;h1 id=&quot;qemu-xu-ni-ji-wu-fa-fang-wen-wang-guan-gong-wang-pai-cha-wen-dang&quot;&gt;QEMU 虚拟机无法访问网关&#x2F;公网 排查文档&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU 虚拟机（libvirt）无法 ping 通网关 &lt;code&gt;192.168.2.1&lt;&#x2F;code&gt;，也无法访问公网。宿主机网络正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;huan-jing-xin-xi&quot;&gt;环境信息&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.100&#x2F;24&lt;&#x2F;code&gt; (vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网关&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.1&lt;&#x2F;code&gt; (MAC: &lt;code&gt;74:45:2d:96:7f:cc&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.156&lt;&#x2F;code&gt; (MAC: &lt;code&gt;52:54:00:3c:13:73&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理网卡&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eno1&lt;&#x2F;code&gt; (桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟网桥&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vmbr0&lt;&#x2F;code&gt; (含 eno1 + vnet0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TAP 设备&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vnet0&lt;&#x2F;code&gt; (VM 接口，桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟化&lt;&#x2F;td&gt;&lt;td&gt;QEMU&#x2F;KVM (libvirt 管理)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-que-ren-su-zhu-ji-wang-luo-zheng-chang&quot;&gt;1. 确认宿主机网络正常&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ping -c 2 192.168.2.1
+# 结果：正常，0% 丢包
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-que-ren-wang-qiao-tuo-bu-zheng-que&quot;&gt;2. 确认网桥拓扑正确&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;brctl show vmbr0
+# vmbr0:
+#   eno1    (物理网卡)
+#   vnet0   (虚拟机 TAP 接口)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-zai-vmbr0-shang-zhua-bao-fa-xian-vm-fa-chu-de-icmp-qing-qiu&quot;&gt;3. 在 vmbr0 上抓包 — 发现 VM 发出的 ICMP 请求&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i vmbr0 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;22:28:13.582982 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc, ethertype IPv4 (0x0800), length 98: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request, id 10485, seq 68, length 64
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 发出的包到达了网桥 vmbr0，但没有收到任何 reply。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-zai-wu-li-wang-qia-eno1-shang-zhua-bao-fa-xian-bao-mei-you-dao-da-wu-li-jie-kou&quot;&gt;4. 在物理网卡 eno1 上抓包 — 发现包没有到达物理接口&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp and host 192.168.2.156
+# 结果：0 packets captured
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 的 ICMP 请求在 vmbr0 到 eno1 之间被丢弃了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-jian-cha-bridge-netfilter-she-zhi-fa-xian-guan-jian-wen-ti&quot;&gt;5. 检查 bridge netfilter 设置 — 发现关键问题&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl net.bridge.bridge-nf-call-iptables
+# net.bridge.bridge-nf-call-iptables = 1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：&lt;&#x2F;strong&gt; &lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt; 意味着桥接的 L2 流量也会经过 iptables 处理。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然 &lt;code&gt;&#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;code&gt; 中配置的是 &lt;code&gt;=0&lt;&#x2F;code&gt;，但 Docker 启动时会将其设为 &lt;code&gt;1&lt;&#x2F;code&gt;（Docker 依赖此设置来实现容器网络隔离和端口映射）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-jian-cha-iptables-forward-lian-que-ren-diu-bao-dian&quot;&gt;6. 检查 iptables FORWARD 链 — 确认丢包点&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP 3727K packets, 1454M bytes)
+ pkts bytes target     prot opt in     out     source               destination
+  229 24446 ACCEPT     all  --  vmbr0  tun0    192.168.2.0&amp;#x2F;24       192.168.4.0&amp;#x2F;22
+  477  513K ACCEPT     all  --  tun0   vmbr0   192.168.4.0&amp;#x2F;22       192.168.2.0&amp;#x2F;24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因确认：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;FORWARD 链默认策略为 &lt;code&gt;DROP&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仅有的两条涉及 vmbr0 的规则只允许 &lt;code&gt;vmbr0 &amp;lt;-&amp;gt; tun0&lt;&#x2F;code&gt; 的 VPN 流量（192.168.2.0&#x2F;24 &amp;lt;-&amp;gt; 192.168.4.0&#x2F;22）&lt;&#x2F;li&gt;
+&lt;li&gt;没有规则允许 vmbr0 的普通桥接流量（如 VM -&amp;gt; 网关）&lt;&#x2F;li&gt;
+&lt;li&gt;因此 VM 发出的包在到达网桥后被 iptables DROP 掉，无法到达物理网卡 eno1&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;shu-ju-liu-shi-yi&quot;&gt;数据流示意&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;VM (192.168.2.156)
+    │
+    ▼ ICMP echo request
+ vnet0 ─── vmbr0 ─── ✗ iptables FORWARD DROP ─── eno1 (物理网卡)
+                       (无匹配规则)                │
+                                                   ▼
+                                             Gateway (192.168.2.1)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;li-ji-xiu-fu&quot;&gt;立即修复&lt;&#x2F;h3&gt;
+&lt;p&gt;添加规则允许桥接流量通过 iptables：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -m physdev --physdev-is-bridged -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-m physdev --physdev-is-bridged&lt;&#x2F;code&gt; 精确匹配经过桥接转发的流量&lt;&#x2F;li&gt;
+&lt;li&gt;将该规则插入 FORWARD 链首部，优先于 Docker 的链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chi-jiu-hua&quot;&gt;持久化&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;netfilter-persistent save
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该命令将当前 iptables 规则保存到 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;，重启后自动恢复。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP)
+ pkts bytes target     prot opt in     out     source               destination
+  155 44480 ACCEPT     all  --  *      *       0.0.0.0&amp;#x2F;0            0.0.0.0&amp;#x2F;0            PHYSDEV match --physdev-is-bridged
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;22:30:08.217904 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request
+22:30:08.218266 74:45:2d:96:7f:cc &amp;gt; 52:54:00:3c:13:73: 192.168.2.1 &amp;gt; 192.168.2.156: ICMP echo reply
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 ICMP 请求和网关的回复均已正常到达物理网卡，问题解决。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h2&gt;
+&lt;p&gt;如果不想依赖 iptables 规则，也可以禁用 bridge netfilter：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl -w net.bridge.bridge-nf-call-iptables=0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但此方案会导致 Docker 的端口映射和容器间隔离失效，&lt;strong&gt;不推荐&lt;&#x2F;strong&gt;在有 Docker 运行的环境中采用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2026-08-07-wen-ti-fu-fa-gen-yin-shi-chi-jiu-hua-jing-mo-shi-xiao&quot;&gt;2026-08-07 问题复发：根因是持久化静默失效&lt;&#x2F;h2&gt;
+&lt;p&gt;同一环境（宿主机 192.168.2.100、vmbr0、网关 192.168.2.1、VM 192.168.2.156）两个月后再次出现 VM 无法 ping 通网关，且 VM 无法访问公网。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-yao-dian-ben-ci-shi-ce&quot;&gt;排查要点（本次实测）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;VM → 宿主 ping 正常（0.15ms）&lt;&#x2F;strong&gt;：目标为宿主本机 IP，走 INPUT 链，不受 FORWARD 影响&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VM → 网关 ICMP 100% 丢包&lt;&#x2F;strong&gt;，但 &lt;code&gt;tcpdump -i vnet1&lt;&#x2F;code&gt; 能抓到 VM 发出的 &lt;code&gt;ICMP echo request&lt;&#x2F;code&gt;——包已离开 VM&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;tcpdump -i eno1&lt;&#x2F;code&gt; 抓不到 VM 的任何 ICMP&#x2F;ARP&lt;&#x2F;strong&gt;——包在网桥转发阶段被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;：&lt;code&gt;Chain FORWARD (policy DROP 2917 packets, 1032K bytes)&lt;&#x2F;code&gt;——大量包已被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;lsmod | grep br_netfilter&lt;&#x2F;code&gt;：已加载（Docker 依赖），&lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;排查小技巧——对比抓包定位丢包点：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;观测点&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;VM 内 ping 宿主&lt;&#x2F;td&gt;&lt;td&gt;通&lt;&#x2F;td&gt;&lt;td&gt;INPUT 链正常&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;vnet1 上有 ICMP 出包&lt;&#x2F;td&gt;&lt;td&gt;有&lt;&#x2F;td&gt;&lt;td&gt;包已离开 VM&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;eno1 上无 ICMP&#x2F;ARP&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;丢弃发生在网桥&#x2F;IP 转发（FORWARD）阶段&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;ben-ci-xiu-fu&quot;&gt;本次修复&lt;&#x2F;h3&gt;
+&lt;p&gt;相比上文的 physdev 通用规则，按网桥接口的规则更直观、易维护：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT
+iptables -I FORWARD -o vmbr0 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：VM ping 网关 0.5ms、ping 公网 8.8.8.8 正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fu-fa-gen-yin-chi-jiu-hua-jing-mo-shi-xiao-zhong-yao-jiao-xun&quot;&gt;复发根因：持久化静默失效（重要教训）&lt;&#x2F;h3&gt;
+&lt;p&gt;上文的 &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 其实一直没生效：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;宿主只安装了 &lt;code&gt;netfilter-persistent&lt;&#x2F;code&gt;，但 &lt;strong&gt;iptables 插件（iptables-persistent）从未安装&lt;&#x2F;strong&gt;，&lt;code&gt;&#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt; 为空&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 输出为空、退出码为 0，但 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 从未生成——&lt;strong&gt;静默失败&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;因此一旦重启（或 iptables 规则被清空），上次的 FORWARD 规则全部丢失，问题必然复发&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;修复持久化：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install iptables-persistent   # 安装 15-ip4tables &amp;#x2F; 25-ip6tables 插件
+netfilter-persistent save          # 这次输出 run-parts: executing ... 插件真正生效
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 已生成且包含 vmbr0 规则。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训：&lt;&#x2F;strong&gt; 任何&quot;保存&#x2F;持久化&quot;类操作，执行后必须验证产物存在（文件已生成、内容正确），不能只依赖退出码。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-jian-ming-ling-su-cha&quot;&gt;关键命令速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;查看网桥成员&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl show&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 bridge netfilter 状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sysctl net.bridge.bridge-nf-call-iptables&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 iptables FORWARD 链&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;放行网桥转发流量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;-o vmbr0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网桥上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i vmbr0 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理接口上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i eno1 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;检查持久化插件&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;相关：Wi-Fi 宿主上 VM 无法从局域网访问（macvtap 被 AP 丢弃单播 → proxy-ARP 路由方案）的完整排查记录见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;07&#x2F;virtualization&#x2F;&quot;&gt;虚拟化笔记&lt;&#x2F;a&gt;。
+| 保存 iptables 规则 | &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt;（确认生成 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;） |&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>cockpit管理qemu虚拟机</title>
+        <published>2025-10-09T20:04:52+08:00</published>
+        <updated>2026-08-10T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/"/>
+        <id>https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/">&lt;h1 id=&quot;gao-xiao-deng-lu-xu-ni-ji-gui&quot;&gt;高效登录虚拟机GUI&lt;&#x2F;h1&gt;
+&lt;p&gt;使用virt-viewer客户端spice协议登录&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install virt-viewer
+virt-viewer --reconnect win11
+virt-viewer --wait win11
+virsh domdisplay win11
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;lian-jie-ju-yu-wang-de-xu-ni-ji&quot;&gt;连接局域网的虚拟机&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#1. 如果远程宿主机也在跑 libvirtd 并允许远程连接，你还可以直接用：
+# 这样 virt-viewer 会先通过 libvirt 查询到 SPICE 端口，然后自动帮你连上去（不用手动写端口）。
+# 通常推荐这种方式，安全性更好（走 SSH）
+virt-viewer -c qemu+ssh:&amp;#x2F;&amp;#x2F;user@&amp;lt;宿主机IP&amp;gt;&amp;#x2F;system &amp;lt;VM名称或UUID&amp;gt;
+virt-viewer -c qemu+ssh:&amp;#x2F;&amp;#x2F;peter@192.168.7.99&amp;#x2F;system win11
+
+#2. 开放spice监听外部地址
+# 修改listen=&amp;#x27;0.0.0.0&amp;#x27; 表示允许外部访问（默认可能是 127.0.0.1，那就只能本机连）。
+# port 可以固定（如 5901）或自动分配
+sudo virsh list
+sudo virsh dominfo win11
+sudo grep -C 0 --group-separator=&amp;quot;======&amp;quot; listen &amp;#x2F;etc&amp;#x2F;libvirt&amp;#x2F;qemu&amp;#x2F;win11.xml
+sudo sed -i&amp;#x27;&amp;#x27; &amp;#x27;s&amp;#x2F;127.0.0.1&amp;#x2F;0.0.0.0&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;libvirt&amp;#x2F;qemu&amp;#x2F;win11.xml
+# 一般需要配置密码，否则太不安全
+## &amp;lt;graphics type=&amp;#x27;spice&amp;#x27; port=&amp;#x27;5901&amp;#x27; listen=&amp;#x27;0.0.0.0&amp;#x27;&amp;gt;
+##   &amp;lt;passwd&amp;gt;123&amp;lt;&amp;#x2F;passwd&amp;gt;
+## &amp;lt;&amp;#x2F;graphics&amp;gt;
+virt-viewer --spice-uri spice:&amp;#x2F;&amp;#x2F;192.168.7.99:5901 --spice-password 123
+
+cat &amp;lt;&amp;lt;EOF &amp;gt; win11.vv
+[virt-viewer]
+type=spice
+host=192.168.7.99
+port=5901
+password=123
+delete-this-file=1
+fullscreen=0
+EOF
+remote-viewer vm.vv
+# 或者直接双击执行
+
+# 可能的问题
+# 音频&amp;#x2F;USB 不工作 SPICE 的辅助通道（如 5902）可能被防火墙阻断，需开放连续端口范围
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qi-dong-wen-ti-pai-cha&quot;&gt;启动问题排查&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;从debian12 升级到debian13系统后， cockpit的web页面登录失败&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl status cockpit.service
+# 2月 03 14:00:57 xiao99 cockpit-tls[2028483]: cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+# 2月 03 14:01:06 xiao99 cockpit-tls[2028483]: cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+
+# 另外网页会自动刷行页面，后续的cockpit.socket 会崩溃，出现另一个报错信息, 这个应该不是根因
+# Dependency failed for cockpit.service - Cockpit Web Service.
+
+gnutls-cli --insecure -p 9090 localhost
+# Processed 0 CA certificate(s).
+# Resolving &amp;#x27;localhost:9090&amp;#x27;...
+# Connecting to &amp;#x27;127.0.0.1:9090&amp;#x27;...
+# *** Fatal error: Error in the pull function.
+
+echo -e &amp;quot;GET &amp;#x2F; HTTP&amp;#x2F;1.0\r\n\r\n&amp;quot; | socat - OPENSSL:127.0.0.1:9090,verify=0
+# 2026&amp;#x2F;02&amp;#x2F;03 14:18:00 socat[2106042] W refusing to set empty SNI host name
+# 2026&amp;#x2F;02&amp;#x2F;03 14:18:00 socat[2106042] W SSL_connect(): Connection reset by peer
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zheng-shu-wen-ti-jie-jue&quot;&gt;证书问题解决&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemd-run \
+  --unit=cockpit-cert-debug \
+  --pty \
+  -p RuntimeDirectory=cockpit&amp;#x2F;tls \
+  -p WorkingDirectory=&amp;#x2F; \
+  &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;cockpit&amp;#x2F;cockpit-certificate-ensure --for-cockpit-tls
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl reset-failed cockpit-debug.service
+sudo systemd-run \
+  --unit=cockpit-debug \
+  --pty \
+  -p WorkingDirectory=&amp;#x2F;run \
+  -p RuntimeDirectory=cockpit&amp;#x2F;tls \
+  -p DynamicUser=yes \
+  -p User=cockpit-systemd-service \
+  -p Group=cockpit-wsinstance-socket \
+  -p NoNewPrivileges=yes \
+  -p ProtectSystem=strict \
+  -p PrivateDevices=yes \
+  -p ProtectKernelTunables=yes \
+  -p MemoryDenyWriteExecute=yes \
+  -p PrivateIPC=yes \
+  -p PrivateNetwork=yes \
+  &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;cockpit&amp;#x2F;cockpit-tls
+
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl enable --now \
+  cockpit.socket \
+  cockpit-wsinstance-http.socket \
+  cockpit-wsinstance-https-factory.socket
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-ni-ji-biao-qian-bu-xian-shi&quot;&gt;虚拟机标签不显示&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：登录 Cockpit 后左侧导航只有 概览&#x2F;日志&#x2F;存储&#x2F;网络&#x2F;用户账户&#x2F;服务，没有「虚拟机」标签。&lt;&#x2F;p&gt;
+&lt;p&gt;原因：未安装 &lt;code&gt;cockpit-machines&lt;&#x2F;code&gt; 包（虚拟机页面的功能由它提供，与 libvirt 本体无关）。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看已装 cockpit 组件
+dpkg -l | grep cockpit
+
+sudo apt install cockpit-machines
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装后强制刷新浏览器（Ctrl+Shift+R）即可出现「虚拟机器」标签。
+注意：Ubuntu 24.04 若 cockpit 核心来自 backports（如 362），建议一并安装 backports 版对齐版本，避免旧版页面与新版 bridge 不兼容：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install cockpit-machines&amp;#x2F;noble-backports
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;deng-lu-duan-kai-zi-qian-zheng-shu-guo-qi-zi-dong-zhong-xin-sheng-cheng&quot;&gt;登录断开：自签证书过期自动重新生成&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：前一天还能打开 Cockpit，今天突然「已断开连接 &#x2F; 服务器已关闭了连接」。服务器日志里大量：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查发现 &lt;code&gt;&#x2F;etc&#x2F;cockpit&#x2F;ws-certs.d&#x2F;&lt;&#x2F;code&gt; 下的自签证书在当天被重新生成了（旧证书过期）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls -la &amp;#x2F;etc&amp;#x2F;cockpit&amp;#x2F;ws-certs.d&amp;#x2F;
+openssl x509 -in &amp;#x2F;etc&amp;#x2F;cockpit&amp;#x2F;ws-certs.d&amp;#x2F;0-self-signed.cert -noout -dates
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;浏览器缓存&#x2F;信任的是旧证书，服务器换了新证书后 TLS 握手被浏览器直接掐断，表现就是「已断开连接」。这与上面 Debian 升级导致的证书问题根因不同（那次是升级破坏了证书文件，这次是正常到期轮换）。&lt;&#x2F;p&gt;
+&lt;p&gt;解决（浏览器侧操作）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;隐身窗口打开 &lt;code&gt;https:&#x2F;&#x2F;&amp;lt;ip&amp;gt;:9090&lt;&#x2F;code&gt;，出现&quot;您的连接不是私密连接&quot;时点 高级 → 继续前往&lt;&#x2F;li&gt;
+&lt;li&gt;若曾把旧证书导入系统&#x2F;浏览器信任库，删除旧记录&lt;&#x2F;li&gt;
+&lt;li&gt;清除该站点的缓存&#x2F;站点数据&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;服务端验证连通性：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -sk -o &amp;#x2F;dev&amp;#x2F;null -w &amp;#x27;HTTP %{http_code}\n&amp;#x27; https:&amp;#x2F;&amp;#x2F;localhost:9090&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-ni-ji-ye-mian-fu-wu-qi-yi-guan-bi-liao-lian-jie-pybridge-dan-li-huan-cun-bug&quot;&gt;虚拟机页面「服务器已关闭了连接」：pybridge 单例缓存 bug&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：其他标签都正常，唯独点「虚拟机」后整个会话断开，页面显示「已断开连接 &#x2F; 服务器已关闭了连接」+ 重新连接按钮。每次点都崩，可稳定复现。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;服务器日志（journalctl）看到 bridge 崩溃：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;journalctl -u cockpit-session@ -n 50
+# cockpit.protocol.CockpitProtocolError: channel is already open
+#   File &amp;quot;...&amp;#x2F;cockpit&amp;#x2F;router.py&amp;quot;, line 281, in channel_control_received
+# OSError: [Errno 22] sd_bus_attach_event: Invalid argument
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;检查运行中 bridge 的环境，发现缺少 &lt;code&gt;XDG_RUNTIME_DIR&lt;&#x2F;code&gt; 和 &lt;code&gt;DBUS_SESSION_BUS_ADDRESS&lt;&#x2F;code&gt;：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tr &amp;#x27;\0&amp;#x27; &amp;#x27;\n&amp;#x27; &amp;lt; &amp;#x2F;proc&amp;#x2F;&amp;lt;bridge-pid&amp;gt;&amp;#x2F;environ
+# 只有 XDG_SESSION_CLASS&amp;#x2F;XDG_SESSION_TYPE&amp;#x2F;HOME&amp;#x2F;PATH
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;3&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;干净环境复现：&lt;code&gt;sd_bus_default_user&lt;&#x2F;code&gt; 报 &lt;code&gt;No medium found&lt;&#x2F;code&gt;（ENOMEDIUM）——web 会话没有 session bus。&lt;code&gt;&#x2F;etc&#x2F;pam.d&#x2F;cockpit&lt;&#x2F;code&gt; 只有 &lt;code&gt;pam_unix&lt;&#x2F;code&gt;，没有 &lt;code&gt;pam_systemd&lt;&#x2F;code&gt;，所以 bridge 拿不到用户会话总线地址。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;给 bridge 打临时日志补丁（router.py 记录重复打开的 channel id，dbus.py 记录打开的 bus&#x2F;name），再触发一次崩溃，抓到决定性证据：&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# DBG dbus-open channel=1:6!6 bus=session name=org.libvirt superuser=None
+#   → attach_event EINVAL（异步异常，channel 残留在 open_channels，无 close 响应）
+# DBG channel=1:6!6 already-open message={&amp;#x27;bus&amp;#x27;: &amp;#x27;session&amp;#x27;, &amp;#x27;payload&amp;#x27;: &amp;#x27;dbus-json3&amp;#x27;, &amp;#x27;name&amp;#x27;: &amp;#x27;org.libvirt&amp;#x27;, ...}
+#   → 页面超时后重试同一 channel id → CockpitProtocolError → bridge 死亡
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h2&gt;
+&lt;p&gt;崩溃链完整还原：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;会话内第一个 session bus 通道（如日志页的 &lt;code&gt;org.freedesktop.systemd1&lt;&#x2F;code&gt;）调用 &lt;code&gt;sd_bus_default_user&lt;&#x2F;code&gt; 失败（ENOMEDIUM），但 &lt;code&gt;systemd_ctypes&#x2F;bus.py&lt;&#x2F;code&gt; 的 &lt;code&gt;default_user()&lt;&#x2F;code&gt; &lt;strong&gt;先把空壳 Bus() 写入了单例缓存&lt;&#x2F;strong&gt;，失败后也不清除：&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;if Bus._default_user_instance is None:
+    Bus._default_user_instance = Bus()      # 先赋值（空壳！）
+    Bus._default_user(byref(...))           # 失败时异常，但空壳已缓存
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;虚拟机页打开 &lt;code&gt;org.libvirt&lt;&#x2F;code&gt; session 通道（第二个 session 通道），拿到缓存的空 bus → &lt;code&gt;attach_event(NULL)&lt;&#x2F;code&gt; 返回 EINVAL → channel 半开残留在路由表&lt;&#x2F;li&gt;
+&lt;li&gt;页面收不到 ready&#x2F;close 响应，超时重试同一 channel id → router 抛 &lt;code&gt;CockpitProtocolError(&#x27;channel is already open&#x27;)&lt;&#x2F;code&gt; → 整个 bridge 进程崩溃 → 前端「服务器已关闭了连接」&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;xiu-fu&quot;&gt;修复&lt;&#x2F;h2&gt;
+&lt;p&gt;只把成功创建的连接写入缓存（&lt;code&gt;default_user&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;default_system&lt;&#x2F;code&gt; 同样处理）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;@staticmethod
+def default_user(attach_event: bool = True) -&amp;gt; &amp;#x27;Bus&amp;#x27;:
+    if Bus._default_user_instance is None:
+        instance = Bus()
+        Bus._default_user(byref(instance))
+        if attach_event:
+            instance.attach_event(None, 0)
+        Bus._default_user_instance = instance
+    return Bus._default_user_instance
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;修复后 session 通道干净地返回 ChannelError，虚拟机页按设计回落到 system bus（&lt;code&gt;superuser: &quot;try&quot;&lt;&#x2F;code&gt;），虚拟机列表正常加载。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jing-yan&quot;&gt;经验&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;判定顺序：先看服务器日志定位崩溃点，再看 bridge 进程环境找缺失依赖，最后用临时日志补丁抓决定性证据&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;systemd_ctypes&lt;&#x2F;code&gt; 的单例模式「先赋值后初始化」是隐患，任何初始化失败都会污染缓存——排查时可先怀疑这类模式&lt;&#x2F;li&gt;
+&lt;li&gt;复现脚本（模拟 bridge 协议驱动 channel 打开）能验证修复，但要记得模拟浏览器的「重试」行为，否则不会触发崩溃&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>虚拟化技术</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/virtualization/"/>
+        <id>https://moxuetianya.github.io/2025/07/virtualization/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/virtualization/">&lt;h1 id=&quot;xu-ni-hua-ji-shu&quot;&gt;虚拟化技术&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;kvm-huan-jing-jian-cha&quot;&gt;KVM 环境检查&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Intel CPU
+grep &amp;quot;vmx&amp;quot; &amp;#x2F;proc&amp;#x2F;cpuinfo
+
+# AMD CPU
+grep &amp;quot;svm&amp;quot; &amp;#x2F;proc&amp;#x2F;cpuinfo
+
+# 检查 kvm 模块
+lsmod | grep kvm
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;KVM 环境目录：&lt;code&gt;&#x2F;etc&#x2F;libvirt&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xu-ni-ji-ci-pan-guan-li&quot;&gt;虚拟机磁盘管理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;chuang-jian-xu-ni-ci-pan&quot;&gt;创建虚拟磁盘&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 文件方式
+qemu-img create -f qcow2 &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;vm.qcow2 10G
+
+# libvirt 存储池方式
+virsh vol-create-as vmfspool vm.img 10G --format qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;kuo-suo-rong&quot;&gt;扩缩容&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img resize &amp;#x2F;path&amp;#x2F;vm.qcow2 +10G
+qemu-img check &amp;#x2F;path&amp;#x2F;vm.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;re-tian-jia-yi-chu-ci-pan&quot;&gt;热添加&#x2F;移除磁盘&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh attach-disk VM1 &amp;#x2F;data&amp;#x2F;vmfs&amp;#x2F;disk.qcow2 vdb --subdriver=qcow2
+virsh detach-disk VM1 &amp;#x2F;data&amp;#x2F;vmfs&amp;#x2F;disk.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;若报 &lt;code&gt;No more available PCI slots&lt;&#x2F;code&gt;：&lt;code&gt;pc-i440fx&lt;&#x2F;code&gt; 机器 PCI 槽位有限（31 个），每个 virtio-blk 设备占 1 个，需通过 PCI bridge 扩展。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jing-xiang-ge-shi-dui-bi&quot;&gt;镜像格式对比&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;格式&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;raw&lt;&#x2F;td&gt;&lt;td&gt;裸格式，无元数据，不支持快照&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;qcow2&lt;&#x2F;td&gt;&lt;td&gt;主流格式，支持 COW、多快照、zlib 压缩、AES 加密&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;zeng-liang-jing-xiang&quot;&gt;增量镜像&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img create -b base.qcow2 -f qcow2 child.qcow2  # 基于 base 创建 overlay
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ge-shi-zhuan-huan&quot;&gt;格式转换&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img convert -f raw -O qcow2 vm.raw vm.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cun-chu-chi-guan-li&quot;&gt;存储池管理&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 创建本地目录存储池
+virsh pool-define-as vmfspool --type dir --target &amp;#x2F;data&amp;#x2F;vmfs
+virsh pool-build vmfspool
+virsh pool-start vmfspool
+virsh pool-autostart vmfspool
+
+# 查看
+virsh pool-list --all
+virsh pool-info vmfspool
+
+# 删除（先 destroy 再 undefine）
+virsh pool-destroy vmfspool
+virsh pool-undefine vmfspool
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xu-ni-ji-guan-li&quot;&gt;虚拟机管理&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh list --all                # 列出所有虚拟机
+virsh start VM1                 # 启动
+virsh suspend VM1               # 挂起
+virsh resume VM1                # 恢复
+virsh destroy VM1               # 强制关机
+virsh dumpxml VM1               # 导出配置
+virsh edit VM1                  # 编辑配置
+
+# 克隆
+virt-clone -o VM1 -n vm-clone --auto-clone
+
+# 快照
+virsh snapshot-create-as VM1 snap1
+virsh snapshot-revert VM1 snap1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;退出 virsh console：&lt;code&gt;Ctrl+]&lt;&#x2F;code&gt;（英文键盘 &lt;code&gt;Ctrl+Shift+]&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;headless-xu-ni-ji-wu-gui-an-zhuang-yu-pei-zhi&quot;&gt;headless 虚拟机（无 GUI 安装与配置）&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;an-zhuang-qian-ti-yong-hu-quan-xian&quot;&gt;安装前提：用户权限&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo usermod -aG kvm peter      # virt-install 以用户身份探测 &amp;#x2F;dev&amp;#x2F;kvm，需在 kvm 组
+# polkit 授权（SSH 会话无图形代理，virsh 连 qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system 会报
+# &amp;quot;身份验证不可用：没有可以验证操作 &amp;#x27;org.libvirt.unix.manage&amp;#x27; 的 polkit 代理&amp;quot;）
+# &amp;#x2F;etc&amp;#x2F;polkit-1&amp;#x2F;rules.d&amp;#x2F;49-libvirt.rules：
+polkit.addRule(function(action, subject) {
+  if (action.id == &amp;quot;org.libvirt.unix.manage&amp;quot; &amp;amp;&amp;amp; subject.user == &amp;quot;peter&amp;quot;) {
+    return polkit.Result.YES;
+  }
+});
+sudo systemctl restart polkit.service
+
+# 非 root 用户 virt-install 默认走 qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;session（找不到 default 网络），务必指定：
+export LIBVIRT_DEFAULT_URI=qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;preseed-zi-dong-an-zhuang-chuan-kou-wu-jiao-hu&quot;&gt;preseed 自动安装（串口无交互）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 提取 d-i 内核（注意 Debian netinst ISO 布局是 install.amd，不是 install.amd64）
+sudo mount -o loop,ro debian-13.6.0-amd64-netinst.iso &amp;#x2F;mnt&amp;#x2F;iso-loop
+mkdir -p &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;install.amd64
+cp &amp;#x2F;mnt&amp;#x2F;iso-loop&amp;#x2F;install.amd&amp;#x2F;{vmlinuz,initrd.gz} &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;install.amd64&amp;#x2F;
+
+# HTTP 分发 preseed（比 --initrd-inject 可靠：HTTP 日志可确认 d-i 确实取到了文件）
+python3 -m http.server 8000 --directory &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso --bind 0.0.0.0 &amp;amp;
+
+virt-install \
+  --name debian13-vm --memory 4096 --vcpus 4 \
+  --disk path=&amp;#x2F;dev&amp;#x2F;nvme0n1p8,bus=virtio,format=raw \
+  --network network=default,model=virtio \
+  --graphics none \
+  --console pty,target_type=serial \
+  --channel unix,target_type=virtio,name=org.qemu.guest_agent \
+  --location &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;debian-13.6.0-amd64-netinst.iso \
+  --os-variant debiantrixie \
+  --extra-args &amp;quot;auto console=ttyS0,115200n8 preseed&amp;#x2F;url=http:&amp;#x2F;&amp;#x2F;192.168.122.1:8000&amp;#x2F;preseed.cfg&amp;quot; \
+  --force --noautoconsole
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;preseed 踩坑：键盘问题没答全会&lt;strong&gt;卡在交互主菜单&lt;&#x2F;strong&gt;（&lt;code&gt;console-setup&#x2F;ask_detect false&lt;&#x2F;code&gt; + &lt;code&gt;console-setup&#x2F;layoutcode us&lt;&#x2F;code&gt; + &lt;code&gt;keyboard-configuration&#x2F;xkb-keymap us&lt;&#x2F;code&gt; 三件套都要）；&lt;code&gt;--extra-args&lt;&#x2F;code&gt; 只支持 &lt;code&gt;--location&lt;&#x2F;code&gt;（&lt;code&gt;--cdrom&lt;&#x2F;code&gt; 会报 &quot;Kernel arguments are only supported with location&quot;）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chuan-kou-console-deng-lu&quot;&gt;串口 console 登录&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub：
+GRUB_CMDLINE_LINUX=&amp;quot;console=ttyS0,115200n8&amp;quot;
+GRUB_TERMINAL=serial
+GRUB_SERIAL_COMMAND=&amp;quot;serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1&amp;quot;
+sudo update-grub
+sudo systemctl enable serial-getty@ttyS0   # 有 console=ttyS0 时 getty-generator 也会自动生成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;virsh console &amp;lt;vm&amp;gt;&lt;&#x2F;code&gt; 出现 &lt;code&gt;debian login:&lt;&#x2F;code&gt;。注意 pty 属 root，非交互抓取要 sudo；&lt;code&gt;virsh console&lt;&#x2F;code&gt; 只显示连接后的输出，登录提示是静态的。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chi-xian-xiu-gai-jing-xiang-virt-customize-wu-xu-ke-hu-ji-mi-ma&quot;&gt;离线修改镜像（virt-customize，无需客户机密码）&lt;&#x2F;h3&gt;
+&lt;p&gt;忘记&#x2F;没有客户机密码时，关机后在宿主机直接改 qcow2：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install libguestfs-tools
+sudo virt-customize -a &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;debian.qcow2 \
+  --run-command &amp;quot;usermod -aG sudo peter&amp;quot; \
+  --run-command &amp;quot;apt-get install -y qemu-guest-agent&amp;quot; \
+  --run-command &amp;quot;systemctl enable qemu-guest-agent&amp;quot; \
+  --upload &amp;#x2F;tmp&amp;#x2F;vm-grub:&amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub \
+  --run-command &amp;quot;update-grub&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;踩坑：&lt;code&gt;--run &quot;bash file&quot;&lt;&#x2F;code&gt; 报文件不存在（上传与执行环境问题），用 &lt;code&gt;--run-command&lt;&#x2F;code&gt; 逐个执行；命令含引号会被命令行层吃掉（&lt;code&gt;GRUB_SERIAL_COMMAND=&quot;serial --speed...&quot;&lt;&#x2F;code&gt; 需整体 --upload 覆盖 &#x2F;etc&#x2F;default&#x2F;grub）；DVD 安装的镜像 sources.list 只有 cdrom 源，先换成网络源才能装包。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;qemu-guest-agent&quot;&gt;qemu-guest-agent&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-ping&amp;quot;}&amp;#x27;
+virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-network-get-interfaces&amp;quot;}&amp;#x27;
+virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-get-osinfo&amp;quot;}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;wi-fi-su-zhu-de-vm-wang-luo-macvtap-shi-bai-proxy-arp-lu-you-fang-an-2026-08-16-wan-zheng-pai-cha&quot;&gt;Wi-Fi 宿主的 VM 网络：macvtap 失败 → proxy-ARP 路由方案（2026-08-16 完整排查）&lt;&#x2F;h3&gt;
+&lt;p&gt;场景：宿主 Debian 笔记本（Wi-Fi 接入家用路由器），VM 需要成为局域网成员，让&lt;strong&gt;有线侧&lt;&#x2F;strong&gt;设备能 &lt;code&gt;ssh&lt;&#x2F;code&gt; 直达。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;die-dai-yi-macvtap-bridge-zhi-lian-jia-yang-xing-xian-jing&quot;&gt;迭代一：macvtap bridge 直连 —— 假阳性陷阱&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo modprobe macvtap
+# &amp;lt;interface type=&amp;#x27;direct&amp;#x27;&amp;gt;&amp;lt;source dev=&amp;#x27;wlan0&amp;#x27; mode=&amp;#x27;bridge&amp;#x27;&amp;#x2F;&amp;gt;&amp;lt;model type=&amp;#x27;virtio&amp;#x27;&amp;#x2F;&amp;gt;&amp;lt;&amp;#x2F;interface&amp;gt;
+virsh attach-device debian &amp;#x2F;tmp&amp;#x2F;macvtap-iface.xml --live --config
+# 踩坑：virsh attach-interface ... --source-mode bridge 报&amp;quot;无效的源模式&amp;quot;（所有 mode 值都被拒），
+#       必须走 attach-device + XML；Wi-Fi 上 DHCP 无响应（路由器只给关联客户端发 offer），需静态 IP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;给 VM 配静态 IP &lt;code&gt;192.168.2.200&lt;&#x2F;code&gt; 后测试&quot;成功&quot;——ping 通、SSH 通。但仔细一看：SSH 返回的 hostname 是 &lt;code&gt;xiao&lt;&#x2F;code&gt;、还带着 tailscale IP（100.64.0.2）——&lt;strong&gt;那是占着 .200 的另一台设备！&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训一（假阳性陷阱）&lt;&#x2F;strong&gt;：配置静态 IP 前必须扫描占用；验证连通性时核对 hostname&#x2F;SSH 指纹，不能只看&quot;通了&quot;——IP 冲突时你连的可能是别人。本案例里 VM 从一开始就没被局域网访问到过，后续所有&quot;冲突导致封锁&quot;的猜测都建立在这个假阳性上。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;die-dai-er-huan-ip-huan-mac-reng-ran-bu-tong&quot;&gt;迭代二：换 IP &#x2F; 换 MAC —— 仍然不通&lt;&#x2F;h4&gt;
+&lt;p&gt;把 VM 改成 &lt;code&gt;192.168.2.160&lt;&#x2F;code&gt;，再换 VM 的 MAC（&lt;code&gt;52:54:00:aa:bb:01&lt;&#x2F;code&gt; → &lt;code&gt;.02&lt;&#x2F;code&gt;，需 destroy + start 才会重载域定义），均不通。由此排除&quot;冲突触发的 AP 临时封锁&quot;（与 VM 的 MAC&#x2F;IP 无关）。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;shuang-duan-zhua-bao-ding-wei-guan-jian-fang-fa-lun&quot;&gt;双端抓包定位（关键方法论）&lt;&#x2F;h4&gt;
+&lt;p&gt;同时在&lt;strong&gt;两端&lt;&#x2F;strong&gt;抓包，一次实验看清全貌：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;观测点&lt;&#x2F;th&gt;&lt;th&gt;实测结果&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主 &lt;code&gt;tcpdump -i wlan0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;本机(.100)的 ARP 广播&lt;strong&gt;到达&lt;&#x2F;strong&gt;，VM &lt;strong&gt;应答&lt;&#x2F;strong&gt;（request+reply 完整交互）&lt;&#x2F;td&gt;&lt;td&gt;出方向正常，广播能进来&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本机 &lt;code&gt;tcpdump -i vmbr0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;只看到自己发出的 ARP 请求，&lt;strong&gt;应答从未到达&lt;&#x2F;strong&gt;；同时刻其他设备的 ARP 全部正常&lt;&#x2F;td&gt;&lt;td&gt;丢包发生在两者之间&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;对照：.150（另一无线设备）的 ARP 广播&lt;&#x2F;td&gt;&lt;td&gt;宿主 wlan0 能收到&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;广播转发本身没问题&lt;&#x2F;strong&gt;，排除&quot;AP 封锁宿主站点&quot;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VM 内 &lt;code&gt;ip neigh&lt;&#x2F;code&gt;（guest-exec 执行）&lt;&#x2F;td&gt;&lt;td&gt;能解析出本机和网关的 MAC（STALE）&lt;&#x2F;td&gt;&lt;td&gt;VM 出方向的广播 ARP 被转发、回包也到了&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;中间被证伪的两个错误理论&lt;&#x2F;strong&gt;（记录备查）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&quot;包到了宿主被本机配置丢弃&quot;&lt;&#x2F;strong&gt;——wlan0 抓包证明 ARP 请求到达了宿主，VM 的应答在宿主侧也正常发出；丢的是返回方向。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&quot;AP 封锁了宿主的无线站点&quot;&lt;&#x2F;strong&gt;——对照实验发现其他无线设备的广播能到达宿主，广播转发是通的；且换 VM MAC 后依旧，封锁与 VM MAC 无关。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;gen-yin-802-11-wu-4-address-mo-shi-ap-diu-qi-zhan-dian-dai-fa-de-wai-lai-yuan-mac-dan-bo&quot;&gt;根因：802.11 无 4-address 模式，AP 丢弃站点代发的&quot;外来源 MAC&quot;单播&lt;&#x2F;h4&gt;
+&lt;p&gt;双端证据闭环：&lt;strong&gt;VM 的单播应答在宿主的 wlan0 上发出（TX 抓到），但从未出现在本机的网卡上（RX 抓到）&lt;&#x2F;strong&gt;；同时刻其他所有设备的单播交互都正常。&lt;&#x2F;p&gt;
+&lt;p&gt;原理（802.11 帧结构）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;空中 802.11 数据帧：
+┌──────────────┬──────────────┬──────────────┬──────────────────────┐
+│ 地址1 RA      │ 地址2 TA      │ 地址3 SA&amp;#x2F;DA   │ 帧体：封装的以太网帧    │
+│ (AP 的 MAC)   │ (宿主站点 MAC)│              │ 以太网头：源=VM 的 MAC  │
+└──────────────┴──────────────┴──────────────┴──────────────────────┘
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;802.11 头里的地址 2（TA）是&quot;物理发射者&quot;身份，硬件写死为站点自己的 MAC；&lt;strong&gt;VM 的 MAC 只存在于帧体内的以太网头&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;AP 拆掉 802.11 头后按以太网源 MAC 做转发决策：VM 的 MAC 在&quot;已关联客户端表&quot;里查无此站 → &lt;strong&gt;单播帧丢弃&lt;&#x2F;strong&gt;；广播帧不校验源 MAC，所以 VM 的广播 ARP 能出去&lt;&#x2F;li&gt;
+&lt;li&gt;宿主自己回包正常，是因为它的帧&quot;源 MAC = 自己关联的 MAC&quot;，身份一致&lt;&#x2F;li&gt;
+&lt;li&gt;解决之道是 &lt;strong&gt;WDS&#x2F;4-address 模式&lt;&#x2F;strong&gt;（802.11 头加地址 4 承载原始源 MAC），家用路由器基本不支持&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;die-dai-san-ipvlan-si-lu-proxy-arp-lu-you-zui-zhong-fang-an&quot;&gt;迭代三：ipvlan 思路 → proxy-ARP + 路由（最终方案）&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;思路&lt;&#x2F;strong&gt;：VM 不能用 ipvlan 设备（QEMU 需要独立 virtio MAC，ipvlan 是主机侧 L3 设备）。但 ipvlan 的核心——&quot;共享宿主机 MAC&quot;——可以等价实现：&lt;strong&gt;让 VM 的所有流量经宿主的 L3 协议栈转发&lt;&#x2F;strong&gt;，出站帧的源 MAC 一律是宿主的，AP 校验必然通过。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;VM (enp1s0: 192.168.122.160&amp;#x2F;24 + 192.168.2.160&amp;#x2F;32)
+   │ 默认路由 via 192.168.122.1
+   ▼
+宿主 ──virbr0── (L3 转发) ──wlan0── AP ── 局域网
+   ▲                                    │
+   └─ proxy_arp 应答&amp;quot;谁是 .160&amp;quot;（用 wlan0 的 MAC）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;VM 侧配置&lt;&#x2F;strong&gt;（NM 配置直接写 &lt;code&gt;.nmconnection&lt;&#x2F;code&gt; 文件，绕开 nmcli 参数转义；需 &lt;code&gt;chmod 600&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[ipv4]
+method=manual
+address1=192.168.122.160&amp;#x2F;24,192.168.122.1
+address2=192.168.2.160&amp;#x2F;32,
+dns=192.168.122.1;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;宿主侧配置&lt;&#x2F;strong&gt;（持久化：&lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-vm-proxy-arp.conf&lt;&#x2F;code&gt; + NM dispatcher 脚本）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 路由：把 .160 引到 VM（经 virbr0）
+ip route add 192.168.2.160&amp;#x2F;32 via 192.168.122.160 dev virbr0
+# proxy_arp：局域网问&amp;quot;谁是 .160&amp;quot;时宿主用自己 wlan0 的 MAC 应答
+echo 1 | tee &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;net&amp;#x2F;ipv4&amp;#x2F;conf&amp;#x2F;wlan0&amp;#x2F;proxy_arp
+# iptables：libvirt 的 FORWARD 链只放行 192.168.122.0&amp;#x2F;24，.160 会被 REJECT(icmp-port-unreachable)
+iptables -I LIBVIRT_FWI 1 -d 192.168.2.160 -o virbr0 -j ACCEPT
+iptables -I LIBVIRT_FWO 1 -s 192.168.2.160 -i virbr0 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;ARP 流程&lt;&#x2F;strong&gt;（核心，理解了就理解整个方案）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;局域网 → VM&lt;&#x2F;strong&gt;：本机广播&quot;谁是 .160&quot; → AP 转发广播 → 宿主 wlan0 收到 → 宿主查路由（有 &lt;code&gt;&#x2F;32 via 192.168.122.160&lt;&#x2F;code&gt;）→ &lt;strong&gt;proxy-ARP 替答&lt;&#x2F;strong&gt;&quot;is-at &amp;lt;宿主 wlan0 MAC&amp;gt;&quot; → 本机把包填宿主 MAC 发出 → 宿主路由到 virbr0 → ARP .122.160 → VM 应答 → 送达&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VM → 局域网&lt;&#x2F;strong&gt;：VM 只有 .160&#x2F;32 是本机，其余走默认路由 via 192.168.122.1 → 宿主收到（源 IP .160）→ 以&lt;strong&gt;自己身份&lt;&#x2F;strong&gt;在 wlan0 上 ARP 目标 → 转发，&lt;strong&gt;L2 源 MAC 重写为宿主自己的&lt;&#x2F;strong&gt; → 本机收到&quot;来自 .160、MAC 是宿主&quot;的包，回包按 .160→宿主 MAC 的 ARP 表项走&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;验证&lt;&#x2F;strong&gt;：&lt;code&gt;ping 192.168.2.160&lt;&#x2F;code&gt; 通（ttl 63，经宿主路由）；&lt;code&gt;ssh peter@192.168.2.160&lt;&#x2F;code&gt; 直达 VM。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;边界情况&lt;&#x2F;strong&gt;：VM 关机时宿主仍会替 .160 应答 ARP（路由还在），virbr0 上 ARP .122.160 失败导致包在宿主丢弃（表现&quot;ARP 能通但无响应&quot;）；VM 改 IP 需同步更新宿主路由和 iptables；IPv6 需另行配置 NDP 代理。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ben-ci-jiao-xun&quot;&gt;本次教训&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;假阳性陷阱&lt;&#x2F;strong&gt;：验证连通性必须核对 hostname&#x2F;指纹，IP 冲突场景下&quot;通了&quot;可能是别人的机器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;双端抓包方法论&lt;&#x2F;strong&gt;：丢包定位要在路径两端同时抓，配合&quot;同时刻其他设备流量正常&quot;的对照组，才能把丢包点钉死在某个区间（这次是宿主的 TX 抓到、本机的 RX 抓不到，锁死 AP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;让用户参与质疑有价值&lt;&#x2F;strong&gt;：两轮&quot;AP 封锁&#x2F;宿主丢包&quot;的错误理论都是被用户的追问逼着做对照实验推翻的，避免了一条道走到黑&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Wi-Fi 桥接的限制&lt;&#x2F;strong&gt;：普通 AP 上别指望 macvtap&#x2F;网桥能让 VM 以独立 MAC 出现在局域网，除非路由器支持 WDS&#x2F;4-address；&quot;共享宿主 MAC + L3 转发&quot;是通用出路&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;qemu-yong-hu-tai-vs-xi-tong-ji-mo-ni&quot;&gt;QEMU 用户态 vs 系统级模拟&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;qemu-riscv64&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;qemu-system-riscv64&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;模式&lt;&#x2F;td&gt;&lt;td&gt;用户态模拟（User mode）&lt;&#x2F;td&gt;&lt;td&gt;系统级模拟（System mode）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;功能&lt;&#x2F;td&gt;&lt;td&gt;运行单个可执行 ELF&lt;&#x2F;td&gt;&lt;td&gt;模拟完整裸机系统&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;系统调用&lt;&#x2F;td&gt;&lt;td&gt;转换为宿主系统调用&lt;&#x2F;td&gt;&lt;td&gt;需要运行完整内核&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;用户态模拟通过将 RISC-V Linux 系统调用转换为 x86-64 系统调用来执行单个应用。&lt;&#x2F;p&gt;
+&lt;p&gt;JOS 相关内容（IDT&#x2F;GDT&#x2F;LDT、PLT&#x2F;GOT、内核调试、页表与 CR3、汇编器语法）已拆分为独立文章：&lt;a href=&quot;&#x2F;2026&#x2F;08&#x2F;jos-learning-notes&#x2F;&quot;&gt;JOS 学习笔记&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

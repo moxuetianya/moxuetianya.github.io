@@ -1,0 +1,978 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - troubleshooting</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/troubleshooting/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-05T18:23:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/troubleshooting/atom.xml</id>
+    <entry xml:lang="en">
+        <title>一个容器内进程的 cwd 诊断记录</title>
+        <published>2026-08-05T18:23:16+08:00</published>
+        <updated>2026-08-05T18:23:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/">&lt;h1 id=&quot;yi-ge-rong-qi-nei-jin-cheng-de-cwd-zhen-duan-ji-lu&quot;&gt;一个容器内进程的 cwd 诊断记录&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h2&gt;
+&lt;p&gt;在一台远程服务器上排查一个 Java 服务（portal.jar），执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh smyl@192.168.7.16 &amp;quot;ps -ef | grep portal.jar&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;得到进程 PID 后，查看它的启动目录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -l &amp;#x2F;proc&amp;#x2F;2333607&amp;#x2F;cwd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果显示 symlink 指向 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt;（根目录）。但是 &lt;code&gt;ls &#x2F;&lt;&#x2F;code&gt; 里根本没有 &lt;code&gt;portal.jar&lt;&#x2F;code&gt;，文件去哪了？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-xian-kan-wan-zheng-de-qi-dong-ming-ling-xing&quot;&gt;1. 先看完整的启动命令行&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;2333607&amp;#x2F;cmdline | tr &amp;#x27;\0&amp;#x27; &amp;#x27; &amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;java -agentlib:jdwp=... -jar portal.jar --spring.datasource.url=...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意这里用的是&lt;strong&gt;相对路径&lt;&#x2F;strong&gt; &lt;code&gt;-jar portal.jar&lt;&#x2F;code&gt;，没有带目录。也就是说，jar 的路径在启动命令行里，和 cwd 是两回事——&lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt; 只是进程的 OS 层工作目录（chdir 状态），不等于 jar 文件所在位置。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-kan-fu-jin-cheng-zhe-shi-guan-jian-yi-bu&quot;&gt;2. 看父进程，这是关键一步&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -fp 2333588   # 父进程
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;root 2333588 1 ... &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;containerd-shim-runc-v2 -namespace moby \
+  -id b1361c5698864840338b2753403884cff27c8189a6c7bc4a88fabb83f1706805 \
+  -address &amp;#x2F;var&amp;#x2F;run&amp;#x2F;docker&amp;#x2F;containerd&amp;#x2F;containerd.sock
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看到父进程是 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt; 就基本可以断定：&lt;strong&gt;这个进程跑在 Docker 容器里&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;几个识别特征：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt;：Docker 为每个容器创建的 shim 进程，是容器内 PID 1 的宿主侧父进程&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-namespace moby&lt;&#x2F;code&gt;：Docker 的 containerd 命名空间&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-address &#x2F;var&#x2F;run&#x2F;docker&#x2F;containerd&#x2F;containerd.sock&lt;&#x2F;code&gt;：Docker 的 containerd socket&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-id &amp;lt;64位hex&amp;gt;&lt;&#x2F;code&gt;：就是容器 ID&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-docker-inspect-jiao-cha-yan-zheng&quot;&gt;3. docker inspect 交叉验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker inspect b1361c56... --format &amp;#x27;{{json .Config.WorkingDir}} {{json .Path}} {{json .Args}}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;quot;&amp;#x2F;&amp;quot; &amp;quot;java&amp;quot; [&amp;quot;...&amp;quot;,&amp;quot;-jar&amp;quot;,&amp;quot;portal.jar&amp;quot;,&amp;quot;--spring.datasource.url=...&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;容器 &lt;code&gt;Config.WorkingDir&lt;&#x2F;code&gt; 是 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt;，命令是 &lt;code&gt;java ... -jar portal.jar&lt;&#x2F;code&gt;，与 cmdline 完全吻合。同时拿到容器名 &lt;code&gt;xfuzz-saas-test-server-1&lt;&#x2F;code&gt;、镜像 &lt;code&gt;wfuzz-web:v1.12.27.1&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-jin-rong-qi-que-ren&quot;&gt;4. 进容器确认&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker exec &amp;lt;容器ID&amp;gt; ls -l &amp;#x2F;portal.jar
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;容器里 &lt;code&gt;&#x2F;portal.jar&lt;&#x2F;code&gt; &lt;strong&gt;确实存在&lt;&#x2F;strong&gt;（396MB）；而宿主机 &lt;code&gt;ls &#x2F;&lt;&#x2F;code&gt; 里没有。真相大白：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;cwd 显示的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 是容器内的根目录（overlay 文件系统），不是宿主机的根目录。&lt;&#x2F;strong&gt; 两者是两个不同的文件系统，我在宿主机的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 里找容器里的文件，当然找不到。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yuan-li-xiao-jie&quot;&gt;原理小结&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt;：进程的工作目录，是 OS 层 chdir 状态，&lt;strong&gt;和可执行文件&#x2F;jar 在哪没有必然关系&lt;&#x2F;strong&gt;；jar 的真实路径要看 &lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cmdline&lt;&#x2F;code&gt; 里的启动参数（可能有相对路径 + 其他情况）&lt;&#x2F;li&gt;
+&lt;li&gt;容器进程的文件系统：Docker 容器根目录是 overlay2 挂载的镜像层，与宿主根目录隔离。宿主上 &lt;code&gt;ls -l &#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt; 显示的路径是容器命名空间内的路径&lt;&#x2F;li&gt;
+&lt;li&gt;容器进程判定：&lt;code&gt;ps -ef&lt;&#x2F;code&gt; 时看 PPID，父进程是 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt;（Docker）或 &lt;code&gt;containerd-shim&lt;&#x2F;code&gt;（containerd）即为容器内进程；容器内根目录还有 &lt;code&gt;.dockerenv&lt;&#x2F;code&gt; 标记文件&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;hou-xu-xia-zai-wen-jian-de-pai-cha&quot;&gt;后续：下载文件的排查&lt;&#x2F;h2&gt;
+&lt;p&gt;这个服务还提供 wfuzz 程序下载功能，最初也没找到 wfuzz 文件。排查结果：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;可下载的文件不在 &lt;code&gt;portal.jar&lt;&#x2F;code&gt; 里。jar 内搜到的 &lt;code&gt;wfuzz&lt;&#x2F;code&gt; 全是 Java 包名&#x2F;类名（&lt;code&gt;com.wfuzz.saas.portal.*&lt;&#x2F;code&gt;），不是二进制&lt;&#x2F;li&gt;
+&lt;li&gt;下载源在容器磁盘上：配置文件 &lt;code&gt;application-platform.yml&lt;&#x2F;code&gt; 里写了 &lt;code&gt;repo: &#x2F;dist&#x2F;repo&lt;&#x2F;code&gt;、&lt;code&gt;install: &#x2F;dist&#x2F;install&lt;&#x2F;code&gt;、&lt;code&gt;assetDir: &#x2F;repo&#x2F;dist&#x2F;asset&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;实际文件在 &lt;code&gt;&#x2F;repo&#x2F;dist&#x2F;out&#x2F;wfuzz-Linux-x86_64&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;repo&#x2F;dist&#x2F;repo&#x2F;wfuzz-2.4.20-Linux-x86_64.tar.xz&lt;&#x2F;code&gt; 等&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;找不到的另一个原因是&lt;strong&gt;文件名带了架构后缀&lt;&#x2F;strong&gt;：&lt;code&gt;wfuzz-Linux-x86_64&lt;&#x2F;code&gt;、&lt;code&gt;wfuzz-2.4.20-Linux-x86_64.tar.xz&lt;&#x2F;code&gt;，用 &lt;code&gt;ls&lt;&#x2F;code&gt; 或 &lt;code&gt;find -name &quot;wfuzz&quot;&lt;&#x2F;code&gt; 精确匹配会漏掉，要写成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;find &amp;#x2F; -iname &amp;quot;*wfuzz*&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jing-yan-zong-jie&quot;&gt;经验总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;排查进程问题先看三件套：&lt;code&gt;cmdline&lt;&#x2F;code&gt;（启动参数）、&lt;code&gt;cwd&lt;&#x2F;code&gt;、&lt;code&gt;exe&lt;&#x2F;code&gt;，再看 &lt;strong&gt;PPID&lt;&#x2F;strong&gt;（父进程是谁往往直接给出答案）&lt;&#x2F;li&gt;
+&lt;li&gt;看到 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt; 立刻意识到是容器场景，接下来一切都要到容器内文件系统里找&lt;&#x2F;li&gt;
+&lt;li&gt;cwd 指向的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 不等于可执行文件所在目录；文件位置看 cmdline，文件系统边界看父进程&lt;&#x2F;li&gt;
+&lt;li&gt;文件搜索用通配符（&lt;code&gt;*wfuzz*&lt;&#x2F;code&gt;），别被带后缀的文件名骗了&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失</title>
+        <published>2026-08-03T18:39:12+08:00</published>
+        <updated>2026-08-03T18:39:12+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/"/>
+        <id>https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;在一台服务器上启动 opencode，无论 &lt;code&gt;serve&lt;&#x2F;code&gt; 还是 &lt;code&gt;run&lt;&#x2F;code&gt; 模式都会卡死，没有任何报错：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd ~&amp;#x2F;project&amp;#x2F;debug-agent&amp;#x2F; &amp;amp;&amp;amp; \
+OPENCODE_CONFIG_DIR=$PWD&amp;#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&amp;quot;&amp;#x2F;path&amp;#x2F;to&amp;#x2F;wfuzz-agent&amp;#x2F;bin&amp;#x2F;opencode&amp;quot; --print-logs --log-level=DEBUG run hello
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;日志停在某一行后就没有下文，进程一直存活，只能靠 &lt;code&gt;timeout&lt;&#x2F;code&gt; 杀掉（exit 124）。同样的命令在本机（IPv6 正常）跑得好好的，换到服务器就卡。&lt;&#x2F;p&gt;
+&lt;p&gt;排查后确认这是&lt;strong&gt;两个独立的问题&lt;&#x2F;strong&gt;叠加：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;插件加载阶段&lt;&#x2F;strong&gt;：opencode 内置的 Bun 运行时解析 TS 插件时，因 &lt;code&gt;@opentui&#x2F;*&lt;&#x2F;code&gt; 依赖缺失而联网 npm registry，IPv6 不通导致连接挂死。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模型请求阶段&lt;&#x2F;strong&gt;：即使跳过插件加载，opencode 请求模型 API 时默认优先尝试 IPv6，而服务器没有真实的 IPv6 连通性。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;两个问题的共同放大器，是这台服务器的网络特殊性：&lt;strong&gt;有 IPv6 地址，但没有 IPv6 路由&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;bei-jing-opencode-de-pei-zhi-ti-xi&quot;&gt;背景：opencode 的配置体系&lt;&#x2F;h1&gt;
+&lt;p&gt;先理解 opencode 启动时会读哪些配置，这决定了排查方向。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pei-zhi-jia-zai-you-xian-ji&quot;&gt;配置加载优先级&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 按以下顺序加载配置（后面的覆盖前面的同名字段）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置位置&lt;&#x2F;th&gt;&lt;th&gt;路径&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;全局配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;用户级默认配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;自定义目录&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt; 指向的目录（如 &lt;code&gt;.global-opencode&#x2F;&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;平台注入的独立配置目录&lt;&#x2F;strong&gt;，拥有独立 plugins&#x2F;skills&#x2F;node_modules&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;项目配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;项目根&#x2F;.opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;项目级配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用户目录&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;~&#x2F;.opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;用户级补充&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注意：&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt; 指向的目录会被&lt;strong&gt;完整地&lt;&#x2F;strong&gt;当作一个 opencode 配置目录来扫描（&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt;、&lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;skills&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&#x2F;&lt;&#x2F;code&gt; 等），而不是只读其中的配置文件。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;global-opencode-yun-xing-shi-sheng-cheng-de-du-li-pei-zhi-mu-lu&quot;&gt;&lt;code&gt;.global-opencode&#x2F;&lt;&#x2F;code&gt;：运行时生成的独立配置目录&lt;&#x2F;h2&gt;
+&lt;p&gt;由 wfuzz-agent（或其他引导程序）在启动前把打包好的配置模板复制到工作目录下生成，包含：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;.global-opencode&amp;#x2F;
+├── opencode.jsonc      # 模型&amp;#x2F;provider&amp;#x2F;permission 配置
+├── plugins&amp;#x2F;            # TS 插件源码（wfuzz-agent.ts + 本地库）
+├── node_modules&amp;#x2F;       # 预装的 @opencode-ai&amp;#x2F;plugin 及依赖（避免运行时 npm install）
+├── skills&amp;#x2F;             # 平台技能目录
+├── AGENTS.md           # 全局指令
+├── tsconfig.json       # 插件类型检查配置
+└── package.json        # 声明 @opencode-ai&amp;#x2F;plugin 依赖
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;opencode-xiang-mu-ji-pei-zhi&quot;&gt;&lt;code&gt;.opencode&#x2F;&lt;&#x2F;code&gt;：项目级配置&lt;&#x2F;h2&gt;
+&lt;p&gt;与 &lt;code&gt;.global-opencode&lt;&#x2F;code&gt; 不同，&lt;code&gt;.opencode&#x2F;&lt;&#x2F;code&gt; 是 opencode 标准的项目级配置目录，通常包含：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;.opencode&amp;#x2F;
+├── opencode.json       # 项目级模型&amp;#x2F;skills 路径配置
+├── skills&amp;#x2F;             # 项目级技能
+└── node_modules&amp;#x2F;       # 同步来的依赖（供插件解析）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;影响启动的关键差异&lt;&#x2F;strong&gt;：&lt;code&gt;.global-opencode&lt;&#x2F;code&gt; 中的 &lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 定义了 provider（决定模型请求发往哪个 baseURL）和默认模型；&lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt; 决定是否有插件要加载；&lt;code&gt;node_modules&lt;&#x2F;code&gt; 决定插件依赖是否能离线解析。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;gen-yin-yi-opentui-yi-lai-que-shi-bun-jia-zai-cha-jian-shi-lian-wang&quot;&gt;根因一：&lt;code&gt;@opentui&lt;&#x2F;code&gt; 依赖缺失，Bun 加载插件时联网&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang-ding-wei&quot;&gt;现象定位&lt;&#x2F;h2&gt;
+&lt;p&gt;对比实验快速锁定问题在插件加载：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;opencode run --pure hello&lt;&#x2F;code&gt;（跳过外部插件）→ 能跑起来&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;opencode run hello&lt;&#x2F;code&gt;（加载 &lt;code&gt;.global-opencode&#x2F;plugins&#x2F;wfuzz-agent.ts&lt;&#x2F;code&gt;）→ 卡死&lt;&#x2F;li&gt;
+&lt;li&gt;临时移走 &lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt; 目录 → 能跑起来&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;插件文件本身是纯 TypeScript（&lt;code&gt;import type&lt;&#x2F;code&gt; + &lt;code&gt;node:fs&lt;&#x2F;code&gt; 等），没有明显的联网代码，为什么加载会联网？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-optional-peer-dependencies-que-shi&quot;&gt;根因：optional peer dependencies 缺失&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 底层是 &lt;strong&gt;Bun&lt;&#x2F;strong&gt; 运行时。加载 &lt;code&gt;.ts&lt;&#x2F;code&gt; 插件时，Bun 解析 &lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的&lt;strong&gt;整个模块图&lt;&#x2F;strong&gt;，包括 &lt;code&gt;dist&#x2F;tui.js&lt;&#x2F;code&gt; 中对 &lt;code&gt;@opentui&#x2F;*&lt;&#x2F;code&gt; 的运行时导入：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;js&quot; class=&quot;language-js &quot;&gt;&lt;code class=&quot;language-js&quot; data-lang=&quot;js&quot;&gt;&amp;#x2F;&amp;#x2F; node_modules&amp;#x2F;@opencode-ai&amp;#x2F;plugin&amp;#x2F;dist&amp;#x2F;tui.js
+import { createBindingLookup } from &amp;quot;@opentui&amp;#x2F;keymap&amp;#x2F;extras&amp;quot;
+export { stringifyKeySequence } from &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;@opentui&#x2F;core&lt;&#x2F;code&gt;、&lt;code&gt;@opentui&#x2F;keymap&lt;&#x2F;code&gt;、&lt;code&gt;@opentui&#x2F;solid&lt;&#x2F;code&gt; 在 &lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的 &lt;code&gt;package.json&lt;&#x2F;code&gt; 里是 &lt;strong&gt;optional peer dependencies&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;quot;peerDependencies&amp;quot;: {
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;solid&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;
+},
+&amp;quot;peerDependenciesMeta&amp;quot;: {
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: { &amp;quot;optional&amp;quot;: true },
+  ...
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;npm install --omit=dev --legacy-peer-deps&lt;&#x2F;code&gt; &lt;strong&gt;不会安装 optional peer dependencies&lt;&#x2F;strong&gt;，所以预装的 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 里缺了这三个包。Bun 解析模块图时发现缺失，就去 npm registry 拉取——在 IPv6 不通的服务器上，这一步永远完不成。&lt;&#x2F;p&gt;
+&lt;p&gt;strace 铁证：进程反复尝试连接 npm registry 的 IPv6 地址，&lt;code&gt;connect()&lt;&#x2F;code&gt; 返回 &lt;code&gt;EINPROGRESS&lt;&#x2F;code&gt; 后永不完成：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;connect(..., &amp;quot;2606:4700::6810:622&amp;quot;, 443) = EINPROGRESS   ← 永不完成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu-ba-optional-peer-yi-lai-bian-cheng-xian-shi-yi-lai&quot;&gt;修复：把 optional peer 依赖变成显式依赖&lt;&#x2F;h2&gt;
+&lt;p&gt;在打包 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 的 &lt;code&gt;package.json&lt;&#x2F;code&gt; 里显式声明这三个包，让它们进入预装依赖：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;quot;dependencies&amp;quot;: {
+  &amp;quot;@opencode-ai&amp;#x2F;plugin&amp;quot;: &amp;quot;1.17.12&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: &amp;quot;0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;: &amp;quot;0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;solid&amp;quot;: &amp;quot;0.3.4&amp;quot;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;npm install --omit=dev --legacy-peer-deps&lt;&#x2F;code&gt; 后 &lt;code&gt;node_modules&#x2F;@opentui&#x2F;&lt;&#x2F;code&gt; 存在，peer 要求（&lt;code&gt;&amp;gt;=0.3.4&lt;&#x2F;code&gt;）被满足；在&lt;strong&gt;无缓存&lt;&#x2F;strong&gt;环境下 &lt;code&gt;bun -e &quot;await import(&#x27;@opencode-ai&#x2F;plugin&#x2F;tui&#x27;)&quot;&lt;&#x2F;code&gt; 从报错 &lt;code&gt;Cannot find module &#x27;@opentui&#x2F;keymap&#x2F;extras&#x27;&lt;&#x2F;code&gt; 变为成功，且全程零网络连接。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;gen-yin-er-dns-mo-ren-ipv6-you-xian-mo-xing-qing-qiu-lian-jie-gua-qi&quot;&gt;根因二：DNS 默认 IPv6 优先，模型请求连接挂起&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang-ding-wei-1&quot;&gt;现象定位&lt;&#x2F;h2&gt;
+&lt;p&gt;修好 &lt;code&gt;@opentui&lt;&#x2F;code&gt; 后，插件能加载了，但 &lt;code&gt;run hello&lt;&#x2F;code&gt; 仍然卡住。日志停在：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;stream providerID=opencode modelID=...  ← 模型请求发出后无响应
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这次不是插件问题。&lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt; 只禁用了 models.dev 元数据获取，但&lt;strong&gt;模型 API 请求&lt;&#x2F;strong&gt;（&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中 provider 的 &lt;code&gt;baseURL: https:&#x2F;&#x2F;opencode.ai&#x2F;zen&#x2F;v1&lt;&#x2F;code&gt;）仍会发起网络请求。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-etc-gai-conf-mo-ren-ipv6-you-xian&quot;&gt;根因：&lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 默认 IPv6 优先&lt;&#x2F;h2&gt;
+&lt;p&gt;用 curl 验证连通性：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -6 -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;%{http_code}&amp;quot; https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;zen&amp;#x2F;v1   # 超时（exit 124）
+curl -4 -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;%{http_code}&amp;quot; https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;zen&amp;#x2F;v1   # 正常返回
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;重要：本机和服务器处于同一个 IPv6 黑洞网络&lt;&#x2F;strong&gt;（同一网关 &lt;code&gt;fe80::c0b1:65ff:fe3e:68c3&lt;&#x2F;code&gt;）。&lt;code&gt;ip -6 addr&lt;&#x2F;code&gt; 可见一堆 &lt;code&gt;3000::&#x2F;64&lt;&#x2F;code&gt; 的全局地址，&lt;code&gt;ip -6 route&lt;&#x2F;code&gt; 也有 &lt;code&gt;default via ...&lt;&#x2F;code&gt; 路由，但&lt;strong&gt;所有 IPv6 出站连接都挂在半路上&lt;&#x2F;strong&gt;——本机 &lt;code&gt;curl -6&lt;&#x2F;code&gt; 同样超时，并非&quot;服务器 IPv6 不通、本机正常&quot;。&lt;&#x2F;p&gt;
+&lt;p&gt;而 Linux 的 &lt;code&gt;getaddrinfo()&lt;&#x2F;code&gt; 默认按 &lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 的优先级表排序解析结果，&lt;strong&gt;IPv6 优先级高于 IPv4&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;# &amp;#x2F;etc&amp;#x2F;gai.conf 默认（注释状态）
+precedence ::1&amp;#x2F;128       50   ← IPv6 loopback
+precedence ::&amp;#x2F;0          40   ← 所有 IPv6，优先级 40
+precedence ::ffff:0:0&amp;#x2F;96  10   ← IPv4，优先级 10（值越大越优先）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Bun&#x2F;opencode 按 &lt;code&gt;getaddrinfo&lt;&#x2F;code&gt; 排序后的地址顺序连接：先试 IPv6 → 挂死 → 整个请求超时（默认超时很长），表现为&quot;卡住&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ban-ben-dui-zhao-shi-yan-1-17-12-yu-1-18-9-mei-you-chai-yi&quot;&gt;版本对照实验：1.17.12 与 1.18.9 没有差异&lt;&#x2F;h2&gt;
+&lt;p&gt;排查中一度怀疑&quot;新版 opencode（1.18.9）内置了 IPv6→IPv4 回退，旧版（1.17.12）没有&quot;。用完全相同的配置（显式 &lt;code&gt;opencode&lt;&#x2F;code&gt; provider + &lt;code&gt;opencode.ai&lt;&#x2F;code&gt; baseURL）在同一台机器交替测试，结论是&lt;strong&gt;没有版本差异&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;测试批次&lt;&#x2F;th&gt;&lt;th&gt;1.18.9&lt;&#x2F;th&gt;&lt;th&gt;1.17.12&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;批次 A（20s 超时）&lt;&#x2F;td&gt;&lt;td&gt;卡死 3&#x2F;3&lt;&#x2F;td&gt;&lt;td&gt;卡死 3&#x2F;3&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;批次 B（60s 超时）&lt;&#x2F;td&gt;&lt;td&gt;✅ 6.2s 完成&lt;&#x2F;td&gt;&lt;td&gt;✅ 4.8s 完成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;批次 C（40s 超时）&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;卡死 2&#x2F;2&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;两个版本总是&lt;strong&gt;成对成功或成对失败&lt;&#x2F;strong&gt;——行为完全一致，由网络状态决定，与版本无关。&lt;&#x2F;p&gt;
+&lt;p&gt;真实原因是 &lt;strong&gt;IPv6 黑洞状态分钟级波动&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;挂起时段&lt;&#x2F;strong&gt;：IPv6 SYN 发出后无任何响应（黑洞丢弃），opencode 连接挂起 40s+ 无快速回退 → 表现为卡死&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;快速失败时段&lt;&#x2F;strong&gt;：网关偶发回 ICMP unreachable，opencode 秒级回退 IPv4 → 4~6 秒正常完成&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这也解释了最初&quot;本机正常、服务器卡&quot;的观察：本机测试恰好赶上快速失败时段（或默认模型走无 AAAA 记录的 deepseek 域名，压根不触发 IPv6）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xiu-fu-rang-ipv4-you-xian&quot;&gt;修复：让 IPv4 优先&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo sed -i &amp;#x27;s&amp;#x2F;^#precedence ::ffff:0:0\&amp;#x2F;96  10&amp;#x2F;precedence ::ffff:0:0\&amp;#x2F;96  100&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;gai.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;把 IPv4 的优先级从 10 改成 100（取消注释即生效），&lt;code&gt;getaddrinfo&lt;&#x2F;code&gt; 就会把 IPv4 排在前面：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;precedence ::ffff:0:0&amp;#x2F;96  100   ← IPv4 现在最高优先
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;getent ahosts opencode.ai   # 172.65.90.x（IPv4）排在最前
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;xiu-fu-hou-de-wan-zheng-yan-zheng&quot;&gt;修复后的完整验证&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-cha-jian-jia-zai-mo-xing-hui-fu-zheng-chang&quot;&gt;1. 插件加载 + 模型回复正常&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd ~&amp;#x2F;project&amp;#x2F;debug-agent&amp;#x2F; &amp;amp;&amp;amp; \
+OPENCODE_CONFIG_DIR=$PWD&amp;#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&amp;quot;&amp;#x2F;path&amp;#x2F;to&amp;#x2F;wfuzz-agent&amp;#x2F;bin&amp;#x2F;opencode&amp;quot; --print-logs --log-level=DEBUG run hello
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;[wfuzz-agent] plugin loaded hooks.trigger=11 hooks.lifecycle=6
+Hello! How can I help you today?
+[wfuzz-agent] plugin disposed after 4.5s
+EXIT: 0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-qi-dong-jie-duan-ling-gong-wang-lian-jie&quot;&gt;2. 启动阶段零公网连接&lt;&#x2F;h2&gt;
+&lt;p&gt;用 strace 跟踪启动 + 空闲运行 30 秒的全部网络连接：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;strace -f -e trace=connect -o &amp;#x2F;tmp&amp;#x2F;net-trace.log \
+  opencode serve &amp;amp;          # 带上 OPENCODE_CONFIG_DIR 等环境变量
+
+sleep 30
+curl -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;HTTP %{http_code}\n&amp;quot; http:&amp;#x2F;&amp;#x2F;127.0.0.1:4096&amp;#x2F;   # 200
+
+grep -oE &amp;#x27;sin_addr=inet_addr\(&amp;quot;[0-9.]+&amp;quot;\)&amp;#x27; &amp;#x2F;tmp&amp;#x2F;net-trace.log | sort | uniq -c
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果只有&lt;strong&gt;内网&lt;&#x2F;strong&gt;（WFUZZ_SERVER &lt;code&gt;192.168.7.16&lt;&#x2F;code&gt;）的连接，公网 IPv4&#x2F;IPv6 连接数为 0，服务正常响应 &lt;code&gt;HTTP 200&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：&lt;code&gt;serve&lt;&#x2F;code&gt; 出现实际会话（用户发消息调模型）时，模型请求仍会访问公网 &lt;code&gt;opencode.ai&lt;&#x2F;code&gt;（现在走 IPv4），这是功能需求，不再是卡死。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;jing-yan-zong-jie&quot;&gt;经验总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;optional peer dependencies&lt;&#x2F;code&gt; 会被 &lt;code&gt;--legacy-peer-deps&lt;&#x2F;code&gt; 跳过安装&lt;&#x2F;strong&gt;，但 Bun 解析模块图时仍然会尝试解析它们，缺失就联网。打包预装 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 时，把运行链路可能触及的包显式声明为 &lt;code&gt;dependencies&lt;&#x2F;code&gt; 最稳妥。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&quot;有 IPv6 地址&quot; ≠ &quot;IPv6 可用&quot;&lt;&#x2F;strong&gt;。本机和服务器都有全局 IPv6 地址和默认路由，但出站全被黑洞丢弃。遇到&quot;某应用在这台机器卡死&quot;时，先测 &lt;code&gt;curl -6&lt;&#x2F;code&gt; 对比 &lt;code&gt;curl -4&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;黑洞网络的状态是波动而非恒定的&lt;&#x2F;strong&gt;：有时 IPv6 连接快速失败（应用秒级回退 IPv4），有时挂起几十秒。因此&quot;本机能跑、服务器不能&quot;这类对比实验必须在&lt;strong&gt;同一时段&lt;&#x2F;strong&gt;进行，否则会把网络波动误判为环境&#x2F;版本差异。用多批次交替测试 + 每次测量耗时，避免单次样本误导。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 控制 getaddrinfo 的地址排序&lt;&#x2F;strong&gt;，影响所有应用的连接顺序（Bun&#x2F;Node 也遵循）。内网环境统一加 &lt;code&gt;precedence ::ffff:0:0&#x2F;96 100&lt;&#x2F;code&gt; 可以绕开 IPv6 黑洞，无论黑洞状态如何都稳定。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;.global-opencode&lt;&#x2F;code&gt;（&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt;）与 &lt;code&gt;.opencode&lt;&#x2F;code&gt;（项目级）是两个不同的配置来源&lt;&#x2F;strong&gt;：前者由引导程序整目录注入（含独立的 node_modules&#x2F;plugins），后者是标准项目级配置。排查启动问题时，先分清插件&#x2F;模型配置来自哪一层，再看对应的依赖是否完整。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>opencode 启动慢排查：plugin 触发 60MB npm 依赖下载</title>
+        <published>2026-07-21T09:30:00+08:00</published>
+        <updated>2026-07-24T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-plugin-slow-startup/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;wfuzz agent --agent-config=wfuzz-utils,wfuzz-db&lt;&#x2F;code&gt; 执行后，opencode 长时间无响应。没有报错，没有 crash，进程在 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 中显示为 S（sleeping）状态，CPU 低，但终端就是不动。&lt;&#x2F;p&gt;
+&lt;p&gt;单独执行 opencode 也一样：只要设置了 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 环境变量，启动就卡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-lun-pai-cha-yi-wei-shi-si-suo&quot;&gt;第一轮排查：以为是死锁&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;strace-kan-xi-tong-diao-yong&quot;&gt;strace 看系统调用&lt;&#x2F;h2&gt;
+&lt;p&gt;用 &lt;code&gt;strace -f -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 跟踪进程。主线程在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待，worker 线程（40+ 个）全部卡在 &lt;code&gt;futex&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[pid 10] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0
+[pid 11] futex(..., FUTEX_WAIT_BITSET_PRIVATE, ...) = 0
+[pid 12] futex(..., FUTEX_WAKE_PRIVATE, 1) = 1
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Worker 线程在 work-stealing 模式下互相唤醒，但没有一个线程在做实际工作。strace 最后一行出现：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[pid 9] futex(...) = -1 ETIMEDOUT (Connection timed out)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看起来像是 Bun worker pool 在进行网络操作时超时，之后所有 worker 陷入 livelock —— 被不断唤醒但无事可做。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dui-bi-shi-yan&quot;&gt;对比实验&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;无 &lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;正常启动，TUI 渲染&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向 &lt;code&gt;{}&lt;&#x2F;code&gt; 空配置&lt;&#x2F;td&gt;&lt;td&gt;正常启动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG&lt;&#x2F;code&gt; 指向含 &lt;code&gt;plugin&lt;&#x2F;code&gt; 字段的配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;最小插件（&lt;code&gt;return {}&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;--pure&lt;&#x2F;code&gt; 模式&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;卡住&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;serve&lt;&#x2F;code&gt; 模式（headless）&lt;&#x2F;td&gt;&lt;td&gt;终端不卡，但端口不监听、WebSocket 无响应&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键发现：&lt;strong&gt;只要配置中有 &lt;code&gt;&quot;plugin&quot;: [...]&lt;&#x2F;code&gt;，不论插件内容是什么，TUI 和 serve 模式都卡。&lt;&#x2F;strong&gt; 一度怀疑是 opencode 1.17.12 的 plugin 加载 bug。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-lun-pai-cha-zhao-dao-zhen-zheng-de-gen-yin&quot;&gt;第二轮排查：找到真正的根因&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;huan-guan-cha-jiao-du-wen-jian-xi-tong-wang-luo&quot;&gt;换观察角度：文件系统 + 网络&lt;&#x2F;h2&gt;
+&lt;p&gt;回头检查 &lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;_cacache&#x2F;&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ du -sh &amp;#x2F;root&amp;#x2F;.npm&amp;#x2F;
+83M    &amp;#x2F;root&amp;#x2F;.npm&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;83M！进程并不是死锁，而是在&lt;strong&gt;下载 npm 包&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 opencode 的文件描述符：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;fd&amp;#x2F; | grep npm
+l-wx------ 30 -&amp;gt; &amp;#x2F;root&amp;#x2F;.npm&amp;#x2F;_cacache&amp;#x2F;tmp&amp;#x2F;de55a9bf-...
+lrwx------ 31 -&amp;gt; socket:[...]    # 连接 npm registry (Cloudflare 104.16.x.34)
+lrwx------ 32 -&amp;gt; socket:[...]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;opencode 生成了 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;package.json&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;dependencies&amp;quot;: {
+    &amp;quot;@opencode-ai&amp;#x2F;plugin&amp;quot;: &amp;quot;1.17.12&amp;quot;
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后自动调用 &lt;code&gt;@npmcli&#x2F;arborist.reify()&lt;&#x2F;code&gt; 安装依赖。&lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的依赖树非常大：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;@opencode-ai&amp;#x2F;plugin@1.17.12
+├── effect@4.0.0-beta.83        ← 最大，带 12 个子依赖
+│   ├── fast-check + pure-rand
+│   ├── find-my-way-ts
+│   ├── kubernetes-types
+│   ├── msgpackr + msgpackr-extract (native .node 二进制)
+│   ├── multipasta
+│   ├── toml &amp;#x2F; uuid &amp;#x2F; yaml &amp;#x2F; ini
+│   └── @standard-schema&amp;#x2F;spec
+├── zod@4.1.8
+├── @ai-sdk&amp;#x2F;provider@3.0.8
+│   └── json-schema
+└── @opencode-ai&amp;#x2F;sdk@1.17.12
+    └── cross-spawn → path-key → shebang-command → which → isexe
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;总共 27 个包，解压后 63MB。在容器环境中无 npm 缓存，下载需要数十秒到数分钟。期间 opencode 不监听端口、不响应 WebSocket、TUI 不渲染 —— 宏观表现就是&quot;卡死了&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;p&gt;手动模拟 opencode 的行为：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ echo &amp;#x27;{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&amp;#x2F;plugin&amp;quot;:&amp;quot;1.17.12&amp;quot;}}&amp;#x27; &amp;gt; package.json
+$ time npm install --production
+added 27 packages in 51s
+$ du -sh node_modules&amp;#x2F;
+63M    node_modules&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;51 秒。这解释了为什么启动&quot;时快时慢&quot; —— 有缓存的机器几秒，无缓存的容器一分钟以上。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-zai-rong-qi-li-you-qi-yan-zhong&quot;&gt;为什么在容器里尤其严重&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;每次启动都是新容器，&lt;code&gt;&#x2F;root&#x2F;.npm&#x2F;&lt;&#x2F;code&gt; 和 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt; 都是空的&lt;&#x2F;li&gt;
+&lt;li&gt;没有 Bun 的 package 缓存&lt;&#x2F;li&gt;
+&lt;li&gt;npm registry 从容器网络访问可能更慢&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;平台侧虽然设置了 &lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt;（跳过 AI 模型列表拉取），但这只影响 model fetching，不影响 plugin 系统的 npm 依赖安装（使用 &lt;code&gt;@npmcli&#x2F;arborist&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fang-an-yi-qu-diao-plugin-zui-kuai&quot;&gt;方案一：去掉 plugin（最快）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中删除 &lt;code&gt;&quot;plugin&quot;&lt;&#x2F;code&gt; 字段。当前 &lt;code&gt;wfuzz-agent.ts&lt;&#x2F;code&gt; 主要是调试日志 hook，唯一有实际功能的 &lt;code&gt;experimental.chat.system.transform&lt;&#x2F;code&gt; opencode 原生就支持（自动读取 AGENTS.md）。后续如果需要 hook 功能再考虑其他注入方式。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-er-yu-zhuang-node-modules-bao-chi-plugin-ke-yong&quot;&gt;方案二：预装 node_modules（保持 plugin 可用）&lt;&#x2F;h2&gt;
+&lt;p&gt;在构建时（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）提前执行 &lt;code&gt;npm install&lt;&#x2F;code&gt;，把 63MB 的 &lt;code&gt;node_modules&#x2F;&lt;&#x2F;code&gt; 打进发布包。运行时由 &lt;code&gt;wfuzz-agent&lt;&#x2F;code&gt;（Rust 侧）在 exec opencode 之前把 &lt;code&gt;node_modules&lt;&#x2F;code&gt; + &lt;code&gt;package.json&lt;&#x2F;code&gt; 复制到 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;构建流程改动（&lt;code&gt;build.sh&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载 opencode 后
+OPENCODE_VERSION=$(&amp;quot;$BIN_DIR&amp;#x2F;opencode&amp;quot; --version)
+cat &amp;gt; agent-config&amp;#x2F;package.json &amp;lt;&amp;lt;EOF
+{&amp;quot;dependencies&amp;quot;:{&amp;quot;@opencode-ai&amp;#x2F;plugin&amp;quot;:&amp;quot;$OPENCODE_VERSION&amp;quot;}}
+EOF
+(cd agent-config &amp;amp;&amp;amp; npm install --production)
+# → node_modules&amp;#x2F; 被打进发布包
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;运行时改动（&lt;code&gt;main.rs&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&amp;#x2F;&amp;#x2F; exec opencode 之前
+let src = bin_dir.parent().join(&amp;quot;agent-config&amp;#x2F;node_modules&amp;quot;);
+let dst = PathBuf::from(env::var(&amp;quot;HOME&amp;quot;)?).join(&amp;quot;.config&amp;#x2F;opencode&amp;#x2F;node_modules&amp;quot;);
+if src.exists() &amp;amp;&amp;amp; !dst.exists() {
+    fs::create_dir_all(dst.parent())?;
+    copy_dir_recursive(&amp;amp;src, &amp;amp;dst)?;
+    fs::write(dst.parent().join(&amp;quot;package.json&amp;quot;), bundled_pkg_json)?;
+}
+&amp;#x2F;&amp;#x2F; opencode 启动时 bun install 发现 node_modules 已存在 → 跳过下载
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;复制 63MB 本地文件的耗时远小于网络下载（毫秒级 vs 几十秒），且不受网络环境、npm registry 可用性的影响。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;后续分析&lt;&#x2F;strong&gt;：&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-npm-install-source-analysis&#x2F;&quot;&gt;源码分析篇&lt;&#x2F;a&gt; 深入了 &lt;code&gt;ConfigPaths.directories()&lt;&#x2F;code&gt;、&lt;code&gt;Npm.install()&lt;&#x2F;code&gt; 和 &lt;code&gt;waitForDependencies()&lt;&#x2F;code&gt; 的调用链，解释了为什么每个 &lt;code&gt;.opencode&lt;&#x2F;code&gt; 目录都会触发依赖安装。&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;07&#x2F;opencode-startup-trace-verification&#x2F;&quot;&gt;验证篇&lt;&#x2F;a&gt; 通过注入调试日志实测了完整耗时。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;fang-an-san-sheng-ji-opencode&quot;&gt;方案三：升级 opencode&lt;&#x2F;h2&gt;
+&lt;p&gt;测试了 1.18.3 版本，行为完全一致。看起来这个机制是 opencode 设计如此 —— 有 plugin 就必须装依赖。只能从工程侧规避。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-fang-fa-lun-xiao-jie&quot;&gt;排查方法论小结&lt;&#x2F;h1&gt;
+&lt;p&gt;这次排查犯了一个典型错误：看到 strace 输出 &lt;code&gt;futex&lt;&#x2F;code&gt; + &lt;code&gt;ETIMEDOUT&lt;&#x2F;code&gt; 就下了&quot;死锁&quot;的结论。实际是 Bun 的 worker pool 正常工作模式 —— 线程在等待 I&#x2F;O（npm 下载），被唤醒处理数据包，然后继续等待。livelock 只是假象。&lt;&#x2F;p&gt;
+&lt;p&gt;教训：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看系统调用只能告诉你进程在&quot;做什么类型的等待&quot;，不能直接告诉你&quot;在等什么&quot;&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;怀疑死锁前，先检查&lt;strong&gt;文件系统和网络&lt;&#x2F;strong&gt; —— 进程可能在静静地下载东西&lt;&#x2F;li&gt;
+&lt;li&gt;对比实验是定位根因的最可靠手段 —— 控制变量（有无 plugin、有无 config）快速排除干扰因素&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;fd&#x2F;&lt;&#x2F;code&gt; 是看进程 IO 目标的第一手资料，比 strace 更直观&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;gong-ju-su-cha&quot;&gt;工具速查&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看进程打开的文件
+ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;fd&amp;#x2F;
+
+# 查看进程网络连接
+ss -tnp | grep &amp;lt;pid&amp;gt;
+
+# 查看 npm 缓存大小
+du -sh ~&amp;#x2F;.npm&amp;#x2F;
+
+# 查看 opencode 日志
+cat ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;opencode&amp;#x2F;log&amp;#x2F;opencode.log
+
+# 查看进程线程数和等待原因
+ls &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;task&amp;#x2F; | wc -l
+cat &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;wchan
+
+# 测试 WebSocket 连通性（bash）
+exec 3&amp;lt;&amp;gt;&amp;#x2F;dev&amp;#x2F;tcp&amp;#x2F;127.0.0.1&amp;#x2F;4096
+echo -en &amp;quot;GET &amp;#x2F; HTTP&amp;#x2F;1.1\r\nHost: 127.0.0.1\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n&amp;quot; &amp;gt;&amp;amp;3
+head -c 100 &amp;lt;&amp;amp;3
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>opencode 界面卡住不动排查</title>
+        <published>2026-07-15T09:42:00+08:00</published>
+        <updated>2026-07-15T09:42:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/opencode-卡住排查/"/>
+        <id>https://moxuetianya.github.io/2026/07/opencode-卡住排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/opencode-卡住排查/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;opencode 交互界面一直显示运行中，不输出任何新内容，像是卡死了一样。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-fan-ying-strace&quot;&gt;第一反应：strace&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace -p &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt; 看一下卡在哪个系统调用上：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;strace -p 4188775
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果有&lt;strong&gt;大量输出&lt;&#x2F;strong&gt;，&lt;code&gt;epoll_wait&lt;&#x2F;code&gt; → &lt;code&gt;read&lt;&#x2F;code&gt; → &lt;code&gt;write&lt;&#x2F;code&gt; → &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 循环不断，并没有阻塞在某个系统调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;这说明进程本身在运行，事件循环在持续工作。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;huan-ge-si-lu-jin-cheng-zhuang-tai-zi-jin-cheng-shu&quot;&gt;换个思路：进程状态 + 子进程树&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 输出太多看不出问题，那就从最常规的进程状态入手。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-jin-cheng-zai-deng-shen-me&quot;&gt;看进程在等什么&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -p 4188775 -o pid,stat,wchan,cmd
+# → 4188775  Sl+  do_epoll_wait  opencode --log-level DEBUG
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt; 只是某个采样时刻的快照。opencode 是事件循环模型，绝大多数时间都&lt;strong&gt;短暂地&lt;&#x2F;strong&gt;阻塞在 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 上等待 I&#x2F;O 事件，&lt;code&gt;ps&lt;&#x2F;code&gt; 拍到的 &lt;code&gt;wchan&lt;&#x2F;code&gt; 几乎永远是 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;，不代表一直卡在同一个调用上。&lt;&#x2F;p&gt;
+&lt;p&gt;但这个信息告诉我们一件事：&lt;strong&gt;进程是 S (sleeping) 状态，不是 R (running)，也不是 D (uninterruptible sleep)。没有死循环，没有内核态阻塞。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-zi-jin-cheng-shu&quot;&gt;看子进程树&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pstree -p 4188775
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;opencode(4188775)───git(2867)───ssh(2868)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一目了然：opencode 下面挂着 &lt;code&gt;git push&lt;&#x2F;code&gt;，git 下面挂着 &lt;code&gt;ssh&lt;&#x2F;code&gt;。阻塞链条是 &lt;code&gt;opencode → git → ssh&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;再看 git 进程的状态：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -p 2867 -o pid,stat,wchan,etime,cmd
+# → 2867  Ssl  do_wait  04:13  git push -u myself dev
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;git push 已经跑了 4 分多钟，在 &lt;code&gt;do_wait&lt;&#x2F;code&gt; 等待子进程 ssh 结束。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-xie-zi-jin-cheng-ssh-lian-jie-chu-liao-shen-me-wen-ti&quot;&gt;定位叶子进程：SSH 连接出了什么问题&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;kan-wang-luo-lian-jie&quot;&gt;看网络连接&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ss -tnp | grep 2868
+# → ESTAB  0  293076  192.168.5.99:60362 → 20.205.243.166:22  users:((&amp;quot;ssh&amp;quot;,pid=2868,fd=3))
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键信息：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;State&lt;&#x2F;td&gt;&lt;td&gt;ESTAB&lt;&#x2F;td&gt;&lt;td&gt;TCP 连接已建立&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Recv-Q&lt;&#x2F;td&gt;&lt;td&gt;0&lt;&#x2F;td&gt;&lt;td&gt;没有待读数据&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Send-Q&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;293076 (~286KB)&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;发送缓冲区积压了 286KB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;目的地址&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;20.205.243.166:22&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;GitHub SSH 端口&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;TCP 三次握手已完成，但 &lt;strong&gt;Send-Q 积压 286KB&lt;&#x2F;strong&gt;，说明本地发出了数据而 GitHub 端没有确认 TCP 报文。这是典型的网络不通畅：连接能建起来，但数据传不过去。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-huan-jing-bian-liang&quot;&gt;看环境变量&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;2868&amp;#x2F;environ | tr &amp;#x27;\0&amp;#x27; &amp;#x27;\n&amp;#x27; | grep -i proxy
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;HTTPS_PROXY=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+HTTP_PROXY=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+all_proxy=socks5:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;strong&gt;SSH 不使用 HTTP&#x2F;SOCKS 环境变量&lt;&#x2F;strong&gt;，它会直连目标主机的 22 端口。HTTP&#x2F;SOCKS 代理只对 HTTP 客户端和部分应用生效，SSH 不受影响。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;git push&lt;&#x2F;code&gt; 使用 SSH 协议推送到 GitHub（&lt;code&gt;git@github.com:...&lt;&#x2F;code&gt;），SSH 直连 &lt;code&gt;github.com:22&lt;&#x2F;code&gt;。本地网络到 GitHub 22 端口的 TCP 路径不畅通（可能被防火墙阻断或被 QoS 限速）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie&quot;&gt;排查思路总结&lt;&#x2F;h1&gt;
+&lt;pre&gt;&lt;code&gt;进程状态 (ps)                    ← 宏观：是 sleep &amp;#x2F; run &amp;#x2F; 内核阻塞？
+    │
+    ▼
+子进程树 (pstree)                ← 谁在等谁？
+    │
+    ▼
+叶子进程网络状态 (ss -tnp)        ← 网络有没有问题？
+    │
+    ▼
+环境变量 (&amp;#x2F;proc&amp;#x2F;pid&amp;#x2F;environ)      ← 代理&amp;#x2F;环境因素
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;strace&lt;&#x2F;code&gt; 看到大量事件循环输出时，不要被干扰。事件循环模型下 &lt;code&gt;ps&lt;&#x2F;code&gt; 看到的 &lt;code&gt;epoll_wait&lt;&#x2F;code&gt; 几乎永远不变，关键是&lt;strong&gt;它等的那件事有没有进展&lt;&#x2F;strong&gt;——用 &lt;code&gt;pstree&lt;&#x2F;code&gt; 一层层追到最底层，看叶子进程的状态。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-er-ci-pai-cha-suo-zheng-qiang-lock-contention&quot;&gt;第二次排查：锁争抢（Lock Contention）&lt;&#x2F;h1&gt;
+&lt;p&gt;同一天稍晚，另一个 opencode 进程（PID 138479）又卡住了。这次表现不同：CPU 占用 18%，看起来&quot;活着&quot;但响应极慢。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chu-bu-guan-cha&quot;&gt;初步观察&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -p 138479 -o pid,stat,wchan,pcpu,cmd
+# → 138479  Sl+  do_epoll_wait  18.0  opencode --log-level DEBUG
+
+cat &amp;#x2F;proc&amp;#x2F;138479&amp;#x2F;status | grep -E &amp;#x27;State|VmRSS|Threads&amp;#x27;
+# → State: R (running)
+# → VmRSS: 790120 kB
+# → Threads: 40
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 &lt;code&gt;ps&lt;&#x2F;code&gt; 显示 &lt;code&gt;Sl+&lt;&#x2F;code&gt;（sleep），但 &lt;code&gt;&#x2F;proc&#x2F;pid&#x2F;status&lt;&#x2F;code&gt; 显示 &lt;code&gt;R（running）&lt;&#x2F;code&gt;。790MB RSS，40 个线程，18% CPU —— 进程在干活，但效率极低。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;strace-cai-yang&quot;&gt;strace 采样&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;strace -p 138479 -e trace=all -c -S time 2&amp;gt;&amp;amp;1 &amp;amp;
+sleep 5; kill %1 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null; wait 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;5 秒内的系统调用分布：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;% time     seconds  calls    errors  syscall
+ 79.64    0.097539  20345      252  futex
+ 16.14    0.019772   2649            sched_yield
+  2.56    0.003137    389            epoll_pwait2
+  0.67    0.000821   1616            clock_gettime
+  0.29    0.000359    277            pread64
+  0.18    0.000215    281            read
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键数据：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;79.6% 时间花在 futex&lt;&#x2F;strong&gt; — 20,345 次调用，线程在抢锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;16.1% 花在 sched_yield&lt;&#x2F;strong&gt; — 2,649 次，争不到锁主动让出 CPU&lt;&#x2F;li&gt;
+&lt;li&gt;真正的 I&#x2F;O（read&#x2F;write）占比可以忽略&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -Lp 138479 -o lwp,psr,pcpu,stat,wchan:32 --no-headers | sort -k3 -rn | head -10
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;  lwp  psr  pcpu  stat  wchan
+138479   0   7.3  Rl+   -                  # 主线程 running
+142051   3   3.4  Sl+   do_epoll_wait
+138494   2   2.2  Sl+   do_epoll_wait
+138487  14   0.9  Sl+   futex_wait_queue    # 7个线程等锁
+138484   0   0.9  Rl+   futex_wait_queue     # 1个线程在 futex 中 running
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;~20 个线程&lt;&#x2F;strong&gt; 在 &lt;code&gt;futex_wait_queue&lt;&#x2F;code&gt;，1 个主线程在用户态跑，其余在 &lt;code&gt;do_epoll_wait&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;进一步跟踪 futex 操作：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;strace -p 138479 -e trace=futex 2&amp;gt;&amp;amp;1 | head -20
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x7f601c0c0154, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x7f601c0e0150, FUTEX_WAKE_PRIVATE, 1) = 1
+futex(0x7f601c0b4154, FUTEX_WAKE_PRIVATE, 1) = 1
+...
+futex(0x7f601c01f154, FUTEX_WAIT_BITSET_PRIVATE|FUTEX_CLOCK_REALTIME,
+      125123, NULL, FUTEX_BITSET_MATCH_ANY) = -1 EAGAIN
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;模式&lt;&#x2F;strong&gt;：大量 &lt;code&gt;FUTEX_WAKE_PRIVATE&lt;&#x2F;code&gt; 唤醒 + 偶尔 &lt;code&gt;FUTEX_WAIT_BITSET_PRIVATE&lt;&#x2F;code&gt; 超时（EAGAIN）。多个 futex 地址集中在同一内存区（&lt;code&gt;0x7f601c0bxxx-0x7f601c0fxxx&lt;&#x2F;code&gt;），像是一个线程池任务队列上的锁。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;结论：惊群效应 + 严重锁争抢。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;有大量线程同时被唤醒去竞争少数任务或资源&lt;&#x2F;li&gt;
+&lt;li&gt;大部分线程发现没活可干又 sleep，如此循环&lt;&#x2F;li&gt;
+&lt;li&gt;CPU 大部分消耗在 futex 调度上而非实际工作&lt;&#x2F;li&gt;
+&lt;li&gt;进程&quot;活着&quot;（能响应请求），但有效吞吐极低&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;可能诱因：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;线程池过大（40 线程 vs 实际 CPU 核数），过多线程争抢同一把锁&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 本地 LLM 推理慢，IO 线程在等待结果期间造成锁堆积&lt;&#x2F;li&gt;
+&lt;li&gt;39 个 LSP server 同时启动，大量并发初始化请求冲击线程池&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-san-ci-pai-cha-ipv6-lian-jie-qia-zhu-syn-sent&quot;&gt;第三次排查：IPv6 连接卡住 SYN-SENT&lt;&#x2F;h1&gt;
+&lt;p&gt;解决第一个进程后，又启动了一个新的 opencode（PID 183287）。这次 CPU 很低（2.8%），但也不响应。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ji-chu-xin-xi&quot;&gt;基础信息&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -p 183287 -o pid,stat,wchan,pcpu,cmd
+# → 183287  Sl+  do_epoll_wait  2.8  opencode --log-level DEBUG
+
+cat &amp;#x2F;proc&amp;#x2F;183287&amp;#x2F;status | grep -E &amp;#x27;State|VmRSS|Threads&amp;#x27;
+# → State:  S (sleeping)
+# → VmRSS: 511812 kB
+# → Threads: 16
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;16 线程，512MB，2.8% CPU，状态 S（sleeping）。和上一个完全不同。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-cheng-fen-bu-1&quot;&gt;线程分布&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;  lwp    pcpu  wchan
+183348   0.8   do_epoll_wait
+183287   0.6   do_epoll_wait     # 主线程
+183295   0.1   futex_wait_queue
+...其他线程都在 sleep...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所有线程 ≤ 0.8% CPU，大部分在 futex 上 sleep。进程完全&lt;strong&gt;空闲&lt;&#x2F;strong&gt;，不是在忙，是真的在等什么。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;kan-wen-jian-miao-shu-fu&quot;&gt;看文件描述符&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls -la &amp;#x2F;proc&amp;#x2F;183287&amp;#x2F;fd&amp;#x2F; | grep socket
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;35 -&amp;gt; socket:[56963599]
+36 -&amp;gt; socket:[56963601]
+37 -&amp;gt; socket:[56963600]
+38 -&amp;gt; socket:[56962309]
+39 -&amp;gt; socket:[56963602]
+40 -&amp;gt; socket:[56963603]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;共 &lt;strong&gt;6 个 socket&lt;&#x2F;strong&gt;。用 &lt;code&gt;ss&lt;&#x2F;code&gt; 看它们的连接状态：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ss -npep | grep 183287
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;fd&lt;&#x2F;th&gt;&lt;th&gt;TCP 状态&lt;&#x2F;th&gt;&lt;th&gt;本地&lt;&#x2F;th&gt;&lt;th&gt;远端&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;38&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:53102&lt;&#x2F;td&gt;&lt;td&gt;172.67.69.147:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv4 ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;40&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ESTABLISHED&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;192.168.5.99:59558&lt;&#x2F;td&gt;&lt;td&gt;20.205.243.165:443&lt;&#x2F;td&gt;&lt;td&gt;Microsoft&#x2F;GitHub ✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;35&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:38682&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:a22]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;36&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:60690&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:422]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;37&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:46750&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:222]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;39&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;[3000::5054:ff:fe87:f354]:49118&lt;&#x2F;td&gt;&lt;td&gt;[2606:4700::6810:322]:443&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare IPv6 ❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;4 个连接卡在 SYN-SENT&lt;&#x2F;strong&gt;，目标全是 Cloudflare 的 IPv6 地址段 &lt;code&gt;2606:4700::&#x2F;32&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-zheng-ipv6-bu-tong&quot;&gt;验证 IPv6 不通&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip -6 route show default
+# → default via fe80::c0b1:65ff:fe3e:68c3 dev enp1s0
+
+ping6 -c 2 -W 2 2606:4700::6810:a22
+# → 2 packets transmitted, 0 received, 100% packet loss
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;IPv6 路由存在，但实际不通 —— ping Cloudflare IPv6 地址 100% 丢包。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi-1&quot;&gt;根因分析&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;big-pickle&lt;&#x2F;code&gt; 模型 API 通过 Cloudflare 托管，DNS 同时返回了 A 和 AAAA 记录。Node.js HTTP 客户端默认执行 &lt;strong&gt;Happy Eyeballs（RFC 8305）&lt;&#x2F;strong&gt;：优先尝试 IPv6，如果连接建立缓慢，才回退到 IPv4。&lt;&#x2F;p&gt;
+&lt;p&gt;问题在于：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;DNS 返回了多个 Cloudflare IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;Node.js 尝试并发连接所有 IPv6 地址&lt;&#x2F;li&gt;
+&lt;li&gt;内核发出 SYN 后收不到 SYN-ACK，连接进入 &lt;strong&gt;SYN-SENT&lt;&#x2F;strong&gt; 状态&lt;&#x2F;li&gt;
+&lt;li&gt;内核每 20 秒重传一次 SYN，总超时可达 &lt;strong&gt;120 秒以上&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在此之前，IPv4 的请求即使已成功，部分客户端逻辑可能仍在等待 IPv6 尝试完成&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这解释了为什么进程看起来&quot;卡住了&quot;：它不是在死循环，而是事件循环被大量 pending 的 TCP 连接超时拖着，无法及时处理已就绪的请求。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lin-shi-huan-jie&quot;&gt;临时缓解&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 方式 1：Node.js 层优先 IPv4
+NODE_OPTIONS=&amp;quot;--dns-result-order=ipv4first&amp;quot; opencode
+
+# 方式 2：系统层禁用 IPv6
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gen-ben-xiu-fu&quot;&gt;根本修复&lt;&#x2F;h2&gt;
+&lt;p&gt;排查 IPv6 路由&#x2F;网关问题，或确保 big-pickle API 域名在本地只解析到 IPv4。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;pai-cha-si-lu-zong-jie-geng-xin-ban&quot;&gt;排查思路总结（更新版）&lt;&#x2F;h1&gt;
+&lt;p&gt;加上今天的排查，归纳出 opencode 卡住的三种模式：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;卡住了？
+  │
+  ├─ CPU 高 (&amp;gt;10%) + 大量 futex&amp;#x2F;sched_yield
+  │     → 锁争抢 &amp;#x2F; 惊群效应
+  │     → 检查线程池大小、LSP server 数量
+  │
+  ├─ CPU 低 (&amp;lt;5%) + 进程 idle (S&amp;#x2F;sleeping)
+  │     → 看 fd 中的 socket
+  │       ├─ SYN-SENT → IPv6 不通 &amp;#x2F; 防火墙
+  │       └─ ESTABLISH + Send-Q 积压 → 网络拥塞
+  │
+  └─ CPU 低 + 有子进程 (pstree)
+        → 看 pstree 找到叶子进程
+          → git? ssh? → 网络问题 &amp;#x2F; 代理配置
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jie-jue-fang-an-git-push-ssh&quot;&gt;解决方案（git push SSH）&lt;&#x2F;h1&gt;
+&lt;p&gt;两种方式让 git push 走代理：&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-yi-ssh-pei-dai-li&quot;&gt;方案一：SSH 配代理&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 中添加：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Host github.com
+    ProxyCommand nc -X 5 -x 192.168.5.244:10808 %h %p
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fang-an-er-gai-yong-https-yuan-cheng&quot;&gt;方案二：改用 HTTPS 远程&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git remote set-url myself https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;moxuetianya&amp;#x2F;learn-opencode.git
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;HTTPS 协议会使用 &lt;code&gt;HTTPS_PROXY&lt;&#x2F;code&gt; 环境变量，自动走代理。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>Linux 运维笔记</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/linux-ops/"/>
+        <id>https://moxuetianya.github.io/2025/07/linux-ops/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/linux-ops/">&lt;h1 id=&quot;linux-yun-wei-bi-ji&quot;&gt;Linux 运维笔记&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;chang-yong-ming-ling-xing-gong-ju&quot;&gt;常用命令行工具&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;dan-xing-ming-ling-ji&quot;&gt;单行命令集&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# bpf 监控 execve 调用
+sudo bpftrace -e &amp;#x27;tracepoint:syscalls:sys_enter_execve { printf(&amp;quot;%-6d %-8s &amp;quot;, pid, comm); join(args-&amp;gt;argv);}&amp;#x27;
+
+# 批量格式化 C++ 代码
+git ls-files -- &amp;#x27;*.cpp&amp;#x27; &amp;#x27;*.h&amp;#x27; | xargs clang-format -i -style=file
+
+# 禁用系统休眠
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
+
+# 键盘映射调整
+setxkbmap -option ctrl:ralt_rctrl
+grep -e &amp;quot;ctrl:\|:ctrl&amp;quot; &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;X11&amp;#x2F;xkb&amp;#x2F;rules&amp;#x2F;evdev.lst
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;tui-jian-gong-ju-qing-dan&quot;&gt;推荐工具清单&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;类别&lt;&#x2F;th&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;文本搜索&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;rg&lt;&#x2F;code&gt; (ripgrep), &lt;code&gt;ag&lt;&#x2F;code&gt;, &lt;code&gt;grep&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Git 浏览&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tig&lt;&#x2F;code&gt;, &lt;code&gt;git&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;JSON 处理&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;jq&lt;&#x2F;code&gt;, &lt;code&gt;python -m json.tool&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;模糊搜索&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;fzf&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;远程连接&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;mosh&lt;&#x2F;code&gt; (UDP SSH), &lt;code&gt;autossh&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;进程监控&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;htop&lt;&#x2F;code&gt;, &lt;code&gt;atop&lt;&#x2F;code&gt;, &lt;code&gt;nmon&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;下载工具&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;axel -n 20 &amp;lt;url&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;编译缓存&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ccache&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;命令纠正&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;thefuck&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;剪贴板&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xclip&lt;&#x2F;code&gt;, &lt;code&gt;xsel&lt;&#x2F;code&gt;, &lt;code&gt;wl-copy&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Shell 美化&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;starship&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;大文件创建&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;fallocate -l 100G &amp;lt;file&amp;gt;&lt;&#x2F;code&gt; (秒级创建稀疏文件)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;grep-yan-se-pei-zhi&quot;&gt;grep 颜色配置&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export GREP_COLORS=&amp;#x27;ms=01;33:mc=01;31:sl=:cx=:fn=1;96:ln=1;96:bn=1;96:se=1;97&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ms&lt;&#x2F;code&gt;: 匹配文本颜色&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;mc&lt;&#x2F;code&gt;: 非匹配上下文颜色（&lt;code&gt;-v&lt;&#x2F;code&gt; 时）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;fn&lt;&#x2F;code&gt;: 文件名颜色（&lt;code&gt;-H&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ln&lt;&#x2F;code&gt;: 行号颜色（&lt;code&gt;-n&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;perf-c2c-huan-cun-wei-gong-xiang-zhen-duan&quot;&gt;perf c2c：缓存伪共享诊断&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;wei-gong-xiang&quot;&gt;伪共享&lt;&#x2F;h3&gt;
+&lt;p&gt;CPU 缓存以 cacheline（x86-64 为 64 字节）为单位操作。即使变量不被多核共享，只要落在同一 cacheline 上，任一核的写入都会导致其他核的缓存失效，称为伪共享。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;shi-yong-perf-c2c&quot;&gt;使用 perf c2c&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;perf c2c record -g -u .&amp;#x2F;your_program   # 记录
+perf c2c report -g --stats             # 统计汇总
+perf c2c report -g                     # 详细报告（TUI 界面）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;guan-jian-zhi-biao&quot;&gt;关键指标&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;Load LLC Misses&lt;&#x2F;code&gt;：最后一级缓存未命中总数&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;LLC Misses to Remote cache (HITM)&lt;&#x2F;code&gt;：从远程 NUMA 拿到脏缓存的比例，这是代价最高的伪共享信号。该值不接近 0 就值得排查&lt;&#x2F;li&gt;
+&lt;li&gt;cachelines 按 &lt;code&gt;HITM&lt;&#x2F;code&gt; 降序排列，占比异常集中在某几条的即为竞争热点&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;fen-xi-fang-fa&quot;&gt;分析方法&lt;&#x2F;h3&gt;
+&lt;p&gt;在 &lt;code&gt;perf c2c report -g&lt;&#x2F;code&gt; 的 TUI 界面中：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;找到 &lt;code&gt;HITM&lt;&#x2F;code&gt; 占比过高的 cacheline&lt;&#x2F;li&gt;
+&lt;li&gt;按 &lt;code&gt;d&lt;&#x2F;code&gt; 进入 Pareto 分布表，查看访问该 cacheline 的代码符号和行号&lt;&#x2F;li&gt;
+&lt;li&gt;按 &lt;code&gt;Enter&lt;&#x2F;code&gt; 查看具体调用栈&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;you-hua-ce-lue&quot;&gt;优化策略&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;将（几乎）只读数据放在一起，减少 cacheline 占用&lt;&#x2F;li&gt;
+&lt;li&gt;分离冷热路径：热路径用线程局部计数器，冷路径做汇总&lt;&#x2F;li&gt;
+&lt;li&gt;数据结构对齐到 cacheline 并填充到整数倍&lt;&#x2F;li&gt;
+&lt;li&gt;减小锁粒度（如 concurrent hash map 的分段锁）&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;jin-jie-can-shu&quot;&gt;进阶参数&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 提高采样频率（生产环境慎用）
+echo 100000 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;kernel&amp;#x2F;perf_event_max_sample_rate
+
+# 提高延迟阈值过滤
+perf c2c record -u -l 50 -- -a -g sleep 10
+
+# 采样时间不宜过长（3-10秒），否则观测到的是时间错开的访问
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ptrace-ltrace-strace&quot;&gt;ptrace &#x2F; ltrace &#x2F; strace&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ltrace-bu-shu-chu-wen-ti&quot;&gt;ltrace 不输出问题&lt;&#x2F;h3&gt;
+&lt;p&gt;Ubuntu 22 中 &lt;code&gt;ltrace&lt;&#x2F;code&gt; 对 PIE 可执行文件不输出，需重新编译：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gcc -no-pie test.c -o test
+ltrace .&amp;#x2F;test
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;strace-yuan-ma-diao-shi&quot;&gt;strace 源码调试&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt source strace
+cd strace-*
+dpkg-buildpackage -b -uc -us
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;zi-jin-cheng-xin-hao-chu-li&quot;&gt;子进程信号处理&lt;&#x2F;h3&gt;
+&lt;p&gt;ptrace 追踪子进程时，子进程会收到 &lt;code&gt;SIGSTOP&lt;&#x2F;code&gt;。应忽略第一次 &lt;code&gt;SIGSTOP&lt;&#x2F;code&gt;，否则子进程异常结束；但也不能忽略所有信号，否则无 &lt;code&gt;SIGCHLD&lt;&#x2F;code&gt; 会导致僵尸进程。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;tong-guo-ptrace-xiu-gai-zi-jin-cheng-can-shu&quot;&gt;通过 ptrace 修改子进程参数&lt;&#x2F;h3&gt;
+&lt;p&gt;在 &lt;code&gt;execve&lt;&#x2F;code&gt; 系统调用时，检查 &lt;code&gt;argv[0]&lt;&#x2F;code&gt; 匹配 &lt;code&gt;gcc&#x2F;g++&#x2F;clang&#x2F;clang++&lt;&#x2F;code&gt;，可以使用栈内存重建 &lt;code&gt;char**&lt;&#x2F;code&gt; 向量替换编译器路径，实现编译器拦截。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ibus-libpinyin-shu-ru-fa&quot;&gt;ibus libpinyin 输入法&lt;&#x2F;h2&gt;
+&lt;p&gt;启用 &quot;记住输入&quot; 功能：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set com.github.libpinyin.ibus-libpinyin.libpinyin remember-every-input true
+ibus restart
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查工具：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ibus engine                           # 查看当前引擎
+db_dump ~&amp;#x2F;.cache&amp;#x2F;ibus&amp;#x2F;libpinyin&amp;#x2F;user_bigram.db | head  # 查看用户词组
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;用户词组存储在 Berkeley DB (BDB) 格式的 &lt;code&gt;user_bigram.db&lt;&#x2F;code&gt; 中。BDB 是键值存储数据库，不支持 SQL，专为高性能读写设计。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zi-ti-an-zhuang&quot;&gt;字体安装&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;wget -c https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;ryanoasis&amp;#x2F;nerd-fonts&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.0.0&amp;#x2F;SourceCodePro.zip
+sudo unzip SourceCodePro -d &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;fonts&amp;#x2F;SourceCodePro
+sudo mkfontscale &amp;amp;&amp;amp; sudo mkfontdir &amp;amp;&amp;amp; sudo fc-cache -fv
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;vscode-fu-jia-gdb-diao-shi-python-zi-jin-cheng&quot;&gt;VSCode 附加 GDB 调试 Python 子进程&lt;&#x2F;h2&gt;
+&lt;p&gt;在 &lt;code&gt;launch.json&lt;&#x2F;code&gt; 中配置 C++ (GDB&#x2F;LLDB) 类型，&lt;code&gt;program&lt;&#x2F;code&gt; 设为 &lt;code&gt;python&lt;&#x2F;code&gt;，&lt;code&gt;args&lt;&#x2F;code&gt; 为子进程脚本路径。启动后输入 &lt;code&gt;set follow-fork-mode child&lt;&#x2F;code&gt; 即可附加到子进程。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chang-jian-wen-ti-su-cha&quot;&gt;常见问题速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;问题&lt;&#x2F;th&gt;&lt;th&gt;解决&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Docker 安装 GPG 报错&lt;&#x2F;td&gt;&lt;td&gt;检查网络代理，确认 key 服务器可达&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;usermod -aG docker&lt;&#x2F;code&gt; 不生效&lt;&#x2F;td&gt;&lt;td&gt;注销后重新登录&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;find -size -1M&lt;&#x2F;code&gt; 只匹配空文件&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;-size -1M&lt;&#x2F;code&gt; 是整数比较，0M 以下为 0。改用 &lt;code&gt;-size -1000k&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;FRP 配置不通&lt;&#x2F;td&gt;&lt;td&gt;检查云服务商安全组和 VPS 防火墙 (&lt;code&gt;systemctl stop firewalld&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WireGuard 握手失败&lt;&#x2F;td&gt;&lt;td&gt;关闭防火墙验证，之后配置端口放行&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GitLab CI SSH 超时&lt;&#x2F;td&gt;&lt;td&gt;在 &lt;code&gt;&#x2F;etc&#x2F;ssh&#x2F;ssh_config&lt;&#x2F;code&gt; 添加 &lt;code&gt;ServerAliveInterval 60&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;zsh &lt;code&gt;no matches found&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;含通配符的参数加引号&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;zsh&lt;&#x2F;code&gt; 不加载 &lt;code&gt;.zshrc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;内容放入 &lt;code&gt;~&#x2F;.zshenv&lt;&#x2F;code&gt; 或在 &lt;code&gt;~&#x2F;.zshenv&lt;&#x2F;code&gt; 中 source&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;cmake 外部依赖未更新&lt;&#x2F;td&gt;&lt;td&gt;删除 build 目录中的 &lt;code&gt;--prefix&lt;&#x2F;code&gt; 对应路径&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;cmake &lt;code&gt;--build&lt;&#x2F;code&gt; 行为异常&lt;&#x2F;td&gt;&lt;td&gt;检查 cmake 是否被 alias：&lt;code&gt;which cmake&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;gcc-bao-jing-chu-li&quot;&gt;GCC 报警处理&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ISO C++11 requires at least one argument for the &quot;...&quot; in a variadic macro&lt;&#x2F;code&gt;：由 &lt;code&gt;-pedantic&lt;&#x2F;code&gt; 检查，可变宏参数为空时触发&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;relocation truncated to fit: R_MIPS_GOT_DISP&lt;&#x2F;code&gt;：MIPS 架构上符号地址超出重定位位数限制，通常因 &lt;code&gt;.so&lt;&#x2F;code&gt; 太大导致，需拆分符号或改用其他重定位方式&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>网络调试与流量控制</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/network-debug/"/>
+        <id>https://moxuetianya.github.io/2025/07/network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/network-debug/">&lt;h1 id=&quot;wang-luo-diao-shi-yu-liu-liang-kong-zhi&quot;&gt;网络调试与流量控制&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;tcp-yi-chang-guan-bi-chang-jing-fen-xi&quot;&gt;TCP 异常关闭场景分析&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;guan-jian-gai-nian&quot;&gt;关键概念&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;RST（Reset）&lt;&#x2F;strong&gt;：异常终止连接，接收方得到 &lt;code&gt;Connection reset by peer&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;FIN&lt;&#x2F;strong&gt;：正常关闭连接，接收方 Recv 返回 0&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Broken Pipe&lt;&#x2F;strong&gt;：向已收到 RST 的连接写入数据&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;time-wait&quot;&gt;TIME_WAIT&lt;&#x2F;h3&gt;
+&lt;p&gt;主动关闭方进入 TIME_WAIT（2MSL，约 60 秒）的原因：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;确保最后的 ACK 能重传给被动关闭方&lt;&#x2F;li&gt;
+&lt;li&gt;防止旧连接的残余数据包干扰同五元组的新连接&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;yi-chang-chang-jing-zong-jie&quot;&gt;异常场景总结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;服务器端表现&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;客户端 crash（不关 socket 直接退出）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Connection reset by peer&lt;&#x2F;code&gt;（104）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;客户端死机&#x2F;断网&#x2F;网线松动&lt;&#x2F;td&gt;&lt;td&gt;无任何错误，等超时断开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;客户端正常关闭 Socket&lt;&#x2F;td&gt;&lt;td&gt;收完数据后 Recv 返回 0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器已 close，客户端再发包&lt;&#x2F;td&gt;&lt;td&gt;第 1 包发送成功，第 2 包 &lt;code&gt;Broken pipe&lt;&#x2F;code&gt;（32）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器接收缓冲区有未读数据时 close&lt;&#x2F;td&gt;&lt;td&gt;发送 RST 而非 FIN，客户端收到 104 错误&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器先发数据后 close，客户端再发再收&lt;&#x2F;td&gt;&lt;td&gt;Windows 端 Recv 报 10053；Linux 端正常收完&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;broken-pipe-gen-yin&quot;&gt;Broken Pipe 根因&lt;&#x2F;h3&gt;
+&lt;p&gt;收到 RST 后仍向该连接写数据 → &lt;code&gt;SIGPIPE&lt;&#x2F;code&gt; 信号 + &lt;code&gt;EPIPE&lt;&#x2F;code&gt; 错误。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;sheng-chan-jing-yan&quot;&gt;生产经验&lt;&#x2F;h3&gt;
+&lt;p&gt;跨服跳转的掉线问题常因服务器在接收缓冲区还有未收数据时关闭 Socket，导致对端收到 RST 而非正常关闭。建议&lt;strong&gt;连接关闭由客户端发起&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cuo-wu-ma-dui-zhao&quot;&gt;错误码对照&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Linux&lt;&#x2F;th&gt;&lt;th&gt;Windows&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;104 (ECONNRESET)&lt;&#x2F;td&gt;&lt;td&gt;10054&lt;&#x2F;td&gt;&lt;td&gt;Connection reset by peer&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;32 (EPIPE)&lt;&#x2F;td&gt;&lt;td&gt;10053&lt;&#x2F;td&gt;&lt;td&gt;Broken pipe &#x2F; connection aborted&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Recv 返回 0&lt;&#x2F;td&gt;&lt;td&gt;Recv 返回 0&lt;&#x2F;td&gt;&lt;td&gt;对端正常关闭&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;ju-yu-wang-ip-chong-tu-pai-cha&quot;&gt;局域网 IP 冲突排查&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;di-yi-bu-que-ren-chong-tu&quot;&gt;第一步：确认冲突&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# arping 检测重复 IP（最权威）
+arping -D -c 5 -I eth0 &amp;lt;目标IP&amp;gt;
+# 收到多个不同 MAC 的回复 = 冲突确认
+
+# 抓包观察 MAC 抖动
+tcpdump -i eth0 arp and host &amp;lt;目标IP&amp;gt; -e -c 20
+
+# 反复刷新 ARP 观察
+for i in $(seq 1 10); do
+  arp -d &amp;lt;目标IP&amp;gt; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+  ping -c 1 -W 1 &amp;lt;目标IP&amp;gt; &amp;gt; &amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1
+  arp -n &amp;lt;目标IP&amp;gt; | grep ether
+  sleep 1
+done
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;di-er-bu-ding-wei-chong-tu-she-bei&quot;&gt;第二步：定位冲突设备&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;交换机 MAC 表&lt;&#x2F;strong&gt;（最可靠）：
+&lt;ul&gt;
+&lt;li&gt;Cisco: &lt;code&gt;show mac address-table address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;H3C: &lt;code&gt;display mac-address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;华为: &lt;code&gt;display mac-address-table address aa:bb:cc:dd:ee:02&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;OUI 厂商查询&lt;&#x2F;strong&gt;：&lt;code&gt;curl -s &quot;https:&#x2F;&#x2F;api.maclookup.app&#x2F;v2&#x2F;macs&#x2F;&amp;lt;mac&amp;gt;&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;nmap 探测&lt;&#x2F;strong&gt;：绑定静态 ARP 后 &lt;code&gt;nmap -O -sV &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;mDNS&#x2F;NetBIOS&lt;&#x2F;strong&gt;：&lt;code&gt;avahi-resolve -a &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt; 或 &lt;code&gt;nbtscan &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DHCP 租约&lt;&#x2F;strong&gt;：&lt;code&gt;grep &quot;&amp;lt;mac&amp;gt;&quot; &#x2F;var&#x2F;lib&#x2F;dhcp&#x2F;dhcpd.leases&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SNMP 遍历&lt;&#x2F;strong&gt;（大型网络）：&lt;code&gt;snmpwalk -v2c -c public &amp;lt;交换机IP&amp;gt; 1.3.6.1.2.1.17.4.3.1.2&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;chu-li-cuo-shi&quot;&gt;处理措施&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;DHCP 冲突 → 预留&#x2F;排除该 IP&lt;&#x2F;li&gt;
+&lt;li&gt;静态 IP 配错 → 联系管理员修改&lt;&#x2F;li&gt;
+&lt;li&gt;流氓设备 → 交换机端口 shutdown &#x2F; MAC 过滤&lt;&#x2F;li&gt;
+&lt;li&gt;临时止损 → 交换机 IP-MAC 绑定&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;linux-tc-liu-liang-kong-zhi&quot;&gt;Linux TC 流量控制&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-gai-nian&quot;&gt;核心概念&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;概念&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;qdisc（排队规则）&lt;&#x2F;td&gt;&lt;td&gt;内核发送数据包的排队策略&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;class（类）&lt;&#x2F;td&gt;&lt;td&gt;qdisc 内部分类，可嵌套子类&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;filter（过滤器）&lt;&#x2F;td&gt;&lt;td&gt;将数据包分类到指定 class&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wu-lei-bie-qdisc&quot;&gt;无类别 qdisc&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;pfifo&#x2F;bfifo&lt;&#x2F;strong&gt;：先进先出（按包数&#x2F;按字节）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pfifo_fast&lt;&#x2F;strong&gt;：基于 TOS 的三波段优先级队列&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;sfq&lt;&#x2F;strong&gt;：随机公平队列，按会话轮询&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;tbf&lt;&#x2F;strong&gt;：令牌桶过滤器，限速&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;red&lt;&#x2F;strong&gt;：随机早期探测，适合高带宽&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;htb-fen-ceng-ling-pai-tong&quot;&gt;HTB（分层令牌桶）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 创建根 qdisc
+tc qdisc add dev eth0 root handle 1: htb default 2
+
+# 创建分类，保证 98M，最大 100M
+tc class add dev eth0 parent 1:1 classid 1:2 htb rate 98mbit ceil 100mbit prio 2
+
+# 添加 SFQ 叶子 qdisc
+tc qdisc add dev eth0 parent 1:2 handle 2: sfq perturb 10
+
+# 过滤特定 IP 到指定 class
+tc filter add dev eth0 protocol ip parent 1:0 u32 match ip src 192.168.0.2 flowid 1:2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;chang-yong-ming-ling&quot;&gt;常用命令&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tc qdisc del dev eth0 root                    # 清除所有规则
+tc -s -d qdisc show dev eth0                  # 查看 qdisc 统计
+tc -s -d class show dev eth0                  # 查看 class 统计
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;wang-qia-zi-jie-kou&quot;&gt;网卡子接口&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip addr add 2.2.2.2&amp;#x2F;24 dev eth0 label eth0:0  # 添加 IP 别名
+ip addr del 2.2.2.2&amp;#x2F;24 dev eth0 label eth0:0  # 删除
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;永久生效需在 &lt;code&gt;&#x2F;etc&#x2F;sysconfig&#x2F;network-scripts&#x2F;&lt;&#x2F;code&gt; 下创建配置文件。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lian-lu-zu-bo-di-zhi-224-0-0-252&quot;&gt;链路组播地址 224.0.0.252&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;LLMNR（Link-Local Multicast Name Resolution）&lt;&#x2F;strong&gt;：Windows 在 DNS 解析失败后，向 &lt;code&gt;224.0.0.252&lt;&#x2F;code&gt; 发送多播查询，局域网内主机若匹配则单播回复自己的 IP。常用于无 DNS 服务器的小型局域网。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eth0 &amp;#x27;udp port 5355 or host 224.0.0.252&amp;#x27; -nn
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

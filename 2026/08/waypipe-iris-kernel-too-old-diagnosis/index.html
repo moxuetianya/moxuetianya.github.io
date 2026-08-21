@@ -1,0 +1,286 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="waypipe 转发时报 &quot;Kernel is too old for Iris&quot; 与 renderD128 打开失败，一度误判为服务端&#x2F;客户端缺少 GPU 渲染节点，最终定位到客户端 i915 GuC 固件缺失导致 GPU wedged、Mesa 回退 llvmpipe 的完整排查记录" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/" />
+  <meta property="og:description" content="waypipe 转发时报 &quot;Kernel is too old for Iris&quot; 与 renderD128 打开失败，一度误判为服务端&#x2F;客户端缺少 GPU 渲染节点，最终定位到客户端 i915 GuC 固件缺失导致 GPU wedged、Mesa 回退 llvmpipe 的完整排查记录" />
+  <meta name="twitter:description" content="waypipe 转发时报 &quot;Kernel is too old for Iris&quot; 与 renderD128 打开失败，一度误判为服务端&#x2F;客户端缺少 GPU 渲染节点，最终定位到客户端 i915 GuC 固件缺失导致 GPU wedged、Mesa 回退 llvmpipe 的完整排查记录" />
+  <meta property="og:title" content="waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程 | 墨雪天琊" />
+  <meta name="twitter:title" content="waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-16" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/">waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 09, 2026 <span class="rpad"></span>更新: 八月 16, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/debug/">debug</a>] #<a href="https://moxuetianya.github.io/tags/waypipe/">waypipe</a>  #<a href="https://moxuetianya.github.io/tags/i915/">i915</a>  #<a href="https://moxuetianya.github.io/tags/mesa/">mesa</a>  #<a href="https://moxuetianya.github.io/tags/llvmpipe/">llvmpipe</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a> </span>
+
+    
+
+
+<h1 id="wen-ti-xian-xiang">问题现象</h1>
+<p>客户端机器通过 waypipe 连到服务器跑图形程序：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">waypipe ssh workpc
+weston-dnd
+</code></pre>
+<p>结果终端刷出报错：</p>
+<pre><code>error: Kernel is too old (4.16+ required) or unusable for Iris.
+Check your dmesg logs for loading failures.
+</code></pre>
+<p>偶发还伴随 waypipe 的 dmabuf 报错：</p>
+<pre><code>S607565: 60.485827 [src&#x2F;dmabuf.c:125] Failed to open drm fd for &#x2F;dev&#x2F;dri&#x2F;renderD128: No such file or directory
+</code></pre>
+<p>关键对照：<code>waypipe --no-gpu ssh workpc</code> 后执行 <code>weston-dnd</code> <strong>完全正常</strong>。显然问题在 waypipe 的 GPU 通道（dmabuf 直传）。</p>
+<p>本文如实记录一次<strong>被错误怀疑带偏的排查</strong>——错误的焦点反复落在"服务端/客户端到底谁没有 renderD128"上，而真相在另一个层面。</p>
+<h1 id="di-yi-lun-wu-pan-huai-yi-fu-wu-duan-fu-wu-qi-que-renderd128">第一轮误判：怀疑服务端（服务器）缺 renderD128</h1>
+<p>初始推断很自然：报错里有 <code>Failed to open drm fd for /dev/dri/renderD128</code>，dmabuf 直传要求两端都能打开渲染节点，于是先怀疑<strong>服务器</strong>。</p>
+<p>在服务器上查证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ls &#x2F;dev&#x2F;dri&#x2F;          # card0-4 + renderD128，存在
+uname -r              # 7.0.0-28-generic
+getfacl &#x2F;dev&#x2F;dri&#x2F;renderD128   # user:peter:rw-, mask rw-
+</code></pre>
+<p>服务器有 renderD128、ACL 正常、python 实测 <code>open()</code> 成功、<code>gbm_create_device()</code> 成功。<strong>服务器侧完全正常</strong>，排除。</p>
+<h1 id="di-er-lun-wu-pan-huai-yi-ke-hu-duan-mei-you-gpu-jie-dian">第二轮误判：怀疑客户端没有 GPU 节点</h1>
+<p>服务器没问题，那按"两端缺一不可"的逻辑，报错应该发生在<strong>客户端</strong>——客户端 waypipe 进程要打开它自己那台机器的 <code>/dev/dri/renderD128</code>。于是推断"客户端机器有显卡但驱动没加载 render 节点"（比如 NVIDIA 没开 <code>modeset=1</code>、i915 模块被禁用等）。</p>
+<p>但用户明确说：<strong>客户端是有 GPU 的</strong>。</p>
+<p>而且注意一个拓扑干扰项：SSH 连接里看到的对端 IP <code>192.168.4.148</code> 其实是 <strong>WireGuard 服务器</strong>（中间转发），不是客户端真机——这又增加了"客户端到底在哪"的混乱。实际上真正做 waypipe 客户端的机器是用户面前的物理机。</p>
+<h1 id="zhuan-xiang-shi-ce-bao-cuo-dao-di-lai-zi-na-yi-duan">转向实测：报错到底来自哪一端</h1>
+<p>靠猜没用，直接实验定位报错来源。把两端 stderr 分开：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">waypipe ssh workpc &#x27;weston-dnd 2&gt;&#x2F;tmp&#x2F;wp-server-err.log&#x27; 2&gt;&#x2F;tmp&#x2F;wp-client-err.log
+</code></pre>
+<p>结果：</p>
+<ul>
+<li><strong>服务器端</strong> <code>/tmp/wp-server-err.log</code>：<strong>空</strong>（weston-dnd 在服务器上没报任何错）</li>
+<li><strong>客户端端</strong> <code>/tmp/wp-client-err.log</code>：正是那两行 Iris 报错</li>
+</ul>
+<p><strong>报错文本来自客户端 waypipe 进程自身</strong>，不是服务器，也不是 weston-dnd。第一轮"服务器缺 GPU"彻底排除，且"客户端没有 renderD128"也被推翻了——因为客户端明明有：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ls &#x2F;dev&#x2F;dri&#x2F;    # card0 + renderD128
+lspci           # Intel UHD 770 (Raptor Lake-S)
+</code></pre>
+<h1 id="jue-ding-xing-yi-bu-ke-hu-duan-mesa-qi-shi-quan-zai-ruan-xuan-ran">决定性一步：客户端 Mesa 其实全在软渲染</h1>
+<p>客户端 GPU 节点存在，但 iris 驱动本身可能有问题。用 <code>glxinfo</code> / <code>eglinfo</code> 看客户端 Mesa 实际用的渲染器：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">glxinfo -B | grep -i renderer
+# OpenGL renderer string: llvmpipe (LLVM 19.1.7, 256 bits)
+</code></pre>
+<p><strong>关键发现：客户端所有 OpenGL 都是 llvmpipe（软件渲染），根本没有用 i915 硬件加速！</strong> 连 gnome-shell 桌面都在软渲染。</p>
+<p>本地直接测 <code>gbm_create_device()</code> 也能复现那两行 Iris 报错（与 waypipe 无关）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">python3 -c &quot;import os,ctypes; ...gbm_create_device(os.open(&#x27;&#x2F;dev&#x2F;dri&#x2F;renderD128&#x27;, os.O_RDWR))&quot;
+# error: Kernel is too old (4.16+ required) or unusable for Iris.
+# gbm_create_device: OK     ← 回退到 llvmpipe 后仍能创建设备
+</code></pre>
+<p>这说明：<strong>不是"没有 GPU 节点"，而是"iris 驱动加载失败，Mesa 静默回退到 llvmpipe"</strong>。waypipe 的 GPU 通道坚持用 iris，失败后就把报错打出来。</p>
+<h1 id="zhen-zheng-gen-yin-i915-guc-gu-jian-que-shi-gpu-wedged">真正根因：i915 GuC 固件缺失，GPU wedged</h1>
+<p>报错提示 "Check your dmesg logs"，用 sudo 看内核日志：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo dmesg | grep -iE &#x27;i915|xe|drm&#x27;
+</code></pre>
+<pre><code>i915 0000:00:02.0: firmware: failed to load i915&#x2F;tgl_guc_70.1.1.bin (-2)
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC firmware i915&#x2F;tgl_guc_70.bin: fetch failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC initialization failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: Failed to initialize GPU, declaring it wedged!
+</code></pre>
+<p><strong>根因锁定：客户端的 i915 驱动因为缺 GuC 固件初始化失败，GPU 被内核标记为 wedged（不可用）。</strong> 于是 Mesa 的 iris 驱动初始化失败 → 报 <code>Kernel is too old (4.16+ required) or unusable for Iris</code> → 回退 llvmpipe。</p>
+<p>检查固件目录：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ls &#x2F;lib&#x2F;firmware&#x2F;i915&#x2F;        # 只有 dg2_dmc_ver2_07.bin，无 tgl_guc*
+apt-file search tgl_guc       # 属于 firmware-intel-graphics 包
+apt-cache policy firmware-intel-graphics   # 未安装
+</code></pre>
+<h1 id="jie-jue-an-zhuang-gu-jian-bao-zhong-qi">解决：安装固件包 + 重启</h1>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo apt install firmware-intel-graphics
+sudo reboot    # i915 被 Wayland 桌面会话占用，无法热卸载，必须重启
+</code></pre>
+<p>验证固件进入 initramfs（确保重启后能加载）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">lsinitramfs &#x2F;boot&#x2F;initrd.img-$(uname -r) | grep tgl_guc
+# usr&#x2F;lib&#x2F;firmware&#x2F;i915&#x2F;tgl_guc_70.bin ...
+</code></pre>
+<p>重启后预期：<code>glxinfo -B</code> 渲染器从 <code>llvmpipe</code> 变成 <code>Mesa Intel(R) Raptor Lake-S</code>，waypipe GPU 通道不再报错。</p>
+<h1 id="fu-pan-zhe-ci-pai-cha-wei-shen-me-bei-dai-pian">复盘：这次排查为什么被带偏</h1>
+<ol>
+<li>
+<p><strong>报错文本双来源混淆</strong>。<code>Failed to open drm fd</code> 是 waypipe 的，<code>Kernel is too old for Iris</code> 是 Mesa 的——两者都指向"GPU 不可用"，但一个让人联想到"缺节点/权限"，一个让人联想到"内核太旧"。真正原因（GPU wedged）藏在 dmesg 里，不靠日志只看表象必然误判。</p>
+</li>
+<li>
+<p><strong>"两端缺一不可"的框架太粗糙</strong>。渲染节点存在 ≠ 驱动可用。客户端明明有 <code>/dev/dri/renderD128</code>，却因 iris 初始化失败实际不可用——<code>ls /dev/dri</code> 根本看不出 GPU 是好的。<strong>判断 GPU 是否可用要看 Mesa 实际用什么渲染器（<code>glxinfo -B</code>）和内核日志（<code>dmesg</code>），而不是只看有没有节点文件。</strong></p>
+</li>
+<li>
+<p><strong>网络拓扑干扰</strong>。WireGuard 中转让 SSH 对端 IP 显示为 WG 服务器而非客户端真机，一度让人纠结"客户端到底是哪台"。先厘清拓扑，再谈哪一端。</p>
+</li>
+<li>
+<p><strong>先分离两端 stderr 再下结论</strong>。<code>waypipe ssh host 'cmd 2&gt;server.log' 2&gt;client.log</code> 一次性把"报错来自客户端还是服务端"定死，避免了来回猜。</p>
+</li>
+</ol>
+<h1 id="pai-cha-gong-ju-su-cha">排查工具速查</h1>
+<table><thead><tr><th>想确认什么</th><th>命令</th></tr></thead><tbody>
+<tr><td>报错来自哪端</td><td><code>waypipe ssh h 'cmd 2&gt;s.log' 2&gt;c.log</code> 分别看两端</td></tr>
+<tr><td>GPU 是否真可用</td><td><code>glxinfo -B | grep -i renderer</code>（llvmpipe = 软渲染，坏）</td></tr>
+<tr><td>内核驱动状态</td><td><code>sudo dmesg | grep -iE 'i915|xe|drm'</code></td></tr>
+<tr><td>渲染节点归属</td><td><code>readlink /sys/class/drm/renderD128/device/driver</code></td></tr>
+<tr><td>固件是否齐全</td><td><code>ls /lib/firmware/i915/</code>、<code>apt-file search tgl_guc</code></td></tr>
+<tr><td>固件是否进 initrd</td><td><code>lsinitramfs /boot/initrd.img-$(uname -r) | grep tgl_guc</code></td></tr>
+</tbody></table>
+<hr />
+<h2 id="2026-08-16-fu-fa-bu-chong-zhe-ci-bu-shi-mei-zhuang-gu-jian-shi-mei-zhong-qi-liang-duan-du-yao-jia-render-zu">2026-08-16 复发补充：这次不是没装固件，是没重启 + 两端都要加 render 组</h2>
+<blockquote>
+<p>8 月 16 日同款症状再次出现（<code>waypipe ssh huawei-vm yad</code> 报 Iris + dmabuf 报错），
+但这次排查方向完全不同，记录两个 08-09 版本没覆盖的坑。</p>
+</blockquote>
+<h3 id="zheng-zhuang">症状</h3>
+<pre><code>error: Kernel is too old (4.16+ required) or unusable for Iris.
+S20933:  0.007984 [src&#x2F;dmabuf.c:129] Failed to open drm fd for &#x2F;dev&#x2F;dri&#x2F;renderD128: Permission denied
+(yad:20929): Gdk-CRITICAL **: ... gdk_x11_window_get_xid: assertion &#x27;GDK_IS_X11_WINDOW (window)&#x27; failed
+</code></pre>
+<p>注意 dmabuf 报错从 <code>No such file or directory</code>（08-09）变成了 <strong><code>Permission denied</code></strong>——上一轮修完的机器已无此问题，
+本次报错来自<strong>另一台机器</strong>（waypipe 客户端，192.168.2.100）。照旧先分离两端 stderr 定位来源：
+<code>waypipe ssh huawei-vm 'yad 2&gt;/tmp/wp-server-err.log' 2&gt;/tmp/wp-client-err.log</code>。</p>
+<h3 id="keng-yi-gu-jian-zhuang-liao-sheng-xiao-wedged-zhuang-tai-zhi-neng-zhong-qi-hui-fu">坑一：固件装了 ≠ 生效，wedged 状态只能重启恢复</h3>
+<p>客户端 dmesg 明明是 8 月 7 日开机时 <code>tgl_guc_70.bin: fetch failed -ENOENT</code>、GPU wedged，
+但 <code>firmware-intel-graphics</code> <strong>8 月 9 日已装好</strong>、<code>lsinitramfs</code> 也确认 <code>tgl_guc_70.bin</code> 已在 initrd 里——</p>
+<p>对比时间线发现：开机（08-07 21:44）→ 装固件 + 重建 initramfs（08-09 22:16）→ <strong>之后一直没重启</strong>。
+i915 被 Wayland 桌面会话占用无法热卸载，wedged 状态从开机起就固定了，装再多固件也不影响已加载的驱动。
+<strong>判断 GPU 是否真修好必须看当前会话的 <code>glxinfo -B</code>（llvmpipe = 还是坏的），而不是看 initrd 里有没有固件。</strong></p>
+<h3 id="keng-er-liang-duan-du-yao-you-render-zu-quan-xian-vm-nei-ye-yao-jia">坑二：两端都要有 render 组权限，VM 内也要加</h3>
+<p>修复 Iris 后 dmabuf 报错仍在（<code>Permission denied</code>），客户端 <code>usermod -aG render peter</code> 后
+报错消失一半——剩 <code>Permission denied</code> 转到了<strong>服务端 huawei-vm</strong>（VM 内 peter 只有 <code>video</code> 组，
+<code>/dev/dri/renderD128</code> 属组是 <code>render</code>）。VM 内同样要加：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># VM 内（或经 qemu-guest-agent 以 root 执行）
+usermod -aG render peter
+# 组变更不作用于已登录会话，重新 ssh 即可；客户端侧同理
+</code></pre>
+<h3 id="keng-san-yad-de-gdk-critical-shi-wayland-xia-de-wu-hai-duan-yan">坑三：yad 的 Gdk-CRITICAL 是 wayland 下的无害断言</h3>
+<p><code>gdk_x11_window_get_xid: assertion 'GDK_IS_X11_WINDOW' failed</code> 是 yad（GTK3）内部获取
+X11 窗口 ID 的代码路径在 wayland 后端下触发的断言——窗口仍能正常弹出，<strong>忽略即可</strong>，不属于故障。</p>
+<h3 id="ben-ci-wan-zheng-lian-lu-xiao-jie">本次完整链路小结</h3>
+<pre><code>Iris 报错（客户端）→ 固件在 initrd 里但没重启 → 重启
+dmabuf Permission denied（客户端）→ usermod -aG render
+dmabuf Permission denied（服务端 VM）→ VM 内同样 usermod -aG render
+Gdk-CRITICAL → 无害，忽略
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/">&#8249; tar.xz 深潜：格式、随机访问与导航解压提速实测</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/"> 工具链迁移 Wayland：剪贴板踩坑与适配方案 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#wen-ti-xian-xiang">问题现象</a>
+        </div>
+        <div>
+          <a href="#di-yi-lun-wu-pan-huai-yi-fu-wu-duan-fu-wu-qi-que-renderd128">第一轮误判：怀疑服务端（服务器）缺 renderD128</a>
+        </div>
+        <div>
+          <a href="#di-er-lun-wu-pan-huai-yi-ke-hu-duan-mei-you-gpu-jie-dian">第二轮误判：怀疑客户端没有 GPU 节点</a>
+        </div>
+        <div>
+          <a href="#zhuan-xiang-shi-ce-bao-cuo-dao-di-lai-zi-na-yi-duan">转向实测：报错到底来自哪一端</a>
+        </div>
+        <div>
+          <a href="#jue-ding-xing-yi-bu-ke-hu-duan-mesa-qi-shi-quan-zai-ruan-xuan-ran">决定性一步：客户端 Mesa 其实全在软渲染</a>
+        </div>
+        <div>
+          <a href="#zhen-zheng-gen-yin-i915-guc-gu-jian-que-shi-gpu-wedged">真正根因：i915 GuC 固件缺失，GPU wedged</a>
+        </div>
+        <div>
+          <a href="#jie-jue-an-zhuang-gu-jian-bao-zhong-qi">解决：安装固件包 + 重启</a>
+        </div>
+        <div>
+          <a href="#fu-pan-zhe-ci-pai-cha-wei-shen-me-bei-dai-pian">复盘：这次排查为什么被带偏</a>
+        </div>
+        <div>
+          <a href="#pai-cha-gong-ju-su-cha">排查工具速查</a>
+        </div>
+        <div class="hpad">
+          <a href="#2026-08-16-fu-fa-bu-chong-zhe-ci-bu-shi-mei-zhuang-gu-jian-shi-mei-zhong-qi-liang-duan-du-yao-jia-render-zu"><small>- 2026-08-16 复发补充：这次不是没装固件，是没重启 + 两端都要加 render 组</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zheng-zhuang"><small>· 症状</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#keng-yi-gu-jian-zhuang-liao-sheng-xiao-wedged-zhuang-tai-zhi-neng-zhong-qi-hui-fu"><small>· 坑一：固件装了 ≠ 生效，wedged 状态只能重启恢复</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#keng-er-liang-duan-du-yao-you-render-zu-quan-xian-vm-nei-ye-yao-jia"><small>· 坑二：两端都要有 render 组权限，VM 内也要加</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#keng-san-yad-de-gdk-critical-shi-wayland-xia-de-wu-hai-duan-yan"><small>· 坑三：yad 的 Gdk-CRITICAL 是 wayland 下的无害断言</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ben-ci-wan-zheng-lian-lu-xiao-jie"><small>· 本次完整链路小结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

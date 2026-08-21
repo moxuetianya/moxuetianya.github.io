@@ -1,0 +1,410 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux 使用优化记录（一）：终端与 Wayland 使用优化 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Linux 使用优化记录合集第一篇：Alacritty Wayland 拖放与 X11 字体缩放调优、kitty ssh 按键重复（远端缺 xterm-kitty terminfo，方案对比与 dotfiles 固化）、waypipe ssh 无 WAYLAND_DISPLAY（zshrc 误清转发变量）与乱码（ssh mux 复用冲突）。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/" />
+  <meta property="og:description" content="Linux 使用优化记录合集第一篇：Alacritty Wayland 拖放与 X11 字体缩放调优、kitty ssh 按键重复（远端缺 xterm-kitty terminfo，方案对比与 dotfiles 固化）、waypipe ssh 无 WAYLAND_DISPLAY（zshrc 误清转发变量）与乱码（ssh mux 复用冲突）。" />
+  <meta name="twitter:description" content="Linux 使用优化记录合集第一篇：Alacritty Wayland 拖放与 X11 字体缩放调优、kitty ssh 按键重复（远端缺 xterm-kitty terminfo，方案对比与 dotfiles 固化）、waypipe ssh 无 WAYLAND_DISPLAY（zshrc 误清转发变量）与乱码（ssh mux 复用冲突）。" />
+  <meta property="og:title" content="Linux 使用优化记录（一）：终端与 Wayland 使用优化 | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux 使用优化记录（一）：终端与 Wayland 使用优化 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-12" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/">Linux 使用优化记录（一）：终端与 Wayland 使用优化</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 11, 2026 <span class="rpad"></span>更新: 八月 12, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/alacritty/">alacritty</a>  #<a href="https://moxuetianya.github.io/tags/kitty/">kitty</a>  #<a href="https://moxuetianya.github.io/tags/ssh/">ssh</a>  #<a href="https://moxuetianya.github.io/tags/terminfo/">terminfo</a>  #<a href="https://moxuetianya.github.io/tags/waypipe/">waypipe</a>  #<a href="https://moxuetianya.github.io/tags/wayland/">wayland</a>  #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/winit/">winit</a>  #<a href="https://moxuetianya.github.io/tags/x11/">x11</a> </span>
+
+    
+
+
+<h2 id="he-ji-shuo-ming">合集说明</h2>
+<p>记录日常 Linux 使用中遇到的小问题与调优过程：现象 → 排查 → 解决 → 总结，方便日后检索复用。本文是第一篇。</p>
+<h2 id="xian-xiang">现象</h2>
+<p>从文件管理器（Nautilus）把文件拖进终端窗口，期望在命令行插入文件路径：</p>
+<ul>
+<li><strong>kitty</strong>：拖放正常，路径直接插入</li>
+<li><strong>Alacritty</strong>：完全无反应，鼠标光标没有任何反馈</li>
+</ul>
+<h2 id="pai-cha-guo-cheng">排查过程</h2>
+<h3 id="1-sheng-ji-ban-ben-wu-xiao">1. 升级版本无效</h3>
+<p>当时 Alacritty 是 apt 装的 0.13.2，先用 cargo 升级到最新的 0.17.0：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cargo install alacritty --version 0.17.0 --locked
+</code></pre>
+<p><code>~/.cargo/bin</code> 在 PATH 最前，新版本生效（<code>alacritty --version</code> 确认）。<strong>但拖放依旧不行。</strong></p>
+<h3 id="2-que-ren-shi-shang-you-wei-shi-xian-er-fei-pei-zhi-wen-ti">2. 确认是上游未实现，而非配置问题</h3>
+<p>查 GitHub 找到对应 issue：<a rel="noopener" target="_blank" href="https://github.com/alacritty/alacritty/issues/4010">alacritty/alacritty#4010</a> "Drag and drop to paste file path doesn't work under Wayland"，状态 <strong>Open</strong>，被上游 <a rel="noopener" target="_blank" href="https://github.com/rust-windowing/winit/issues/1881">winit#1881</a> 阻塞。</p>
+<p>关键时间线：</p>
+<ul>
+<li>winit 的 Wayland DnD 实现（PR #4571）<strong>2026-07-16 才合并到 master</strong>，尚未发布到 crates.io</li>
+<li>Alacritty 还在用 crates.io 的 winit 0.30.x，自然没有该功能</li>
+<li>也就是说：<strong>Alacritty 在 Wayland 下不支持拖放是功能缺失，升级解决不了</strong>，只能等 winit 发版 + Alacritty 适配</li>
+</ul>
+<h3 id="3-chang-shi-x11-hou-duan-winit-unix-backend-cai-keng">3. 尝试 X11 后端：WINIT_UNIX_BACKEND 踩坑</h3>
+<p>issue 里确认 X11 模式下拖放可用，于是尝试强制 X11 后端：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">WINIT_UNIX_BACKEND=x11 alacritty
+</code></pre>
+<p><strong>无效！</strong> 用 <code>lsof</code> 检查进程，发现它监听的还是 <code>Alacritty-wayland-0-*.sock</code>，实际跑的还是 Wayland 后端。</p>
+<p>查 winit 源码（<code>platform_impl/linux/mod.rs</code> 的 <code>EventLoop::new</code>）才明白：winit 0.29 起<strong>已移除 <code>WINIT_UNIX_BACKEND</code> 环境变量</strong>，后端选择只看 <code>WAYLAND_DISPLAY</code> / <code>DISPLAY</code>：</p>
+<blockquote>
+<p><strong>Breaking:</strong> <code>WINIT_UNIX_BACKEND</code> was removed in favor of standard <code>WAYLAND_DISPLAY</code> and <code>DISPLAY</code> variables.（winit 0.29 changelog）</p>
+</blockquote>
+<p>也就是说旧教程里的 <code>WINIT_UNIX_BACKEND=x11</code> 对现代 winit 是<strong>无效的</strong>，坑了不少人。</p>
+<h2 id="jie-jue-fang-an">解决方案</h2>
+<p>正确的强制 X11 后端方式是 <strong>unset <code>WAYLAND_DISPLAY</code></strong>，winit 检测不到 Wayland 后自然 fallback 到 X11：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">env -u WAYLAND_DISPLAY alacritty
+</code></pre>
+<p>验证方法（确认窗口真的跑在 X11）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 窗口应出现在 X11 窗口树，带 mutter-x11-frames 装饰
+DISPLAY=:0 wmctrl -l
+
+# 进程不再监听 wayland socket，且无 Alacritty-wayland-*.sock
+lsof -p $(pgrep -x alacritty) | grep -E &#x27;Alacritty.*sock&#x27;
+</code></pre>
+<p>实测从 Nautilus 拖文件，路径正常插入。</p>
+<h3 id="gu-hua-qi-dong-fu-gai-desktop-wen-jian">固化启动：覆盖 desktop 文件</h3>
+<p>改系统 desktop 文件不持久（升级 apt 包会覆盖），在用户级同名文件覆盖即可：</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># ~&#x2F;.local&#x2F;share&#x2F;applications&#x2F;Alacritty.desktop
+[Desktop Entry]
+Type=Application
+TryExec=alacritty
+Exec=env -u WAYLAND_DISPLAY alacritty
+Icon=Alacritty
+Terminal=false
+Categories=System;TerminalEmulator;
+
+Name=Alacritty
+GenericName=Terminal
+Comment=A fast, cross-platform, OpenGL terminal emulator
+StartupNotify=true
+StartupWMClass=Alacritty
+Actions=New;
+
+[Desktop Action New]
+Name=New Terminal
+Exec=env -u WAYLAND_DISPLAY alacritty
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">desktop-file-validate ~&#x2F;.local&#x2F;share&#x2F;applications&#x2F;Alacritty.desktop
+</code></pre>
+<p>之后从应用菜单/桌面启动的 Alacritty 都走 X11 后端。</p>
+<h2 id="wen-ti-er-x11-hou-duan-xia-zi-ti-bian-da">问题二：X11 后端下字体变大</h2>
+<h3 id="xian-xiang-1">现象</h3>
+<p>改完 desktop 文件后，从应用菜单启动的 Alacritty 字体明显变大（18pt 看起来像 27pt），而之前 Wayland 后端时正常。</p>
+<h3 id="yuan-yin-fen-xi">原因分析</h3>
+<p>排查链路：</p>
+<ol>
+<li>GNOME 全局设了 <code>text-scaling-factor = 1.5</code>（GNOME Tweaks → 字体 → 缩放因子，或 <code>gsettings</code> 设置，默认 1.0）</li>
+<li>GNOME 会话会把该值<strong>同步给 XWayland</strong>：<code>Xft.dpi = 96 × 1.5 = 144</code>（可用 <code>xrdb -q | grep Xft.dpi</code> 确认）</li>
+<li>winit 的 X11 后端按 <code>Xft.dpi / 96</code> 计算窗口 scale factor → 1.5</li>
+<li>Alacritty 字体大小 = <code>font.size (18pt) × scale factor</code> → 视觉 27pt</li>
+</ol>
+<p><strong>Wayland 后端不读 Xft.dpi</strong>（用 compositor 的 surface scale），所以之前从终端启动（Wayland）完全正常，切到 X11 后端才暴露。</p>
+<h3 id="jie-jue-fang-an-1">解决方案</h3>
+<p>两个层次，可叠加：</p>
+<ol>
+<li><strong>单独压掉 Alacritty 的缩放</strong>（推荐，不影响全局）：winit 支持 <code>WINIT_X11_SCALE_FACTOR</code> 环境变量强制 scale factor（数字，或 <code>randr</code> 用 xrandr 自算）：</li>
+</ol>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini">Exec=env -u WAYLAND_DISPLAY WINIT_X11_SCALE_FACTOR=1.0 alacritty
+</code></pre>
+<blockquote>
+<p><strong>本次最终取舍</strong>：全局恢复 1.5（桌面文字大更好读），Alacritty 保持 <code>WINIT_X11_SCALE_FACTOR=1.0</code> 单独压掉——两套方案叠加，互不冲突。改全局到 1.0 实测发现桌面文字偏小，又改回了 1.5。</p>
+</blockquote>
+<ol start="2">
+<li><strong>关掉全局文本缩放</strong>（影响所有 GTK 应用，如标题栏、菜单）：</li>
+</ol>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gsettings set org.gnome.desktop.interface text-scaling-factor 1.0
+</code></pre>
+<p>如果调 1.5 只是为了可读性，可以改用系统字体大小替代（如 <code>font-name 'Ubuntu Sans 12'</code>），两者效果不同但都能放大界面。</p>
+<h3 id="xiao-jie">小结</h3>
+<table><thead><tr><th>项</th><th>值</th><th>影响</th></tr></thead><tbody>
+<tr><td><code>text-scaling-factor</code></td><td>1.5（全局）</td><td>GTK 应用文本放大；同步 Xft.dpi=144</td></tr>
+<tr><td><code>Xft.dpi</code></td><td>144</td><td>X11 应用（含 XWayland）按 1.5 缩放</td></tr>
+<tr><td><code>WINIT_X11_SCALE_FACTOR</code></td><td>1.0</td><td>仅覆盖 Alacritty 的 X11 scale factor</td></tr>
+</tbody></table>
+<h2 id="wen-ti-san-kitty-ssh-hou-mei-ci-an-jian-chu-xian-da-liang-zhong-fu-zi-fu">问题三：kitty ssh 后每次按键出现大量重复字符</h2>
+<h3 id="xian-xiang-2">现象</h3>
+<p>kitty 终端本地开 zsh 一切正常；<code>ssh dev</code> 到远程服务器后，每次键盘输入都出现很多字符（重复/乱画），几乎没法用。</p>
+<h3 id="pai-cha-guo-cheng-1">排查过程</h3>
+<ol>
+<li><strong>先排除远端 shell 配置</strong>：用 rmux（tmux 类复用器）连 dev，<code>TERM=tmux-256color</code> 时输入完全正常 → 远端 zsh/oh-my-zsh 配置本身没问题</li>
+<li><strong>模拟 kitty 场景</strong>：<code>TERM=xterm-kitty ssh dev</code> 复现问题——发送 1 个字符显示 2 个，命令被双重渲染（如 <code>zsh -fzsh -f</code>）</li>
+<li><strong>找到报错</strong>：远端运行 <code>zsh -f</code> 报 <code>zsh: can't find terminal definition for xterm-kitty</code>；<code>dpkg -S xterm-kitty</code> 显示无任何包拥有该 terminfo</li>
+<li><strong>根因</strong>：kitty 连接时把本地 <code>TERM=xterm-kitty</code> 传给远端（sshd 按客户端请求设置 pty TERM），但远端没有 xterm-kitty 的 terminfo 定义。zsh 5.9 的 zle 行编辑器找不到终端定义，光标定位/行重绘全部退化 → 每次按键重复字符、画面混乱</li>
+</ol>
+<blockquote>
+<p>排查陷阱：远端装了 zsh-autosuggestions，它的补全建议会渲染在当前行后面（如输入 <code>l</code> 显示 <code>lls</code>，其中 <code>s</code> 是建议），capture-pane 会连建议一起抓走，容易误判成"按键重复"。建议用原始字节流（<code>cat -A</code>）对比。</p>
+</blockquote>
+<h3 id="jie-jue-fang-an-2">解决方案</h3>
+<p>在远端安装 xterm-kitty terminfo（本地 kitty 自带，<code>infocmp</code> 导出后远端 <code>tic</code> 导入）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">infocmp xterm-kitty | ssh dev &#x27;tic -x -&#x27;
+</code></pre>
+<p>验证：<code>ssh dev 'infocmp xterm-kitty'</code> 有输出即成功。之后输入、退格、方向键、自动补全全部恢复正常。</p>
+<h3 id="fang-an-dui-bi-yu-gu-hua">方案对比与固化</h3>
+<p>三个层次，按推荐度：</p>
+<table><thead><tr><th>方案</th><th>服务器要求</th><th>保留能力</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>kitten ssh</code>（推荐，已固化）</td><td>零配置，首次连接自动装 terminfo（~/.terminfo，无需 root）</td><td>图形协议/键盘协议/真彩全保留</td><td>本地需装 kitty；连接复用、shell integration</td></tr>
+<tr><td><code>TERM=xterm-256color ssh</code></td><td>零（几乎每台机器都有）</td><td>损失 ssh 图片预览、歧义键区分，真彩降级</td><td>不想在服务器留任何东西时用；打字/编辑/vi/tmux 完全兼容</td></tr>
+<tr><td><code>infocmp xterm-kitty | ssh HOST 'tic -x -'</code></td><td>一次性装到 ~/.terminfo</td><td>全保留</td><td>备用/批量脚本</td></tr>
+</tbody></table>
+<p>已固化到 dotfiles 仓库 <code>~/.my_profile.kitty</code>（ssh 包装）：</p>
+<pre data-lang="zsh" class="language-zsh "><code class="language-zsh" data-lang="zsh"># 仅&quot;本地有 kitten 且进程确实在 kitty 窗口内(KITTY_PID + KITTY_WINDOW_ID 缺一不可)&quot;才走 kitten ssh, 否则回退普通 ssh
+ssh() {
+    if command -v kitten &gt;&#x2F;dev&#x2F;null 2&gt;&amp;1 \
+        &amp;&amp; [[ -n &quot;${KITTY_PID:-}&quot; &amp;&amp; -n &quot;${KITTY_WINDOW_ID:-}&quot; ]]; then
+        command kitten ssh &quot;$@&quot;
+    else
+        command ssh &quot;$@&quot;
+    fi
+}
+# 备用手动补装: kitty-terminfo &lt;host&gt;; 装依赖: bash dotfiles&#x2F;run.sh install_kitty [host]
+</code></pre>
+<blockquote>
+<p>实测细节：kitten ssh 要求"进程确实在 kitty 窗口内"——启动器校验 <code>KITTY_PID</code> + <code>KITTY_WINDOW_ID</code> 两个环境变量（缺一即拒绝："The SSH kitten is meant to run inside a kitty window"），单纯把 TERM 伪装成 xterm-kitty 没用。所以包装必须查这两个变量，tmux 内、其他终端、远端（没装 kitty）自动回退普通 ssh，保证 ssh 永不被包装搞挂。</p>
+</blockquote>
+<p>顺带：服务器不需要装 kitty 也能 ssh 图片预览——只需轻量工具（<code>chafa --format=kitty img</code> 或 <code>viu -k img</code>，apt 安装），渲染由本地 kitty 完成；<code>bash dotfiles/run.sh install_kitty &lt;host&gt;</code> 可一键给远端装 chafa/viu/timg。</p>
+<h2 id="wen-ti-si-waypipe-ssh-hou-mei-you-wayland-display">问题四：waypipe ssh 后没有 WAYLAND_DISPLAY</h2>
+<h3 id="xian-xiang-3">现象</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">waypipe ssh -tY -o controlpath=none dev
+</code></pre>
+<p>连上后 <code>echo $WAYLAND_DISPLAY</code> 为空，而 <code>echo $DISPLAY</code> 正常（<code>localhost:10.0</code>，ssh -Y 的 X11 转发）。运行 Wayland 客户端 <code>weston-dnd</code> 报：</p>
+<pre><code>could not load cursor &#x27;dnd-copy&#x27;
+could not load cursor &#x27;dnd-none&#x27;
+</code></pre>
+<p>窗口也没有出现在 host 端。</p>
+<h3 id="pai-cha-guo-cheng-2">排查过程</h3>
+<ol>
+<li><strong>waypipe 的代理 socket 确实建了</strong>：dev 的 <code>/run/user/1000/</code> 下能看到一串 <code>wayland-1ET0R84N</code>、<code>wayland-BSpfNUZh</code> 之类的 socket（<code>wayland-&lt;随机后缀&gt;</code> 是 waypipe 的命名规则，时间戳对得上本次会话）</li>
+<li><strong>环境变量被 zshrc 清掉了</strong>：<code>~/.my_zshrc</code> 里有一段（之前为修 gpg pinentry 问题加的）：</li>
+</ol>
+<pre data-lang="zsh" class="language-zsh "><code class="language-zsh" data-lang="zsh"># XDG_SESSION_TYPE=tty（SSH 会话就是这个值）时直接清掉 WAYLAND_DISPLAY
+if [ &quot;${XDG_SESSION_TYPE:-}&quot; = &quot;tty&quot; ]; then
+  unset WAYLAND_DISPLAY 2&gt;&#x2F;dev&#x2F;null
+fi
+</code></pre>
+<p>SSH 分配的 pty 会话 <code>XDG_SESSION_TYPE</code> 为 <code>tty</code>，waypipe 给会话设置的 <code>WAYLAND_DISPLAY</code> 被登录 shell 启动时直接 unset
+3. <strong>weston-dnd 连不上任何合成器</strong>：<code>WAYLAND_DISPLAY</code> 为空 → <code>wl_display_connect()</code> 失败 → 窗口根本没创建（哪里都没显示），<code>could not load cursor</code> 是连接失败阶段报的连带错误，随后进程挂起等 Ctrl+C</p>
+<blockquote>
+<p>原 unset 块的来历：tmux server 会继承旧会话的 WAYLAND_DISPLAY（孤儿 socket），残留值让 pinentry-gnome3 误判"有 GUI"而跳过 curses 回退 → SSH 下 gpg 弹窗不出来、干等超时（"agent refused operation"）。相关背景见 <a href="https://moxuetianya.github.io/2025/07/gpg/">GPG 使用指南</a> 的 pinentry 部分。</p>
+</blockquote>
+<h3 id="jie-jue-fang-an-3">解决方案</h3>
+<p>只清掉指向<strong>不存在 socket</strong> 的残留值，waypipe 创建的真实 socket 予以保留：</p>
+<pre data-lang="zsh" class="language-zsh "><code class="language-zsh" data-lang="zsh">if [ &quot;${XDG_SESSION_TYPE:-}&quot; = &quot;tty&quot; ]; then
+  if [ -n &quot;${WAYLAND_DISPLAY:-}&quot; ] &amp;&amp; { [ -S &quot;${XDG_RUNTIME_DIR}&#x2F;${WAYLAND_DISPLAY}&quot; ] || [ -S &quot;${WAYLAND_DISPLAY}&quot; ] || [ -S &quot;&#x2F;tmp&#x2F;${WAYLAND_DISPLAY}&quot; ]; }; then
+    :
+  else
+    unset WAYLAND_DISPLAY 2&gt;&#x2F;dev&#x2F;null
+  fi
+fi
+</code></pre>
+<p>（存在多个机器共用 <code>~/.my_zshrc</code> 的情况，本地与远端同步修改，我这边是符号链接到 dotfiles 仓库，改一处即可。）</p>
+<h3 id="yan-zheng">验证</h3>
+<table><thead><tr><th>场景</th><th>结果</th></tr></thead><tbody>
+<tr><td>waypipe 真实 socket（<code>wayland-1ET0R84N</code>）</td><td>保留（KEPT）</td></tr>
+<tr><td>不存在的残留值</td><td>unset（原 pinentry 修复仍生效）</td></tr>
+<tr><td>空值</td><td>unset（无副作用）</td></tr>
+</tbody></table>
+<p>之后 <code>waypipe ssh -tY -o controlpath=none dev</code> 再跑 <code>weston-dnd</code>，窗口正常显示在 host 端。</p>
+<h2 id="wen-ti-wu-waypipe-ssh-luan-ma-ssh-mux-fu-yong-chong-tu">问题五：waypipe ssh 乱码——ssh mux 复用冲突</h2>
+<h3 id="xian-xiang-4">现象</h3>
+<p><code>waypipe ssh -tY douhao</code> 连上后终端输出乱码；同一命令对 dev（命令里带 <code>-o controlpath=none</code>）正常。</p>
+<h3 id="pai-cha-guo-cheng-3">排查过程</h3>
+<ol>
+<li><strong>远端配置全好</strong>：douhao 的 <code>.my_zshrc</code> 已是新版（socket 存在性判断）、xterm-kitty terminfo 已装、locale 正常 → 排除配置类原因</li>
+<li><strong>怀疑 ssh 复用连接</strong>：本地 ssh config 是 <code>ControlMaster auto</code> + <code>ControlPersist 1h</code>，而 douhao 恰好有一条一个多小时前建立、一直活着的 mux master</li>
+<li><strong>waypipe 内部直接 exec 系统 ssh</strong>（strace 实证：PATH 里不存在自定义 ssh，最终落到 <code>/usr/bin/ssh</code>），构造的命令是 <code>ssh -R /tmp/waypipe-server-XXX.sock ... douhao waypipe server ...</code>，<strong>不传任何 control 参数</strong> → 走 config 的 ControlMaster auto → 复用别人建的老 master，把 waypipe 的 <code>-R</code> 转发和 X11 附加到既有会话的通道上 → 通道状态不可靠 → 乱码</li>
+<li><code>ssh -O exit douhao</code> 清掉旧 master 后再跑 waypipe，恢复正常</li>
+</ol>
+<h3 id="jie-jue">解决</h3>
+<ul>
+<li>立即：<code>ssh -O exit &lt;host&gt;</code> 清掉残留 master</li>
+<li>稳妥：waypipe ssh 固定加 <code>-o controlpath=none</code>（独占连接，waypipe 官方 issue 里 ControlMaster 冲突是已知问题）</li>
+<li>持久：ssh config 对 waypipe 目标主机关 mux（<code>Host douhao dev</code> 段加 <code>ControlMaster no</code>）——局域网主机 mux 收益≈0</li>
+</ul>
+<h3 id="zhu-yi">注意</h3>
+<p>shell 函数/别名（如问题三的 ssh 包装）只拦截交互输入的命令，<strong>管不到 waypipe/git/scp 等程序内部对系统 ssh 的调用</strong>；这类工具的 ssh 行为只能通过 ssh config（或它们自己的参数）控制。</p>
+<h2 id="zong-jie">总结</h2>
+<table><thead><tr><th>尝试</th><th>结果</th><th>原因</th></tr></thead><tbody>
+<tr><td>升级到 0.17.0</td><td>无效</td><td>功能缺失，winit Wayland DnD 2026-07 才合入、未发布</td></tr>
+<tr><td><code>WINIT_UNIX_BACKEND=x11</code></td><td>无效</td><td>winit 0.29 起已移除该变量</td></tr>
+<tr><td><code>env -u WAYLAND_DISPLAY</code></td><td><strong>有效</strong></td><td>winit 检测不到 Wayland 后 fallback 到 X11</td></tr>
+</tbody></table>
+<p>四个坑点留个备忘：</p>
+<ol>
+<li><strong>Wayland 下 Alacritty 拖放无解</strong>：等 winit 发版 + Alacritty 适配（issue #4010 追踪中），之前别折腾配置</li>
+<li><strong><code>WINIT_UNIX_BACKEND</code> 是废弃变量</strong>：现代 winit（≥0.29）不认，别信旧教程；强制后端用 <code>env -u WAYLAND_DISPLAY</code></li>
+<li><strong>用户级 desktop 文件覆盖系统级</strong>：改名相同即可，<code>update-desktop-database</code> 不用手动跑</li>
+<li><strong>X11 应用的"字体莫名变大"先查 <code>text-scaling-factor</code> 与 <code>Xft.dpi</code></strong>：GNOME 全局文本缩放会通过 Xft.dpi 传导到 X11 应用，Wayland 应用不受影响，所以只会在 XWayland 场景暴露</li>
+</ol>
+<p>代价是 Alacritty 窗口以 XWayland 模式运行（GNOME 下 100% 缩放下无感知差异；高 DPI 缩放下 X11 窗口会模糊，介意的话等上游修复后再切回）。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/git常见问题记录/">&#8249; git 常见问题记录</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/"> 让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#he-ji-shuo-ming">合集说明</a>
+        </div>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-guo-cheng">排查过程</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-sheng-ji-ban-ben-wu-xiao"><small>- 1. 升级版本无效</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-que-ren-shi-shang-you-wei-shi-xian-er-fei-pei-zhi-wen-ti"><small>- 2. 确认是上游未实现，而非配置问题</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-chang-shi-x11-hou-duan-winit-unix-backend-cai-keng"><small>- 3. 尝试 X11 后端：WINIT_UNIX_BACKEND 踩坑</small></a>
+        </div>
+        <div>
+          <a href="#jie-jue-fang-an">解决方案</a>
+        </div>
+        <div class="hpad">
+          <a href="#gu-hua-qi-dong-fu-gai-desktop-wen-jian"><small>- 固化启动：覆盖 desktop 文件</small></a>
+        </div>
+        <div>
+          <a href="#wen-ti-er-x11-hou-duan-xia-zi-ti-bian-da">问题二：X11 后端下字体变大</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-1"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-yin-fen-xi"><small>- 原因分析</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-jue-fang-an-1"><small>- 解决方案</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiao-jie"><small>- 小结</small></a>
+        </div>
+        <div>
+          <a href="#wen-ti-san-kitty-ssh-hou-mei-ci-an-jian-chu-xian-da-liang-zhong-fu-zi-fu">问题三：kitty ssh 后每次按键出现大量重复字符</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-2"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-guo-cheng-1"><small>- 排查过程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-jue-fang-an-2"><small>- 解决方案</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-dui-bi-yu-gu-hua"><small>- 方案对比与固化</small></a>
+        </div>
+        <div>
+          <a href="#wen-ti-si-waypipe-ssh-hou-mei-you-wayland-display">问题四：waypipe ssh 后没有 WAYLAND_DISPLAY</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-3"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-guo-cheng-2"><small>- 排查过程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-jue-fang-an-3"><small>- 解决方案</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng"><small>- 验证</small></a>
+        </div>
+        <div>
+          <a href="#wen-ti-wu-waypipe-ssh-luan-ma-ssh-mux-fu-yong-chong-tu">问题五：waypipe ssh 乱码——ssh mux 复用冲突</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-4"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-guo-cheng-3"><small>- 排查过程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-jue"><small>- 解决</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zhu-yi"><small>- 注意</small></a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

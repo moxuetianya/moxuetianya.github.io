@@ -1,0 +1,667 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>tar.xz 深潜：格式、随机访问与导航解压提速实测 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从实际排查出发，详解 tar 与 xz 两种格式的存储结构、成员顺序的真相、块级随机访问的原理与可靠性（校验和验证而非字符串匹配），附大量实测数据与可复用的探测工具。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/" />
+  <meta property="og:description" content="从实际排查出发，详解 tar 与 xz 两种格式的存储结构、成员顺序的真相、块级随机访问的原理与可靠性（校验和验证而非字符串匹配），附大量实测数据与可复用的探测工具。" />
+  <meta name="twitter:description" content="从实际排查出发，详解 tar 与 xz 两种格式的存储结构、成员顺序的真相、块级随机访问的原理与可靠性（校验和验证而非字符串匹配），附大量实测数据与可复用的探测工具。" />
+  <meta property="og:title" content="tar.xz 深潜：格式、随机访问与导航解压提速实测 | 墨雪天琊" />
+  <meta name="twitter:title" content="tar.xz 深潜：格式、随机访问与导航解压提速实测 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-11" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/">tar.xz 深潜：格式、随机访问与导航解压提速实测</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 10, 2026 <span class="rpad"></span>更新: 八月 11, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/cun-chu/">存储</a>, <a href="https://moxuetianya.github.io/categories/xing-neng/">性能</a>] #<a href="https://moxuetianya.github.io/tags/tar/">tar</a>  #<a href="https://moxuetianya.github.io/tags/xz/">xz</a>  #<a href="https://moxuetianya.github.io/tags/ya-suo/">压缩</a>  #<a href="https://moxuetianya.github.io/tags/sui-ji-fang-wen/">随机访问</a> </span>
+
+    
+
+
+<h2 id="bei-jing">背景</h2>
+<p>排查过程中遇到两个真实问题：</p>
+<ol>
+<li>两个 <code>.tar.xz</code> 包解压后，一个多出一个 <code>.</code> 目录、所有内容都在里面；另一个直接散开。</li>
+<li>经常要从一个很大的 <code>.tar.xz</code> 里读取固定的 <code>wfuzz-package.json</code>，但不想每次全量解压。</li>
+</ol>
+<p>这两个问题分别指向 <strong>tar 的路径/成员顺序语义</strong> 和 <strong>xz 容器的块结构是否支持导航（随机访问）</strong>。本文把两条线都讲透，并给出实测数据。</p>
+<blockquote>
+<p>更新说明：本文经过多轮实测反复修订。两处关键纠错：(1) 原"纯 tar 末尾成员必须解压整个流"——实际 GNU tar 在可 seek 普通文件上用 <code>lseek</code> 跳过数据，纯 tar 找末尾成员几乎免费（见 1.4 节）；(2) 原"tar.xz 中文件在开头，<code>tar -xOf</code> 流式天然很快"——实际 <strong><code>tar -xOf</code> 在压缩流上从不提前退出</strong>，无论位置/块数都解压整个流（见 1.4 节），头部提速要靠自定义早停读取器（见 1.5 节）。另补充：成员顺序实测（子目录乱序）、tar 头校验和验证、硬链接判重（dev+inode）、wfuzz-db"目标不在最后一块"反例、json 最前打包方案等。</p>
+</blockquote>
+<hr />
+<h2 id="yi-tar-ge-shi-shun-xu-ci-dai-gui-dang-wu-suo-yin">一、tar 格式：顺序磁带归档，无索引</h2>
+<h3 id="1-1-cun-chu-jie-gou">1.1 存储结构</h3>
+<p>tar（Tape Archive）设计之初就是给磁带用的——<strong>纯顺序写入，从头到尾只有一种元素：<code>512B 头 + 数据</code></strong>：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">+---------+--------+---------+--------+---------+--------+------+
+| 512B头  | 数据A  | 512B头  | 数据B  | 512B头  | 数据C  | 2*512B 全零块
++---------+--------+---------+--------+---------+--------+------+
+</code></pre>
+<p>每个头里记录：文件名（100 字节）、大小（八进制，偏移 124 起的 12 字节）、权限、mtime、类型（普通文件/目录/软链…）、<strong>校验和</strong>（偏移 148-155 的 8 字节，见 3.2 节）。</p>
+<p>关键特性：</p>
+<ul>
+<li><strong>没有索引/目录表</strong>：想知道某个文件在哪，必须从头把前面的头一个个解析过去。</li>
+<li><strong>没有压缩</strong>：tar 只是打包，压缩靠外层工具（xz/gzip/zstd）。</li>
+<li><strong>数据长度可推导</strong>：<code>文件数据区 = 头 + ceil(大小/512)*512</code>，因此可以<strong>顺序跳读</strong>到下一个文件，但不能<strong>随机跳读</strong>到任意文件（不知道偏移）。</li>
+<li><strong>目录也是条目</strong>：目录以 <code>typeflag='5'</code>、size=0 的头存储，用于还原目录权限与时间戳。</li>
+</ul>
+<h3 id="1-2-lu-jing-qian-zhui-yu-cheng-yuan-shun-xu-mu-lu-zhi-mi-de-gen-yuan">1.2 路径前缀与成员顺序：<code>.目录</code> 之谜的根源</h3>
+<p>归档里的成员名是<strong>打包时写入的原始路径</strong>，解压方基本原样还原：</p>
+<table><thead><tr><th>打包命令</th><th>存储的成员名</th><th>备注</th></tr></thead><tbody>
+<tr><td><code>cd dir &amp;&amp; tar -cf a.tar *</code></td><td><code>file1</code>、<code>sub/</code>、<code>sub/f3</code></td><td>无 <code>./</code> 前缀</td></tr>
+<tr><td><code>tar -cf a.tar -C dir .</code></td><td><code>./</code>、<code>./file1</code>、<code>./sub/</code>…</td><td>带 <code>./</code> 前缀，且多了 <code>.</code> 条目</td></tr>
+</tbody></table>
+<p><strong>同一个 GNU tar 解压两者结果完全一致</strong>（实测 <code>diff -r</code> 无差异），因为 GNU tar 解压时会剥掉开头的 <code>./</code>。你看到"<code>.目录</code>"通常是因为<strong>解压工具不剥离 <code>./</code></strong>（如 bsdtar/libarchive、7-Zip、WinRAR 等按原始路径还原）。</p>
+<p>更隐蔽的是<strong>成员顺序</strong>。实测（创建序 zz→aa，与字母序、哈希序分别对比）：</p>
+<ul>
+<li><code>cd dir &amp;&amp; tar -cf a.tar *</code>：<strong>顶层</strong>由 shell glob 展开，按字母序 → 确定、可移植。</li>
+<li>但<strong>子目录内部是乱序的</strong>！实测 <code>sub/</code> 内顺序 <code>xx zz aa bb mm yy</code>，既非字母序也非创建序——tar 递归进子目录后由它自己 <code>readdir()</code> 遍历，得到的是<strong>文件系统内部顺序</strong>（ext4 h-tree 按文件名哈希排序，哈希种子是 mkfs 时随机生成的）。</li>
+<li><code>tar -C dir .</code>：连顶层也是 readdir 序，整体都不可预测。</li>
+</ul>
+<p>实测对比（同一份数据）：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">顶层(glob字母序):      afile bfile cfile sub&#x2F;
+sub&#x2F; 内(tar 实际序):   xx.txt zz.txt aa.txt bb.txt mm.txt yy.txt
+字母序应为:            aa.txt bb.txt mm.txt xx.txt yy.txt zz.txt
+创建序应为:            zz.txt yy.txt xx.txt mm.txt aa.txt bb.txt
+</code></pre>
+<p><strong>结论：方法 B（readdir 序）不是随机，而是"实现相关、不可预测、不可依赖"；方法 A 只有顶层字母序。想让包括子目录在内全部有序，唯一方式是 <code>tar --sort=name</code>（GNU tar 1.28+）。</strong></p>
+<h3 id="1-3-zhong-fu-gui-dang-yu-ying-lian-jie-tar-an-dev-inode-pan-zhong">1.3 重复归档与硬链接：tar 按 dev+inode 判重</h3>
+<p>显式参数 + 通配/目录遍历<strong>重复指定同一文件</strong>时（如 <code>tar -cf x.tar wfuzz-package.json *</code>、<code>tar -cf x.tar -C d wfuzz-package.json .</code>），tar 不会报错、不会重复存数据，而是把第二次出现存成<strong>硬链接指向第一次的名字</strong>：</p>
+<pre><code>-rw-  wfuzz-package.json
+...   .&#x2F;data.txt ...
+hrw-  .&#x2F;wfuzz-package.json 连接到 wfuzz-package.json   ← 硬链接自引用
+</code></pre>
+<p><strong>判重依据是 <code>dev + inode</code>，不是名字</strong>。两个对照实验证明：</p>
+<ul>
+<li><strong>同 inode 不同名</strong>（<code>ln a b</code> 硬链接）：<code>tar -cf A.tar a b</code> → <code>b 连接到 a</code>（判重）✓</li>
+<li><strong>同名不同 inode</strong>（两个目录下的同名文件）：<code>tar -cf B.tar d1/x d2/x</code> → 存两份（不判重）✓</li>
+</ul>
+<p>注意硬链接条目本身 <strong>size=0 不带数据</strong>，内容在 <code>linkname</code> 字段（头偏移 157-256）指向的成员里——这影响块导航读取（见 3.3 节）。</p>
+<h3 id="1-4-tar-zhi-chi-wen-jian-dao-hang-ma">1.4 tar 支持文件导航吗？</h3>
+<p><strong>格式层面不支持</strong>：没有文件名→偏移的索引，只能顺序解析头。但分两种场景：</p>
+<ul>
+<li><strong>纯 tar + 可 seek 的普通文件</strong>：GNU tar 跳过非目标成员数据时用 <strong><code>lseek()</code></strong>，只读 512B 头。实测 1.5GB 纯 tar 提取末尾成员仅 <strong>0.003s</strong>（<code>cat</code> 全读需 0.109s）。<strong>所以纯 tar 找末尾文件本来就几乎免费</strong>。</li>
+<li><strong>tar.xz（压缩流）/ 管道</strong>：无法 seek 明文 tar，必须顺序读。且关键发现——<strong>标准 <code>tar -xOf</code>/<code>tar -xf</code> 在压缩流上从不提前退出</strong>，命中目标后仍会把整个流读完！</li>
+</ul>
+<p><strong>验证方法</strong>（追加垃圾字节）：把多块包复制一份并 <code>printf 'GARBAGE' &gt;&gt;</code> 追加垃圾，然后 <code>tar -xOf x.tar.xz wfuzz-package.json</code>。实测无论 json 在<strong>头部还是尾部、单块还是多块</strong>，都报 <code>xz：压缩数据已损坏</code>——说明 tar 读到了流末尾。<strong>tar 面对的是 xz 吐出的连续字节流，它不认识 xz 块、也没有"匹配到目标就停"的逻辑，会一直读到 EOF 零块确认归档结束。xz 解压多少 = tar 读多少。</strong></p>
+<p>所以 <code>tar.xz</code> 下"文件在开头就快"是<strong>不成立的</strong>——标准 tar 会把整个流解压完。能早停的只有自定义读取器（见 1.5 节）或块级跳读（见第三章）。</p>
+<h3 id="1-5-zao-ting-liu-shi-du-qu-tou-bu-wen-jian-de-zheng-que-du-fa">1.5 早停流式读取：头部文件的正确读法</h3>
+<p>既然 tar 不早停，就自己写一个"边解压边解析 tar 头，命中即断管道"的读取器：</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">import subprocess
+p = subprocess.Popen([&#x27;xz&#x27;,&#x27;-dc&#x27;,archive], stdout=subprocess.PIPE, bufsize=0)
+buf, off = b&#x27;&#x27;, 0
+while True:
+    chunk = p.stdout.read(65536)
+    if not chunk: break
+    buf += chunk
+    while len(buf)-off &gt;= 512:
+        h = buf[off:off+512]
+        if h == b&#x27;\x00&#x27;*512: raise SystemExit(&#x27;未命中&#x27;)
+        name = h[0:100].split(b&#x27;\x00&#x27;)[0]
+        if name == b&#x27;wfuzz-package.json&#x27;:
+            size = int(h[124:136].split(b&#x27;\x00&#x27;)[0].strip(), 8)
+            sys.stdout.buffer.write(buf[off+512:off+512+size])
+            raise SystemExit
+        size = int(h[124:136].split(b&#x27;\x00&#x27;)[0].strip() or b&#x27;0&#x27;, 8)
+        off += 512 + ((size+511)&#x2F;&#x2F;512)*512
+</code></pre>
+<p>实测（50MB 单块包，json 在头部）：早停读取器只解压 <strong>712 字节</strong>就命中退出，而 <code>tar -xOf</code> 解压完整 <strong>52,439,040 字节</strong>。<strong>头部位置 + 早停机制对单块包同样有效</strong>——这是单块包唯一能大幅提速的路径。</p>
+<p><strong>块级增量解压</strong>：上面的早停是在 <code>xz -dc</code> 层面（进程级管道）。其实<strong>单个 xz 块也不需要完整解压</strong>——LZMA2 是顺序 chunk 流，解码器是流式状态机，可以用 <code>lzma.LZMADecompressor.decompress(data, max_length)</code> 增量解压、命中即停。实测对 wfuzz-python 最后一块（压缩 2.38MB / 解压 17.6MB）：只要 512 字节输出，只消费了 <strong>256 字节压缩数据</strong>（占整块 0.01%）就停。</p>
+<p><strong>但收益有上限</strong>：增量解压省的是"目标之前的解压量"。目标在块内越靠前省得越多；目标在块尾（如 wfuzz-python 的 json 在块内偏移 17.6MB/17.6MB）就得解压几乎整块。所以：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">节省量 ≈ 目标在流&#x2F;块中的偏移（前面的部分不用解）
+目标在头部 → 只解几百字节
+目标在中间 → 解到它为止
+目标在末尾 → 解压几乎整块
+</code></pre>
+<h3 id="1-6-tar-xz-de-hao-shi-gou-cheng">1.6 tar.xz 的耗时构成</h3>
+<p>实测 wfuzz-python（184.8 MiB / 8 块）：</p>
+<table><thead><tr><th>操作</th><th>耗时</th></tr></thead><tbody>
+<tr><td>纯解压 <code>xz -dc &gt; /dev/null</code></td><td>0.295s</td></tr>
+<tr><td>解压 + tar 提取末尾文件</td><td>0.299s</td></tr>
+<tr><td>解压 + tar 全量列表</td><td>0.302s</td></tr>
+</tbody></table>
+<p>三者几乎相同 → <strong>tar.xz 的耗时 ≈ 100% 来自 xz 解压，tar 的流式头解析/提取开销可忽略</strong>。要优化 tar.xz 读取，只能减少解压量。</p>
+<hr />
+<h2 id="er-xz-ge-shi-ke-sui-ji-fang-wen-de-kuai-rong-qi">二、xz 格式：可随机访问的块容器</h2>
+<h3 id="2-1-rong-qi-jie-gou">2.1 容器结构</h3>
+<p><code>.xz</code> 是容器格式，内部是"一个或多个 Block + 尾部 Index"：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">+------------+--------+--------+-----+---------+-------+--------------+
+| 流头(12B)  | 块1    | 块2    | ... | 块N     | Index | 流尾(12B)    |
++------------+--------+--------+-----+---------+-------+--------------+
+</code></pre>
+<table><thead><tr><th>部件</th><th>内容</th></tr></thead><tbody>
+<tr><td>流头</td><td>魔数 + 校验类型（CRC32/CRC64/SHA-256）</td></tr>
+<tr><td>块</td><td>块头（压缩设置、字典大小、可选压缩前/后大小）+ <strong>独立 LZMA2 数据</strong> + 填充 + 校验</td></tr>
+<tr><td><strong>Index</strong></td><td>每块的 <code>Unpadded Size</code>（块头+数据+校验）和 <code>Uncompressed Size</code></td></tr>
+<tr><td>流尾</td><td>指向 Index 的 Backward Size + 校验 + 魔数</td></tr>
+</tbody></table>
+<h3 id="2-2-wei-shen-me-neng-dao-hang">2.2 为什么能导航</h3>
+<p>关键在两点：</p>
+<ol>
+<li><strong>Index 在文件末尾</strong>，记录了每块的压缩大小和解压大小 → 从文件尾往前读几字节，就能算出每个块在文件里的精确偏移（<code>xz -lv</code> 就能看到"压缩偏移量/解压偏移量"两列）。</li>
+<li><strong>每个块是独立的 LZMA2 流</strong>。只要块与块之间做了"字典重置"（多块压缩时 xz 默认如此），任意一块都能<strong>独立解码</strong>，不需要前面块的数据。</li>
+</ol>
+<p>这就是 <code>.xz</code> 官方规范里 Index 的用途之一：<em>"quickly access the beginning of any Block (random access)"</em>。</p>
+<h3 id="2-3-kuai-shu-xian-cheng-shu">2.3 块数 ≠ 线程数</h3>
+<p>实测同一份 150MiB 数据的块数：</p>
+<table><thead><tr><th>参数</th><th>块数</th></tr></thead><tbody>
+<tr><td><code>-T1</code></td><td>1</td></tr>
+<tr><td><code>-T4</code>（不指定块大小）</td><td>7</td></tr>
+<tr><td><code>-T4 --block-size=24MiB</code></td><td>7</td></tr>
+<tr><td><code>-T4 --block-size=1MiB</code></td><td>151</td></tr>
+<tr><td><code>-T2 --block-size=24MiB</code></td><td>7</td></tr>
+<tr><td><code>-T8 --block-size=24MiB</code></td><td>7</td></tr>
+</tbody></table>
+<p>规律很清晰：</p>
+<ul>
+<li><strong>块数 = ⌈输入大小 / 块大小⌉，与线程数无关</strong>。线程只决定并行度（同时压缩/解压多少个块，块多时按队列轮流处理）。</li>
+<li><code>-T1</code> 不分割 → 单块；<code>-T N(N&gt;1)</code> 才按块切分。</li>
+<li>当前 xz 5.8 默认 <code>-T0</code>（用满所有核）且自动选块大小，所以<strong>连普通 <code>xz -c</code> 都会产出多块</strong>——这也是参考包里 <code>wfuzz-python</code> 恰好 8 个 24MiB 块的原因。</li>
+<li><strong>解压同理</strong>：<code>xz -d -T N</code> 把各块分给 N 线程并行解压。</li>
+</ul>
+<p>顺带：1GB 数据压缩耗时 <code>-T1</code> 4 分钟 vs <code>-T4</code> 1 分钟（≈4x），块大小不伤压缩比。</p>
+<p><strong><code>--block-size</code> 是压缩前（输入）的字节数</strong>。实测 1MiB 随机 + 1MiB 全零、<code>--block-size=1MiB</code>：两块<strong>未压缩大小都恰为 1MiB</strong>，压缩后分别 1,048,656 B 和 252 B。块边界按输入字节切，与压缩率无关（xz 手册原话：<em>"start a new .xz block after every SIZE bytes of input"</em>）。</p>
+<p><strong>多线程压缩不影响成员排序</strong>。xz 只把 tar 传来的字节流按顺序切成块，从不重排。实测同一 tar 用 <code>-T1</code> 和 <code>-T4 --block-size=1MiB</code> 压缩，<code>tar -tf</code> 成员顺序 diff 完全一致。<strong>成员顺序 100% 由 tar 决定，xz 只决定块怎么切。</strong></p>
+<p><strong><code>--block-size</code> 的版本兼容性</strong>：该选项从 <strong>XZ Utils 5.2.0（2014）</strong> 就有（与多线程压缩 <code>-T</code> 一起引入），解析层面几乎无兼容问题。真正的坑在 <code>-T0</code> 语义：</p>
+<table><thead><tr><th>xz 版本</th><th><code>-T0</code> 含义</th><th><code>-T0 --block-size</code> 是否切块</th></tr></thead><tbody>
+<tr><td>5.2.0~5.3.x</td><td><strong>禁用多线程</strong></td><td>单线程下<strong>不切块</strong> → 单块（静默失效！）</td></tr>
+<tr><td>5.4.0+（2022）</td><td><strong>用满所有核</strong></td><td>生效 → 多块 ✓</td></tr>
+</tbody></table>
+<p>想<strong>跨版本行为确定</strong>，用显式线程数：<code>XZ_OPT='-T2 --block-size=24MiB'</code>（5.2.0 起任何版本都稳定切块），并可用 <code>xz -l</code> 事后验证块数。另外 <code>XZ_OPT</code> 是很老的环境变量（5.0 时代就有），<code>XZ_DEFAULTS</code> 则是 5.4.0 才加。</p>
+<h3 id="2-4-qi-ta-ya-suo-ge-shi-zao-ting-tong-yong-tiao-kuai-xu-suo-yin">2.4 其他压缩格式：早停通用，跳块需索引</h3>
+<p>把"早停"和"跳块"拆成两个能力，结论不同：</p>
+<ul>
+<li><strong>早停（流式部分解压）——所有压缩算法通用</strong>。任何解码器都是顺序流式状态机（DEFLATE/LZMA2/bzip2/zstd…），从文件头开始就能增量解压、命中即断。实测 gzip：30MB 的 <code>.gz</code> 早停只解压 1KB 输出就停。</li>
+<li><strong>跳块（随机访问）——需要格式自带"索引 + 独立块"</strong>。只有容器层记录了每块偏移的格式才能跳：</li>
+</ul>
+<table><thead><tr><th>格式</th><th>独立块？</th><th>块索引？</th><th>可跳块随机访问？</th></tr></thead><tbody>
+<tr><td><strong>xz</strong></td><td>✓</td><td>✓（尾部 Index）</td><td>✓</td></tr>
+<tr><td><strong>zip</strong></td><td>✓</td><td>✓（central directory）</td><td>✓</td></tr>
+<tr><td><strong>zstd（seekable 模式）</strong></td><td>✓</td><td>✓（专用格式）</td><td>✓</td></tr>
+<tr><td><strong>7z</strong></td><td>✓</td><td>✓（头部目录）</td><td>✓</td></tr>
+<tr><td><strong>gzip</strong></td><td>✗ 单个 DEFLATE 流</td><td>✗</td><td>✗</td></tr>
+<tr><td><strong>bzip2</strong></td><td>✓（900KB 块）</td><td>✗ 无索引</td><td>✗（找不到块边界）</td></tr>
+<tr><td><strong>zstd（普通模式）</strong></td><td>帧结构</td><td>✗</td><td>✗</td></tr>
+<tr><td><strong>tar</strong></td><td>✗</td><td>✗</td><td>✗</td></tr>
+</tbody></table>
+<blockquote>
+<p>关键：<strong>流式解码是解码器的天性（所有格式都有）；"跳块"是容器格式的设计</strong>——必须有类似 xz 的 Index、zip 的 central directory 来记录每块偏移。目标在头部时用早停就够（任何格式）；目标在末尾时，只有带索引的格式（xz/zip/zstd-seekable/7z）能跳过前面的大段解压。</p>
+</blockquote>
+<hr />
+<h2 id="san-tar-xz-zu-he-an-kuai-dao-hang-xiao-yan-he-yan-zheng-jie-xi">三、tar.xz 组合：按块导航 + 校验和验证解析</h2>
+<h3 id="3-1-neng-zhi-jie-tiao-dao-ren-yi-wen-jian-ma">3.1 能直接跳到任意文件吗？</h3>
+<p><strong>不能直接跳，但可以"间接"跳</strong>：</p>
+<ul>
+<li><code>.xz</code> 的 Index 告诉你<strong>解压流的哪个区间</strong>对应哪个块。</li>
+<li>但 <strong>tar 没有"文件名→解压偏移"的索引</strong>，要确定目标文件在解压流的偏移，必须<strong>解析一次 tar 头</strong>。</li>
+<li>所以完整链路是：<strong>tar 头解析出目标偏移 → 用 Index 定位该偏移所在块 → 只解压这个块</strong>。</li>
+</ul>
+<p>业界现成方案：<strong>ratarmount</strong>（FUSE 挂载建索引）、<strong>pixz</strong>（打包时建 <code>.tpxz</code> 索引）、自研脚本（见附录）。</p>
+<h3 id="3-2-kuai-bian-jie-bu-zai-tar-cheng-yuan-bian-jie-yong-xiao-yan-he-ding-wei-bu-yong-zi-fu-chuan-pi-pei">3.2 块边界不在 tar 成员边界：用校验和定位，不用字符串匹配</h3>
+<p><strong>常见疑问</strong>：xz 块边界可能切在某个成员的数据中间（实测 wfuzz-python 最后一块从 <code>python/share/terminfo/w/...</code> 中间开始，块内包含 3442 个真实 tar 头），那怎么知道块内哪个位置是真正的头？</p>
+<p><strong>答案</strong>：tar 头自带 8 字节<strong>校验和字段</strong>（偏移 148-155），值 = "把校验和字段当作空格后，全 512 字节求和"：</p>
+<pre><code>valid ⟺  checksum字段是合法八进制 且
+          int(字段) == sum(h[0:148]) + sum(h[156:512]) + 8*0x20
+</code></pre>
+<p>两个对齐性质保证可枚举：</p>
+<ol>
+<li><strong>tar 头永远 512 字节对齐</strong>；</li>
+<li><strong>xz 块大小是 512 的倍数</strong>（24MiB = 512×49152）→ 块起始偏移也是 512 的倍数。</li>
+</ol>
+<p>所以块内候选头位置就是 <code>块长/512</code> 个 512 网格点，逐个做校验和验证即可。<strong>随机数据块碰巧通过校验和的概率约 1/2^19</strong>（实测 34396 个候选位中只筛出真实头 3442 个），再用 size 字段向前走、与结尾的 EOF 零块衔接做二次校验，基本是确定性解析。</p>
+<p><strong>字符串匹配只能当快速预筛选</strong>（<code>find(b'wfuzz-package.json')</code>），不可靠——文件名可能恰好出现在某个文件的数据区里。<strong>最终解析必须走校验和 + size 字段。</strong></p>
+<h3 id="3-3-tan-ce-ce-lue-xian-shi-zui-hou-yi-kuai-wei-ming-zhong-hui-tui-quan-liang">3.3 探测策略：先试最后一块，未命中回退全量</h3>
+<p>由于清单类文件（<code>wfuzz-package.json</code>）在多数包里排在末尾，实用的启发式：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">多块包 → 从最后一块向前探测（512 网格 + 校验和验证）
+         ├─ 命中：只解压了目标块，秒级
+         └─ 未命中：回退全量解压扫描
+单块包 → 无 Index 可定位，直接全量
+</code></pre>
+<p><strong>注意反例</strong>：位置完全取决于打包机的 readdir 顺序，不保证在最后。见 4.3 节的 wfuzz-db。</p>
+<p><strong>链接条目处理</strong>：硬链接（<code>typeflag='1'/'h'</code>）和软链接（<code>'2'/'l'</code>）<strong>自身不带数据</strong>，内容在 <code>linkname</code> 字段指向的成员里。若目标条目是链接：</p>
+<ul>
+<li><strong>硬链接</strong>：真实数据一定存储在<strong>更早</strong>的位置（tar 在第二次遇到同一 inode 时才写链接条目）——可能在更早的块里，探测最后一块解压不到时需回退全量。</li>
+<li><strong>软链接</strong>：目标可能在归档内，也可能指向归档外路径（归档里根本没有内容可读，只能报告无法解析）。</li>
+<li>附录脚本的 <code>extract()</code> 会递归解析 <code>linkname</code>，并带成环检测。</li>
+</ul>
+<p><strong>两种快速读取路径对比</strong>：</p>
+<table><thead><tr><th>策略</th><th>适用</th><th>优点</th><th>局限</th></tr></thead><tbody>
+<tr><td>早停流式（1.5 节）</td><td>json 在头部</td><td>单块/多块都行，只解压几百字节</td><td>目标在尾部时退化为全量</td></tr>
+<tr><td>块级跳读（本章）</td><td>json 在末尾、多块包</td><td>跳过无关块，解压单个块</td><td>单块包无效；json 在中间时探测落空</td></tr>
+</tbody></table>
+<hr />
+<h2 id="si-shi-ce-ti-su-shu-ju">四、实测提速数据</h2>
+<h3 id="4-1-wfuzz-python-184-8-mib-8-kuai-json-zai-zui-hou-yi-kuai">4.1 wfuzz-python（184.8 MiB / 8 块，json 在最后一块）</h3>
+<table><thead><tr><th>方式</th><th>耗时</th></tr></thead><tbody>
+<tr><td>全量解压 + 提取</td><td>1.23s</td></tr>
+<tr><td>按块跳读（只解最后一块 2.38MB）</td><td>0.13s（≈10x）</td></tr>
+</tbody></table>
+<h3 id="4-2-zi-zao-1gib-da-bao-1-036-7-mib-44-kuai-json-yong-sort-name-bao-zheng-zui-hou">4.2 自造 1GiB 大包（1,036.7 MiB / 44 块，json 用 <code>--sort=name</code> 保证最后）</h3>
+<table><thead><tr><th>方式</th><th>耗时</th><th>说明</th></tr></thead><tbody>
+<tr><td>全量解压 + 提取</td><td>1.17s</td><td>22 核并行解压</td></tr>
+<tr><td>按块跳读（朴素版，读全文件再定位）</td><td>0.315s</td><td>瓶颈在读完 700MB 压缩文件</td></tr>
+<tr><td><strong>按块跳读（seek 版，只读尾部 2.3KB）</strong></td><td><strong>≈0.005s</strong></td><td>≈230x</td></tr>
+</tbody></table>
+<blockquote>
+<p>注：全量解压才 1.17s，是因为 22 核并行 + 大量不可压缩随机数据走 LZMA2 无压缩快通道。真实高压缩比数据单核解压更慢，导航优势更明显。</p>
+</blockquote>
+<h3 id="4-3-fan-li-wfuzz-db-json-bu-zai-zui-hou-yi-kuai">4.3 反例：wfuzz-db（json 不在最后一块）</h3>
+<p>wfuzz-db-1.10.10（161 成员 / 2.7GB / 115 块）：打包机 readdir 顺序把大 <code>bin/</code> 目录排在了 <code>wfuzz-package.json</code> <strong>后面</strong>（<code>lib/</code> → json → <code>bin/</code>），导致 json 在成员 122/161、字节偏移仅 8.1%、位于<strong>第 10/115 块</strong>。</p>
+<table><thead><tr><th>方式</th><th>耗时</th></tr></thead><tbody>
+<tr><td>探测最后一块 → 落空 → 全量解压 2.7GB</td><td><strong>14.0s</strong></td></tr>
+<tr><td>知道它在第 10 块，直接跳读该块</td><td><strong>0.21s</strong>（≈66x）</td></tr>
+</tbody></table>
+<p>教训：<strong>"目标在最后一块"只是 readdir 运气，不是设计</strong>。探测策略的收益 = 命中率 × 加速比，未命中就回到全量路径。</p>
+<h3 id="4-4-dan-kuai-bao-wu-fa-dao-hang-dui-zhao">4.4 单块包：无法导航（对照）</h3>
+<p>同一份数据用 <code>-T1</code> 压成<strong>单块</strong>包，跳读无从谈起，只能全量解压。<strong>单块 = 放弃了随机访问能力</strong>，这是压缩时就要做的取舍。</p>
+<hr />
+<h2 id="wu-zhen-shi-an-li-wfuzz-xi-lie-bao-wei-shen-me-json-wei-zhi-piao-hu">五、真实案例：wfuzz 系列包为什么 json 位置飘忽</h2>
+<h3 id="5-1-da-bao-fang-shi-gen-yin">5.1 打包方式根因</h3>
+<p>wfuzz 系列的打包在 CMake 里（<code>cmake/package.cmake</code>）：</p>
+<pre data-lang="cmake" class="language-cmake "><code class="language-cmake" data-lang="cmake">set(ENV{XZ_DEFAULTS} &quot;-T0&quot;)
+execute_process(COMMAND ${CMAKE_COMMAND} -E chdir &quot;${WFUZZ_TOOL_INSTALL_DIR}&quot;
+                tar cvfJ &quot;...&#x2F;xxx.tar.xz&quot; .)
+</code></pre>
+<p>即 <code>tar .</code>（方法 B）+ <code>XZ_DEFAULTS=-T0</code>。<strong>成员顺序 = 打包机器上安装目录的 readdir 序</strong>，与 <code>wfuzz-package.json</code> 相对大目录（bin/lib）的哈希位置有关。</p>
+<h3 id="5-2-shi-ce-ge-bao-wei-zhi">5.2 实测各包位置</h3>
+<table><thead><tr><th>包</th><th>wfuzz-package.json 位置</th><th>xz 块数</th></tr></thead><tbody>
+<tr><td>wfuzz-os-0.1.3</td><td>49/49（最后，100%）</td><td>1</td></tr>
+<tr><td>wfuzz-agent-0.1.44</td><td>7587/7587（最后）</td><td>12</td></tr>
+<tr><td>wfuzz-vscode-server</td><td>12879/12879（最后）</td><td>1</td></tr>
+<tr><td>wfuzz-python-v0.8.1</td><td>7354/7354（最后）</td><td>8</td></tr>
+<tr><td><strong>wfuzz-db-1.10.10</strong></td><td><strong>122/161（8.1%！）</strong></td><td>115</td></tr>
+</tbody></table>
+<h3 id="5-3-xiu-fu-jian-yi">5.3 修复建议</h3>
+<p>两个方向，都能保证 json 位置确定且无硬链接（已实测验证）。</p>
+<p><strong>方案一（推荐）：json 放最前 + 无硬链接</strong>，配合早停流式读取（单块/多块都有效）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 写法1: 无 .&#x2F; 前缀
+cd wfuzz-pkg &amp;&amp; \
+tar -cJf ..&#x2F;wfuzz-pkg.tar.xz wfuzz-package.json --exclude=wfuzz-package.json *
+
+# 写法2: 保留 .&#x2F; 前缀
+tar -cJf wfuzz-pkg.tar.xz -C wfuzz-pkg wfuzz-package.json --exclude=wfuzz-package.json .
+</code></pre>
+<ul>
+<li><code>tar</code> 按命令行参数顺序归档 → <code>wfuzz-package.json</code> 第一个参数 = 归档第一个成员；</li>
+<li><code>--exclude=wfuzz-package.json</code> 让通配符 <code>*</code> / 目录 <code>.</code> 遍历时<strong>跳过 json</strong>，避免同一 inode 归档两次 → <strong>无硬链接、json 只出现 1 次</strong>；</li>
+<li>实测：两种写法的 json 都是第 1 位、<code>tar -tvf</code> 无 <code>h</code> 硬链接条目、<code>tar -tf</code> 里 json 仅出现 1 次，解压结果逐字节一致（差异仅 <code>./</code> 前缀）。</li>
+</ul>
+<p><strong>方案二：json 放最后</strong>，配合块级跳读（仅多块包有效）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cd &quot;${WFUZZ_TOOL_INSTALL_DIR}&quot; &amp;&amp; tar --sort=name -cf - . | xz -T0 --block-size=24MiB -c &gt; out.tar.xz
+</code></pre>
+<p><code>--sort=name</code> 让 <code>w</code> 开头的 json 排在 <code>bin/</code>、<code>lib/</code> 之后（最后）。</p>
+<blockquote>
+<p>注意：两种方案的关键都是<strong>让 json 只归档一次</strong>。<code>tar -C dir wfuzz-package.json .</code> 这类显式+遍历重复的写法会产生硬链接自引用条目（见 1.4 节），虽然无害但多余。</p>
+<p><strong>关于多块</strong>：只读头部 json（早停读取）不需要多块，<code>-cJf</code> 即可。若还需保证多块可导航/并行解压，两种方式任选：</p>
+<ul>
+<li><strong>方式1：<code>XZ_OPT</code> 环境变量</strong>（保持 <code>-cJf</code> 单命令，推荐）：<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">XZ_OPT=&#x27;-T0 --block-size=24MiB&#x27; tar -cJf out.tar.xz wfuzz-package.json --exclude=wfuzz-package.json *
+</code></pre>
+</li>
+<li><strong>方式2：管道</strong>：<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tar -cf - wfuzz-package.json --exclude=wfuzz-package.json * | xz -T0 --block-size=24MiB -c &gt; out.tar.xz
+</code></pre>
+</li>
+</ul>
+<p>注：<code>-cJf</code> 是否多块取决于机器 xz 版本（xz 5.8 默认 <code>-T0</code> 已多块，旧版是单块），所以要想稳定多块需显式指定。</p>
+</blockquote>
+<hr />
+<h2 id="liu-shi-jian-jian-yi">六、实践建议</h2>
+<p>针对"反复读大包里固定某个文件"：</p>
+<ol>
+<li><strong>先想清楚目标在包的哪个位置</strong>——<code>tar -xOf</code> 在压缩流上<strong>从不提前退出</strong>（读完整流），位置对标准 tar 无影响。</li>
+<li><strong>文件在开头</strong>：用<strong>早停流式读取器</strong>（1.5 节），只解压几百字节，单块/多块都行。</li>
+<li><strong>文件在末尾且包是多块的</strong>：按块跳读最优（见附录工具）；或装 <code>ratarmount</code> 挂载后直接读。</li>
+<li><strong>文件在末尾且包是单块的</strong>：无法跳块，只能全解压一次后<strong>缓存</strong>目标文件。</li>
+<li><strong>文件在中间（readdir 序导致）</strong>：块跳读探测落空 → 一次全量扫描缓存偏移，之后直接跳该块；或从源头改打包（5.3 节方案）。</li>
+<li><strong>自己打包含固定目标时</strong>：首选"json 放最前 + <code>xz --block-size</code>"（5.3 方案一），配合早停读取最通用；不要用会重复归档的写法（会产生硬链接）。</li>
+</ol>
+<hr />
+<h2 id="qi-fu-lu-an-kuai-tan-ce-gong-ju-xiao-yan-he-yan-zheng-ban">七、附录：按块探测工具（校验和验证版）</h2>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">#!&#x2F;usr&#x2F;bin&#x2F;env python3
+&quot;&quot;&quot;xz_read.py — 从 tar.xz 中按块导航读取单个成员，只解压目标所在块。
+
+原理：
+  1. 解析 .xz 流尾 Index，得到每块的压缩区间与解压区间
+  2. 多块包：从最后一块向前探测目标成员（tar 头用校验和验证，非字符串匹配）
+  3. 命中成员若是硬链接&#x2F;软链接，解析 linkname 字段追踪到真实数据
+  4. 未命中、或真实数据不在已解压块内：回退全量解压扫描
+
+用法：
+  python3 xz_read.py &lt;archive.tar.xz&gt; &lt;member&gt;            # 输出到 stdout
+  python3 xz_read.py &lt;archive.tar.xz&gt; &lt;member&gt; -o out     # 写入文件
+&quot;&quot;&quot;
+import sys, lzma, struct, time
+
+REGULAR = b&#x27;\x00\x30&#x27;      # 普通文件 typeflag: &#x27;\0&#x27; 或 &#x27;0&#x27;
+HARDLINK = b&#x27;\x31\x68&#x27;     # 硬链接: &#x27;1&#x27; 或 &#x27;h&#x27;
+SYMLINK = b&#x27;\x32\x6c&#x27;      # 软链接: &#x27;2&#x27; 或 &#x27;l&#x27;
+
+
+def read_vli(b, o):
+    v = 0
+    for i in range(9):
+        x = b[o + i]
+        v |= (x &amp; 0x7F) &lt;&lt; (7 * i)
+        if not x &amp; 0x80:
+            return v, o + i + 1
+    raise ValueError(&quot;bad VLI&quot;)
+
+
+def xz_blocks(path):
+    data = open(path, &#x27;rb&#x27;).read()
+    sz = len(data)
+    footer = data[sz - 12:]
+    idx_real = (struct.unpack(&#x27;&lt;I&#x27;, footer[4:8])[0] + 1) * 4
+    idx = data[sz - 12 - idx_real:sz - 12]
+    n, o = read_vli(idx, 1)
+    recs = []
+    for _ in range(n):
+        up, o = read_vli(idx, o)
+        uc, o = read_vli(idx, o)
+        recs.append((up, uc))
+    start = 12
+    blocks = []
+    for up, uc in recs:
+        padded = (up + 3) &amp; ~3
+        blocks.append((start, start + padded, up, uc))
+        start += padded
+    return data, blocks
+
+
+def decompress_block(data, blk):
+    so, eo, up, uc = blk
+    b = data[so:so + up]
+    hsize = ((b[0] &amp; 0x3F) + 1) * 4
+    flags = b[1]
+    o = 2
+    if flags &amp; 0x40:
+        _, o = read_vli(b, o)
+    if flags &amp; 0x80:
+        _, o = read_vli(b, o)
+    nf = (flags &amp; 0x03) + 1
+    filters = []
+    for _ in range(nf):
+        fid, o = read_vli(b, o)
+        plen, o = read_vli(b, o)
+        props = b[o:o + plen]
+        o += plen
+        if fid == 0x21:
+            bits = props[0] &amp; 0x3F
+            dsize = (2 | (bits &amp; 1)) &lt;&lt; (bits &#x2F;&#x2F; 2 + 11) if bits &lt; 40 else 0xFFFFFFFF
+            filters.append({&#x27;id&#x27;: lzma.FILTER_LZMA2, &#x27;dict_size&#x27;: dsize})
+    d = lzma.LZMADecompressor(format=lzma.FORMAT_RAW, filters=filters)
+    return d.decompress(b[hsize:])
+
+
+def tar_checksum_ok(h):
+    field = h[148:156].split(b&#x27;\x00&#x27;)[0].strip()
+    if not field or not all(c in b&#x27;01234567&#x27; for c in field):
+        return False
+    stored = int(field, 8)
+    return stored == sum(h[:148]) + sum(h[156:]) + 8 * 0x20
+
+
+def find_member(raw, member):
+    &quot;&quot;&quot;512 网格 + 校验和扫描，返回匹配成员的头 (hdr, off) 或 None。&quot;&quot;&quot;
+    target = member.encode()
+    for p in range(0, len(raw) - 512, 512):
+        h = raw[p:p + 512]
+        if not tar_checksum_ok(h):
+            continue
+        name = h[0:100].split(b&#x27;\x00&#x27;)[0]
+        if name.lstrip(b&#x27;.&#x2F;&#x27;) != target.lstrip(b&#x27;.&#x2F;&#x27;):
+            continue
+        return h, p
+    return None
+
+
+def extract(raw, member, seen):
+    &quot;&quot;&quot;从已解压数据中提取 member 内容，支持解析硬链接&#x2F;软链接。&quot;&quot;&quot;
+    if member.lstrip(&#x27;.&#x2F;&#x27;) in seen:
+        return None, &quot;链接成环&quot;
+    hit = find_member(raw, member)
+    if hit is None:
+        return None, &quot;成员或其链接目标不在已解压数据中&quot;
+    h, p = hit
+    tflag = h[156:157]
+    size = int(h[124:136].split(b&#x27;\x00&#x27;)[0].strip() or b&#x27;0&#x27;, 8)
+    if tflag in REGULAR:
+        return raw[p + 512:p + 512 + size], None
+    if tflag in HARDLINK or tflag in SYMLINK:
+        linkname = h[157:257].split(b&#x27;\x00&#x27;)[0].decode(errors=&#x27;replace&#x27;)
+        return extract(raw, linkname, seen | {member.lstrip(&#x27;.&#x2F;&#x27;)})
+    return None, f&quot;不支持的成员类型 typeflag={tflag!r}&quot;
+
+
+def main():
+    if len(sys.argv) &lt; 3:
+        sys.exit(__doc__)
+    path, member = sys.argv[1], sys.argv[2]
+    out = None
+    if &#x27;-o&#x27; in sys.argv:
+        out = sys.argv[sys.argv.index(&#x27;-o&#x27;) + 1]
+
+    data, blocks = xz_blocks(path)
+    t0 = time.time()
+
+    for blk in reversed(blocks):
+        if len(blocks) == 1:
+            break
+        raw = decompress_block(data, blk)
+        content, err = extract(raw, member, set())
+        if content is not None:
+            print(f&quot;[probe] 命中! 跳过 {len(blocks)-1} 个块, &quot;
+                  f&quot;仅解压 {blk[3]&#x2F;&#x2F;1024}KB ({time.time()-t0:.3f}s)&quot;, file=sys.stderr)
+            if out:
+                open(out, &#x27;wb&#x27;).write(content)
+            else:
+                sys.stdout.buffer.write(content)
+            return
+        if err and &#x27;链接目标&#x27; in err and blk is blocks[0]:
+            # 链接目标在更早的块里, 交回全量扫描解决
+            break
+
+    print(f&quot;[fallback] 全量解压扫描 ({time.time()-t0:.3f}s)&quot;, file=sys.stderr)
+    raw = b&#x27;&#x27;.join(decompress_block(data, b) for b in blocks)
+    content, err = extract(raw, member, set())
+    if content is None:
+        sys.exit(f&quot;!! 无法获取 {member}: {err}&quot;)
+    if out:
+        open(out, &#x27;wb&#x27;).write(content)
+    else:
+        sys.stdout.buffer.write(content)
+
+
+if __name__ == &#x27;__main__&#x27;:
+    main()
+</code></pre>
+<p>实测该脚本输出与 <code>tar -xOf</code> 全量提取逐字节一致；wfuzz-python 命中时只解压 17MB/184MB。</p>
+<p><strong>关于链接条目</strong>：tar 里的硬链接（<code>typeflag='1'/'h'</code>）和软链接（<code>typeflag='2'/'l'</code>）<strong>自身不带数据</strong>，内容存于 <code>linkname</code> 字段（头偏移 157-256）指向的成员。若目标条目恰好是链接：</p>
+<ul>
+<li><strong>硬链接</strong>：真实数据一定存储在<strong>更早</strong>的位置（tar 在第二次遇到同一 inode 时才写链接条目）——可能在更早的块里，探测最后一块解压不到时需回退全量。</li>
+<li><strong>软链接</strong>：目标可能在归档内，也可能指向归档外路径（归档里根本没有内容可读，只能报告无法解析）。</li>
+<li>脚本的 <code>extract()</code> 会递归解析 <code>linkname</code>，并带成环检测。</li>
+</ul>
+<hr />
+<h2 id="zong-jie">总结</h2>
+<ul>
+<li><strong>tar</strong>：顺序无索引，不支持文件导航；但 GNU tar 在可 seek 普通文件上用 lseek 跳过数据，纯 tar 找末尾成员几乎免费。成员顺序/<code>./</code> 前缀取决于打包命令（glob 字母序 vs readdir 哈希序），<strong>子目录内部恒为 readdir 序，只有 <code>--sort=name</code> 能全局排序</strong>。重复归档同一文件会生成硬链接自引用，判重依据是 <strong>dev+inode</strong> 而非名字。</li>
+<li><strong>xz</strong>：多块容器 + 尾部 Index，天然支持<strong>块级随机访问</strong>；但单块包（<code>-T1</code>）无法导航。块数由块大小决定（⌈输入/块大小⌉，<strong>按输入字节计</strong>），与线程数无关；多线程压缩不影响成员排序。</li>
+<li><strong>标准 tar 在压缩流上从不提前退出</strong>：<code>tar -xOf</code>/<code>tar -xf</code> 命中目标后仍把整个流读完（无论单块/多块、头部/尾部），所以 tar.xz 提速必须靠自定义读取。</li>
+<li><strong>两条快速路径</strong>：目标在<strong>头部</strong> → 早停流式读取（单块/多块都有效，只解压几百字节）；目标在<strong>末尾</strong>且<strong>多块</strong> → 块级跳读（Index 定位 + 只解压目标块）。实测 10x~230x 提速。</li>
+<li><strong>块可流式部分解压</strong>：LZMA2 是顺序 chunk 流，单个块也能增量解压（<code>decompress(max_length)</code>），不需要解完整个块；省的是"目标之前的解压量"。</li>
+<li><strong>可靠性</strong>：块内定位靠 <strong>tar 头校验和</strong>（512 网格验证），不是字符串匹配；块边界切在成员中间不影响，因为块大小是 512 的倍数。链接条目（硬/软）需要解析 <code>linkname</code> 字段追踪真实数据。</li>
+<li><strong>打包建议</strong>：想稳定快速读取，把目标文件放<strong>最前</strong>（配合早停）或放<strong>最后</strong>（<code>--sort=name</code> 配合多块跳读）；两者都要避免重复归档以防硬链接。保证多块用 <code>XZ_OPT='-T2 --block-size=24MiB'</code>（显式线程数跨版本稳定，<code>-T0</code> 在旧版 xz 会静默失效）。</li>
+<li><strong>跨格式</strong>：早停（流式部分解压）对所有压缩算法通用；跳块随机访问只有带索引的格式支持（xz/zip/zstd-seekable/7z），gzip/bzip2 无索引不能跳块。</li>
+<li><strong>反例警示</strong>：目标是否在最后一块取决于打包机 readdir 顺序（wfuzz-db 实测 json 在第 10/115 块），探测未命中时回退全量；根治方法是 <code>tar --sort=name</code> 保证顺序。</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/">&#8249; 让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/"> waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#yi-tar-ge-shi-shun-xu-ci-dai-gui-dang-wu-suo-yin">一、tar 格式：顺序磁带归档，无索引</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-1-cun-chu-jie-gou"><small>- 1.1 存储结构</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-2-lu-jing-qian-zhui-yu-cheng-yuan-shun-xu-mu-lu-zhi-mi-de-gen-yuan"><small>- 1.2 路径前缀与成员顺序：.目录 之谜的根源</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-3-zhong-fu-gui-dang-yu-ying-lian-jie-tar-an-dev-inode-pan-zhong"><small>- 1.3 重复归档与硬链接：tar 按 dev+inode 判重</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-4-tar-zhi-chi-wen-jian-dao-hang-ma"><small>- 1.4 tar 支持文件导航吗？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-5-zao-ting-liu-shi-du-qu-tou-bu-wen-jian-de-zheng-que-du-fa"><small>- 1.5 早停流式读取：头部文件的正确读法</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-6-tar-xz-de-hao-shi-gou-cheng"><small>- 1.6 tar.xz 的耗时构成</small></a>
+        </div>
+        <div>
+          <a href="#er-xz-ge-shi-ke-sui-ji-fang-wen-de-kuai-rong-qi">二、xz 格式：可随机访问的块容器</a>
+        </div>
+        <div class="hpad">
+          <a href="#2-1-rong-qi-jie-gou"><small>- 2.1 容器结构</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-2-wei-shen-me-neng-dao-hang"><small>- 2.2 为什么能导航</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-3-kuai-shu-xian-cheng-shu"><small>- 2.3 块数 ≠ 线程数</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-4-qi-ta-ya-suo-ge-shi-zao-ting-tong-yong-tiao-kuai-xu-suo-yin"><small>- 2.4 其他压缩格式：早停通用，跳块需索引</small></a>
+        </div>
+        <div>
+          <a href="#san-tar-xz-zu-he-an-kuai-dao-hang-xiao-yan-he-yan-zheng-jie-xi">三、tar.xz 组合：按块导航 + 校验和验证解析</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-neng-zhi-jie-tiao-dao-ren-yi-wen-jian-ma"><small>- 3.1 能直接跳到任意文件吗？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-kuai-bian-jie-bu-zai-tar-cheng-yuan-bian-jie-yong-xiao-yan-he-ding-wei-bu-yong-zi-fu-chuan-pi-pei"><small>- 3.2 块边界不在 tar 成员边界：用校验和定位，不用字符串匹配</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-tan-ce-ce-lue-xian-shi-zui-hou-yi-kuai-wei-ming-zhong-hui-tui-quan-liang"><small>- 3.3 探测策略：先试最后一块，未命中回退全量</small></a>
+        </div>
+        <div>
+          <a href="#si-shi-ce-ti-su-shu-ju">四、实测提速数据</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-wfuzz-python-184-8-mib-8-kuai-json-zai-zui-hou-yi-kuai"><small>- 4.1 wfuzz-python（184.8 MiB &#x2F; 8 块，json 在最后一块）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-zi-zao-1gib-da-bao-1-036-7-mib-44-kuai-json-yong-sort-name-bao-zheng-zui-hou"><small>- 4.2 自造 1GiB 大包（1,036.7 MiB &#x2F; 44 块，json 用 --sort=name 保证最后）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-fan-li-wfuzz-db-json-bu-zai-zui-hou-yi-kuai"><small>- 4.3 反例：wfuzz-db（json 不在最后一块）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-4-dan-kuai-bao-wu-fa-dao-hang-dui-zhao"><small>- 4.4 单块包：无法导航（对照）</small></a>
+        </div>
+        <div>
+          <a href="#wu-zhen-shi-an-li-wfuzz-xi-lie-bao-wei-shen-me-json-wei-zhi-piao-hu">五、真实案例：wfuzz 系列包为什么 json 位置飘忽</a>
+        </div>
+        <div class="hpad">
+          <a href="#5-1-da-bao-fang-shi-gen-yin"><small>- 5.1 打包方式根因</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-2-shi-ce-ge-bao-wei-zhi"><small>- 5.2 实测各包位置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-3-xiu-fu-jian-yi"><small>- 5.3 修复建议</small></a>
+        </div>
+        <div>
+          <a href="#liu-shi-jian-jian-yi">六、实践建议</a>
+        </div>
+        <div>
+          <a href="#qi-fu-lu-an-kuai-tan-ce-gong-ju-xiao-yan-he-yan-zheng-ban">七、附录：按块探测工具（校验和验证版）</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

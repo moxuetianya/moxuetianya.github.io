@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - bridge</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/bridge/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-16T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/bridge/atom.xml</id>
+    <entry xml:lang="en">
+        <title>QEMU 虚拟机无法访问网关&#x2F;公网排查</title>
+        <published>2026-06-13T02:30:00+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"/>
+        <id>https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/">&lt;h1 id=&quot;qemu-xu-ni-ji-wu-fa-fang-wen-wang-guan-gong-wang-pai-cha-wen-dang&quot;&gt;QEMU 虚拟机无法访问网关&#x2F;公网 排查文档&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU 虚拟机（libvirt）无法 ping 通网关 &lt;code&gt;192.168.2.1&lt;&#x2F;code&gt;，也无法访问公网。宿主机网络正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;huan-jing-xin-xi&quot;&gt;环境信息&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.100&#x2F;24&lt;&#x2F;code&gt; (vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网关&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.1&lt;&#x2F;code&gt; (MAC: &lt;code&gt;74:45:2d:96:7f:cc&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟机 IP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;192.168.2.156&lt;&#x2F;code&gt; (MAC: &lt;code&gt;52:54:00:3c:13:73&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理网卡&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eno1&lt;&#x2F;code&gt; (桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟网桥&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vmbr0&lt;&#x2F;code&gt; (含 eno1 + vnet0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TAP 设备&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vnet0&lt;&#x2F;code&gt; (VM 接口，桥接到 vmbr0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;虚拟化&lt;&#x2F;td&gt;&lt;td&gt;QEMU&#x2F;KVM (libvirt 管理)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-que-ren-su-zhu-ji-wang-luo-zheng-chang&quot;&gt;1. 确认宿主机网络正常&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ping -c 2 192.168.2.1
+# 结果：正常，0% 丢包
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-que-ren-wang-qiao-tuo-bu-zheng-que&quot;&gt;2. 确认网桥拓扑正确&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;brctl show vmbr0
+# vmbr0:
+#   eno1    (物理网卡)
+#   vnet0   (虚拟机 TAP 接口)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-zai-vmbr0-shang-zhua-bao-fa-xian-vm-fa-chu-de-icmp-qing-qiu&quot;&gt;3. 在 vmbr0 上抓包 — 发现 VM 发出的 ICMP 请求&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i vmbr0 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;22:28:13.582982 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc, ethertype IPv4 (0x0800), length 98: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request, id 10485, seq 68, length 64
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 发出的包到达了网桥 vmbr0，但没有收到任何 reply。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-zai-wu-li-wang-qia-eno1-shang-zhua-bao-fa-xian-bao-mei-you-dao-da-wu-li-jie-kou&quot;&gt;4. 在物理网卡 eno1 上抓包 — 发现包没有到达物理接口&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp and host 192.168.2.156
+# 结果：0 packets captured
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论：&lt;&#x2F;strong&gt; VM 的 ICMP 请求在 vmbr0 到 eno1 之间被丢弃了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-jian-cha-bridge-netfilter-she-zhi-fa-xian-guan-jian-wen-ti&quot;&gt;5. 检查 bridge netfilter 设置 — 发现关键问题&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl net.bridge.bridge-nf-call-iptables
+# net.bridge.bridge-nf-call-iptables = 1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：&lt;&#x2F;strong&gt; &lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt; 意味着桥接的 L2 流量也会经过 iptables 处理。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然 &lt;code&gt;&#x2F;etc&#x2F;sysctl.conf&lt;&#x2F;code&gt; 中配置的是 &lt;code&gt;=0&lt;&#x2F;code&gt;，但 Docker 启动时会将其设为 &lt;code&gt;1&lt;&#x2F;code&gt;（Docker 依赖此设置来实现容器网络隔离和端口映射）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-jian-cha-iptables-forward-lian-que-ren-diu-bao-dian&quot;&gt;6. 检查 iptables FORWARD 链 — 确认丢包点&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP 3727K packets, 1454M bytes)
+ pkts bytes target     prot opt in     out     source               destination
+  229 24446 ACCEPT     all  --  vmbr0  tun0    192.168.2.0&amp;#x2F;24       192.168.4.0&amp;#x2F;22
+  477  513K ACCEPT     all  --  tun0   vmbr0   192.168.4.0&amp;#x2F;22       192.168.2.0&amp;#x2F;24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因确认：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;FORWARD 链默认策略为 &lt;code&gt;DROP&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仅有的两条涉及 vmbr0 的规则只允许 &lt;code&gt;vmbr0 &amp;lt;-&amp;gt; tun0&lt;&#x2F;code&gt; 的 VPN 流量（192.168.2.0&#x2F;24 &amp;lt;-&amp;gt; 192.168.4.0&#x2F;22）&lt;&#x2F;li&gt;
+&lt;li&gt;没有规则允许 vmbr0 的普通桥接流量（如 VM -&amp;gt; 网关）&lt;&#x2F;li&gt;
+&lt;li&gt;因此 VM 发出的包在到达网桥后被 iptables DROP 掉，无法到达物理网卡 eno1&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;shu-ju-liu-shi-yi&quot;&gt;数据流示意&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;VM (192.168.2.156)
+    │
+    ▼ ICMP echo request
+ vnet0 ─── vmbr0 ─── ✗ iptables FORWARD DROP ─── eno1 (物理网卡)
+                       (无匹配规则)                │
+                                                   ▼
+                                             Gateway (192.168.2.1)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;li-ji-xiu-fu&quot;&gt;立即修复&lt;&#x2F;h3&gt;
+&lt;p&gt;添加规则允许桥接流量通过 iptables：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -m physdev --physdev-is-bridged -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-m physdev --physdev-is-bridged&lt;&#x2F;code&gt; 精确匹配经过桥接转发的流量&lt;&#x2F;li&gt;
+&lt;li&gt;将该规则插入 FORWARD 链首部，优先于 Docker 的链&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chi-jiu-hua&quot;&gt;持久化&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;netfilter-persistent save
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该命令将当前 iptables 规则保存到 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;，重启后自动恢复。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -L FORWARD -n -v
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;Chain FORWARD (policy DROP)
+ pkts bytes target     prot opt in     out     source               destination
+  155 44480 ACCEPT     all  --  *      *       0.0.0.0&amp;#x2F;0            0.0.0.0&amp;#x2F;0            PHYSDEV match --physdev-is-bridged
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tcpdump -i eno1 -e -n icmp
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;22:30:08.217904 52:54:00:3c:13:73 &amp;gt; 74:45:2d:96:7f:cc: 192.168.2.156 &amp;gt; 192.168.2.1: ICMP echo request
+22:30:08.218266 74:45:2d:96:7f:cc &amp;gt; 52:54:00:3c:13:73: 192.168.2.1 &amp;gt; 192.168.2.156: ICMP echo reply
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 ICMP 请求和网关的回复均已正常到达物理网卡，问题解决。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h2&gt;
+&lt;p&gt;如果不想依赖 iptables 规则，也可以禁用 bridge netfilter：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl -w net.bridge.bridge-nf-call-iptables=0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但此方案会导致 Docker 的端口映射和容器间隔离失效，&lt;strong&gt;不推荐&lt;&#x2F;strong&gt;在有 Docker 运行的环境中采用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2026-08-07-wen-ti-fu-fa-gen-yin-shi-chi-jiu-hua-jing-mo-shi-xiao&quot;&gt;2026-08-07 问题复发：根因是持久化静默失效&lt;&#x2F;h2&gt;
+&lt;p&gt;同一环境（宿主机 192.168.2.100、vmbr0、网关 192.168.2.1、VM 192.168.2.156）两个月后再次出现 VM 无法 ping 通网关，且 VM 无法访问公网。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-yao-dian-ben-ci-shi-ce&quot;&gt;排查要点（本次实测）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;VM → 宿主 ping 正常（0.15ms）&lt;&#x2F;strong&gt;：目标为宿主本机 IP，走 INPUT 链，不受 FORWARD 影响&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VM → 网关 ICMP 100% 丢包&lt;&#x2F;strong&gt;，但 &lt;code&gt;tcpdump -i vnet1&lt;&#x2F;code&gt; 能抓到 VM 发出的 &lt;code&gt;ICMP echo request&lt;&#x2F;code&gt;——包已离开 VM&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;tcpdump -i eno1&lt;&#x2F;code&gt; 抓不到 VM 的任何 ICMP&#x2F;ARP&lt;&#x2F;strong&gt;——包在网桥转发阶段被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;：&lt;code&gt;Chain FORWARD (policy DROP 2917 packets, 1032K bytes)&lt;&#x2F;code&gt;——大量包已被丢弃&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;lsmod | grep br_netfilter&lt;&#x2F;code&gt;：已加载（Docker 依赖），&lt;code&gt;bridge-nf-call-iptables=1&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;排查小技巧——对比抓包定位丢包点：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;观测点&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;VM 内 ping 宿主&lt;&#x2F;td&gt;&lt;td&gt;通&lt;&#x2F;td&gt;&lt;td&gt;INPUT 链正常&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;vnet1 上有 ICMP 出包&lt;&#x2F;td&gt;&lt;td&gt;有&lt;&#x2F;td&gt;&lt;td&gt;包已离开 VM&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;eno1 上无 ICMP&#x2F;ARP&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;丢弃发生在网桥&#x2F;IP 转发（FORWARD）阶段&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;ben-ci-xiu-fu&quot;&gt;本次修复&lt;&#x2F;h3&gt;
+&lt;p&gt;相比上文的 physdev 通用规则，按网桥接口的规则更直观、易维护：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT
+iptables -I FORWARD -o vmbr0 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：VM ping 网关 0.5ms、ping 公网 8.8.8.8 正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fu-fa-gen-yin-chi-jiu-hua-jing-mo-shi-xiao-zhong-yao-jiao-xun&quot;&gt;复发根因：持久化静默失效（重要教训）&lt;&#x2F;h3&gt;
+&lt;p&gt;上文的 &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 其实一直没生效：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;宿主只安装了 &lt;code&gt;netfilter-persistent&lt;&#x2F;code&gt;，但 &lt;strong&gt;iptables 插件（iptables-persistent）从未安装&lt;&#x2F;strong&gt;，&lt;code&gt;&#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt; 为空&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt; 输出为空、退出码为 0，但 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 从未生成——&lt;strong&gt;静默失败&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;因此一旦重启（或 iptables 规则被清空），上次的 FORWARD 规则全部丢失，问题必然复发&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;修复持久化：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install iptables-persistent   # 安装 15-ip4tables &amp;#x2F; 25-ip6tables 插件
+netfilter-persistent save          # 这次输出 run-parts: executing ... 插件真正生效
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt; 已生成且包含 vmbr0 规则。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训：&lt;&#x2F;strong&gt; 任何&quot;保存&#x2F;持久化&quot;类操作，执行后必须验证产物存在（文件已生成、内容正确），不能只依赖退出码。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-jian-ming-ling-su-cha&quot;&gt;关键命令速查&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;查看网桥成员&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl show&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 bridge netfilter 状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sysctl net.bridge.bridge-nf-call-iptables&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;查看 iptables FORWARD 链&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -L FORWARD -n -v&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;放行网桥转发流量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iptables -I FORWARD -i vmbr0 -j ACCEPT&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;-o vmbr0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网桥上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i vmbr0 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;物理接口上抓包&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump -i eno1 -e -n icmp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;检查持久化插件&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;usr&#x2F;share&#x2F;netfilter-persistent&#x2F;plugins.d&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;相关：Wi-Fi 宿主上 VM 无法从局域网访问（macvtap 被 AP 丢弃单播 → proxy-ARP 路由方案）的完整排查记录见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;07&#x2F;virtualization&#x2F;&quot;&gt;虚拟化笔记&lt;&#x2F;a&gt;。
+| 保存 iptables 规则 | &lt;code&gt;netfilter-persistent save&lt;&#x2F;code&gt;（确认生成 &lt;code&gt;&#x2F;etc&#x2F;iptables&#x2F;rules.v4&lt;&#x2F;code&gt;） |&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+</content>
+        
+    </entry>
+</feed>

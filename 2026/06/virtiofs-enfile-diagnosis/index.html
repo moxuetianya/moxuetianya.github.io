@@ -1,0 +1,490 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>virtiofs ENFILE 问题排查手册 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="排查 virtiofs 导致 VM 内报错“系统中打开的文件过多”（ENFILE）的问题；真根因是 virtiofsd 内部 guest fd 池耗尽" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/" />
+  <meta property="og:description" content="排查 virtiofs 导致 VM 内报错“系统中打开的文件过多”（ENFILE）的问题；真根因是 virtiofsd 内部 guest fd 池耗尽" />
+  <meta name="twitter:description" content="排查 virtiofs 导致 VM 内报错“系统中打开的文件过多”（ENFILE）的问题；真根因是 virtiofsd 内部 guest fd 池耗尽" />
+  <meta property="og:title" content="virtiofs ENFILE 问题排查手册 | 墨雪天琊" />
+  <meta name="twitter:title" content="virtiofs ENFILE 问题排查手册 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-13" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/">virtiofs ENFILE 问题排查手册</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 六月 13, 2026 <span class="rpad"></span>更新: 八月 13, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/virtualization/">virtualization</a>] #<a href="https://moxuetianya.github.io/tags/virtiofs/">virtiofs</a>  #<a href="https://moxuetianya.github.io/tags/virtiofsd/">virtiofsd</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/libvirt/">libvirt</a>  #<a href="https://moxuetianya.github.io/tags/rust/">rust</a>  #<a href="https://moxuetianya.github.io/tags/file-descriptor/">file-descriptor</a> </span>
+
+    
+
+
+<h1 id="virtiofs-enfile-wen-ti-pai-cha-shou-ce">virtiofs ENFILE 问题排查手册</h1>
+<blockquote>
+<p><strong>2026-08-07 重要更正</strong></p>
+<p>本文 2026-06-13 首发时把根因错误归为「<code>fs.file-max = INT64_MAX</code> 触发内核 fd table 整数溢出」。
+2026-08-07 故障复发后，对照 virtiofsd 1.13.2 源码逐行核实，<strong>该结论是错的</strong>：
+ENFILE 来自 virtiofsd 内部的 guest fd 信号量耗尽（<code>src/passthrough/guest_fd_limit.rs</code>），
+与宿主内核 <code>file-max</code> 无关。
+原文的错误分析没有删除，压缩保留在文末「曾经的错误结论（勿再犯）」一节，防止误信或重复踩坑。</p>
+</blockquote>
+<h2 id="wen-ti-xian-xiang">问题现象</h2>
+<p>VM 内对 virtiofs 挂载点执行文件操作时报错：</p>
+<pre><code>ls: 无法打开目录 &#x27;.&#x27;: 系统中打开的文件过多
+# 对应系统错误: ENFILE (Too many open files in system)
+</code></pre>
+<p>特点：整棵挂载树所有读写（cat / ls / 新建文件 / python os.listdir）全部报错，
+本地磁盘正常；持续存在、不会自动恢复（除非触发句柄释放）。</p>
+<hr />
+<h2 id="pai-cha-bu-zou">排查步骤</h2>
+<h3 id="1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai">1. 系统级文件句柄状态</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cat &#x2F;proc&#x2F;sys&#x2F;fs&#x2F;file-nr
+# 输出格式: &lt;已分配数量&gt; &lt;空闲数量&gt; &lt;最大限制&gt;
+# 注意: 现代内核（≥2.6.27）第 2 列恒为 0，不代表文件表耗尽！
+
+cat &#x2F;proc&#x2F;sys&#x2F;fs&#x2F;file-max
+cat &#x2F;proc&#x2F;sys&#x2F;fs&#x2F;nr_open
+</code></pre>
+<h3 id="2-ding-wei-virtiofsd-jin-cheng">2. 定位 virtiofsd 进程</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">pgrep -a virtiofsd
+
+ps -o pid,ppid,user,etime,rss,args -p $(pgrep -d&#x27;,&#x27; virtiofsd)
+# rss: 内存占用  etime: 运行时长
+# 注意: virtiofsd RSS 很大（几十 GB）是 vhost-user 映射了 guest RAM，属正常现象
+</code></pre>
+<h3 id="3-jian-cha-virtiofsd-fd-shu-liang-he-xin-zhi-biao">3. 检查 virtiofsd fd 数量（核心指标）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ls &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd | wc -l
+# 对比 guest fd 池上限: rlimit_nofile - 610（默认 = 1,000,000 - 610 = 999,390）
+# 接近上限 ≈ 池子即将耗尽，就是 ENFILE 的前兆
+</code></pre>
+<h3 id="4-cha-kan-fd-lei-xing-fen-bu">4. 查看 fd 类型分布</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ls -la &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd&#x2F; | awk &#x27;{
+  target=$NF
+  if (target ~ &#x2F;^socket:&#x2F;)       type=&quot;socket&quot;
+  else if (target ~ &#x2F;^pipe:&#x2F;)    type=&quot;pipe&quot;
+  else if (target ~ &#x2F;^anon_inode:&#x2F;) type=&quot;anon_inode&quot;
+  else if (target ~ &#x2F;\(deleted\)$&#x2F;) type=&quot;deleted_file&quot;
+  else if (target ~ &#x2F;^\&#x2F;&#x2F;)       type=&quot;regular_file&quot;
+  else if (target ~ &#x2F;^\&#x2F;dev\&#x2F;&#x2F;)  type=&quot;dev&quot;
+  else                           type=&quot;other&quot;
+  count[type]++
+} END { for(t in count) print count[t], t }&#x27; | sort -rn
+</code></pre>
+<h3 id="5-cha-kan-fd-zhi-xiang-na-xie-mu-lu">5. 查看 fd 指向哪些目录</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ls -la &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd&#x2F; | awk &#x27;{print $NF}&#x27; | \
+  sed &#x27;s|&#x2F;home&#x2F;peter&#x2F;project||&#x27; | \
+  awk -F&#x27;&#x2F;&#x27; &#x27;{print $1&quot;&#x2F;&quot;$2&quot;&#x2F;&quot;$3&quot;&#x2F;&quot;$4}&#x27; | \
+  sort | uniq -c | sort -rn | head -30
+# virtiofsd 的 fd 目标路径是相对共享目录的 guest 视角路径（如 &#x2F;agent-code&#x2F;... 对应宿主 &#x2F;home&#x2F;peter&#x2F;project&#x2F;agent-code&#x2F;...）
+</code></pre>
+<h3 id="6-cai-yang-cha-kan-fd-ju-ti-nei-rong">6. 采样查看 fd 具体内容</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 前 40 个
+sudo ls -la &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd&#x2F; | head -40
+
+# 中间段
+sudo ls -la &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd&#x2F; | sed -n &#x27;5000,5020p&#x27;
+
+# 末尾
+sudo ls -la &#x2F;proc&#x2F;&lt;PID&gt;&#x2F;fd&#x2F; | tail -20
+</code></pre>
+<h3 id="7-jian-cha-virtiofsd-zi-yuan-xian-zhi">7. 检查 virtiofsd 资源限制</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">for pid in &lt;PID_LIST&gt;; do
+  echo &quot;=== PID $pid ===&quot;
+  cat &#x2F;proc&#x2F;$pid&#x2F;limits | grep -E &quot;open files|processes&quot;
+  cat &#x2F;proc&#x2F;$pid&#x2F;status | grep -E &quot;VmRSS|VmSize|Threads&quot;
+done
+</code></pre>
+<h3 id="8-jian-cha-su-zhu-nei-he-shi-fou-zhen-de-zhuang-guo-file-max">8. 检查宿主内核是否真的撞过 file-max</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 环形缓冲覆盖故障窗口的前提下，出现该警告 = 宿主 file-max 真被撞到（另一种墙）
+sudo dmesg | grep -i &quot;file-max&quot;
+</code></pre>
+<h3 id="9-quan-xi-tong-fd-tong-ji">9. 全系统 fd 统计</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">total=0
+for p in &#x2F;proc&#x2F;[0-9]*&#x2F;fd&#x2F;; do
+  total=$((total + $(ls &quot;$p&quot; 2&gt;&#x2F;dev&#x2F;null | wc -l)))
+done
+echo &quot;用户可见: $total&quot;
+echo &quot;系统分配: $(awk &#x27;{print $1}&#x27; &#x2F;proc&#x2F;sys&#x2F;fs&#x2F;file-nr)&quot;
+echo &quot;差值(root): $(( $(awk &#x27;{print $1}&#x27; &#x2F;proc&#x2F;sys&#x2F;fs&#x2F;file-nr) - total ))&quot;
+</code></pre>
+<hr />
+<h2 id="gen-yin-fen-xi-2026-08-07-geng-zheng-hou-jie-lun">根因分析（2026-08-07 更正后结论）</h2>
+<h3 id="zhen-zheng-gen-yin-virtiofsd-de-guest-fd-chi-hao-jin">真正根因：virtiofsd 的 guest fd 池耗尽</h3>
+<p>virtiofsd 1.13（Rust 版）为了确保自己内部总有 fd 可用，给 guest 分配 fd 时
+走一个信号量（<code>GuestFdSemaphore</code>），上限是：</p>
+<pre><code>guest_fd_limit = RLIMIT_NOFILE - internal_fd_reserve
+               = 1,000,000 - (509 + 100 + 1)   &#x2F;&#x2F; MAX_MEM_SLOTS + 100 + thread_pool_size
+               = 999,390
+</code></pre>
+<p>触发链：</p>
+<pre><code>guest 内 find &#x2F; grep -rl 递归扫描数十万文件
+  → 每个 lookup&#x2F;open&#x2F;readdir 的 inode，virtiofsd 通过 GuestFdSemaphore::allocate()
+    分配一个 O_PATH fd（src&#x2F;passthrough&#x2F;mod.rs:880&#x2F;961&#x2F;1281&#x2F;1782）
+  → 这些句柄在 guest dcache 驱逐 inode（FUSE_FORGET）之前不释放
+  → 扫描几十万文件后池子归零
+  → 池空后任何 virtiofs 操作（哪怕 cat 已缓存文件）都拿不到新 fd
+  → allocate() 返回 ENFILE（guest_fd_limit.rs:72）
+  → guest 所有 virtiofs 系统调用报 ENFILE，整棵挂载树不可用
+</code></pre>
+<p>关键源码（virtiofsd 1.13.2）：</p>
+<ul>
+<li><code>src/passthrough/guest_fd_limit.rs:72</code><pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F; Since this error is likely returned to the guest (and not logged), prefer an
+&#x2F;&#x2F; error with a reasonable errno number over a useful error message.
+io::Error::from_raw_os_error(libc::ENFILE)
+</code></pre>
+</li>
+<li><code>src/main.rs:51/791-793</code> — 池子上限计算</li>
+<li><code>src/limits.rs:50-64</code> — <code>--rlimit-nofile</code> 默认取 <code>min(1_000_000, nr_open)</code>；若继承的软限已 ≥ 1M 则沿用继承值</li>
+</ul>
+<p><strong>旁证（为什么排除宿主 file-max）：</strong></p>
+<ol>
+<li>宿主 <code>dmesg</code> / <code>journalctl</code> 中没有任何 <code>VFS: file-max limit reached</code> 警告
+（环形缓冲覆盖了整个故障窗口，可信）</li>
+<li>6/13 实测宿主 <code>file-nr = 1,015,480</code> ≈ 999,390（池子）+ 系统其他 fd，严丝合缝</li>
+<li>故障期间宿主 <code>file-max = INT64_MAX</code>——按内核源码（<code>fs/file_table.c</code> 的
+<code>alloc_empty_file</code>），该值下比较 <code>nr_files &gt;= max_files</code> 永远为假，不可能返回 ENFILE</li>
+<li>症状"持续不恢复"符合句柄滞留模型：恢复只能靠 guest 缓存逐出（FUSE_FORGET）
+或重启 virtiofsd</li>
+</ol>
+<h3 id="pan-duan-biao-zhun-geng-zheng-ban">判断标准（更正版）</h3>
+<table><thead><tr><th>症状</th><th>结论</th></tr></thead><tbody>
+<tr><td>virtiofsd fd 数接近 rlimit（默认 999,390 池）</td><td><strong>guest fd 池即将/已经耗尽 ← 核心指标</strong></td></tr>
+<tr><td>宿主 dmesg 有 <code>VFS: file-max limit reached</code></td><td>宿主 file-max 真被撞到（另一种、更罕见的墙）</td></tr>
+<tr><td>virtiofsd fd 99% 为 O_PATH 常规文件</td><td>guest 在遍历文件系统</td></tr>
+<tr><td>fd 集中在 <code>target/debug</code>、<code>node_modules</code>、<code>build/cache</code></td><td>构建工具 / IDE / 搜索扫描</td></tr>
+<tr><td><code>file-max = INT64_MAX</code></td><td><strong>无碍</strong>（曾误判为根因，见文末）</td></tr>
+<tr><td><code>file-nr</code> 第 2 列 = 0</td><td>无意义（现代内核恒为 0）</td></tr>
+<tr><td>virtiofsd RSS 数十 GB</td><td>正常（guest RAM 映射），非泄漏</td></tr>
+</tbody></table>
+<hr />
+<h2 id="xiu-fu-fang-an">修复方案</h2>
+<h3 id="1-kuo-da-guest-fd-chi-zhi-ben">1. 扩大 guest fd 池（治本）</h3>
+<p>virtiofsd 由 libvirtd 派生，继承其 soft rlimit。把 libvirtd 的系统服务限额调大即可
+（virtiofsd 启动时若继承的软限 ≥ 1M 会直接沿用，见 <code>limits.rs:60-63</code>）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo systemctl edit libvirtd
+# [Service]
+# LimitNOFILE=4194304
+sudo systemctl restart libvirtd   # 会断开所有 VM 的 virtiofs，需重启域
+</code></pre>
+<p>池子变成 ≈ 4,194,304 - 610。<strong>注意与宿主 <code>file-max</code> 配平</strong>：
+若 <code>file-max</code> 设为真实值，必须 <code>file-max ≥ 池子上限 + 余量</code>（如 file-max=8M / 池子=4M），
+否则宿主内核会变成更矮的墙（届时 dmesg 会真的出现 VFS 警告）。</p>
+<p><strong>宿主内存成本</strong>（只有池子实际用满时才发生，设上限本身零成本）：</p>
+<table><thead><tr><th>资源</th><th>4M 全占用量</th></tr></thead><tbody>
+<tr><td>内核 slab（struct file，本机实测 192B/个）</td><td>≈ 768 MB</td></tr>
+<tr><td>virtiofsd 进程 fd 表（8B/项）</td><td>≈ 32 MB</td></tr>
+</tbody></table>
+<h3 id="2-gen-ben-jiang-hao-gai-yong-file-handle-dai-ti-o-path-fd-tui-jian">2. 根本降耗：改用 file handle 代替 O_PATH fd（推荐）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># virtiofsd 1.13+ 支持 --inode-file-handles=prefer
+# 用 name_to_handle_at &#x2F; open_by_handle_at 引用 inode，句柄不再消耗 fd
+&#x2F;usr&#x2F;libexec&#x2F;virtiofsd --inode-file-handles=prefer --shared-dir &#x2F;home&#x2F;peter&#x2F;project ...
+# 要求宿主文件系统支持 file handle（ext4 支持；virtiofsd 以 root 运行，具备所需能力）
+# 注意: 当前 libvirt 的 &lt;binary&gt; XML 元素可能不暴露该参数，需验证或走 hook
+</code></pre>
+<h3 id="3-vm-nei-jia-su-ju-bing-shi-fang-zhi-biao">3. VM 内加速句柄释放（治标）</h3>
+<p>句柄在 guest dcache 驱逐 inode（FUSE_FORGET）时才释放，而 <strong>dcache 驱逐只由内存压力
+驱动、没有时间老化</strong>——guest 内存充足时（本机实测 26GB 内存、空闲 12GB），扫描留下的
+近百万 dentry 会永久驻留，FUSE_FORGET 一个都不发，故障"持续不恢复"是符合设计的必然。</p>
+<p>所以真正有效的主动手段是定时 <code>drop_caches</code>；<code>vfs_cache_pressure</code> 只是回收发生时的
+权重系数，<strong>没有内存压力时它什么都不做</strong>，仅作可选加速：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 故障中立即恢复（主动杠杆，几秒内恢复）
+sudo sh -c &#x27;echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches&#x27;
+
+# 长期: 定时执行 drop_caches，把故障窗口压到 ≤ 定时周期
+cat &gt; &#x2F;usr&#x2F;local&#x2F;bin&#x2F;manage_virtiofs_cache.sh &lt;&lt; &#x27;EOF&#x27;
+#!&#x2F;bin&#x2F;bash
+CACHED_MB=$(free -m | awk &#x27;&#x2F;^Mem:&#x2F; {print $6}&#x27;)
+if [ $CACHED_MB -gt 4096 ]; then
+    sync
+    echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches
+fi
+EOF
+chmod +x &#x2F;usr&#x2F;local&#x2F;bin&#x2F;manage_virtiofs_cache.sh
+# crontab: *&#x2F;30 * * * * &#x2F;usr&#x2F;local&#x2F;bin&#x2F;manage_virtiofs_cache.sh
+
+# 可选加速（非必须）: 让碰巧发生的自然回收优先清 dentry 而非 page cache
+echo 1000 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;vfs_cache_pressure
+echo 1000 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;dirty_writeback_centisecs
+
+# 持久化
+cat &gt;&gt; &#x2F;etc&#x2F;sysctl.conf &lt;&lt; EOF
+vm.vfs_cache_pressure=1000
+vm.dirty_writeback_centisecs=1000
+EOF
+</code></pre>
+<blockquote>
+<p><strong>注意</strong>：<code>vfs_cache_pressure</code> 不是定时器，没有内存压力时它不会触发任何回收，
+单独设置它无法解决句柄滞留；真正起作用的是定时 <code>drop_caches</code>。</p>
+</blockquote>
+<h3 id="4-bi-mian-da-fan-wei-di-gui-sao-miao-virtiofs-gua-zai">4. 避免大范围递归扫描 virtiofs 挂载</h3>
+<ul>
+<li><code>find</code> / <code>grep -rl</code> 大范围扫描会快速耗尽池子（每个 touched inode 都占一个槽）</li>
+<li>大扫描尽量在宿主侧直接执行，或限制范围（<code>-prune</code> 掉 <code>target/debug</code>、<code>node_modules</code> 等）</li>
+</ul>
+<h3 id="5-ying-ji-hui-fu">5. 应急恢复</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># guest 内立即 drop_caches（最快，几秒内恢复）
+sudo sh -c &#x27;echo 3 &gt; &#x2F;proc&#x2F;sys&#x2F;vm&#x2F;drop_caches&#x27;
+
+# 或重启 virtiofsd &#x2F; 重启 VM（挂载会短暂断开）
+# 注意: kill -HUP 对 Rust 版 virtiofsd 不一定有效，可靠做法是重启域
+</code></pre>
+<hr />
+<h2 id="2026-08-13-shi-shi-yu-yan-zheng-ji-lu">2026-08-13 实施与验证记录</h2>
+<blockquote>
+<p>前面的「修复方案」只是建议；本节记录 2026-08-13 实际落地方式、踩到的坑与压测结果。</p>
+</blockquote>
+<h3 id="shi-ji-fang-an-a-kuo-chi-b-file-handle-shuang-bao-xian">实际方案（A 扩池 + B file handle 双保险）</h3>
+<p><strong>A. 用 <code>&lt;openfiles max&gt;</code> 扩池</strong>——libvirt 11.3 原生支持，比上文改 <code>libvirtd LimitNOFILE</code> 更精准（只影响本域）：</p>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;!-- debian13.xml 的 &lt;filesystem&gt; 段 --&gt;
+&lt;binary path=&#x27;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles&#x27; xattr=&#x27;on&#x27;&gt;
+  &lt;openfiles max=&#x27;4194304&#x27;&#x2F;&gt;
+&lt;&#x2F;binary&gt;
+</code></pre>
+<p><code>&lt;openfiles max='N'/&gt;</code> 被 libvirt 映射为 <code>--rlimit-nofile=N</code>（<code>libvirt_driver_qemu.so</code> 里有 <code>--rlimit-nofile=%llu</code>）。池上限从 999,390 提到 ≈ 4,193,694，作兜底。</p>
+<p><strong>B. <code>--inode-file-handles=prefer</code> 经 wrapper 传入</strong>——libvirt 的 <code>&lt;binary&gt;</code> 没有 <code>inode-file-handles</code> 元素（schema 查无），只能包一层：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># &#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles（root:root 0755）
+#!&#x2F;bin&#x2F;bash
+exec &#x2F;usr&#x2F;libexec&#x2F;virtiofsd --inode-file-handles=prefer &quot;$@&quot;
+</code></pre>
+<h3 id="keng-libvirtd-de-apparmor-profile-ju-jue-zhi-xing-wrapper">坑：libvirtd 的 AppArmor profile 拒绝执行 wrapper</h3>
+<p>第一次 <code>virsh start</code> 直接失败：</p>
+<pre><code>error: 内部错误：子进程（&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles --print-capabilities）意外 退出状态 126: ... 无法执行二进制文件 ...: 权限不够
+</code></pre>
+<p>dmesg 定位到 <code>apparmor="DENIED" operation="exec" profile="libvirtd" name="/usr/local/libexec/virtiofsd-inode-handles"</code>。
+libvirtd 的 profile 默认只白名单 <code>/usr/{lib,lib64,lib/qemu,libexec}/virtiofsd PUx</code>，新路径被拒。</p>
+<p>解法写在 site 级 override（随 libvirtd 升级不丢）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">echo &#x27;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles PUx,&#x27; &gt;&gt; &#x2F;etc&#x2F;apparmor.d&#x2F;local&#x2F;usr.sbin.libvirtd
+apparmor_parser -r &#x2F;etc&#x2F;apparmor.d&#x2F;usr.sbin.libvirtd
+</code></pre>
+<h3 id="yan-zheng-jie-guo-quan-shu-find-ya-ce-dui-bi">验证结果（全树 <code>find</code> 压测对比）</h3>
+<table><thead><tr><th>指标</th><th>修复前</th><th>修复后</th></tr></thead><tbody>
+<tr><td>virtiofsd worker fd</td><td>999,410（池满→ENFILE）</td><td><strong>22</strong>（几乎不涨）</td></tr>
+<tr><td>宿主 <code>file-nr</code></td><td>1,023,072</td><td>~24,200（持平）</td></tr>
+<tr><td>guest <code>find</code> 全树</td><td>报 ENFILE</td><td>正常（agent-code 152,380 文件）</td></tr>
+</tbody></table>
+<h3 id="wei-shen-me-file-handle-neng-xiao-chu-fd-zhan-yong">为什么 file handle 能消除 fd 占用</h3>
+<p>默认 <code>never</code> 模式，virtiofsd 用 <strong>O_PATH fd</strong> 去「记住」guest 触碰过的每个 inode：O_PATH fd 虽不读内容，但照样占 fd 表一个槽位、计入 <code>rlimit_nofile</code>（默认 1M）。扫 N 个文件就占 N 个 fd，池子被吃光。</p>
+<p><code>prefer</code> 模式改用内核 file handle 接口：<code>name_to_handle_at</code> 给 inode 生成「文件句柄」（一段内存字节，含 inode 号+代次+文件系统 id），需要时 <code>open_by_handle_at</code> 转回临时 fd。句柄只占内存、不占 fd 槽——「记住一百万 inode」从消耗 fd 变成消耗内存，fd 池不再是瓶颈。</p>
+<h3 id="wei-shen-me-mo-ren-bu-kai-qi-file-handle-de-que-dian">为什么默认不开启（file handle 的缺点）</h3>
+<p>既然省 fd，virtiofsd 为何默认 <code>never</code> 而不是 <code>prefer</code>？几个正确性/可移植性代价：</p>
+<ol>
+<li><strong>句柄不 pin 住 inode</strong>（最大的坑）：O_PATH fd 持有 inode 引用，文件被 unlink 后 fd 仍有效、inode 延迟回收；file handle 只是一段「inode 号+代次+文件系统 id」字节、不持引用，文件删除后 <code>open_by_handle_at</code> 可能返回 <code>ESTALE</code>，且 inode 号+代次理论上可复用。所以 <code>prefer</code> 对删不掉/无句柄的文件仍要回退 O_PATH fd。</li>
+<li><strong><code>open_by_handle_at</code> 需要 <code>CAP_DAC_READ_SEARCH</code></strong>：按 inode 直接打开、绕过路径权限检查，是特权操作；virtiofsd 以 root 跑才有此能力，若未来降权/沙箱即失效。</li>
+<li><strong>文件系统支持不普遍</strong>：不少文件系统不支持 file handle（<code>name_to_handle_at</code> 返回 <code>EOPNOTSUPP</code>），如部分 FUSE/网络文件系统、overlayfs 某些场景，默认开启会直接坏掉。</li>
+<li><strong>两套路径都要维护</strong>：<code>prefer</code> 是「能用就用、不能则回退」，O_PATH fd 逻辑一点不能删，复杂度不减反增。</li>
+<li><strong>迁移/快照序列化更难</strong>：句柄是 opaque 数字、跨主机（不同文件系统实例）无效，需额外重建路径（上文日志里的 <code>preserialization::proc_paths</code> 告警即此类）。</li>
+</ol>
+<p>一句话：O_PATH fd = 简单、永远正确、费 fd 槽；file handle = 省 fd、但有删除/复用/可移植性边角。所以 <code>never</code> 是保守默认，<code>prefer</code> 留给确定支持的场景显式开启——本机（共享目录固定在 ext4、virtiofsd 以 root 跑）恰好覆盖了这些边角。</p>
+<h3 id="hong-fa-yuan-geng-zheng">触发源更正</h3>
+<p>实测复现的触发是 <code>du -sh */</code> 这类对挂载树的递归遍历。此前怀疑的两者其实都<strong>不是</strong>主要触发源：</p>
+<ul>
+<li><code>ncdu -x /home/peter/</code>：<code>-x</code> 不跨文件系统，根本没进 virtiofs 挂载；</li>
+<li><code>localsearch-3</code>（GNOME tracker 文件索引器，tracker-miners 更名）：默认 <code>index-single-directories=$HOME</code> 只索引单层不递归，实测仅 88 个文件。</li>
+</ul>
+<hr />
+<h2 id="ceng-jing-de-cuo-wu-jie-lun-bao-liu-bei-cha-wu-zai-fan">曾经的错误结论（保留备查，勿再犯）</h2>
+<blockquote>
+<p>以下为 2026-06-13 初版的错误分析。保留它不是为了参考，而是为了记住为什么错。</p>
+</blockquote>
+<p><strong>错误结论：</strong> <code>fs.file-max</code> 被设为 <code>9223372036854775807</code>（INT64_MAX）导致内核
+fd table 扩容公式 <code>n = last * 2 + 1</code> 整数溢出 → <code>kvmalloc</code> 分配巨大数组失败 → 返回 ENFILE。</p>
+<p><strong>为什么错（2026-08-07 对照内核 6.12 源码核实）：</strong></p>
+<ol>
+<li>内核 fd table 扩容（<code>fs/file.c</code>）的硬上限是 <code>sysctl_nr_open</code>（即 <code>fs.nr_open</code>），
+超了返回 <strong>EMFILE(24)</strong>，整个 <code>fs/file.c</code> 中根本不存在 <code>files_stat.max_files</code> 的引用——
+扩容与 <code>file-max</code> 零关系</li>
+<li><code>file-max</code> 唯一出现在 <code>fs/file_table.c</code> 的 <code>alloc_empty_file()</code>：
+<code>nr_files &gt;= max_files</code> 才返回 ENFILE(23)。<code>INT64_MAX</code> 下该比较永远为假，
+恰恰<strong>不可能</strong>产生 ENFILE</li>
+<li>当时"修复"（把 file-max 设为 2097152）与根因无关；真正让系统恢复的是
+扫描结束 / 缓存逐出 / virtiofsd 重启等并发因素</li>
+<li>复发时宿主 dmesg 无 VFS 警告，最终在 virtiofsd 1.13.2 源码
+<code>guest_fd_limit.rs:72</code> 找到真正的 ENFILE 出处</li>
+</ol>
+<p><strong>教训：</strong> ① 症状（ENFILE）不一定来自最显眼的配置（file-max），先找 ENFILE 的
+唯一内核出口，再顺着代码追；② 排查"大值参数"时要先确认内核里它到底被谁引用；
+③ 实测 dmesg 环形缓冲覆盖窗口内的"无警告"是有效证据。</p>
+<hr />
+<h2 id="he-xin-pai-cha-luo-ji">核心排查逻辑</h2>
+<pre><code>guest 内 virtiofs 操作报 ENFILE
+  → 宿主 dmesg 有无 &quot;VFS: file-max limit reached&quot;？（区分两种墙）
+  → ps 找 virtiofsd → sudo ls &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;fd | wc -l
+  → 对比 guest fd 池上限（rlimit - 610，默认 999,390）
+  → 池满 → 看 fd 指向（O_PATH、guest 相对路径）→ 定位 guest 内扫描进程
+  → guest 内 drop_caches（主动）&#x2F; 定时 cron 防复发
+  → 根治: 扩池子（libvirtd LimitNOFILE）&#x2F; --inode-file-handles=prefer
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/gnome-remote-desktop-full-troubleshooting/">&#8249; GNOME Remote Desktop (RDP) 完整排查与修复记录</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/06/qemu-vm-network-debug/"> QEMU 虚拟机无法访问网关/公网排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#virtiofs-enfile-wen-ti-pai-cha-shou-ce">virtiofs ENFILE 问题排查手册</a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-xian-xiang"><small>- 问题现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-bu-zou"><small>- 排查步骤</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai"><small>· 1. 系统级文件句柄状态</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-ding-wei-virtiofsd-jin-cheng"><small>· 2. 定位 virtiofsd 进程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-jian-cha-virtiofsd-fd-shu-liang-he-xin-zhi-biao"><small>· 3. 检查 virtiofsd fd 数量（核心指标）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-cha-kan-fd-lei-xing-fen-bu"><small>· 4. 查看 fd 类型分布</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-cha-kan-fd-zhi-xiang-na-xie-mu-lu"><small>· 5. 查看 fd 指向哪些目录</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-cai-yang-cha-kan-fd-ju-ti-nei-rong"><small>· 6. 采样查看 fd 具体内容</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#7-jian-cha-virtiofsd-zi-yuan-xian-zhi"><small>· 7. 检查 virtiofsd 资源限制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#8-jian-cha-su-zhu-nei-he-shi-fou-zhen-de-zhuang-guo-file-max"><small>· 8. 检查宿主内核是否真的撞过 file-max</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#9-quan-xi-tong-fd-tong-ji"><small>· 9. 全系统 fd 统计</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-fen-xi-2026-08-07-geng-zheng-hou-jie-lun"><small>- 根因分析（2026-08-07 更正后结论）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zhen-zheng-gen-yin-virtiofsd-de-guest-fd-chi-hao-jin"><small>· 真正根因：virtiofsd 的 guest fd 池耗尽</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pan-duan-biao-zhun-geng-zheng-ban"><small>· 判断标准（更正版）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-fang-an"><small>- 修复方案</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-kuo-da-guest-fd-chi-zhi-ben"><small>· 1. 扩大 guest fd 池（治本）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-gen-ben-jiang-hao-gai-yong-file-handle-dai-ti-o-path-fd-tui-jian"><small>· 2. 根本降耗：改用 file handle 代替 O_PATH fd（推荐）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-vm-nei-jia-su-ju-bing-shi-fang-zhi-biao"><small>· 3. VM 内加速句柄释放（治标）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-bi-mian-da-fan-wei-di-gui-sao-miao-virtiofs-gua-zai"><small>· 4. 避免大范围递归扫描 virtiofs 挂载</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-ying-ji-hui-fu"><small>· 5. 应急恢复</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2026-08-13-shi-shi-yu-yan-zheng-ji-lu"><small>- 2026-08-13 实施与验证记录</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-ji-fang-an-a-kuo-chi-b-file-handle-shuang-bao-xian"><small>· 实际方案（A 扩池 + B file handle 双保险）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#keng-libvirtd-de-apparmor-profile-ju-jue-zhi-xing-wrapper"><small>· 坑：libvirtd 的 AppArmor profile 拒绝执行 wrapper</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yan-zheng-jie-guo-quan-shu-find-ya-ce-dui-bi"><small>· 验证结果（全树 find 压测对比）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wei-shen-me-file-handle-neng-xiao-chu-fd-zhan-yong"><small>· 为什么 file handle 能消除 fd 占用</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wei-shen-me-mo-ren-bu-kai-qi-file-handle-de-que-dian"><small>· 为什么默认不开启（file handle 的缺点）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#hong-fa-yuan-geng-zheng"><small>· 触发源更正</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ceng-jing-de-cuo-wu-jie-lun-bao-liu-bei-cha-wu-zai-fan"><small>- 曾经的错误结论（保留备查，勿再犯）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#he-xin-pai-cha-luo-ji"><small>- 核心排查逻辑</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

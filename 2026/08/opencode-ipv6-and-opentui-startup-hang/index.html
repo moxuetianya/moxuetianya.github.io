@@ -1,0 +1,328 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="排查 opencode 在无外网 IPv6 的服务器上启动卡死的问题——两个独立根因：Bun 加载 TS 插件时因缺失 optional peer 依赖（@opentui&#x2F;*）联网 npm registry，以及 DNS 默认 IPv6 优先导致模型请求连接挂起。包含 &#x2F;etc&#x2F;gai.conf 修复与 .opencode&#x2F;.global-opencode 配置逐项解读" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/" />
+  <meta property="og:description" content="排查 opencode 在无外网 IPv6 的服务器上启动卡死的问题——两个独立根因：Bun 加载 TS 插件时因缺失 optional peer 依赖（@opentui&#x2F;*）联网 npm registry，以及 DNS 默认 IPv6 优先导致模型请求连接挂起。包含 &#x2F;etc&#x2F;gai.conf 修复与 .opencode&#x2F;.global-opencode 配置逐项解读" />
+  <meta name="twitter:description" content="排查 opencode 在无外网 IPv6 的服务器上启动卡死的问题——两个独立根因：Bun 加载 TS 插件时因缺失 optional peer 依赖（@opentui&#x2F;*）联网 npm registry，以及 DNS 默认 IPv6 优先导致模型请求连接挂起。包含 &#x2F;etc&#x2F;gai.conf 修复与 .opencode&#x2F;.global-opencode 配置逐项解读" />
+  <meta property="og:title" content="opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-03" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/">opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 03, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/debug/">debug</a>, <a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a>  #<a href="https://moxuetianya.github.io/tags/ipv6/">ipv6</a>  #<a href="https://moxuetianya.github.io/tags/bun/">bun</a>  #<a href="https://moxuetianya.github.io/tags/plugin/">plugin</a>  #<a href="https://moxuetianya.github.io/tags/config/">config</a> </span>
+
+    
+
+
+<h1 id="xian-xiang">现象</h1>
+<p>在一台服务器上启动 opencode，无论 <code>serve</code> 还是 <code>run</code> 模式都会卡死，没有任何报错：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cd ~&#x2F;project&#x2F;debug-agent&#x2F; &amp;&amp; \
+OPENCODE_CONFIG_DIR=$PWD&#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&quot;&#x2F;path&#x2F;to&#x2F;wfuzz-agent&#x2F;bin&#x2F;opencode&quot; --print-logs --log-level=DEBUG run hello
+</code></pre>
+<p>日志停在某一行后就没有下文，进程一直存活，只能靠 <code>timeout</code> 杀掉（exit 124）。同样的命令在本机（IPv6 正常）跑得好好的，换到服务器就卡。</p>
+<p>排查后确认这是<strong>两个独立的问题</strong>叠加：</p>
+<ol>
+<li><strong>插件加载阶段</strong>：opencode 内置的 Bun 运行时解析 TS 插件时，因 <code>@opentui/*</code> 依赖缺失而联网 npm registry，IPv6 不通导致连接挂死。</li>
+<li><strong>模型请求阶段</strong>：即使跳过插件加载，opencode 请求模型 API 时默认优先尝试 IPv6，而服务器没有真实的 IPv6 连通性。</li>
+</ol>
+<p>两个问题的共同放大器，是这台服务器的网络特殊性：<strong>有 IPv6 地址，但没有 IPv6 路由</strong>。</p>
+<hr />
+<h1 id="bei-jing-opencode-de-pei-zhi-ti-xi">背景：opencode 的配置体系</h1>
+<p>先理解 opencode 启动时会读哪些配置，这决定了排查方向。</p>
+<h2 id="pei-zhi-jia-zai-you-xian-ji">配置加载优先级</h2>
+<p>opencode 按以下顺序加载配置（后面的覆盖前面的同名字段）：</p>
+<table><thead><tr><th>配置位置</th><th>路径</th><th>作用</th></tr></thead><tbody>
+<tr><td>全局配置</td><td><code>~/.config/opencode/opencode.json[c]</code></td><td>用户级默认配置</td></tr>
+<tr><td>自定义目录</td><td><code>OPENCODE_CONFIG_DIR</code> 指向的目录（如 <code>.global-opencode/</code>）</td><td><strong>平台注入的独立配置目录</strong>，拥有独立 plugins/skills/node_modules</td></tr>
+<tr><td>项目配置</td><td><code>项目根/.opencode/opencode.json[c]</code></td><td>项目级配置</td></tr>
+<tr><td>用户目录</td><td><code>~/.opencode/opencode.json[c]</code></td><td>用户级补充</td></tr>
+</tbody></table>
+<blockquote>
+<p>注意：<code>OPENCODE_CONFIG_DIR</code> 指向的目录会被<strong>完整地</strong>当作一个 opencode 配置目录来扫描（<code>opencode.jsonc</code>、<code>plugins/</code>、<code>skills/</code>、<code>node_modules/</code> 等），而不是只读其中的配置文件。</p>
+</blockquote>
+<h2 id="global-opencode-yun-xing-shi-sheng-cheng-de-du-li-pei-zhi-mu-lu"><code>.global-opencode/</code>：运行时生成的独立配置目录</h2>
+<p>由 wfuzz-agent（或其他引导程序）在启动前把打包好的配置模板复制到工作目录下生成，包含：</p>
+<pre><code>.global-opencode&#x2F;
+├── opencode.jsonc      # 模型&#x2F;provider&#x2F;permission 配置
+├── plugins&#x2F;            # TS 插件源码（wfuzz-agent.ts + 本地库）
+├── node_modules&#x2F;       # 预装的 @opencode-ai&#x2F;plugin 及依赖（避免运行时 npm install）
+├── skills&#x2F;             # 平台技能目录
+├── AGENTS.md           # 全局指令
+├── tsconfig.json       # 插件类型检查配置
+└── package.json        # 声明 @opencode-ai&#x2F;plugin 依赖
+</code></pre>
+<h2 id="opencode-xiang-mu-ji-pei-zhi"><code>.opencode/</code>：项目级配置</h2>
+<p>与 <code>.global-opencode</code> 不同，<code>.opencode/</code> 是 opencode 标准的项目级配置目录，通常包含：</p>
+<pre><code>.opencode&#x2F;
+├── opencode.json       # 项目级模型&#x2F;skills 路径配置
+├── skills&#x2F;             # 项目级技能
+└── node_modules&#x2F;       # 同步来的依赖（供插件解析）
+</code></pre>
+<p><strong>影响启动的关键差异</strong>：<code>.global-opencode</code> 中的 <code>opencode.jsonc</code> 定义了 provider（决定模型请求发往哪个 baseURL）和默认模型；<code>plugins/</code> 决定是否有插件要加载；<code>node_modules</code> 决定插件依赖是否能离线解析。</p>
+<hr />
+<h1 id="gen-yin-yi-opentui-yi-lai-que-shi-bun-jia-zai-cha-jian-shi-lian-wang">根因一：<code>@opentui</code> 依赖缺失，Bun 加载插件时联网</h1>
+<h2 id="xian-xiang-ding-wei">现象定位</h2>
+<p>对比实验快速锁定问题在插件加载：</p>
+<ul>
+<li><code>opencode run --pure hello</code>（跳过外部插件）→ 能跑起来</li>
+<li><code>opencode run hello</code>（加载 <code>.global-opencode/plugins/wfuzz-agent.ts</code>）→ 卡死</li>
+<li>临时移走 <code>plugins/</code> 目录 → 能跑起来</li>
+</ul>
+<p>插件文件本身是纯 TypeScript（<code>import type</code> + <code>node:fs</code> 等），没有明显的联网代码，为什么加载会联网？</p>
+<h2 id="gen-yin-optional-peer-dependencies-que-shi">根因：optional peer dependencies 缺失</h2>
+<p>opencode 底层是 <strong>Bun</strong> 运行时。加载 <code>.ts</code> 插件时，Bun 解析 <code>@opencode-ai/plugin</code> 的<strong>整个模块图</strong>，包括 <code>dist/tui.js</code> 中对 <code>@opentui/*</code> 的运行时导入：</p>
+<pre data-lang="js" class="language-js "><code class="language-js" data-lang="js">&#x2F;&#x2F; node_modules&#x2F;@opencode-ai&#x2F;plugin&#x2F;dist&#x2F;tui.js
+import { createBindingLookup } from &quot;@opentui&#x2F;keymap&#x2F;extras&quot;
+export { stringifyKeySequence } from &quot;@opentui&#x2F;keymap&quot;
+</code></pre>
+<p><code>@opentui/core</code>、<code>@opentui/keymap</code>、<code>@opentui/solid</code> 在 <code>@opencode-ai/plugin</code> 的 <code>package.json</code> 里是 <strong>optional peer dependencies</strong>：</p>
+<pre data-lang="json" class="language-json "><code class="language-json" data-lang="json">&quot;peerDependencies&quot;: {
+  &quot;@opentui&#x2F;core&quot;: &quot;&gt;=0.3.4&quot;,
+  &quot;@opentui&#x2F;keymap&quot;: &quot;&gt;=0.3.4&quot;,
+  &quot;@opentui&#x2F;solid&quot;: &quot;&gt;=0.3.4&quot;
+},
+&quot;peerDependenciesMeta&quot;: {
+  &quot;@opentui&#x2F;core&quot;: { &quot;optional&quot;: true },
+  ...
+}
+</code></pre>
+<p><code>npm install --omit=dev --legacy-peer-deps</code> <strong>不会安装 optional peer dependencies</strong>，所以预装的 <code>node_modules</code> 里缺了这三个包。Bun 解析模块图时发现缺失，就去 npm registry 拉取——在 IPv6 不通的服务器上，这一步永远完不成。</p>
+<p>strace 铁证：进程反复尝试连接 npm registry 的 IPv6 地址，<code>connect()</code> 返回 <code>EINPROGRESS</code> 后永不完成：</p>
+<pre><code>connect(..., &quot;2606:4700::6810:622&quot;, 443) = EINPROGRESS   ← 永不完成
+</code></pre>
+<h2 id="xiu-fu-ba-optional-peer-yi-lai-bian-cheng-xian-shi-yi-lai">修复：把 optional peer 依赖变成显式依赖</h2>
+<p>在打包 <code>node_modules</code> 的 <code>package.json</code> 里显式声明这三个包，让它们进入预装依赖：</p>
+<pre data-lang="json" class="language-json "><code class="language-json" data-lang="json">&quot;dependencies&quot;: {
+  &quot;@opencode-ai&#x2F;plugin&quot;: &quot;1.17.12&quot;,
+  &quot;@opentui&#x2F;core&quot;: &quot;0.3.4&quot;,
+  &quot;@opentui&#x2F;keymap&quot;: &quot;0.3.4&quot;,
+  &quot;@opentui&#x2F;solid&quot;: &quot;0.3.4&quot;
+}
+</code></pre>
+<p>验证：<code>npm install --omit=dev --legacy-peer-deps</code> 后 <code>node_modules/@opentui/</code> 存在，peer 要求（<code>&gt;=0.3.4</code>）被满足；在<strong>无缓存</strong>环境下 <code>bun -e "await import('@opencode-ai/plugin/tui')"</code> 从报错 <code>Cannot find module '@opentui/keymap/extras'</code> 变为成功，且全程零网络连接。</p>
+<hr />
+<h1 id="gen-yin-er-dns-mo-ren-ipv6-you-xian-mo-xing-qing-qiu-lian-jie-gua-qi">根因二：DNS 默认 IPv6 优先，模型请求连接挂起</h1>
+<h2 id="xian-xiang-ding-wei-1">现象定位</h2>
+<p>修好 <code>@opentui</code> 后，插件能加载了，但 <code>run hello</code> 仍然卡住。日志停在：</p>
+<pre><code>stream providerID=opencode modelID=...  ← 模型请求发出后无响应
+</code></pre>
+<p>这次不是插件问题。<code>OPENCODE_DISABLE_MODELS_FETCH=1</code> 只禁用了 models.dev 元数据获取，但<strong>模型 API 请求</strong>（<code>opencode.jsonc</code> 中 provider 的 <code>baseURL: https://opencode.ai/zen/v1</code>）仍会发起网络请求。</p>
+<h2 id="gen-yin-etc-gai-conf-mo-ren-ipv6-you-xian">根因：<code>/etc/gai.conf</code> 默认 IPv6 优先</h2>
+<p>用 curl 验证连通性：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">curl -6 -s -o &#x2F;dev&#x2F;null -w &quot;%{http_code}&quot; https:&#x2F;&#x2F;opencode.ai&#x2F;zen&#x2F;v1   # 超时（exit 124）
+curl -4 -s -o &#x2F;dev&#x2F;null -w &quot;%{http_code}&quot; https:&#x2F;&#x2F;opencode.ai&#x2F;zen&#x2F;v1   # 正常返回
+</code></pre>
+<p><strong>重要：本机和服务器处于同一个 IPv6 黑洞网络</strong>（同一网关 <code>fe80::c0b1:65ff:fe3e:68c3</code>）。<code>ip -6 addr</code> 可见一堆 <code>3000::/64</code> 的全局地址，<code>ip -6 route</code> 也有 <code>default via ...</code> 路由，但<strong>所有 IPv6 出站连接都挂在半路上</strong>——本机 <code>curl -6</code> 同样超时，并非"服务器 IPv6 不通、本机正常"。</p>
+<p>而 Linux 的 <code>getaddrinfo()</code> 默认按 <code>/etc/gai.conf</code> 的优先级表排序解析结果，<strong>IPv6 优先级高于 IPv4</strong>：</p>
+<pre><code># &#x2F;etc&#x2F;gai.conf 默认（注释状态）
+precedence ::1&#x2F;128       50   ← IPv6 loopback
+precedence ::&#x2F;0          40   ← 所有 IPv6，优先级 40
+precedence ::ffff:0:0&#x2F;96  10   ← IPv4，优先级 10（值越大越优先）
+</code></pre>
+<p>Bun/opencode 按 <code>getaddrinfo</code> 排序后的地址顺序连接：先试 IPv6 → 挂死 → 整个请求超时（默认超时很长），表现为"卡住"。</p>
+<h2 id="ban-ben-dui-zhao-shi-yan-1-17-12-yu-1-18-9-mei-you-chai-yi">版本对照实验：1.17.12 与 1.18.9 没有差异</h2>
+<p>排查中一度怀疑"新版 opencode（1.18.9）内置了 IPv6→IPv4 回退，旧版（1.17.12）没有"。用完全相同的配置（显式 <code>opencode</code> provider + <code>opencode.ai</code> baseURL）在同一台机器交替测试，结论是<strong>没有版本差异</strong>：</p>
+<table><thead><tr><th>测试批次</th><th>1.18.9</th><th>1.17.12</th></tr></thead><tbody>
+<tr><td>批次 A（20s 超时）</td><td>卡死 3/3</td><td>卡死 3/3</td></tr>
+<tr><td>批次 B（60s 超时）</td><td>✅ 6.2s 完成</td><td>✅ 4.8s 完成</td></tr>
+<tr><td>批次 C（40s 超时）</td><td>—</td><td>卡死 2/2</td></tr>
+</tbody></table>
+<p>两个版本总是<strong>成对成功或成对失败</strong>——行为完全一致，由网络状态决定，与版本无关。</p>
+<p>真实原因是 <strong>IPv6 黑洞状态分钟级波动</strong>：</p>
+<ul>
+<li><strong>挂起时段</strong>：IPv6 SYN 发出后无任何响应（黑洞丢弃），opencode 连接挂起 40s+ 无快速回退 → 表现为卡死</li>
+<li><strong>快速失败时段</strong>：网关偶发回 ICMP unreachable，opencode 秒级回退 IPv4 → 4~6 秒正常完成</li>
+</ul>
+<p>这也解释了最初"本机正常、服务器卡"的观察：本机测试恰好赶上快速失败时段（或默认模型走无 AAAA 记录的 deepseek 域名，压根不触发 IPv6）。</p>
+<h2 id="xiu-fu-rang-ipv4-you-xian">修复：让 IPv4 优先</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo sed -i &#x27;s&#x2F;^#precedence ::ffff:0:0\&#x2F;96  10&#x2F;precedence ::ffff:0:0\&#x2F;96  100&#x2F;&#x27; &#x2F;etc&#x2F;gai.conf
+</code></pre>
+<p>把 IPv4 的优先级从 10 改成 100（取消注释即生效），<code>getaddrinfo</code> 就会把 IPv4 排在前面：</p>
+<pre><code>precedence ::ffff:0:0&#x2F;96  100   ← IPv4 现在最高优先
+</code></pre>
+<p>验证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">getent ahosts opencode.ai   # 172.65.90.x（IPv4）排在最前
+</code></pre>
+<hr />
+<h1 id="xiu-fu-hou-de-wan-zheng-yan-zheng">修复后的完整验证</h1>
+<h2 id="1-cha-jian-jia-zai-mo-xing-hui-fu-zheng-chang">1. 插件加载 + 模型回复正常</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cd ~&#x2F;project&#x2F;debug-agent&#x2F; &amp;&amp; \
+OPENCODE_CONFIG_DIR=$PWD&#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&quot;&#x2F;path&#x2F;to&#x2F;wfuzz-agent&#x2F;bin&#x2F;opencode&quot; --print-logs --log-level=DEBUG run hello
+</code></pre>
+<pre><code>[wfuzz-agent] plugin loaded hooks.trigger=11 hooks.lifecycle=6
+Hello! How can I help you today?
+[wfuzz-agent] plugin disposed after 4.5s
+EXIT: 0
+</code></pre>
+<h2 id="2-qi-dong-jie-duan-ling-gong-wang-lian-jie">2. 启动阶段零公网连接</h2>
+<p>用 strace 跟踪启动 + 空闲运行 30 秒的全部网络连接：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">strace -f -e trace=connect -o &#x2F;tmp&#x2F;net-trace.log \
+  opencode serve &amp;          # 带上 OPENCODE_CONFIG_DIR 等环境变量
+
+sleep 30
+curl -s -o &#x2F;dev&#x2F;null -w &quot;HTTP %{http_code}\n&quot; http:&#x2F;&#x2F;127.0.0.1:4096&#x2F;   # 200
+
+grep -oE &#x27;sin_addr=inet_addr\(&quot;[0-9.]+&quot;\)&#x27; &#x2F;tmp&#x2F;net-trace.log | sort | uniq -c
+</code></pre>
+<p>结果只有<strong>内网</strong>（WFUZZ_SERVER <code>192.168.7.16</code>）的连接，公网 IPv4/IPv6 连接数为 0，服务正常响应 <code>HTTP 200</code>。</p>
+<blockquote>
+<p>注：<code>serve</code> 出现实际会话（用户发消息调模型）时，模型请求仍会访问公网 <code>opencode.ai</code>（现在走 IPv4），这是功能需求，不再是卡死。</p>
+</blockquote>
+<hr />
+<h1 id="jing-yan-zong-jie">经验总结</h1>
+<ol>
+<li><strong><code>optional peer dependencies</code> 会被 <code>--legacy-peer-deps</code> 跳过安装</strong>，但 Bun 解析模块图时仍然会尝试解析它们，缺失就联网。打包预装 <code>node_modules</code> 时，把运行链路可能触及的包显式声明为 <code>dependencies</code> 最稳妥。</li>
+<li><strong>"有 IPv6 地址" ≠ "IPv6 可用"</strong>。本机和服务器都有全局 IPv6 地址和默认路由，但出站全被黑洞丢弃。遇到"某应用在这台机器卡死"时，先测 <code>curl -6</code> 对比 <code>curl -4</code>。</li>
+<li><strong>黑洞网络的状态是波动而非恒定的</strong>：有时 IPv6 连接快速失败（应用秒级回退 IPv4），有时挂起几十秒。因此"本机能跑、服务器不能"这类对比实验必须在<strong>同一时段</strong>进行，否则会把网络波动误判为环境/版本差异。用多批次交替测试 + 每次测量耗时，避免单次样本误导。</li>
+<li><strong><code>/etc/gai.conf</code> 控制 getaddrinfo 的地址排序</strong>，影响所有应用的连接顺序（Bun/Node 也遵循）。内网环境统一加 <code>precedence ::ffff:0:0/96 100</code> 可以绕开 IPv6 黑洞，无论黑洞状态如何都稳定。</li>
+<li><strong><code>.global-opencode</code>（<code>OPENCODE_CONFIG_DIR</code>）与 <code>.opencode</code>（项目级）是两个不同的配置来源</strong>：前者由引导程序整目录注入（含独立的 node_modules/plugins），后者是标准项目级配置。排查启动问题时，先分清插件/模型配置来自哪一层，再看对应的依赖是否完整。</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/sudo-askpass-pass-and-gpg-agent/">&#8249; 让 agent 执行 sudo 时弹窗授权：sudo -A + pass + gpg-agent 免费方案</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/ibus-xkb-input-source/"> Ubuntu 中文输入法 Shift 切换故障排查与 GNOME 输入源机制剖析 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#bei-jing-opencode-de-pei-zhi-ti-xi">背景：opencode 的配置体系</a>
+        </div>
+        <div class="hpad">
+          <a href="#pei-zhi-jia-zai-you-xian-ji"><small>- 配置加载优先级</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#global-opencode-yun-xing-shi-sheng-cheng-de-du-li-pei-zhi-mu-lu"><small>- .global-opencode&#x2F;：运行时生成的独立配置目录</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#opencode-xiang-mu-ji-pei-zhi"><small>- .opencode&#x2F;：项目级配置</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin-yi-opentui-yi-lai-que-shi-bun-jia-zai-cha-jian-shi-lian-wang">根因一：@opentui 依赖缺失，Bun 加载插件时联网</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-ding-wei"><small>- 现象定位</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-optional-peer-dependencies-que-shi"><small>- 根因：optional peer dependencies 缺失</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-ba-optional-peer-yi-lai-bian-cheng-xian-shi-yi-lai"><small>- 修复：把 optional peer 依赖变成显式依赖</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin-er-dns-mo-ren-ipv6-you-xian-mo-xing-qing-qiu-lian-jie-gua-qi">根因二：DNS 默认 IPv6 优先，模型请求连接挂起</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang-ding-wei-1"><small>- 现象定位</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-etc-gai-conf-mo-ren-ipv6-you-xian"><small>- 根因：&#x2F;etc&#x2F;gai.conf 默认 IPv6 优先</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ban-ben-dui-zhao-shi-yan-1-17-12-yu-1-18-9-mei-you-chai-yi"><small>- 版本对照实验：1.17.12 与 1.18.9 没有差异</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-rang-ipv4-you-xian"><small>- 修复：让 IPv4 优先</small></a>
+        </div>
+        <div>
+          <a href="#xiu-fu-hou-de-wan-zheng-yan-zheng">修复后的完整验证</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-cha-jian-jia-zai-mo-xing-hui-fu-zheng-chang"><small>- 1. 插件加载 + 模型回复正常</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-qi-dong-jie-duan-ling-gong-wang-lian-jie"><small>- 2. 启动阶段零公网连接</small></a>
+        </div>
+        <div>
+          <a href="#jing-yan-zong-jie">经验总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

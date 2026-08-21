@@ -1,0 +1,307 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>编译链接与 ELF | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="动态库搜索路径、静态&#x2F;动态链接原理、ELF 文件结构、GNU Binutils 工具链、链接器对比与编译选项" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/07/compile-link-elf/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/07/compile-link-elf/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/07/compile-link-elf/" />
+  <meta property="og:description" content="动态库搜索路径、静态&#x2F;动态链接原理、ELF 文件结构、GNU Binutils 工具链、链接器对比与编译选项" />
+  <meta name="twitter:description" content="动态库搜索路径、静态&#x2F;动态链接原理、ELF 文件结构、GNU Binutils 工具链、链接器对比与编译选项" />
+  <meta property="og:title" content="编译链接与 ELF | 墨雪天琊" />
+  <meta name="twitter:title" content="编译链接与 ELF | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=b61c39e06f06a81431e1"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/07/compile-link-elf/">编译链接与 ELF</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 18, 2025 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/compiler/">compiler</a>  #<a href="https://moxuetianya.github.io/tags/linker/">linker</a>  #<a href="https://moxuetianya.github.io/tags/elf/">elf</a>  #<a href="https://moxuetianya.github.io/tags/dynamic-lib/">dynamic-lib</a>  #<a href="https://moxuetianya.github.io/tags/build/">build</a> </span>
+
+    
+
+
+<h1 id="bian-yi-lian-jie-yu-elf">编译链接与 ELF</h1>
+<h2 id="dong-tai-ku-sou-suo-lu-jing">动态库搜索路径</h2>
+<p>一个编译好的可执行文件在运行时按以下顺序搜索动态库：</p>
+<ol>
+<li>可执行文件的 <code>rpath</code> 中列出的目录</li>
+<li><code>LD_LIBRARY_PATH</code> 环境变量</li>
+<li>可执行文件的 <code>runpath</code> 指定的目录</li>
+<li><code>/etc/ld.so.conf</code> 中的目录列表</li>
+<li>默认系统库目录：<code>/lib</code> 和 <code>/usr/lib</code></li>
+</ol>
+<h3 id="rpath-yu-runpath-de-qu-bie">rpath 与 runpath 的区别</h3>
+<ul>
+<li><code>rpath</code> 在 <code>LD_LIBRARY_PATH</code> 之前搜索</li>
+<li><code>runpath</code> 在 <code>LD_LIBRARY_PATH</code> 之后搜索</li>
+</ul>
+<p>设置 rpath：<code>-Wl,-rpath,.</code></p>
+<p>设置 runpath：<code>-Wl,--enable-new-dtags,-rpath,.</code></p>
+<h3 id="origin-bian-liang">$ORIGIN 变量</h3>
+<p>rpath/runpath 支持 <code>$ORIGIN</code> 表示可执行文件所在目录：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">g++ -o main main.o -lrandom -L. -Wl,-rpath,&quot;\$ORIGIN&quot;
+</code></pre>
+<p><strong>安全注意</strong>：setuid 程序会忽略 <code>LD_LIBRARY_PATH</code> 和包含 <code>$ORIGIN</code> 的 rpath/runpath，防止权限提升攻击。</p>
+<h2 id="rpath-diao-shi-bei-wang-lu">rpath 调试备忘录</h2>
+<p>遇到 <code>error while loading shared libraries</code> 时：</p>
+<ol>
+<li><code>ldd &lt;executable&gt;</code> 查看缺失依赖</li>
+<li><code>readelf -d &lt;executable&gt; | grep NEEDED</code> 检查直接依赖</li>
+<li><code>LD_DEBUG=libs ldd &lt;executable&gt;</code> 查看搜索过程</li>
+<li>通过 <code>LD_LIBRARY_PATH</code> 或 rpath/runpath 添加搜索目录</li>
+<li>如果 <code>ldd</code> 没有缺失项但仍报错，检查是否有 setuid 权限</li>
+</ol>
+<h2 id="wei-shen-me-dong-tai-ku-li-bu-neng-jing-tai-lian-jie">为什么动态库里不能静态链接</h2>
+<p>将 <code>.a</code> 静态链接进 <code>.so</code> 的问题：</p>
+<ol>
+<li><strong>装载问题</strong>：<code>execve()</code> 系统调用只负责装载动态库（<code>.so</code>），静态库 <code>.a</code> 不会被单独装载</li>
+<li><strong>符号冲突</strong>：Linux 动态链接器的符号调解策略是"先入为主"，来自 <code>.a</code> 的符号可能与系统 <code>libstdc++.so</code> 冲突</li>
+<li><strong>全局变量重复</strong>：<code>libstdc++</code>/<code>libpthread</code> 维护的全局状态会出现两份，导致运行时异常</li>
+</ol>
+<p><strong>正确做法</strong>：将 <code>.a</code> 解包成 <code>.o</code> 文件再链接进 <code>.so</code>，并用 <code>visibility</code> 隐藏符号。但即使如此，全局变量重复的问题仍然存在，不推荐这种做法。</p>
+<p>若需静态链接标准库到可执行文件：使用 <code>-static</code>（全静态）或 <code>-static-libstdc++</code>（仅静态链接 libstdc++）。</p>
+<h2 id="lian-jie-qi-dui-bi-ld-bfd-ld-gold-mold">链接器对比：ld.bfd / ld.gold / mold</h2>
+<table><thead><tr><th>链接器</th><th>特点</th></tr></thead><tbody>
+<tr><td>ld.bfd</td><td>GNU 默认链接器，兼容性最好</td></tr>
+<tr><td>ld.gold</td><td>速度更快，但不支持 <code>--copy-dt-needed-entries</code></td></tr>
+<tr><td>mold</td><td>现代化设计，速度极快（构建 LLVM 快 2 倍）</td></tr>
+</tbody></table>
+<p><strong>ld.gold 注意事项</strong>：</p>
+<ul>
+<li>不支持 <code>--copy-dt-needed-entries</code>，间接依赖必须显式指定</li>
+<li>默认不生成 <code>.gnu.hash</code> 段，需加 <code>-Wl,--hash-style=gnu</code> 或 <code>--hash-style=both</code></li>
+<li>使用 <code>-fuse-ld=gold</code> 启用</li>
+</ul>
+<p><strong>mold 在 Cargo 中的配置</strong>：</p>
+<pre data-lang="toml" class="language-toml "><code class="language-toml" data-lang="toml">[target.x86_64-unknown-linux-gnu]
+linker = &quot;clang&quot;
+rustflags = [&quot;-C&quot;, &quot;link-arg=-fuse-ld=mold&quot;]
+</code></pre>
+<p>也可直接 <code>mold -run cargo build</code>。</p>
+<p><strong>CMake 配置</strong>：</p>
+<pre data-lang="cmake" class="language-cmake "><code class="language-cmake" data-lang="cmake">-DCMAKE_EXE_LINKER_FLAGS=&quot;-fuse-ld=mold&quot;
+</code></pre>
+<h2 id="elf-er-jin-zhi-fen-xi">ELF 二进制分析</h2>
+<h3 id="gnu-binutils-chang-yong-gong-ju">GNU Binutils 常用工具</h3>
+<table><thead><tr><th>工具</th><th>用途</th></tr></thead><tbody>
+<tr><td><code>readelf</code></td><td>查看 ELF 头、段表、节表、符号表、重定位</td></tr>
+<tr><td><code>objdump</code></td><td>反汇编、查看节内容</td></tr>
+<tr><td><code>nm</code></td><td>列出目标文件符号</td></tr>
+<tr><td><code>strings</code></td><td>提取可打印字符串</td></tr>
+<tr><td><code>strip</code></td><td>剥离符号</td></tr>
+<tr><td><code>c++filt</code></td><td>还原 C++ mangled 名称</td></tr>
+<tr><td><code>addr2line</code></td><td>地址转文件名和行号</td></tr>
+<tr><td><code>ldd</code></td><td>查看动态库依赖</td></tr>
+</tbody></table>
+<h3 id="chang-yong-ming-ling">常用命令</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">readelf -h &lt;elf&gt;          # ELF 头部
+readelf -S &lt;elf&gt;          # 节表
+readelf -l &lt;elf&gt;          # 段表（program headers）
+readelf -s &lt;elf&gt;          # 符号表
+readelf --relocs &lt;elf&gt;    # 重定位信息
+readelf -d &lt;elf&gt; | grep NEEDED  # 动态依赖
+
+objdump -s -j .rodata &lt;elf&gt;     # 查看 .rodata 节内容
+objdump -b binary -D &lt;bin&gt; -m i386  # 反汇编裸二进制
+
+ldd &lt;elf&gt;                 # 递归查看动态依赖
+LD_DEBUG=bindings ldd &#x2F;usr&#x2F;bin&#x2F;ls  # 调试动态链接过程
+</code></pre>
+<h3 id="ld-debug-xuan-xiang">LD_DEBUG 选项</h3>
+<pre><code>libs       — 库搜索路径
+reloc      — 重定位处理
+symbols    — 符号表查找
+bindings   — 符号绑定
+versions   — 版本依赖
+all        — 以上所有
+</code></pre>
+<h3 id="sheng-cheng-map-wen-jian">生成 Map 文件</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gcc -o main main.c -Wl,-Map,main.map
+</code></pre>
+<h3 id="cha-kan-bian-yi-qi-yu-ding-yi-hong">查看编译器预定义宏</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">g++ -E -dM - &lt; &#x2F;dev&#x2F;null
+</code></pre>
+<h2 id="cflags-ldflags">CFLAGS / LDFLAGS</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">CFLAGS=&quot;-g -O2&quot;
+LDFLAGS=&quot;-L&#x2F;opt&#x2F;lib -Wl,-R&#x2F;opt&#x2F;lib&quot;  # -R 同时设置运行时搜索路径
+LIBS=&quot;-lpthread -liconv&quot;
+</code></pre>
+<p><code>LDFLAGS</code> 指定 <code>-L</code> 只能让链接器在编译时找到库，运行时仍需通过 rpath 或 <code>LD_LIBRARY_PATH</code> 指定；添加 <code>-Wl,-R&lt;path&gt;</code> 可将路径写入 ELF。</p>
+<h3 id="chang-yong-bian-yi-xuan-xiang">常用编译选项</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gcc -mxgot ...             # MIPS 大 GOT 支持
+gcc -Wl,-z,max-page-size=4096  # 控制页对齐
+gcc -fno-pie -no-pie ...   # 禁用 PIE
+gcc -static ...            # 全静态链接
+gcc -static-libstdc++ ...  # 仅静态链接 libstdc++
+gcc -Wl,--verbose ...      # 查看链接器详细过程
+
+# 查看编译选项
+readelf -p .comment &lt;elf&gt;  # 查看编译器版本信息
+</code></pre>
+<h3 id="rust-bian-yi-diao-shi">Rust 编译调试</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">export RUSTFLAGS=&quot;-C link-arg=-Wl,--verbose&quot;
+export RUSTC_LOG=rustc_codegen_ssa::back::link=info
+cargo build --bin http-proxy
+</code></pre>
+<h2 id="at-t-yu-intel-hui-bian-yu-fa">AT&amp;T 与 Intel 汇编语法</h2>
+<table><thead><tr><th>区别</th><th>AT&amp;T</th><th>Intel</th></tr></thead><tbody>
+<tr><td>寄存器前缀</td><td><code>%eax</code></td><td><code>eax</code></td></tr>
+<tr><td>立即数前缀</td><td><code>$1</code></td><td><code>1</code></td></tr>
+<tr><td>操作数顺序</td><td><code>movl $1, %eax</code> (源→目的)</td><td><code>mov eax, 1</code> (目的←源)</td></tr>
+<tr><td>内存寻址</td><td><code>immed32(base, index, scale)</code></td><td><code>[base + index*scale + immed32]</code></td></tr>
+</tbody></table>
+<h2 id="switch-case-zhong-ding-yi-bian-liang">Switch Case 中定义变量</h2>
+<p>C/C++ 中 <code>switch</code> 的 <code>case</code> 标签后不能直接定义变量，因为变量的初始化可能因条件不满足而被跳过。解决方案：</p>
+<ol>
+<li>用 <code>{}</code> 括起来创建作用域</li>
+<li>将变量定义在 <code>switch</code> 之外</li>
+</ol>
+<h2 id="sockaddr-yu-sockaddr-in">sockaddr 与 sockaddr_in</h2>
+<ul>
+<li><code>sockaddr</code>：通用套接字地址，<code>sa_data[14]</code> 混合存放地址和端口</li>
+<li><code>sockaddr_in</code>：IPv4 专用，将端口（<code>sin_port</code>）和地址（<code>sin_addr</code>）分开存储</li>
+<li>二者长度相同（16 字节），可以强制类型转换</li>
+<li>使用时先填充 <code>sockaddr_in</code>，再转为 <code>sockaddr</code> 传入函数</li>
+<li><code>htons()</code> / <code>htonl()</code> 将主机字节序转为网络字节序</li>
+<li><code>inet_addr()</code> 将 IP 字符串转为网络字节序整数</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/代码覆盖率/">&#8249; 代码覆盖率</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/07/cpp-notes/"> C++ 技术笔记 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bian-yi-lian-jie-yu-elf">编译链接与 ELF</a>
+        </div>
+        <div class="hpad">
+          <a href="#dong-tai-ku-sou-suo-lu-jing"><small>- 动态库搜索路径</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#rpath-yu-runpath-de-qu-bie"><small>· rpath 与 runpath 的区别</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#origin-bian-liang"><small>· $ORIGIN 变量</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#rpath-diao-shi-bei-wang-lu"><small>- rpath 调试备忘录</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-dong-tai-ku-li-bu-neng-jing-tai-lian-jie"><small>- 为什么动态库里不能静态链接</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lian-jie-qi-dui-bi-ld-bfd-ld-gold-mold"><small>- 链接器对比：ld.bfd &#x2F; ld.gold &#x2F; mold</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#elf-er-jin-zhi-fen-xi"><small>- ELF 二进制分析</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gnu-binutils-chang-yong-gong-ju"><small>· GNU Binutils 常用工具</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chang-yong-ming-ling"><small>· 常用命令</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ld-debug-xuan-xiang"><small>· LD_DEBUG 选项</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sheng-cheng-map-wen-jian"><small>· 生成 Map 文件</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#cha-kan-bian-yi-qi-yu-ding-yi-hong"><small>· 查看编译器预定义宏</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cflags-ldflags"><small>- CFLAGS &#x2F; LDFLAGS</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chang-yong-bian-yi-xuan-xiang"><small>· 常用编译选项</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#rust-bian-yi-diao-shi"><small>· Rust 编译调试</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#at-t-yu-intel-hui-bian-yu-fa"><small>- AT&amp;T 与 Intel 汇编语法</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#switch-case-zhong-ding-yi-bian-liang"><small>- Switch Case 中定义变量</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#sockaddr-yu-sockaddr-in"><small>- sockaddr 与 sockaddr_in</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
