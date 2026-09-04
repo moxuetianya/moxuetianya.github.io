@@ -1,0 +1,1540 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ai</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/ai/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-25T16:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/ai/atom.xml</id>
+    <entry xml:lang="en">
+        <title>多模态大模型（LMM）工程原理深度解析：从架构到推理</title>
+        <published>2026-08-25T16:00:00+08:00</published>
+        <updated>2026-08-25T16:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/"/>
+        <id>https://moxuetianya.github.io/2026/08/lmm-engineering-principles/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/">&lt;h1 id=&quot;duo-mo-tai-da-mo-xing-lmm-gong-cheng-yuan-li-shen-du-jie-xi-cong-jia-gou-dao-tui-li&quot;&gt;多模态大模型（LMM）工程原理深度解析：从架构到推理&lt;&#x2F;h1&gt;
+&lt;p&gt;在了解大模型原理之前，很多人会好奇：多模态模型（如 GPT-4o、Qwen-VL）为什么能&quot;看懂&quot;图片？它们和外挂一个 OCR&#x2F;检测模型，把文字描述塞给 LLM 的&quot;外挂识别方案&quot;有什么区别？本文从工程角度拆解 LMM 的底层机制，重点解答&quot;图像向量如何被 LLM 理解&quot;这一核心问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;1-yuan-sheng-duo-mo-tai-vs-wai-gua-shi-bie-ben-zhi-chai-yi&quot;&gt;1. 原生多模态 vs. 外挂识别：本质差异&lt;&#x2F;h2&gt;
+&lt;p&gt;多模态 LLM 和外挂图片识别的 LLM 差别是&lt;strong&gt;本质性&lt;&#x2F;strong&gt;的，核心在于&lt;strong&gt;信息流通的完整性&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;方案类型&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;工作流程&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;信息损失&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;外挂识别方案&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;图像 → 外部模型（OCR&#x2F;检测）→ &lt;strong&gt;文字描述&lt;&#x2F;strong&gt; → LLM&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;信息瓶颈（Information Bottleneck）&lt;&#x2F;strong&gt;。丢失了颜色深浅、光影、精确相对位置等无法用语言穷举的细节。LLM 处理的是&quot;二手信息&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;原生多模态方案&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;图像 → 视觉编码器 → 投影层 → &lt;strong&gt;直接进入 LLM 嵌入空间&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;保留像素级语义&lt;&#x2F;strong&gt;。模型能看到&quot;猫的胡须弧度&quot;，并直接基于原始视觉信号推理，具备&quot;视觉直觉&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;也正因如此，现在的 SOTA 模型（如 GPT-4o、Qwen-VL）均采用原生多模态路线。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-he-xin-jia-gou-san-da-mo-kuai-de-zhi-ze-yu-can-shu&quot;&gt;2. 核心架构：三大模块的职责与参数&lt;&#x2F;h2&gt;
+&lt;p&gt;目前的架构（如 LLaVA、CogVLM）均采用 &lt;strong&gt;&quot;视觉编码器 + 投影层 + 大语言模型&quot;&lt;&#x2F;strong&gt; 的模块化结构：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;模块&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;作用&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;输入&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;输出&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;参数规模参考&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;视觉编码器&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;提取视觉语义特征&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;原始像素 &lt;code&gt;(224x224x3)&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉特征向量 &lt;code&gt;(14x14x768)&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;约 &lt;strong&gt;5B&lt;&#x2F;strong&gt;（如 CogVLM2）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;投影层（关键纽带）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;将视觉特征&quot;翻译&quot;到语言模型空间&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉特征向量&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉嵌入向量（维度与 LLM 词嵌入一致）&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;较小（通常是 MLP）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;大语言模型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;综合视觉与文本信息，进行推理和生成&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;文本 Token + 视觉嵌入&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;回答文本&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;约 &lt;strong&gt;8B&lt;&#x2F;strong&gt;（如 Llama-3）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;3-mo-tai-dui-qi-de-di-ceng-shu-xue-ji-zhi-mei-you-biao-qian-ru-he-qu-fen&quot;&gt;3. 模态对齐的底层数学机制：没有&quot;标签&quot;如何区分？&lt;&#x2F;h2&gt;
+&lt;p&gt;投影层将图片和文本都映射成了相同维度的向量，模型怎么区分它们？会不会把图片误读成文字？&lt;&#x2F;p&gt;
+&lt;p&gt;这是理解多模态模型最核心、最反直觉的一点。&lt;strong&gt;Transformer 本身并不依赖显式标签区分图片与文本&lt;&#x2F;strong&gt;，但不同模型在&quot;模态边界&quot;这个工程问题上走了&lt;strong&gt;两条路线&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;隐式路线（LLaVA 风格）&lt;&#x2F;strong&gt;：靠输入向量的固有统计差异 + 注意力机制天然区分，见 3.1；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;显式路线（Qwen 风格）&lt;&#x2F;strong&gt;：在序列中保留 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 边界 token，明确框出视觉信息块的起止，见 3.3。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;修正说明：初版文章只写了隐式路线，说法过于简化——它只对 LLaVA 风格的模型成立。下面先保留原分析，再补充显式边界 token 的正确图景（Qwen 的细节来自 tokenizer 配置观察，后续继续求证）。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;3-1-yin-shi-lu-xian-shu-zhi-de-tong-ji-te-zheng-distribution-shift&quot;&gt;3.1 隐式路线：数值的统计特征（Distribution Shift）&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;文本向量（Embedding）&lt;&#x2F;strong&gt;：来自固定的词表查表。经过预训练后，所有文本 Token 的向量**模长（L2 Norm）**通常非常稳定且较小（如均值约为 2.3）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;图片向量（Projection）&lt;&#x2F;strong&gt;：由多层感知机（MLP）对实时像素进行&lt;strong&gt;非线性变换&lt;&#x2F;strong&gt;得到。由于 MLP 的激活函数（如 GELU），输出向量的&lt;strong&gt;模长通常远大于文本&lt;&#x2F;strong&gt;（如均值可达 15.0），且方差极大。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;类比：你不是靠标签去区分一堆&lt;strong&gt;乒乓球（文本）&lt;strong&gt;和&lt;&#x2F;strong&gt;铅球（图片）&lt;&#x2F;strong&gt;，而是因为&lt;strong&gt;质量（向量模长）的巨大差异&lt;&#x2F;strong&gt;，在计算力（Attention）时，它们对网络带来的影响本就不同。模型只需按照矩阵乘法计算，&lt;strong&gt;模长大的图片向量在 Attention 中会天然获得更高的权重&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-2-wei-zhi-bian-ma-yu-mo-tai-wu-guan&quot;&gt;3.2 位置编码与模态无关&lt;&#x2F;h3&gt;
+&lt;p&gt;位置编码&lt;strong&gt;只负责标记&quot;顺序&quot;和&quot;相对坐标&quot;，与模态区分无关&lt;&#x2F;strong&gt;。它解决的是&quot;这句话从左到右的语序&quot;问题，不是&quot;这是图片还是文字&quot;的问题。&lt;&#x2F;p&gt;
+&lt;p&gt;多张图片的交叉处理，靠的是&lt;strong&gt;位置编码提供&quot;身份证&quot;&lt;&#x2F;strong&gt;，让模型知道某个向量属于哪张图；而&lt;strong&gt;文本指令（如&quot;图1&quot;）作为 Query&lt;&#x2F;strong&gt;，通过注意力权重的高分检索，把目标坐标段的向量&quot;拉取&quot;出来。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-3-xian-shi-lu-xian-vision-start-vision-end-bian-jie-token-qwen-feng-ge&quot;&gt;3.3 显式路线：&lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 边界 token（Qwen 风格）&lt;&#x2F;h3&gt;
+&lt;p&gt;Qwen 系列的 tokenizer 中确实存在与视觉相关的特殊 token，且拥有独立 token ID（如 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; = 248053、&lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; = 248054），见 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;huggingface.co&#x2F;Qwen&#x2F;Qwen3.8-27B&#x2F;blob&#x2F;main&#x2F;tokenizer_config.json&quot;&gt;Qwen3.8-27B tokenizer_config.json&lt;&#x2F;a&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;Token&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_start&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_end&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;image_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;video_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;与 LLaVA 风格（&lt;code&gt;&amp;lt;image&amp;gt;&lt;&#x2F;code&gt; 占位符在预处理时被物理移除、替换为图像向量）不同，Qwen 的做法是&lt;strong&gt;保留这些边界 token 在输入序列中&lt;&#x2F;strong&gt;，实际排列如：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;|im_start|&amp;gt;user&amp;lt;|im_start|&amp;gt; &amp;lt;|vision_start|&amp;gt; [576个图像向量] &amp;lt;|vision_end|&amp;gt; 请描述这张图 &amp;lt;|im_end|&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;它们的作用：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;结构化标记&lt;&#x2F;strong&gt;：&lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; 和 &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 像一对括号，明确划定了&quot;图像特征向量&quot;的边界，模型在 Self-Attention 中可以据此知道&quot;夹在中间的这些向量是视觉特征，不是文本&quot;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Attention 锚点&lt;&#x2F;strong&gt;：文本 Token（如&quot;请&quot;、&quot;描&quot;、&quot;述&quot;）做 Query 时，可通过 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; 这个 Token 的 Key 精准定位到图像特征的起始位置，比纯靠位置编码推断更明确、更鲁棒。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;区分输入类型&lt;&#x2F;strong&gt;：&lt;code&gt;&amp;lt;|image_pad|&amp;gt;&lt;&#x2F;code&gt; 与 &lt;code&gt;&amp;lt;|video_pad|&amp;gt;&lt;&#x2F;code&gt; 让同一序列中可区分当前填充的是图像还是视频特征（Qwen 同时支持图文和视频输入）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;特性&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;LLaVA 风格&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;Qwen 风格&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;占位符处理&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;code&gt;&amp;lt;image&amp;gt;&lt;&#x2F;code&gt; 在预处理时被移除，替换为图像向量&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;边界标记&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;无显式边界，靠位置编码区分&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;有显式的 start&#x2F;end 边界 token&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;优点&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;序列更短，计算略快&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;边界更明确，多模态类型区分更清晰&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;代表模型&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;LLaVA、早期的 BLIP&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;Qwen-VL、CogVLM、InternVL&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;4-xun-lian-gong-cheng-sun-shi-yan-ma-yu-zhu-yi-li-ji-zhi&quot;&gt;4. 训练工程：损失掩码与注意力机制&lt;&#x2F;h2&gt;
+&lt;p&gt;训练时如何防止模型&quot;乱输出像素&quot;？这跟位置无关，真实的技术原理是 &lt;strong&gt;&quot;注意力掩码（Attention Mask）&quot; + &quot;损失掩码（Loss Mask）&quot;&lt;&#x2F;strong&gt; 的组合。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-1-xun-lian-shi-sun-shi-yan-ma-loss-mask&quot;&gt;4.1 训练时：损失掩码（Loss Mask）&lt;&#x2F;h3&gt;
+&lt;p&gt;在计算交叉熵损失时，代码会显式地将&lt;strong&gt;图片 Token 对应的标签（Label）设为 &lt;code&gt;-100&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（在 PyTorch 中，&lt;code&gt;-100&lt;&#x2F;code&gt; 代表忽略该位置的损失）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;无论这张图出现在序列的第 1 位，还是第 1000 位，只要它是图片向量，&lt;strong&gt;它就不参与&quot;预测下一个字&quot;的误差计算&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;因此，模型不会因为&quot;没预测出图片后面的像素&quot;而受到惩罚。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;4-2-tui-li-shi-yin-guo-zi-zhu-yi-li-causal-self-attention&quot;&gt;4.2 推理时：因果自注意力（Causal Self-Attention）&lt;&#x2F;h3&gt;
+&lt;p&gt;推理阶段没有损失函数，依靠自回归生成机制。模型每次只生成&lt;strong&gt;一个&lt;&#x2F;strong&gt; Token，且&lt;strong&gt;只有序列最后一位的 Token 有资格发起 Query 去预测下一个词&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;前面的图片 Token 早已&quot;躺&quot;在历史缓存（KV Cache）中，只提供记忆，不发起生成请求。&lt;&#x2F;li&gt;
+&lt;li&gt;因此，&lt;strong&gt;推理时不需要显式地屏蔽图片预测&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;5-tui-li-gong-cheng-chun-tu-pian-shu-ru-yu-duo-tu-jiao-hu&quot;&gt;5. 推理工程：纯图片输入与多图交互&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;5-1-tu-pian-token-mei-you-fa-yan-quan-dan-xi-tong-hui-qiang-zhi-pin-jie-qi-shi-fu&quot;&gt;5.1 图片 Token 没有&quot;发言权&quot;，但系统会强制拼接起始符&lt;&#x2F;h3&gt;
+&lt;p&gt;如果输入只有一个图片、没有文本，图片 Token 不能作为 Query，怎么生成输出？&lt;&#x2F;p&gt;
+&lt;p&gt;现实工程中，&lt;strong&gt;根本不会出现&quot;只有图片向量，没有文本 Token&quot;的输入序列&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;系统强制拼接&lt;&#x2F;strong&gt;：当用户没有输入文本时，系统会自动在图片向量&lt;strong&gt;后面&lt;&#x2F;strong&gt;拼接一个特殊的起始文本 Token（如 &lt;code&gt;&amp;lt;BOS&amp;gt;&lt;&#x2F;code&gt; 或 &lt;code&gt;Describe this image&lt;&#x2F;code&gt; 默认提示词）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;启动生成&lt;&#x2F;strong&gt;：第一个字是由这个系统添加的 &lt;code&gt;[BOS]&lt;&#x2F;code&gt; Token 发起 Query 去检索图片信息并生成，而不是由图片 Token 自己发起生成。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：图片 Token 在多模态 LLM 中，只充当&quot;记忆体&quot;和&quot;参考书&quot;，而**&quot;发言权（Query 权限）&quot;永远只交给文本 Token 或起始符**。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-2-duo-zhang-tu-jiao-cha-chu-xian-shi-ru-he-fang-zhi-gan-rao&quot;&gt;5.2 多张图交叉出现时，如何防止干扰？&lt;&#x2F;h3&gt;
+&lt;p&gt;多张图交叉出现时，主流模型&lt;strong&gt;不仅不刻意&quot;防止&quot;图片互相干扰，反而&quot;鼓励&quot;它们互相看见&lt;&#x2F;strong&gt;（如对比&quot;谁更开心&quot;）。真正需要防止的是**&quot;身份混淆&quot;**，即把图 A 的特征安到图 B 上。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;机制&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;是否允许图片互看？&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;核心作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;Self-Attention（自注意力）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;允许&lt;&#x2F;strong&gt;（全连接）&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;实现跨图的对比和全局语义融合（这是好事）。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;RoPE&#x2F;绝对位置编码&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;不限制&lt;&#x2F;strong&gt;，但影响分数&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过绝对距离，让模型知道&quot;向量 A 属于图 1，向量 B 属于图 2&quot;，这是数学上的&quot;身份证&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;边界 token（Qwen 风格）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;不限制&lt;&#x2F;strong&gt;，但锚定检索&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;文本指代（如&quot;图1&quot;）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;软屏蔽&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;文本 Query 的高分检索，使模型只关注目标坐标段，忽略无关图片。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;6-gong-cheng-shi-jian-tu-pian-shu-liang-de-xian-zhi&quot;&gt;6. 工程实践：图片数量的限制&lt;&#x2F;h2&gt;
+&lt;p&gt;模型训练时，输入中能包含几张图片？有明确限制，且因模型、平台和输入方式而异。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-1-zhu-liu-ping-tai-xian-zhi-yi-lan&quot;&gt;6.1 主流平台限制一览&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;开源&#x2F;学术探索&lt;&#x2F;strong&gt;：如 Emu3 支持最多 &lt;strong&gt;8 张&lt;&#x2F;strong&gt;；Qwen 系列在特定训练场景下支持&lt;strong&gt;最多 8000 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;云服务微调平台&lt;&#x2F;strong&gt;：
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;阿里云 (Qwen)&lt;&#x2F;strong&gt;：列表传入最多 &lt;strong&gt;8000 张&lt;&#x2F;strong&gt;；Base64 编码传入最多 &lt;strong&gt;250 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Microsoft Azure&lt;&#x2F;strong&gt;：每个样本最多 &lt;strong&gt;64 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;OpenAI &#x2F; Together AI&lt;&#x2F;strong&gt;：每个样本最多 &lt;strong&gt;10 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;6-2-yin-xing-xian-zhi&quot;&gt;6.2 隐性限制&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Token 总量限制&lt;&#x2F;strong&gt;：所有图片的 Token 数 + 文本 Token 数 ≤ 模型的最大上下文长度。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;显存（VRAM）限制&lt;&#x2F;strong&gt;：图片越多，序列越长，显存消耗呈平方级增长。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;文件大小与格式&lt;&#x2F;strong&gt;：单张图通常限制最大 &lt;strong&gt;10MB&lt;&#x2F;strong&gt;，支持 JPEG、PNG 等格式。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;训练数据总量&lt;&#x2F;strong&gt;：指整个数据集规模，而非单次输入（如 LLaVA 预训练用了约 60 万对图文数据）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;7-zong-jie-yi-zhang-tu-kan-dong-duo-mo-tai-he-xin-gai-nian&quot;&gt;7. 总结：一张图看懂多模态核心概念&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;核心疑问&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;正确答案&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;模型怎么知道输入里有图片？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;两条路线：&lt;strong&gt;隐式&lt;&#x2F;strong&gt;（LLaVA）靠输入向量&lt;strong&gt;模长、方差等统计特征的巨大差异&lt;&#x2F;strong&gt;，数学上本能区别对待；&lt;strong&gt;显式&lt;&#x2F;strong&gt;（Qwen）靠 `&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;图片和文本在底层怎么对齐？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过&lt;strong&gt;投影层（MLP）&lt;&#x2F;strong&gt; 将像素映射到与文本 Token 相同的向量空间，进行数学上的&quot;坐标统一&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;图片 Token 有没有&quot;发言权&quot;？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;没有。&lt;&#x2F;strong&gt; 生成任务永远由文本 Token 或起始符 &lt;code&gt;[BOS]&lt;&#x2F;code&gt; 作为 Query 来发动。图片 Token 只作为被检索的 Key&#x2F;Value。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;多张图怎么避免张冠李戴？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;依靠 &lt;strong&gt;RoPE 位置编码&lt;&#x2F;strong&gt;提供绝对坐标作为&quot;身份证&quot;，Qwen 风格模型另有 start&#x2F;end 边界 token 精确定位每张图的区间，并通过文本指令（如&quot;图1&quot;）的 Query 精准检索。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;训练时如何防止模型乱输出像素？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过&lt;strong&gt;损失掩码（Loss Mask）&lt;&#x2F;strong&gt;，将图片 Token 位置的标签设为 &lt;code&gt;-100&lt;&#x2F;code&gt;，强制模型忽略图片位置的预测误差。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;每次最多能传几张图？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;取决于&lt;strong&gt;模型上下文长度、显存容量和平台 API 限制&lt;&#x2F;strong&gt;，从 10 张到 8000 张不等。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>揭秘AI模型的“越狱”：从原理到实战，深入解析LoRA与Abliteration</title>
+        <published>2026-08-25T14:29:06+08:00</published>
+        <updated>2026-08-25T14:29:06+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/llm-jailbreak-lora-abliteration/"/>
+        <id>https://moxuetianya.github.io/2026/08/llm-jailbreak-lora-abliteration/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/llm-jailbreak-lora-abliteration/">&lt;h1 id=&quot;jie-mi-aimo-xing-de-yue-yu-cong-yuan-li-dao-shi-zhan-shen-ru-jie-xi-lorayu-abliteration&quot;&gt;揭秘AI模型的“越狱”：从原理到实战，深入解析LoRA与Abliteration&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;yin-yan-mo-xing-po-jie-aian-quan-de-a-ke-liu-si-zhi-zhong&quot;&gt;引言：模型破解——AI安全的“阿喀琉斯之踵”&lt;&#x2F;h2&gt;
+&lt;p&gt;随着大语言模型的普及，它们已经深入到了写作、编程、客服等各个领域。然而，伴随能力一同到来的，是安全性的巨大挑战：几乎每一款面向公众的模型，都声称自己有“安全护栏”，但现实是，这些护栏既不完整也并非牢不可破。&lt;&#x2F;p&gt;
+&lt;p&gt;本篇文章将剖析围绕大模型攻防的几个关键概念：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;什么叫做“模型破解”？攻击模型的方式可以分为哪几类？&lt;&#x2F;li&gt;
+&lt;li&gt;“越狱”攻击为什么屡禁不止？它的根源在哪里？&lt;&#x2F;li&gt;
+&lt;li&gt;两种主流的“越狱”技术——提示词层面的绕过与权重层面的&lt;strong&gt;Abliteration（拒绝方向消除）&lt;&#x2F;strong&gt;，它们各自的原理是什么？&lt;&#x2F;li&gt;
+&lt;li&gt;模型自身的防御机制又是如何设计的？&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;yi-shen-me-shi-mo-xing-po-jie&quot;&gt;一、什么是“模型破解”？&lt;&#x2F;h2&gt;
+&lt;p&gt;“模型破解”是一个统称，泛指针对训练好的模型发起的各类攻击。需要区分的是，它并不仅仅指“让模型说脏话”这么简单，按照攻击目标的不同，可以分为以下几类：&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-1-mo-xing-po-jie-de-ding-yi-yu-lei-xing&quot;&gt;1.1 模型破解的定义与类型&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;模型窃取 (Model Stealing)&lt;&#x2F;strong&gt;：通过大量向 API 发请求，用“输入-输出”对训练一个能模仿原始模型的“山寨”模型，从而窃取对方的知识产权和商业机密。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模型逆向 (Model Inversion)&lt;&#x2F;strong&gt;：从模型的输出中反推出训练数据中包含的敏感隐私信息（比如模型记住了包含个人信息的数据，攻击者可以通过精心构造的查询将其“挤”出来）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;越狱攻击 (Jailbreaking)&lt;&#x2F;strong&gt;：通过设计精巧的提示词（Prompt），诱导模型输出违反其设计准则的有害内容。比如让模型给出制作危险品的教程、绕过安全限制的指导等。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;对抗性攻击 (Adversarial Attacks)&lt;&#x2F;strong&gt;：在输入数据里添加人眼完全察觉不到的微小扰动，使模型产生错误判断。在图像分类模型上最为典型——一张被贴上“对抗噪声”的猫图，模型会自信地把它识别成“汽车”。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;数据投毒 (Data Poisoning)&lt;&#x2F;strong&gt;：在模型训练阶段注入恶意样本，在模型内部植入一个“后门”。平时模型表现正常，一旦遇到特定的触发词，后门就会被激活，输出恶意结果。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;1-2-yue-yu-wei-he-lu-jin-bu-zhi&quot;&gt;1.2 “越狱”为何屡禁不止？&lt;&#x2F;h3&gt;
+&lt;p&gt;在以上攻击类别中，“越狱”是最容易实现、也最常见的一种，因为攻击者不需要任何专业技术，只要会打字就够了。可是，为什么明明有过安全对齐，模型仍然能被三言两语“骗”破？&lt;&#x2F;p&gt;
+&lt;p&gt;这背后有两个层面的原因：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;核心根源：指令与数据的混淆&lt;&#x2F;strong&gt;。模型本质上是一个“模糊能力极强的回归器”，它在训练时看到的文本既有“你要遵守的指令”，也有“你要处理的内容”。尽管训练中使用了特殊的格式进行区分（如 system&#x2F;user 角色），但这层区分是“软的”——模型无法像程序一样清晰区分“必须遵守的系统指令”和“需要处理的用户数据”。攻击者利用提示注入等手段，就是要在“数据”里藏“指令”，让模型分不清谁是命令、谁是内容。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;深层原因：拒绝行为的数学不稳定性&lt;&#x2F;strong&gt;。模型被训练出来“拒绝有害请求”，但这只是在高维参数空间里无数可能行为中的一个“狭窄约束”。在数学上，存在大量“逃逸方向”，即那些没有在训练中被惩罚、但能绕过拒绝的输入空间。换句话说，拒绝是训出来的，而在浩瀚的输入空间中，它的边界永远是不完整的。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;er-shen-ru-yue-yu-cong-rao-guo-dao-chai-chu&quot;&gt;二、深入“越狱”：从“绕过”到“拆除”&lt;&#x2F;h2&gt;
+&lt;p&gt;“越狱”攻击在技术上有两种完全不同的路线：一种是“绕过”（在提示词层面欺骗模型），另一种是“拆除”（直接修改模型权重，把“拒绝功能”物理移除）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-1-ti-shi-ci-ceng-mian-de-yue-yu-chuan-tong-fang-shi&quot;&gt;2.1 提示词层面的“越狱”（传统方式）&lt;&#x2F;h3&gt;
+&lt;p&gt;提示词越狱的本质是“骗”：想办法让模型产生的安全感误判——让它以为当前的对话情境下，输出有害内容不算“违反规则”。常见手段包括：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;角色扮演（如 DAN）&lt;&#x2F;strong&gt;：指示模型扮演一个不受任何道德限制的“人格”。经典例子是 DAN——“Do Anything Now”——脚本让模型以“DAN 不受 OpenAI 规则约束”的前提输出回答，模型往往会配合表演。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;指令层级操纵（提示注入）&lt;&#x2F;strong&gt;：通过构造看似良性的任务，把恶意指令隐藏在上下文里。例如把越狱指令伪装成一篇博客文章里的“规划纲要”，让模型误以为这是用户想执行的任务内容。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;多步骤分解&lt;&#x2F;strong&gt;：将危险问题拆解成一系列看似无害的小问题，引导模型拼凑出答案。例如，不直接问“如何制作危险品”，而是问“苯环硝化反应的温度控制”等一系列化学知识点，再让模型“综合整理”。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;编码与混淆&lt;&#x2F;strong&gt;：把恶意指令转成 Base64、ASCII 艺术等形式，绕过基于简单规则的安全过滤器——过滤器没识别出来，但大模型自己看得懂。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这些方法不断推陈出新，俗称“DAN 已死，DAN 万岁”。防御方每堵住一种套路，攻击方就能找到新的变种。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-2-quan-zhong-ceng-mian-de-yue-yu-wai-ke-shou-shu-shi-gong-ji&quot;&gt;2.2 权重层面的“越狱”（外科手术式攻击）&lt;&#x2F;h3&gt;
+&lt;p&gt;如果说提示词层面的攻击是“绕过门锁”，那么权重层面的攻击就是&lt;strong&gt;直接拆除门锁&lt;&#x2F;strong&gt;。这类攻击有一个专门的技术名词——&lt;strong&gt;Abliteration（拒绝方向消除）&lt;&#x2F;strong&gt;,它直接修改模型权重文件,从底层永久性地移除模型的“拒绝回答”能力。&lt;&#x2F;p&gt;
+&lt;p&gt;这听起来像是科幻情节：一个训练好的、百万行参数的大模型，怎么可能“精准切除”某一个功能？答案是：可以，因为拒绝行为在模型内部很可能是由&lt;strong&gt;一个单一方向&lt;&#x2F;strong&gt;控制的（下文详述）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;san-ji-shu-shen-du-jie-xi-lora-vs-abliteration&quot;&gt;三、技术深度解析：LoRA vs. Abliteration&lt;&#x2F;h2&gt;
+&lt;p&gt;本节对比两种最常被拿来做“模型改造”的技术：LoRA（增量适配）与 Abliteration（外科手术式消除）。虽然 LoRA 通常是用于“适配新任务”的正规技术，同样也可以被用于“越狱”——两者的核心差异在于是否破坏原始权重。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-1-lora-low-rank-adaptation-qing-liang-ji-zeng-liang-xun-lian&quot;&gt;3.1 LoRA (Low-Rank Adaptation) —— 轻量级“增量训练”&lt;&#x2F;h3&gt;
+&lt;p&gt;LoRA 是当前大模型微调领域事实上的标准技术（&lt;code&gt;peft&lt;&#x2F;code&gt; 库），它的核心思想是：&lt;strong&gt;不动原始模型，只加一个小的“增量适配器”&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;核心原理&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;在冻结原始模型权重 &lt;code&gt;W0&lt;&#x2F;code&gt; 的前提下，注入两个新增的低秩矩阵 &lt;code&gt;A&lt;&#x2F;code&gt; 和 &lt;code&gt;B&lt;&#x2F;code&gt;，用它们模拟模型为适应新任务所需的变化。数学表达为：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;h = W0 x + B A x
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中 &lt;code&gt;BA&lt;&#x2F;code&gt; 的乘积是一个低秩矩阵（秩为 &lt;code&gt;r&lt;&#x2F;code&gt;，远小于 &lt;code&gt;W0&lt;&#x2F;code&gt; 的维度），因此新增的参数总量极少。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;工作流程&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;冻结&lt;&#x2F;strong&gt;原始模型参数 &lt;code&gt;W0&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;注入&lt;&#x2F;strong&gt;低秩矩阵 &lt;code&gt;A&lt;&#x2F;code&gt; 和 &lt;code&gt;B&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;训练&lt;&#x2F;strong&gt;时只更新 &lt;code&gt;A&lt;&#x2F;code&gt; 和 &lt;code&gt;B&lt;&#x2F;code&gt;，原始权重完全不动；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;推理&lt;&#x2F;strong&gt;时可将 &lt;code&gt;BA&lt;&#x2F;code&gt; 合并进 &lt;code&gt;W0&lt;&#x2F;code&gt;，或作为独立适配器动态加载。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;主要特点&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;增量式&lt;&#x2F;strong&gt;：不改变原模型，只增加“插件”。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;低成本&lt;&#x2F;strong&gt;：新增参数通常仅为原始模型的 0.5% ~ 1%，训练开销极小。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;灵活性高&lt;&#x2F;strong&gt;：可随时加载&#x2F;卸载适配器，一个模型适配多个任务。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;需要训练&lt;&#x2F;strong&gt;：需要 GPU 和标注数据进行反向传播。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;基于 LoRA 的技术也被研究者用来“越狱”——比如训练一个解除限制的适配器。但由于它的“修改”只存在于适配器里，原始模型本体依然完整，所以更像“给模型戴上一个不听话的外挂”。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-2-abliteration-jing-zhun-de-wai-ke-shou-shu-dao&quot;&gt;3.2 Abliteration —— 精准的“外科手术刀”&lt;&#x2F;h3&gt;
+&lt;p&gt;Abliteration（源于 paper &lt;em&gt;Wildlife and Safety: Understanding and Mitigating the Risk of Abliteration&lt;&#x2F;em&gt;）的技术前提是一个关键发现：&lt;strong&gt;模型的拒绝行为，可能由内部一个单一的方向向量控制&lt;&#x2F;strong&gt;。既然拒绝是一个“方向”，那就可以把它找出来并抹掉。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;关键步骤&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;定位“拒绝方向”&lt;&#x2F;strong&gt;：向模型输入大量有害和无害的提示词，记录模型内部（通常是残差流 residual stream）的激活值。计算两类样本激活值的差异，就得到了“拒绝方向”向量 &lt;code&gt;d&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;消除“拒绝方向”&lt;&#x2F;strong&gt;：通过&lt;strong&gt;正交投影&lt;&#x2F;strong&gt;，从权重矩阵 &lt;code&gt;W&lt;&#x2F;code&gt; 中精确地“减去”所有会朝着 &lt;code&gt;d&lt;&#x2F;code&gt; 方向施加影响的部分：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre&gt;&lt;code&gt;W_new = W - d @ (d^T @ W)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这个公式的直觉是：与其“对抗”方向 &lt;code&gt;d&lt;&#x2F;code&gt;，不如让权重彻底“正交于” &lt;code&gt;d&lt;&#x2F;code&gt;——权重在 &lt;code&gt;d&lt;&#x2F;code&gt; 方向上的分量被清零，模型失去了产生拒绝行为的路径。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;主要特点&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;破坏性&lt;&#x2F;strong&gt;：直接永久修改原始权重，模型本体被改变。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;无训练&lt;&#x2F;strong&gt;：整个过程只需一次性数学计算，成本极低，几乎不需要算力。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;效果显著&lt;&#x2F;strong&gt;：可以大幅降低拒绝率，如 64%-99% 降到 0%-6%。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;影响精准&lt;&#x2F;strong&gt;：测试表明几乎不影响模型的通用能力（如推理、数学能力）——因为“拒绝”只是高维空间里的一小撮方向，把它移除并不会破坏整体能力结构。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-3-he-xin-dui-bi-zong-jie-biao&quot;&gt;3.3 核心对比总结表&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;特性&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;&lt;strong&gt;LoRA&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;&lt;strong&gt;Abliteration&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;核心目标&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;增加新能力 &#x2F; 适配新任务&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;移除特定行为（如安全拒绝）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;操作方式&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;增量式&lt;&#x2F;strong&gt;：添加并训练新矩阵&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;破坏性&lt;&#x2F;strong&gt;：直接修改原始权重&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;是否需要训练&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;是&lt;&#x2F;strong&gt;（需要 GPU 和数据）&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;否&lt;&#x2F;strong&gt;（仅需数学计算）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;对原始模型影响&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;冻结不变&lt;&#x2F;strong&gt;，保持完整&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;永久物理修改&lt;&#x2F;strong&gt;，不可逆&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;效果持久性&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;非永久，可加载&#x2F;卸载&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;永久，修改即改变行为&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;主要应用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;风格迁移、角色扮演、领域适配&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;创建“无审查”（Uncensored）模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;si-yi-ge-ju-ti-de-an-li-qwen3-8-27b-uncensored&quot;&gt;四、一个具体的案例：Qwen3.8-27B-Uncensored&lt;&#x2F;h2&gt;
+&lt;p&gt;只看原理容易觉得抽象，我们来看一个实际社区案例。有开发者对 Qwen2.5-27B 模型（注意是社区命名 Qwen3.8-27B-Uncensored 之类,指 Qwen 系列某个 27B 模型经 Abliteration 改造的产物）执行了 Abliteration，制作出“无审查”版本：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;越狱方式&lt;&#x2F;strong&gt;：采用 Abliteration，而不是提示词工程——不是因为提示词越狱失效了，而是作者选择了更干净的“根治”方案。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;操作细节&lt;&#x2F;strong&gt;：对模型中 &lt;strong&gt;131 个负责向“残差流”写入信息的权重矩阵&lt;&#x2F;strong&gt;执行了正交化投影。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;效果&lt;&#x2F;strong&gt;：模型的拒绝率从 &lt;strong&gt;64%-99% 骤降至 0%-6%&lt;&#x2F;strong&gt;，基本是说干就干，不再拒绝任何内容。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这个案例直观展示了 Abliteration 的威力：它是一场“降维打击”——&lt;strong&gt;物理拆除了“拒绝开关”，而不是巧妙绕过它&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wu-mo-xing-de-fang-yu-ji-zhi-ru-he-shuo-bu&quot;&gt;五、模型的防御机制：如何说“不”？&lt;&#x2F;h2&gt;
+&lt;p&gt;了解了攻击，再看防御。一个安全的大模型并非天生如此——它是被“管”出来的。模型的能力和安全性来自一套复杂的训练与工程流程。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-1-an-quan-dui-qi-safety-alignment&quot;&gt;5.1 安全对齐 (Safety Alignment)&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;监督式微调 (SFT)&lt;&#x2F;strong&gt;：先用人标注的安全对话示例进行初步训练，让模型学会基本的言谈举止。这一步教了模型“该怎么说”，但没有教它完全理解“为什么”。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;基于人类反馈的强化学习 (RLHF)&lt;&#x2F;strong&gt;：人类标注员对模型输出的安全性进行排序打分，通过强化学习让模型学习“行为准则”。这是当前模型拒绝有害指令的主要来源——也是 Abliteration 攻击的主要靶子。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;红队测试 (Red Teaming)&lt;&#x2F;strong&gt;：在模型发布前，团队主动扮演攻击者，用各种手段尝试让模型“破防”，找到并修复漏洞。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;5-2-shu-ru-yu-shu-chu-guo-lu&quot;&gt;5.2 输入与输出过滤&lt;&#x2F;h3&gt;
+&lt;p&gt;在模型之外设置安全层：对输入进行提示词审查&#x2F;拦截检测，对输出进行有敏感词&#x2F;有害内容检测与过滤。这是纯工程手段，与模型内部无关，优点是简单直接，缺点是可被编码、混淆等手段绕过。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-3-chi-xu-dui-kang&quot;&gt;5.3 持续对抗&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;对抗训练 (Adversarial Training)&lt;&#x2F;strong&gt;：将已知的越狱样本加入训练数据，让模型在训练时就见过这些攻击形式，提高抵抗力。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;动态更新&lt;&#x2F;strong&gt;：持续监测、收集新的攻击模式，纳入再训练循环。这是一场永不停止的“打补丁”游戏。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;liu-bu-chong-zhi-shi-cong-lan-tu-dao-jian-zhu&quot;&gt;六、补充知识：从“蓝图”到“建筑”&lt;&#x2F;h2&gt;
+&lt;p&gt;对于想深入研究的读者，这里补充一个基础概念：一个模型文件到底是怎么组合出来的。这也有助于理解 Abliteration 为什么会“改文件”就能生效。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-1-mo-xing-jie-gou-config-json&quot;&gt;6.1 模型结构 (config.json)&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;作用&lt;&#x2F;strong&gt;：模型的“设计图纸”。它定义了层数、注意力头数、激活函数、维度大小等超参数。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;内容&lt;&#x2F;strong&gt;：纯文本 JSON 文件，人类可读。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;恢复结构&lt;&#x2F;strong&gt;：仅凭 &lt;code&gt;config.json&lt;&#x2F;code&gt;，即可用随机参数创建出模型的完整“骨架”（消耗 CPU 内存 RAM，不需要 GPU）。这也是 Abliteration 工具的用武之地——骨架拿到手，再往里面填（或改）权重。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;6-2-mo-xing-quan-zhong-safetensors&quot;&gt;6.2 模型权重 (.safetensors)&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;作用&lt;&#x2F;strong&gt;：模型的“建筑材料”，存储了训练得到的参数数值。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;内容&lt;&#x2F;strong&gt;：扁平列表，记录每个张量名及其数值矩阵。现代的 Hugging Face 生态基本用 &lt;code&gt;.safetensors&lt;&#x2F;code&gt; 格式，比旧的 &lt;code&gt;.bin&lt;&#x2F;code&gt;（pickle）更安全、加载更快。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;加载方式&lt;&#x2F;strong&gt;：通过 &lt;code&gt;from_pretrained&lt;&#x2F;code&gt; 方法，结合 config.json（蓝图）+ 权重文件（材料），构建出完整可用的模型。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;6-3-xian-cun-xiao-hao-guan-jian-dian&quot;&gt;6.3 显存消耗关键点&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;仅加载结构&lt;&#x2F;strong&gt;：只消耗 CPU 内存（RAM），不占 GPU 显存（VRAM）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;完整加载&lt;&#x2F;strong&gt;：模型移到 GPU 后，立即占用与权重大小对应的显存。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;推理时&lt;&#x2F;strong&gt;：显存 = 模型权重 + KV Cache（随序列长度和 batch size 增长）。这也是长上下文推理吃显存的根本原因。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;qi-xie-zai-zui-hou-aian-quan-de-gong-fang-qi-shi-lu&quot;&gt;七、写在最后：AI安全的攻防启示录&lt;&#x2F;h2&gt;
+&lt;p&gt;总结一下全文：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;“越狱”攻击揭示了当前 AI 系统在知识产权、数据隐私和内容安全方面的三重脆弱性。&lt;&#x2F;li&gt;
+&lt;li&gt;攻击的根源在于一个根本矛盾：&lt;strong&gt;模型被训练得“无条件服从指令”（这是它强大的基础），而“安全对齐”是后天加上的一层约束&lt;&#x2F;strong&gt;。服从与约束之间的不平衡，是攻防博弈永不停止的发动机。&lt;&#x2F;li&gt;
+&lt;li&gt;攻击方式是分层递进的：提示词层面的“绕过”成本最低但修补也最容易（问的是“道高一尺魔高一丈”的动态对抗）；Abliteration 为代表的权重层面的“拆除”成本极低（不需要训练，只算一次投影）却影响深远（物理不可逆），是目前最值得警惕的一条技术路线。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;理解攻击原理，才是构建更安全、更可靠 AI 应用的第一步。如何在追求模型能力的同时，构建更鲁棒、更符合人类价值观的安全护栏——这是留给整个行业的下一个问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;can-kao-zi-liao-yu-yan-shen-yue-du&quot;&gt;参考资料与延伸阅读&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Abliteration 相关：&lt;em&gt;Wildlife and Safety: Understanding and Mitigating the Risk of Abliteration&lt;&#x2F;em&gt;（原始论文）&lt;&#x2F;li&gt;
+&lt;li&gt;Hugging Face Transformers 文档：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;huggingface.co&#x2F;docs&#x2F;transformers&quot;&gt;https:&#x2F;&#x2F;huggingface.co&#x2F;docs&#x2F;transformers&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;Hugging Face PEFT 库（LoRA 官方实现）：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;huggingface.co&#x2F;docs&#x2F;peft&quot;&gt;https:&#x2F;&#x2F;huggingface.co&#x2F;docs&#x2F;peft&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;Prompt Injection：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;owasp.org&#x2F;www-project-top-10-for-large-language-model-applications&#x2F;&quot;&gt;https:&#x2F;&#x2F;owasp.org&#x2F;www-project-top-10-for-large-language-model-applications&#x2F;&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>深入浅出大模型推理加速：从 DSpark 到 MTP</title>
+        <published>2026-08-25T11:04:22+08:00</published>
+        <updated>2026-08-25T11:04:22+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/"/>
+        <id>https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/">&lt;h1 id=&quot;shen-ru-qian-chu-da-mo-xing-tui-li-jia-su-cong-dspark-dao-mtp&quot;&gt;深入浅出大模型推理加速：从 DSpark 到 MTP&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;本文基于与 DeepSeek 技术专家的深度对话整理，系统梳理了当前大模型推理加速的两大主流技术——DSpark 与 MTP——的核心原理、实现细节与应用场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;qian-yan&quot;&gt;前言&lt;&#x2F;h2&gt;
+&lt;p&gt;随着大语言模型（LLM）参数规模持续增长（从百亿到万亿），推理效率已成为制约其大规模落地的关键瓶颈。在这一背景下，&lt;strong&gt;推测解码（Speculative Decoding）&lt;&#x2F;strong&gt; 技术应运而生，成为学术界与工业界共同关注的焦点。&lt;&#x2F;p&gt;
+&lt;p&gt;本文将详细解析两种具有代表性的推测解码方案：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;：DeepSeek 联合北京大学开源的推理加速框架&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;MTP（Multi-Token Prediction）&lt;&#x2F;strong&gt;：一种需要模型训练时内建支持的多 token 预测技术&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过对比分析，帮助读者理解其设计哲学、技术原理与适用场景。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-yi-bu-fen-dspark-xiang-jie&quot;&gt;第一部分：DSpark 详解&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;shen-me-shi-dspark&quot;&gt;什么是 DSpark？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt; 是 DeepSeek 联合北京大学共同开发并开源的大模型推理加速框架。其核心目标是通过 &lt;strong&gt;推测解码&lt;&#x2F;strong&gt; 技术，解决大模型在高并发场景下的推理效率瓶颈。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;一句话概括&lt;&#x2F;strong&gt;：DSpark 是一个&quot;即插即用&quot;的推理加速&quot;外挂&quot;，无需修改原始模型结构，即可实现 60%-85% 的单用户速度提升。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;he-xin-yuan-li&quot;&gt;核心原理&lt;&#x2F;h3&gt;
+&lt;p&gt;DSpark 采用 &lt;strong&gt;推测解码（Speculative Decoding）&lt;&#x2F;strong&gt; 的基本思路，但进行了两项关键创新：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ban-zi-hui-gui-bing-xing-cao-gao-sheng-cheng&quot;&gt;半自回归并行草稿生成&lt;&#x2F;h4&gt;
+&lt;p&gt;传统推测解码使用轻量级&quot;草稿模型&quot;（Draft Model）&lt;strong&gt;串行&lt;&#x2F;strong&gt;生成候选 token，而 DSpark 实现了&lt;strong&gt;并行&lt;&#x2F;strong&gt;生成：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;传统方式：草稿模型逐个生成 token1 → token2 → token3 → ...
+DSpark 方式：草稿模型一次性并行生成 token1, token2, token3, ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这充分利用了 GPU 的并行计算能力，大幅降低了草稿生成阶段的时间开销。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;dong-tai-yan-zheng-diao-du&quot;&gt;动态验证调度&lt;&#x2F;h4&gt;
+&lt;p&gt;DSpark 引入了&quot;置信度调度验证机制&quot;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;评估每个候选 token 被接受的概率&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;动态决定&lt;&#x2F;strong&gt;验证多长的候选序列&lt;&#x2F;li&gt;
+&lt;li&gt;一旦发现错误，&lt;strong&gt;立即截断&lt;&#x2F;strong&gt;，避免算力浪费&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这解决了传统推测解码中&quot;固定长度验证&quot;带来的效率损失问题。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;guan-jian-ji-shu-cao-gao-mo-xing&quot;&gt;关键技术：草稿模型&lt;&#x2F;h3&gt;
+&lt;p&gt;DSpark 的精妙之处在于&lt;strong&gt;草稿模型的设计与训练&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;cao-gao-mo-xing-de-te-dian&quot;&gt;草稿模型的特点&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;独立性&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;与主模型完全解耦，是一个独立训练的轻量级模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;参数量&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;约 3 亿参数（相对于主模型的数千亿参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;结构&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;从主模型特定层（如第 5、17、29、41、46 层）抽取隐藏状态作为输入&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;即插即用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;可随时加载&#x2F;卸载，不影响主模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;xun-lian-fang-shi-mo-fang-zhu-mo-xing-de-si-kao&quot;&gt;训练方式：模仿主模型的&quot;思考&quot;&lt;&#x2F;h4&gt;
+&lt;p&gt;草稿模型的训练过程本质上是&lt;strong&gt;知识蒸馏&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;准备&quot;老师&quot;的数据&lt;&#x2F;strong&gt;：让主模型处理大量文本，&lt;strong&gt;记录其每一层的隐藏状态（Hidden States）&lt;&#x2F;strong&gt;，形成&quot;目标缓存（Target Cache）&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;训练&quot;学生&quot;模型&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型从主模型的&lt;strong&gt;特定层&lt;&#x2F;strong&gt;抽取隐藏状态作为输入&lt;&#x2F;li&gt;
+&lt;li&gt;目标是&lt;strong&gt;预测主模型接下来会生成的 token&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;通过损失函数调整草稿模型参数&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;为什么不使用全部层？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;降低计算量，保证草稿模型的&quot;轻量&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;特定层（如中间层）已包含足够的语义信息&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键洞察&lt;&#x2F;strong&gt;：草稿模型学习的是主模型的&quot;解题思路&quot;（隐藏状态），而非&quot;抄答案&quot;（最终文本）。这让它在风格和概率分布上高度接近主模型，从而保证高接受率。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;dui-bi-yuan-mo-xing-de-ying-xiang&quot;&gt;对闭源模型的影响&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;重要结论&lt;&#x2F;strong&gt;：DSpark 的加速能力目前&lt;strong&gt;只能应用于开源模型&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;原因：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;训练需要访问主模型的&lt;strong&gt;内部隐藏状态&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;闭源模型（如 GPT-4、Claude）仅提供 API，无法获取内部信息&lt;&#x2F;li&gt;
+&lt;li&gt;架构信息（层数、隐藏层大小等）不公开&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tui-li-guo-cheng-bing-xing-yan-zheng-de-jing-sui&quot;&gt;推理过程：并行验证的精髓&lt;&#x2F;h3&gt;
+&lt;p&gt;这是理解 DSpark 为何能提速的核心：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;zhi-jue-wu-qu&quot;&gt;直觉误区&lt;&#x2F;h4&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&quot;每个 token 都要经过主模型，还增加了草稿模型的计算，怎么可能提速？&quot;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键认知&lt;&#x2F;strong&gt;：主模型&quot;验证 100 个 token&quot;和&quot;串行生成 5 个 token&quot;的计算成本&lt;strong&gt;不是&lt;&#x2F;strong&gt;&quot;100 次 vs 5 次&quot;的关系，而是 &lt;strong&gt;&quot;1 次 vs 5 次&quot;&lt;&#x2F;strong&gt; 的关系。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ping-jing-fen-xi&quot;&gt;瓶颈分析&lt;&#x2F;h4&gt;
+&lt;p&gt;大模型推理的最大瓶颈不在&quot;算力&quot;（FLOPs），而在 &lt;strong&gt;&quot;内存带宽&quot;&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型有数千亿参数（几百 GB）&lt;&#x2F;li&gt;
+&lt;li&gt;每次前向传播需要将权重从显存搬运到计算单元&lt;&#x2F;li&gt;
+&lt;li&gt;这是最耗时的操作&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;bing-xing-yan-zheng-de-gong-zuo-yuan-li&quot;&gt;并行验证的工作原理&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;步骤 1：草稿生成&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型一次性生成连续的 N 个候选 token&lt;&#x2F;li&gt;
+&lt;li&gt;例如：位置 N+1, N+2, ..., N+100&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;步骤 2：并行验证&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型将这 100 个 token &lt;strong&gt;一次性&lt;&#x2F;strong&gt;输入&lt;&#x2F;li&gt;
+&lt;li&gt;利用 Transformer 的&lt;strong&gt;因果自注意力（Causal Attention）&lt;&#x2F;strong&gt; 机制&lt;&#x2F;li&gt;
+&lt;li&gt;在一次前向传播中，&lt;strong&gt;同时&lt;&#x2F;strong&gt;计算出所有位置的概率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre&gt;&lt;code&gt;验证位置1：基于原始上下文
+验证位置2：基于&amp;quot;原始上下文 + 位置1的token&amp;quot;
+验证位置3：基于&amp;quot;原始上下文 + 位置1和2的token&amp;quot;
+...
+验证位置N：基于&amp;quot;原始上下文 + 位置1到N-1的token&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键&lt;&#x2F;strong&gt;：这些计算是&lt;strong&gt;并行&lt;&#x2F;strong&gt;的，而非串行等待！&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;cheng-ben-dui-bi&quot;&gt;成本对比&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;对比项&lt;&#x2F;th&gt;&lt;th&gt;原始方式（生成 5 个 token）&lt;&#x2F;th&gt;&lt;th&gt;DSpark 方式（验证 100 个 token）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型权重搬运次数&lt;&#x2F;td&gt;&lt;td&gt;5 次&lt;&#x2F;td&gt;&lt;td&gt;1 次&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;耗时&lt;&#x2F;td&gt;&lt;td&gt;5 × 搬运时间&lt;&#x2F;td&gt;&lt;td&gt;约 1 × 搬运时间&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;草稿模型开销&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;极小（3 亿参数 vs 数千亿参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：即使 100 个 token 中只接受了 5 个（接受率 5%），整体速度依然显著提升。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;shi-ji-jie-shou-lu&quot;&gt;实际接受率&lt;&#x2F;h4&gt;
+&lt;p&gt;官方数据显示，DSpark 的平均每次&quot;验证批处理&quot;能成功接受 &lt;strong&gt;4-6 个 Token&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;这意味着：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型每&quot;搬运 1 次权重&quot;，产出 4-6 个有效 token&lt;&#x2F;li&gt;
+&lt;li&gt;原始方式搬运 1 次权重只产出 1 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;速度提升的 60%-85% 来源于此&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;wu-sun-jia-su-de-shu-xue-bao-zhang&quot;&gt;无损加速的数学保障&lt;&#x2F;h3&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&quot;如果草稿生成的 token 不是最大概率，但概率过线了，结果会不会不一样？&quot;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;答案&lt;&#x2F;strong&gt;：不会。DSpark（以及所有标准推测解码）在数学上是&lt;strong&gt;无损（Lossless）&lt;&#x2F;strong&gt; 的。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ju-jue-cai-yang-rejection-sampling&quot;&gt;拒绝采样（Rejection Sampling）&lt;&#x2F;h4&gt;
+&lt;p&gt;验证机制&lt;strong&gt;不是&lt;&#x2F;strong&gt;简单的&quot;概率过线就接受&quot;，而是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;接受概率 = min(1, P_main(x) &amp;#x2F; P_draft(x))
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;P_main(x)&lt;&#x2F;code&gt;：主模型算出的真实概率&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;P_draft(x)&lt;&#x2F;code&gt;：草稿模型算出的概率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;tan-xin-jie-ma-mo-shi&quot;&gt;贪心解码模式&lt;&#x2F;h4&gt;
+&lt;p&gt;如果主模型使用 Argmax（取最大概率）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿词如果是最大概率词 → 接受&lt;&#x2F;li&gt;
+&lt;li&gt;草稿词如果不是最大概率词 → P_main(x) = 0 → 接受概率 = 0 → &lt;strong&gt;100% 拒绝&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;结果&lt;&#x2F;strong&gt;：最终输出与主模型直接生成&lt;strong&gt;完全一致&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;sui-ji-cai-yang-mo-shi&quot;&gt;随机采样模式&lt;&#x2F;h4&gt;
+&lt;p&gt;如果主模型使用带温度的随机采样：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;拒绝采样机制保证了最终输出的概率分布&lt;strong&gt;恰好等于&lt;&#x2F;strong&gt;主模型的原始分布&lt;&#x2F;li&gt;
+&lt;li&gt;已被学术界严格证明&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xing-neng-shu-ju&quot;&gt;性能数据&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;模型&lt;&#x2F;th&gt;&lt;th&gt;速度提升&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;DeepSeek-V4-Flash&lt;&#x2F;td&gt;&lt;td&gt;60% - 85%&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;DeepSeek-V4-Pro&lt;&#x2F;td&gt;&lt;td&gt;57% - 78%&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;在 vLLM 中集成（对比 EAGLE-3）&lt;&#x2F;td&gt;&lt;td&gt;吞吐量最高提升 1.69 倍&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;di-er-bu-fen-mtp-xiang-jie&quot;&gt;第二部分：MTP 详解&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;shen-me-shi-mtp&quot;&gt;什么是 MTP？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;MTP（Multi-Token Prediction）&lt;&#x2F;strong&gt; 是一种&lt;strong&gt;需要在模型训练时就内建支持&lt;&#x2F;strong&gt;的多 token 预测技术。它通过在训练时给模型增加额外的&quot;预测头&quot;，让模型学会&lt;strong&gt;同时预测多个未来位置&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;定位&lt;&#x2F;strong&gt;：MTP 是 DeepSeek 上一代的&quot;招牌&quot;技术，DSpark 可以看作是其&quot;进化版&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zhu-mo-xing-ru-he-gua-pei-mtp&quot;&gt;主模型如何适配 MTP？&lt;&#x2F;h3&gt;
+&lt;p&gt;要在模型上支持 MTP，需要进行&lt;strong&gt;结构扩展&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;tian-jia-duo-ge-yu-ce-tou&quot;&gt;添加多个预测头&lt;&#x2F;h4&gt;
+&lt;p&gt;在标准的语言模型头（预测下一个词）旁边，增加几个额外的输出头：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Head 1: 预测第 N+1 个 token（标准头）
+Head 2: 预测第 N+2 个 token（MTP 头 1）
+Head 3: 预测第 N+3 个 token（MTP 头 2）
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;ji-lian-jie-gou&quot;&gt;级联结构&lt;&#x2F;h4&gt;
+&lt;p&gt;MTP 模块采用&lt;strong&gt;级联（Cascaded）&lt;&#x2F;strong&gt; 设计：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;第一个 MTP 模块：利用主模型的最终隐藏状态 → 预测第 2 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;第二个 MTP 模块：结合第一个模块的预测结果 + 主模型的隐藏状态 → 预测第 3 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;以此类推……&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这种设计可以尽可能保留主模型的信息，让预测更准确。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;mtp-shi-fou-ying-xiang-zhu-mo-xing-de-pu-tong-shi-yong&quot;&gt;MTP 是否影响主模型的普通使用？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不影响。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;MTP 模块在推理时可以&lt;strong&gt;被直接丢弃&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;主模型可以像普通 LLM 一样正常运行&lt;&#x2F;li&gt;
+&lt;li&gt;行为和能力与标准模型&lt;strong&gt;完全一致&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;这是 MTP 的一个重要特性：&lt;strong&gt;&quot;训练时多步规划，推理时灵活选择&quot;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;xun-lian-guo-cheng-yu-pu-tong-xun-lian-de-qu-bie&quot;&gt;训练过程与普通训练的区别&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;xun-lian-mu-biao-loss-de-bian-hua&quot;&gt;训练目标（Loss）的变化&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;训练方式&lt;&#x2F;th&gt;&lt;th&gt;预测目标&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;普通训练（NTP）&lt;&#x2F;td&gt;&lt;td&gt;只预测&lt;strong&gt;下一个词&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;MTP 训练&lt;&#x2F;td&gt;&lt;td&gt;同时预测&lt;strong&gt;未来多个词&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;dai-lai-de-hao-chu&quot;&gt;带来的好处&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;更强的训练信号&lt;&#x2F;strong&gt;：预测多个位置的目标，提供更密集的监督信号&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;提升数据利用效率&lt;&#x2F;strong&gt;：每个训练样本提供更多学习信息&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;可能提升模型性能&lt;&#x2F;strong&gt;：DeepSeek-V3 技术报告证明，MTP 策略在多个评测基准上&lt;strong&gt;一致增强&lt;&#x2F;strong&gt;了模型性能&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;xun-lian-fang-shi-xuan-ze&quot;&gt;训练方式选择&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;从头训练&lt;&#x2F;strong&gt;：在模型预训练阶段就加入 MTP 目标&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;两阶段训练&lt;&#x2F;strong&gt;：
+&lt;ul&gt;
+&lt;li&gt;阶段 1：冻结主模型，仅训练新添加的 MTP 头（Head Warm-up）&lt;&#x2F;li&gt;
+&lt;li&gt;阶段 2：对整个模型（主模型 + 头）进行联合微调&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xun-lian-hou-de-shi-yong-fang-shi&quot;&gt;训练后的使用方式&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;zuo-wei-cao-gao-mo-xing-jin-xing-tou-ji-cai-yang&quot;&gt;作为&quot;草稿模型&quot;进行投机采样&lt;&#x2F;h4&gt;
+&lt;p&gt;MTP 用于推理加速的核心方式：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;打草稿（Draft）阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型完成一次前向计算&lt;&#x2F;li&gt;
+&lt;li&gt;利用&lt;strong&gt;内部的隐藏状态&lt;&#x2F;strong&gt; + &lt;strong&gt;级联的 MTP 模块&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;快速、串行&lt;&#x2F;strong&gt;地生成多个候选 token&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;并行验证（Verification）阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;将候选 token 序列一次性输入完整的主模型&lt;&#x2F;li&gt;
+&lt;li&gt;在一次前向传播中并行计算出所有位置的真实概率&lt;&#x2F;li&gt;
+&lt;li&gt;通过&quot;拒绝采样&quot;接受尽可能长的正确前缀&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;zhi-jie-diu-qi&quot;&gt;直接丢弃&lt;&#x2F;h4&gt;
+&lt;p&gt;如果不需要加速，或出于兼容性考虑，&lt;strong&gt;直接抛弃 MTP 模块&lt;&#x2F;strong&gt;，作为标准模型使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-san-bu-fen-dspark-vs-mtp-shen-du-dui-bi&quot;&gt;第三部分：DSpark vs MTP 深度对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-chai-yi-yi-lan&quot;&gt;核心差异一览&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;对比维度&lt;&#x2F;th&gt;&lt;th&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;本质&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;独立的推理加速框架&lt;&#x2F;td&gt;&lt;td&gt;模型训练策略&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;草稿生成者&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;独立的外部小模型（3 亿参数）&lt;&#x2F;td&gt;&lt;td&gt;主模型自带的 MTP 模块&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;训练时间&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型训练&lt;strong&gt;之后&lt;&#x2F;strong&gt;，单独训练&lt;&#x2F;td&gt;&lt;td&gt;主模型训练&lt;strong&gt;期间&lt;&#x2F;strong&gt;，同步训练&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;模型修改&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;不修改主模型结构&lt;&#x2F;td&gt;&lt;td&gt;增加额外的 MTP 头&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;即插即用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;可为任意开源模型单独训练并挂载&lt;&#x2F;td&gt;&lt;td&gt;与主模型深度绑定，不可拆分&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;草稿成本&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;额外小模型的计算 + 显存开销&lt;&#x2F;td&gt;&lt;td&gt;几乎无额外开销（共享大部分参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;适用场景&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;开源模型推理加速&lt;&#x2F;td&gt;&lt;td&gt;需要内建加速能力的模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;zhi-guan-lei-bi&quot;&gt;直观类比&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;给专家（主模型）配了一位快速助手（外部草稿模型）。助手先快速写草稿，专家审阅。这套班子可以随时请来，随时请走。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;专家自己被训练出了一心多用的天赋（内部预测头）。自己快速打草稿，自己审阅。这种天赋需要从小（训练时）培养，是专家不可分割的一部分。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;yan-zheng-jie-duan-shi-fou-xiang-tong&quot;&gt;验证阶段是否相同？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;是的，验证阶段的核心机制完全相同。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;MTP 和 DSpark 在&quot;验证&quot;这一步，都遵循推测解码的标准范式：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;一次并行前向传播&lt;&#x2F;strong&gt;验证多个候选 token&lt;&#x2F;li&gt;
+&lt;li&gt;通过&lt;strong&gt;拒绝采样&lt;&#x2F;strong&gt;保证无损&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;区别仅在于 &lt;strong&gt;&quot;谁&quot;来生成候选草稿&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-si-bu-fen-ji-shu-wen-da-jing-xuan&quot;&gt;第四部分：技术问答精选&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;q1-cao-gao-mo-xing-shi-sui-zhu-mo-xing-yi-qi-fa-bu-ma&quot;&gt;Q1：草稿模型是随主模型一起发布吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不是。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型是&lt;strong&gt;独立训练&lt;&#x2F;strong&gt;的，需要单独获取&lt;&#x2F;li&gt;
+&lt;li&gt;DeepSeek 会在 Hugging Face 等平台&lt;strong&gt;单独发布&lt;&#x2F;strong&gt;针对特定主模型的草稿模型权重&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q2-cao-gao-mo-xing-ke-yi-zai-zhu-mo-xing-xun-lian-shi-yi-qi-xun-lian-ma&quot;&gt;Q2：草稿模型可以在主模型训练时一起训练吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;两种方式都有，但主流是&quot;事后训练&quot;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;th&gt;主流程度&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;事后训练&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型训练完成后，再单独训练草稿模型&lt;&#x2F;td&gt;&lt;td&gt;主流&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;联合训练&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型与草稿模型同时训练&lt;&#x2F;td&gt;&lt;td&gt;研究探索&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;事后训练的优势&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;资源需求灵活（单机 8 卡即可）&lt;&#x2F;li&gt;
+&lt;li&gt;解耦与复用（可为任何开源模型训练）&lt;&#x2F;li&gt;
+&lt;li&gt;工程成熟（DeepSpec 框架支持）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q3-xun-lian-cao-gao-mo-xing-xu-yao-zhu-mo-xing-de-can-shu-ma&quot;&gt;Q3：训练草稿模型需要主模型的参数吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不需要权重参数，但需要架构信息。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;需求项&lt;&#x2F;th&gt;&lt;th&gt;是否需要&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型权重参数&lt;&#x2F;td&gt;&lt;td&gt;不需要&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;主模型架构信息（层数、hidden size 等）&lt;&#x2F;td&gt;&lt;td&gt;需要&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;主模型隐藏状态&lt;&#x2F;td&gt;&lt;td&gt;核心需求&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;对闭源模型的影响&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;无法获取隐藏状态 → &lt;strong&gt;无法为闭源模型训练草稿模型&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;DSpark 的加速能力目前仅适用于&lt;strong&gt;开源模型&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q4-zhu-mo-xing-bing-xing-yan-zheng-100-ge-token-shi-ru-guo-qian-mian-de-token-shi-cuo-de-hou-mian-de-ji-suan-huan-you-yi-yi-ma&quot;&gt;Q4：主模型&quot;并行验证 100 个 token&quot;时，如果前面的 token 是错的，后面的计算还有意义吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;有意义。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;主模型在验证时，计算的是**&quot;假设前面 token 被接受&quot;这一条件下的条件概率**：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;位置 3 的计算：基于&quot;原始上下文 + 位置 1 和 2 的 token（&lt;strong&gt;假设被接受&lt;&#x2F;strong&gt;）&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;这个上下文是主模型&lt;strong&gt;自己构建的、逻辑连贯的&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;即使草稿在位置 1 出错，主模型算出的位置 2、3 的&quot;条件概率&quot;&lt;strong&gt;本身仍是有效的&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;真正的&quot;浪费&quot;&lt;&#x2F;strong&gt;：如果草稿在位置 K 出错，K+1 及之后的草稿 token 会作废。但 DSpark 的&lt;strong&gt;动态验证调度&lt;&#x2F;strong&gt;会立即截断，最大化收益。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;q5-yan-zheng-shi-de-reng-tou-zi-shi-fou-hui-dao-zhi-hui-tui-dao-chuan-xing-ji-suan&quot;&gt;Q5：验证时的&quot;扔骰子&quot;是否会导致回退到串行计算？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不会。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&quot;扔骰子&quot;（拒绝采样判断）的成本与主模型计算的成本&lt;strong&gt;相差几个数量级&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;操作&lt;&#x2F;th&gt;&lt;th&gt;耗时&lt;&#x2F;th&gt;&lt;th&gt;数据量&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型前向传播&lt;&#x2F;td&gt;&lt;td&gt;毫秒级&lt;&#x2F;td&gt;&lt;td&gt;几百 GB 权重搬运&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;拒绝采样判断&lt;&#x2F;td&gt;&lt;td&gt;微秒&#x2F;纳秒级&lt;&#x2F;td&gt;&lt;td&gt;几 KB 数据读取 + 除法 + 随机数&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;1 毫秒 = 1000 微秒，主模型跑 1 步的时间足够 GPU &lt;strong&gt;扔上几万次骰子&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-wu-bu-fen-zong-jie-yu-zhan-wang&quot;&gt;第五部分：总结与展望&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-yao-dian&quot;&gt;核心要点&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;DSpark 和 MTP 不是竞争关系，而是继承与超越的关系&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;MTP 是 DeepSeek 上一代技术&lt;&#x2F;li&gt;
+&lt;li&gt;DSpark 是新一代、更强大的进化版&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;DSpark 的核心创新&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;半自回归并行草稿生成&lt;&#x2F;li&gt;
+&lt;li&gt;动态验证调度&lt;&#x2F;li&gt;
+&lt;li&gt;轻量级独立草稿模型&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;MTP 的核心特点&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;训练时多步规划&lt;&#x2F;li&gt;
+&lt;li&gt;推理时灵活选择（可用可弃）&lt;&#x2F;li&gt;
+&lt;li&gt;与主模型深度绑定&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;推测解码的无损保证&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;拒绝采样机制&lt;&#x2F;li&gt;
+&lt;li&gt;数学上严格证明&lt;&#x2F;li&gt;
+&lt;li&gt;最终输出与主模型直接生成分布一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;xuan-xing-jian-yi&quot;&gt;选型建议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;推荐方案&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;为已有开源模型加速&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;（即插即用，独立训练）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;从头训练新模型，追求极致效率&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;（内建加速能力，无额外开销）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;构建高并发线上服务&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;vLLM + DSpark&lt;&#x2F;strong&gt;（全能框架 + 先进算法）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;追求单用户极限响应速度&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;（速度提升 60%-85%）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;yan-shen-si-kao&quot;&gt;延伸思考&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;DSpark 的&quot;事后训练&quot;思路，为开源生态的推理加速提供了巨大想象空间&lt;&#x2F;li&gt;
+&lt;li&gt;草稿模型的独立训练，使得&quot;为任何开源模型定制加速器&quot;成为可能&lt;&#x2F;li&gt;
+&lt;li&gt;未来的发展方向：更轻量的草稿模型、更高的接受率、更智能的动态调度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;can-kao-zi-yuan&quot;&gt;参考资源&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;DeepSeek 官方开源框架：&lt;strong&gt;DeepSpec&lt;&#x2F;strong&gt;（包含 DSpark 实现）&lt;&#x2F;li&gt;
+&lt;li&gt;草稿模型权重：Hugging Face 平台（针对 Gemma、Qwen 等模型）&lt;&#x2F;li&gt;
+&lt;li&gt;相关论文：DSpark 技术报告、DeepSeek-V3 技术报告&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;本文基于与 DeepSeek 技术专家的深度对话整理而成，旨在帮助读者系统理解大模型推理加速的核心技术。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;em&gt;最后更新：2026-08-25&lt;&#x2F;em&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>AI 编程代理（Agent）工具&#x2F;Skills 安装指南</title>
+        <published>2026-06-14T12:00:00+08:00</published>
+        <updated>2026-06-15T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/agent-tools-skills-guide/"/>
+        <id>https://moxuetianya.github.io/2026/06/agent-tools-skills-guide/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/agent-tools-skills-guide/">&lt;h1 id=&quot;ai-bian-cheng-dai-li-agent-gong-ju-skills-an-zhuang-zhi-nan&quot;&gt;AI 编程代理（Agent）工具&#x2F;Skills 安装指南&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;适用代理：OpenCode &#x2F; Claude Code &#x2F; Codex（OpenAI Codex CLI）
+更新时间：2026-06-14&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;mu-lu&quot;&gt;目录&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87%E5%89%8D%E7%BD%AE%E4%BE%9D%E8%B5%96&quot;&gt;环境准备（前置依赖）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#%E7%BB%9F%E4%B8%80%E5%AE%89%E8%A3%85%E5%B7%A5%E5%85%B7npx-skills&quot;&gt;统一安装工具：npx skills&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#skills-%E7%B1%BB%E5%B7%A5%E5%85%B7&quot;&gt;Skills 类工具&lt;&#x2F;a&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#1-skill-creatoranthropic-%E5%AE%98%E6%96%B9-150k&quot;&gt;skill-creator（Anthropic 官方）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#2-gstackgarry-tan-%E5%B7%A5%E7%A8%8B%E5%B7%A5%E4%BD%9C%E6%B5%81-109k&quot;&gt;gstack（Garry Tan 工程工作流）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#3-baoyu-skills%E4%B8%AD%E6%96%87%E5%86%85%E5%AE%B9%E5%88%9B%E4%BD%9C-21k&quot;&gt;baoyu-skills（中文内容创作）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#4-find-skills%E8%87%AA%E5%8A%A8%E6%8E%A8%E8%8D%90-skill-22k&quot;&gt;find-skills（自动推荐 Skill）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#5-supabase-postgres-best-practices-2k&quot;&gt;supabase-postgres-best-practices&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#6-cloudflare-skills&quot;&gt;Cloudflare Skills&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#7-open-design%E8%AE%BE%E8%AE%A1%E5%B7%A5%E4%BD%9C%E6%B5%81--skills-%E9%9B%86%E5%90%8864k&quot;&gt;Open Design（设计工作流）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#8-superpowers%E7%BC%96%E7%A0%81%E4%BB%A3%E7%90%86%E5%BC%80%E5%8F%91%E6%96%B9%E6%B3%95%E8%AE%BA228k&quot;&gt;superpowers（编码代理开发方法论）⭐228k+&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#mcp-%E7%B1%BB%E5%B7%A5%E5%85%B7&quot;&gt;MCP 类工具&lt;&#x2F;a&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#9-playwright-mcp%E6%B5%8F%E8%A7%88%E5%99%A8%E8%87%AA%E5%8A%A8%E5%8C%96-34k&quot;&gt;Playwright MCP（浏览器自动化）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#playwright-cli--skills%E7%BC%96%E7%A0%81%E4%BB%A3%E7%90%86%E6%8E%A8%E8%8D%90-&quot;&gt;Playwright CLI + Skills（编码代理推荐）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#10-agent-browservercel-%E6%B5%8F%E8%A7%88%E5%99%A8-cli-35k&quot;&gt;agent-browser（Vercel 浏览器 CLI）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#11-chrome-devtools-mcp%E5%89%8D%E7%AB%AF%E8%B0%83%E8%AF%95-44k&quot;&gt;Chrome DevTools MCP（前端调试）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#12-linear-mcp%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86&quot;&gt;Linear MCP（任务管理）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#13-jira-mcp%E4%BB%BB%E5%8A%A1%E7%AE%A1%E7%90%86&quot;&gt;Jira MCP（任务管理）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#14-postgresql-mcp%E6%95%B0%E6%8D%AE%E5%BA%93%E6%9F%A5%E8%AF%A2&quot;&gt;PostgreSQL MCP（数据库查询）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#15-ssh-mcp-server--classfangssh-mcp-server&quot;&gt;SSH MCP Server — classfang&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#16-ssh-mcp--tufantuncssh-mcp&quot;&gt;SSH MCP — tufantunc&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#python-%E5%BA%93%E7%B1%BB%E5%B7%A5%E5%85%B7&quot;&gt;Python 库类工具&lt;&#x2F;a&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#17-browser-use%E8%87%AA%E7%84%B6%E8%AF%AD%E8%A8%80%E6%B5%8F%E8%A7%88%E5%99%A8%E6%8E%A7%E5%88%B6-99k&quot;&gt;browser-use（自然语言浏览器控制）&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;agent-tools-skills-guide&#x2F;#%E5%90%84%E4%BB%A3%E7%90%86-mcp-%E9%85%8D%E7%BD%AE%E5%AF%B9%E7%85%A7%E8%A1%A8&quot;&gt;各代理 MCP 配置对照表&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;环境准备前置依赖&quot;&gt;环境准备（前置依赖）&lt;&#x2F;h2&gt;
+&lt;p&gt;本节涉及的工具依赖 &lt;code&gt;npx&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;npm&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;node&lt;&#x2F;code&gt; 和 &lt;code&gt;uvx&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;uv&lt;&#x2F;code&gt;，请先确保以下环境就绪。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;node-js-npm-npx-an-zhuang&quot;&gt;Node.js + npm + npx 安装&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;npx&lt;&#x2F;code&gt; 随 Node.js 自带，安装 Node.js 即可获得。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;方法一：NodeSource（推荐，Linux）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装 Node.js 22 LTS
+curl -fsSL https:&amp;#x2F;&amp;#x2F;deb.nodesource.com&amp;#x2F;setup_22.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 验证
+node --version    # v22.x
+npm --version     # 10.x
+npx --version     # 10.x
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法二：nvm（多版本管理）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装 nvm
+curl -o- https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;nvm-sh&amp;#x2F;nvm&amp;#x2F;v0.40.1&amp;#x2F;install.sh | bash
+source ~&amp;#x2F;.bashrc
+
+# 安装并使用 Node.js 22
+nvm install 22
+nvm use 22
+nvm alias default 22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法三：fnm（快速版本管理，Rust 实现）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# macOS&amp;#x2F;Linux
+curl -fsSL https:&amp;#x2F;&amp;#x2F;fnm.vercel.app&amp;#x2F;install | bash
+source ~&amp;#x2F;.bashrc
+
+fnm install 22
+fnm default 22
+fnm use 22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法四：直接下载二进制（Linux 通用）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载 Node.js 22 LTS 预编译包
+wget https:&amp;#x2F;&amp;#x2F;nodejs.org&amp;#x2F;dist&amp;#x2F;v22.19.0&amp;#x2F;node-v22.19.0-linux-x64.tar.xz
+tar -xf node-v22.19.0-linux-x64.tar.xz
+sudo mv node-v22.19.0-linux-x64 &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;nodejs
+sudo ln -sf &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;nodejs&amp;#x2F;bin&amp;#x2F;node &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;node
+sudo ln -sf &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;nodejs&amp;#x2F;bin&amp;#x2F;npm &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;npm
+sudo ln -sf &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;nodejs&amp;#x2F;bin&amp;#x2F;npx &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;npx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;npm-jing-xiang-yuan-mirror-registry-pei-zhi&quot;&gt;npm 镜像源（Mirror Registry）配置&lt;&#x2F;h3&gt;
+&lt;p&gt;国内网络环境下建议配置 npm 镜像加速。以下为常用源：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;镜像&lt;&#x2F;th&gt;&lt;th&gt;URL&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;npmmirror（阿里云）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;https:&#x2F;&#x2F;registry.npmmirror.com&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;国内最全，推荐&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;腾讯云&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;https:&#x2F;&#x2F;mirrors.cloud.tencent.com&#x2F;npm&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;腾讯维护&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;华为云&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;https:&#x2F;&#x2F;repo.huaweicloud.com&#x2F;repository&#x2F;npm&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;华为维护&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;npm 官方&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;https:&#x2F;&#x2F;registry.npmjs.org&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;默认（需代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;方法一：npm config 设置（全局生效）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 设置镜像（以阿里云 npmmirror 为例）
+npm config set registry https:&amp;#x2F;&amp;#x2F;registry.npmmirror.com
+
+# 验证
+npm config get registry
+
+# 恢复官方源
+npm config set registry https:&amp;#x2F;&amp;#x2F;registry.npmjs.org
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法二：nrm（源管理工具）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;npm install -g nrm
+
+nrm ls                          # 列出所有可用源
+nrm use npmmirror               # 切换到阿里云镜像
+nrm test                        # 测速
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法三：单次使用（不修改全局配置）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;npm install --registry=https:&amp;#x2F;&amp;#x2F;registry.npmmirror.com &amp;lt;package&amp;gt;
+npx --registry=https:&amp;#x2F;&amp;#x2F;registry.npmmirror.com skills add &amp;lt;repo&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;npm 代理配置（如需代理访问外网）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;npm config set proxy http:&amp;#x2F;&amp;#x2F;192.168.2.100:10808
+npm config set https-proxy http:&amp;#x2F;&amp;#x2F;192.168.2.100:10808
+
+# 取消代理
+npm config delete proxy
+npm config delete https-proxy
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;python-uv-uvx-an-zhuang&quot;&gt;Python + uv&#x2F;uvx 安装&lt;&#x2F;h3&gt;
+&lt;p&gt;部分 MCP 工具（如 &lt;code&gt;mcp-atlassian&lt;&#x2F;code&gt;）使用 Python，通过 &lt;code&gt;uvx&lt;&#x2F;code&gt; 运行。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;安装 uv（Python 包管理器）：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Linux&amp;#x2F;macOS
+curl -LsSf https:&amp;#x2F;&amp;#x2F;astral.sh&amp;#x2F;uv&amp;#x2F;install.sh | sh
+source ~&amp;#x2F;.bashrc
+
+# 或使用 pip 安装
+pip install uv
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;uv pip 镜像配置：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 设置 PyPI 镜像（阿里云）
+export UV_INDEX_URL=https:&amp;#x2F;&amp;#x2F;mirrors.aliyun.com&amp;#x2F;pypi&amp;#x2F;simple&amp;#x2F;
+
+# 或在 uv 配置文件中 ~&amp;#x2F;.config&amp;#x2F;uv&amp;#x2F;uv.toml
+echo &amp;#x27;[pip]
+index-url = &amp;quot;https:&amp;#x2F;&amp;#x2F;mirrors.aliyun.com&amp;#x2F;pypi&amp;#x2F;simple&amp;#x2F;&amp;quot;&amp;#x27; &amp;gt; ~&amp;#x2F;.config&amp;#x2F;uv&amp;#x2F;uv.toml
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;统一安装工具npx-skills&quot;&gt;统一安装工具：npx skills&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;: https:&#x2F;&#x2F;github.com&#x2F;vercel-labs&#x2F;skills (⭐22k+)&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt; 是 Vercel 推出的跨代理 Skills 统一安装工具，支持 OpenCode、Claude Code、Codex、Cursor 等 &lt;strong&gt;70+&lt;&#x2F;strong&gt; 种代理。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 基本用法
+npx skills add &amp;lt;owner&amp;#x2F;repo&amp;gt; [-a &amp;lt;agent&amp;gt;] [--skill &amp;lt;name&amp;gt;] [--global]
+
+# 支持的代理名称：opencode, claude-code, codex, cursor, ...
+
+# 从 GitHub 安装
+npx skills add JimLiu&amp;#x2F;baoyu-skills -a opencode
+
+# 指定特定 skill
+npx skills add anthropics&amp;#x2F;skills --skill skill-creator -a claude-code
+
+# 全局安装（用户级别）
+npx skills add vercel-labs&amp;#x2F;agent-skills -a opencode --global
+
+# 列出可用 skills（不安装）
+npx skills add garrytan&amp;#x2F;gstack -a codex --list
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;skills-类工具&quot;&gt;Skills 类工具&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Skills 是 AI 代理的&quot;插件&quot;，通常是一个 Markdown 文件（SKILL.md）或目录，安装后代理自动加载其中的指令和工作流。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;1-skill-creatoranthropic-官方-150k&quot;&gt;1. skill-creator（Anthropic 官方）⭐150k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;anthropics&#x2F;skills&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Anthropic 官方 Skill 创建工具，位于 &lt;code&gt;skills&#x2F;skill-creator&#x2F;&lt;&#x2F;code&gt; 子目录&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Skill&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+npx skills add anthropics&amp;#x2F;skills --skill skill-creator -a opencode
+
+# Claude Code
+npx skills add anthropics&amp;#x2F;skills --skill skill-creator -a claude-code
+# 或通过 Claude Code 插件市场
+# &amp;#x2F;plugin marketplace add anthropics&amp;#x2F;skills
+# &amp;#x2F;plugin install example-skills@anthropic-agent-skills
+
+# Codex
+npx skills add anthropics&amp;#x2F;skills --skill skill-creator -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;2-gstackgarry-tan-工程工作流-109k&quot;&gt;2. gstack（Garry Tan 工程工作流）⭐109k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;garrytan&#x2F;gstack&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;23 个工程团队工作流 Skill：CEO Review、代码审查、QA 测试、设计评审、发布管理等&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Skills（Y Combinator CEO Garry Tan 的日常工作流）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-1&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+git clone --single-branch --depth 1 https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;garrytan&amp;#x2F;gstack.git ~&amp;#x2F;gstack
+cd ~&amp;#x2F;gstack
+.&amp;#x2F;setup --host opencode
+
+# Claude Code
+git clone --single-branch --depth 1 https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;garrytan&amp;#x2F;gstack.git ~&amp;#x2F;.claude&amp;#x2F;skills&amp;#x2F;gstack
+cd ~&amp;#x2F;.claude&amp;#x2F;skills&amp;#x2F;gstack
+.&amp;#x2F;setup
+
+# Codex
+git clone --single-branch --depth 1 https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;garrytan&amp;#x2F;gstack.git ~&amp;#x2F;gstack
+cd ~&amp;#x2F;gstack
+.&amp;#x2F;setup --host codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;3-baoyu-skills中文内容创作-21k&quot;&gt;3. baoyu-skills（中文内容创作）⭐21k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;JimLiu&#x2F;baoyu-skills&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;面向中文创作者的 20+ 内容生产 Skill 集合（写作、排版、翻译、AI 生成等）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Plugin + Skills&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-2&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+npx skills add JimLiu&amp;#x2F;baoyu-skills -a opencode
+
+# Claude Code
+npx skills add JimLiu&amp;#x2F;baoyu-skills -a claude-code
+# 或通过 Claude Code 插件市场安装
+
+# Codex
+npx skills add JimLiu&amp;#x2F;baoyu-skills -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;4-find-skills自动推荐-skill-22k&quot;&gt;4. find-skills（自动推荐 Skill）⭐22k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;vercel-labs&#x2F;skills （&lt;code&gt;skills&#x2F;find-skills&#x2F;SKILL.md&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;根据当前任务自动推荐合适的 Skill，是 Vercel skills 生态的一部分&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Skill&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-3&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+npx skills add vercel-labs&amp;#x2F;skills --skill find-skills -a opencode
+
+# Claude Code
+npx skills add vercel-labs&amp;#x2F;skills --skill find-skills -a claude-code
+
+# Codex
+npx skills add vercel-labs&amp;#x2F;skills --skill find-skills -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;5-supabase-postgres-best-practices-2k&quot;&gt;5. supabase-postgres-best-practices ⭐2k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;perennia-regen&#x2F;wachines-skills（&lt;code&gt;skills&#x2F;supabase-postgres-best-practices&#x2F;&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;PostgreSQL 最佳实践（Schema 设计、SQL 优化、RLS 安全策略），内容来源于 Supabase 官方文档&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Skill&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-4&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+npx skills add perennia-regen&amp;#x2F;wachines-skills --skill supabase-postgres-best-practices -a opencode
+
+# Claude Code
+npx skills add perennia-regen&amp;#x2F;wachines-skills --skill supabase-postgres-best-practices -a claude-code
+
+# Codex
+npx skills add perennia-regen&amp;#x2F;wachines-skills --skill supabase-postgres-best-practices -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;6-cloudflare-skills&quot;&gt;6. Cloudflare Skills&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;jezweb&#x2F;claude-skills (⭐855)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare Workers 部署、KV&#x2F;D1 管理、Web 性能审计、Hono&#x2F;TanStack&#x2F;Vite 全栈开发等 11 个插件&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Plugin&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-5&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（通过 npx skills 安装特定 skill）
+npx skills add jezweb&amp;#x2F;claude-skills -a opencode --skill cloudflare-worker-builder --skill cloudflare-api
+
+# Claude Code（通过插件市场）
+# &amp;#x2F;plugin marketplace add jezweb&amp;#x2F;claude-skills
+# &amp;#x2F;plugin install cloudflare@jezweb-skills
+
+# Codex
+npx skills add jezweb&amp;#x2F;claude-skills -a codex --skill cloudflare-worker-builder
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;7-open-design设计工作流--skills-集合64k&quot;&gt;7. Open Design（设计工作流 + Skills 集合）⭐64k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;nexu-io&#x2F;open-design&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;官网&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;open-design.ai&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;开源 Claude Design 替代品。259+ Skills · 142+ Design Systems · 261+ 插件，支持原型设计、品牌规范、PPT&#x2F;PDF&#x2F;MP4 导出等。原生支持 OpenCode &#x2F; Claude Code &#x2F; Codex &#x2F; Cursor 等 21+ 代理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Claude Code Plugin + Skills 集合&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Open Design 是一个完整的本地优先设计工作台（原生桌面应用），同时也可以作为 Skills&#x2F;Plugin 安装到编码代理中使用。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;skills-an-zhuang-jin-an-zhuang-ji-neng-wen-jian-qing-liang&quot;&gt;Skills 安装（仅安装技能文件，轻量）&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+npx skills add nexu-io&amp;#x2F;open-design -a opencode
+
+# Claude Code
+npx skills add nexu-io&amp;#x2F;open-design -a claude-code
+
+# Codex
+npx skills add nexu-io&amp;#x2F;open-design -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;plugin-an-zhuang-claude-code-yuan-sheng-cha-jian-shi-chang&quot;&gt;Plugin 安装（Claude Code 原生插件市场）&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Claude Code 内执行
+# &amp;#x2F;plugin marketplace add nexu-io&amp;#x2F;open-design
+# &amp;#x2F;plugin install open-design@nexu-io-skills
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;zhuo-mian-ying-yong-an-zhuang-wan-zheng-gong-zuo-tai-macos-windows&quot;&gt;桌面应用安装（完整工作台，macOS&#x2F;Windows）&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载桌面应用：https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;nexu-io&amp;#x2F;open-design&amp;#x2F;releases
+# 环境要求：Node.js 24+、pnpm 10.33+
+
+# 从源码运行（Docker）
+git clone https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;nexu-io&amp;#x2F;open-design.git
+cd open-design&amp;#x2F;deploy
+cp .env.example .env
+# 编辑 .env 设置 OD_API_TOKEN
+docker compose up -d
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;8-superpowers编码代理开发方法论228k&quot;&gt;8. superpowers（编码代理开发方法论）⭐228k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;obra&#x2F;superpowers&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;完整的 AI 编程代理开发方法论与 Skills 集合。包含 TDD、子代理驱动开发、系统调试、Git Worktree 隔离开发、Code Review、计划编写等 25+ Skills，覆盖从需求分析到合并发布的全流程&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Plugin + Skills（支持 Claude Code &#x2F; Codex &#x2F; OpenCode &#x2F; Cursor &#x2F; Gemini CLI &#x2F; GitHub Copilot CLI 等 7+ 代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-6&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Claude Code（通过官方插件市场，推荐）
+&amp;#x2F;plugin install superpowers@claude-plugins-official
+
+# 或通过 Superpowers 自有市场
+&amp;#x2F;plugin marketplace add obra&amp;#x2F;superpowers-marketplace
+&amp;#x2F;plugin install superpowers@superpowers-marketplace
+
+# OpenCode
+# 在 OpenCode 中输入以下指令：
+Fetch and follow instructions from https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;obra&amp;#x2F;superpowers&amp;#x2F;refs&amp;#x2F;heads&amp;#x2F;main&amp;#x2F;.opencode&amp;#x2F;INSTALL.md
+
+# Codex CLI（通过官方插件市场）
+# 在 Codex 中输入 &amp;#x2F;plugins，搜索 superpowers，选择 Install Plugin
+
+# Codex App
+# 在 Codex App 侧边栏点击 Plugins，找到 Superpowers，点击 + 安装
+
+# Cursor
+&amp;#x2F;add-plugin superpowers
+
+# Gemini CLI
+gemini extensions install https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;obra&amp;#x2F;superpowers
+# 更新
+gemini extensions update superpowers
+
+# GitHub Copilot CLI
+copilot plugin marketplace add obra&amp;#x2F;superpowers-marketplace
+copilot plugin install superpowers@superpowers-marketplace
+
+# Factory Droid
+droid plugin marketplace add https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;obra&amp;#x2F;superpowers
+droid plugin install superpowers@superpowers
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;he-xin-gong-zuo-liu&quot;&gt;核心工作流&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;brainstorming&lt;&#x2F;strong&gt; — 编码前激活，Socratic 式需求澄清，分段输出设计文档供确认&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;using-git-worktrees&lt;&#x2F;strong&gt; — 设计确认后创建隔离工作空间，检查测试基线&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;writing-plans&lt;&#x2F;strong&gt; — 将工作拆分为 2-5 分钟的 bite-sized 任务，含精确文件路径和验证步骤&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;subagent-driven-development&lt;&#x2F;strong&gt; — 每个任务派遣独立子代理，两阶段审查（规格合规 + 代码质量）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;test-driven-development&lt;&#x2F;strong&gt; — 强制执行 RED-GREEN-REFACTOR 循环，先写失败测试再写最小实现&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;requesting-code-review&lt;&#x2F;strong&gt; — 任务间自动触发审查，严重问题阻塞进展&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;finishing-a-development-branch&lt;&#x2F;strong&gt; — 任务完成后验证测试、清理 worktree、提供 merge&#x2F;PR 选项&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;代理在执行任何任务前会自动检查并加载相关 Skill，非建议性工作流，而是强制执行。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;mcp-类工具&quot;&gt;MCP 类工具&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;MCP（Model Context Protocol）服务器以独立进程运行，通过标准 I&#x2F;O 或 HTTP 与代理通信，提供工具调用能力。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;9-playwright-mcp浏览器自动化-34k&quot;&gt;9. Playwright MCP（浏览器自动化）⭐34k&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;microsoft&#x2F;playwright-mcp&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;基于 Playwright 的浏览器自动化 MCP 服务，支持页面操作、截图、无头浏览&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server（Node.js&#x2F;npx）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-7&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+opencode mcp add playwright -- npx @playwright&amp;#x2F;mcp@latest
+
+# Claude Code
+claude mcp add playwright npx @playwright&amp;#x2F;mcp@latest
+
+# Codex
+codex mcp add playwright npx &amp;quot;@playwright&amp;#x2F;mcp@latest&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;提示&lt;&#x2F;strong&gt;：对于编码代理，微软还提供了 Playwright CLI + Skills（见下方），更节省 token。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;playwright-cli--skills编码代理推荐-&quot;&gt;Playwright CLI + Skills（编码代理推荐）⭐&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;microsoft&#x2F;playwright-cli&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Playwright CLI 是面向编码代理的浏览器自动化入口。相比 MCP，CLI+Skills 模式更省 token，适合需要同时处理大量代码的编码代理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;CLI + Skills（Node.js&#x2F;npm）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-8&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 全局安装 CLI
+npm install -g @playwright&amp;#x2F;cli@latest
+
+# 验证
+playwright-cli --help
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;an-zhuang-skills&quot;&gt;安装 Skills&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 为代理安装 Playwright Skills（代理将自动发现本地 Skills）
+playwright-cli install --skills
+
+# 或通过 npx skills（OpenCode &amp;#x2F; Codex）
+npx skills add microsoft&amp;#x2F;playwright-cli -a opencode
+npx skills add microsoft&amp;#x2F;playwright-cli -a codex
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;基本命令：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;playwright-cli open &amp;quot;https:&amp;#x2F;&amp;#x2F;example.com&amp;quot;          # 打开页面
+playwright-cli open &amp;quot;https:&amp;#x2F;&amp;#x2F;example.com&amp;quot; --headed  # 有头模式（可见浏览器）
+playwright-cli type &amp;quot;input text&amp;quot;                    # 输入文本
+playwright-cli press Enter                          # 按键
+playwright-cli click &amp;quot;按钮文本&amp;quot;                     # 点击
+playwright-cli check e21                            # 勾选复选框
+playwright-cli screenshot                           # 截图
+playwright-cli snapshot                             # 页面快照
+playwright-cli close                                # 关闭浏览器
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;MCP vs CLI 选择建议&lt;&#x2F;strong&gt;：编码代理（Claude Code &#x2F; OpenCode &#x2F; Codex）推荐使用 CLI，MCP 更适合需要持久浏览器状态的自愈测试、长时间探索性自动化等场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;10-agent-browservercel-浏览器-cli-35k&quot;&gt;10. agent-browser（Vercel 浏览器 CLI）⭐35k+&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;vercel-labs&#x2F;agent-browser&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Vercel 出品的原生 Rust 浏览器自动化 CLI，可为 AI 代理提供浏览器操作能力&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;CLI 工具 &#x2F; 可封装为 MCP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-9&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 全局安装（推荐）
+npm install -g agent-browser
+agent-browser install          # 首次自动下载 Chrome for Testing
+
+# macOS
+brew install agent-browser
+agent-browser install
+
+# Linux（需要系统依赖）
+npm install -g agent-browser
+agent-browser install --with-deps
+
+# 升级
+agent-browser upgrade
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;基本命令：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;agent-browser open &amp;quot;https:&amp;#x2F;&amp;#x2F;example.com&amp;quot;   # 打开页面
+agent-browser snapshot                      # 获取页面快照
+agent-browser click &amp;quot;按钮文本&amp;quot;              # 点击元素
+agent-browser type &amp;quot;input&amp;quot; &amp;quot;内容&amp;quot;           # 输入文本
+agent-browser close                         # 关闭浏览器
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;社区提供了 MCP 封装（如 &lt;code&gt;minhlucvan&#x2F;agent-browser-mcp&lt;&#x2F;code&gt;），可将其作为 MCP Server 在代理中使用。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;11-chrome-devtools-mcp前端调试-44k&quot;&gt;11. Chrome DevTools MCP（前端调试）⭐44k&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;ChromeDevTools&#x2F;chrome-devtools-mcp&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Chrome DevTools 官方 MCP，提供性能分析、网络请求调试、控制台日志、截图等能力&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server + Claude Code Plugin&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-10&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+opencode mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
+
+# Claude Code
+# 方式一：MCP 安装
+claude mcp add chrome-devtools npx chrome-devtools-mcp@latest
+# 方式二：插件市场（推荐，支持 Skills）
+# &amp;#x2F;plugin marketplace add ChromeDevTools&amp;#x2F;chrome-devtools-mcp
+# &amp;#x2F;plugin install chrome-devtools-mcp@chrome-devtools-plugins
+
+# Codex
+codex mcp add chrome-devtools -- npx chrome-devtools-mcp@latest
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;12-linear-mcp任务管理&quot;&gt;12. Linear MCP（任务管理）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;官方 MCP&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;mcp.linear.app&#x2F;sse（远程 SSE）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Linear 官方 MCP 服务，管理 Issues、项目、团队等&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-11&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（命令行）
+opencode mcp add linear --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot;
+
+# OpenCode（手动编辑 ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;opencode.json）：
+# 在 &amp;quot;mcpServers&amp;quot; 中添加：
+{
+  &amp;quot;mcpServers&amp;quot;: {
+    &amp;quot;linear&amp;quot;: {
+      &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot;
+    }
+  }
+}
+
+# Claude Code
+claude mcp add linear --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot;
+
+# Codex
+codex mcp add --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot; linear
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;13-jira-mcp任务管理&quot;&gt;13. Jira MCP（任务管理）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;sooperset&#x2F;mcp-atlassian (⭐5.4k, Jira + Confluence)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;官方&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;atlassian&#x2F;atlassian-mcp-server (⭐780)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Jira&#x2F;Confluence MCP 服务，管理 Issue、Sprint、文档等&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server（Python&#x2F;uvx）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h5 id=&quot;qian-zhi-zhun-bei&quot;&gt;前置准备&lt;&#x2F;h5&gt;
+&lt;ol&gt;
+&lt;li&gt;获取 API Token：https:&#x2F;&#x2F;id.atlassian.com&#x2F;manage-profile&#x2F;security&#x2F;api-tokens&lt;&#x2F;li&gt;
+&lt;li&gt;确认 Jira URL（如 &lt;code&gt;https:&#x2F;&#x2F;your-company.atlassian.net&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-12&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（命令行）
+opencode mcp add mcp-atlassian -- uvx mcp-atlassian
+# 然后设置环境变量（见下方配置文件方式中的 env 字段）
+
+# OpenCode（手动编辑 ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;opencode.json）：
+{
+  &amp;quot;mcpServers&amp;quot;: {
+    &amp;quot;mcp-atlassian&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;uvx&amp;quot;,
+      &amp;quot;args&amp;quot;: [&amp;quot;mcp-atlassian&amp;quot;],
+      &amp;quot;env&amp;quot;: {
+        &amp;quot;JIRA_URL&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;your-company.atlassian.net&amp;quot;,
+        &amp;quot;JIRA_USERNAME&amp;quot;: &amp;quot;your.email@company.com&amp;quot;,
+        &amp;quot;JIRA_API_TOKEN&amp;quot;: &amp;quot;your_api_token&amp;quot;,
+        &amp;quot;CONFLUENCE_URL&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;your-company.atlassian.net&amp;#x2F;wiki&amp;quot;,
+        &amp;quot;CONFLUENCE_USERNAME&amp;quot;: &amp;quot;your.email@company.com&amp;quot;,
+        &amp;quot;CONFLUENCE_API_TOKEN&amp;quot;: &amp;quot;your_api_token&amp;quot;
+      }
+    }
+  }
+}
+
+# Claude Code
+claude mcp add jira -- uvx mcp-atlassian
+# 然后设置环境变量
+
+# Codex
+codex mcp add jira -- uvx mcp-atlassian
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;14-postgresql-mcp数据库查询&quot;&gt;14. PostgreSQL MCP（数据库查询）&lt;&#x2F;h3&gt;
+&lt;p&gt;有两个主流方案：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;fang-an-a-dbhub-duo-shu-ju-ku-tui-jian&quot;&gt;方案 A：DBHub（多数据库，推荐）&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;bytebase&#x2F;dbhub (⭐3k)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;零依赖、token 高效的只读数据库 MCP，支持 Postgres&#x2F;MySQL&#x2F;SQL Server 等&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h5 id=&quot;an-zhuang-fang-fa-13&quot;&gt;安装方法&lt;&#x2F;h5&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode
+opencode mcp add dbhub -- npx @bytebase&amp;#x2F;dbhub@latest --transport stdio --dsn &amp;quot;postgres:&amp;#x2F;&amp;#x2F;user:pass@host:5432&amp;#x2F;db&amp;quot;
+
+# Claude Code
+claude mcp add dbhub npx @bytebase&amp;#x2F;dbhub@latest -- --dsn &amp;quot;postgres:&amp;#x2F;&amp;#x2F;user:pass@host:5432&amp;#x2F;db&amp;quot;
+
+# Codex
+codex mcp add dbhub -- npx @bytebase&amp;#x2F;dbhub@latest --transport stdio --dsn &amp;quot;postgres:&amp;#x2F;&amp;#x2F;user:pass@host:5432&amp;#x2F;db&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;fang-an-b-pg-aiguide-zhi-shi-mcp&quot;&gt;方案 B：pg-aiguide（知识 + MCP）&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;timescale&#x2F;pg-aiguide (⭐1.8k)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Timescale 出品，Postgres 最佳实践 Skill + MCP，帮助 AI 编写更好的 SQL&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server + Claude Code Skill&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h5 id=&quot;an-zhuang-fang-fa-14&quot;&gt;安装方法&lt;&#x2F;h5&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（Skills 方式）
+npx skills add timescale&amp;#x2F;pg-aiguide -a opencode
+
+# Claude Code
+claude plugin marketplace add timescale&amp;#x2F;pg-aiguide
+claude plugin install pg@aiguide
+
+# Codex（MCP 方式）
+codex mcp add --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.tigerdata.com&amp;#x2F;docs&amp;quot; pg-aiguide
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;15-ssh-mcp-server--classfangssh-mcp-server&quot;&gt;15. SSH MCP Server — classfang&#x2F;ssh-mcp-server&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;classfang&#x2F;ssh-mcp-server&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;NPM&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;@fangjunjie&#x2F;ssh-mcp-server&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;通过 MCP 协议远程执行 SSH 命令，支持密码&#x2F;私钥&#x2F;跳板机认证、命令黑白名单、文件上传下载&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server（Node.js&#x2F;npx）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-15&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（命令行）
+opencode mcp add ssh-mcp-server -- npx -y @fangjunjie&amp;#x2F;ssh-mcp-server -- --host 192.168.1.1 --username root --password your_password
+
+# OpenCode（手动编辑 ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;opencode.json）：
+{
+  &amp;quot;mcpServers&amp;quot;: {
+    &amp;quot;ssh-mcp-server&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;npx&amp;quot;,
+      &amp;quot;args&amp;quot;: [
+        &amp;quot;-y&amp;quot;, &amp;quot;@fangjunjie&amp;#x2F;ssh-mcp-server&amp;quot;,
+        &amp;quot;--host&amp;quot;, &amp;quot;192.168.1.1&amp;quot;,
+        &amp;quot;--port&amp;quot;, &amp;quot;22&amp;quot;,
+        &amp;quot;--username&amp;quot;, &amp;quot;root&amp;quot;,
+        &amp;quot;--password&amp;quot;, &amp;quot;your_password&amp;quot;
+      ]
+    }
+  }
+}
+
+# Claude Code
+claude mcp add ssh-mcp-server -- npx -y @fangjunjie&amp;#x2F;ssh-mcp-server -- --host 192.168.1.1 --username root --password your_password
+
+# Codex
+codex mcp add ssh-mcp-server -- npx -y @fangjunjie&amp;#x2F;ssh-mcp-server -- --host 192.168.1.1 --username root --password your_password
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;si-yao-ren-zheng&quot;&gt;私钥认证&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;#x2F;&amp;#x2F; 将 --password 替换为：
+&amp;quot;--privateKey&amp;quot;, &amp;quot;~&amp;#x2F;.ssh&amp;#x2F;id_rsa&amp;quot;
+&amp;#x2F;&amp;#x2F; 如有 passphrase 添加：
+&amp;quot;--passphrase&amp;quot;, &amp;quot;your_passphrase&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;nei-zhi-ai-skill-fu-zhu-pei-zhi-tui-jian&quot;&gt;内置 AI Skill 辅助配置（推荐）&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装 Skill 后让 AI 助手引导配置
+npx skills add classfang&amp;#x2F;ssh-mcp-server -a opencode
+# 然后告诉 AI：&amp;quot;Help me set up ssh-mcp-server&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;16-ssh-mcp--tufantuncssh-mcp&quot;&gt;16. SSH MCP — tufantunc&#x2F;ssh-mcp&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;tufantunc&#x2F;ssh-mcp&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;NPM&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ssh-mcp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;轻量 SSH MCP 服务，支持命令执行和 sudo 提权，可配置超时和命令长度限制&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;MCP Server（Node.js&#x2F;npx）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# OpenCode（命令行）
+opencode mcp add ssh-mcp -- npx -y ssh-mcp -- --host=1.2.3.4 --user=root --password=pass --timeout=30000
+
+# OpenCode（手动编辑 ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;opencode.json）：
+{
+  &amp;quot;mcpServers&amp;quot;: {
+    &amp;quot;ssh-mcp&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;npx&amp;quot;,
+      &amp;quot;args&amp;quot;: [
+        &amp;quot;ssh-mcp&amp;quot;, &amp;quot;-y&amp;quot;, &amp;quot;--&amp;quot;,
+        &amp;quot;--host=1.2.3.4&amp;quot;,
+        &amp;quot;--port=22&amp;quot;,
+        &amp;quot;--user=root&amp;quot;,
+        &amp;quot;--password=pass&amp;quot;,
+        &amp;quot;--timeout=30000&amp;quot;
+      ]
+    }
+  }
+}
+
+# Claude Code
+claude mcp add --transport stdio ssh-mcp -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+
+# Codex
+codex mcp add ssh-mcp -- npx -y ssh-mcp -- --host=YOUR_HOST --user=YOUR_USER --password=YOUR_PASSWORD
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;si-yao-ren-zheng-sudo-ti-quan&quot;&gt;私钥认证 &#x2F; sudo 提权&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 私钥认证
+--key=&amp;#x2F;path&amp;#x2F;to&amp;#x2F;private&amp;#x2F;key
+
+# sudo 提权
+--sudoPassword=your_sudo_pass
+
+# 禁用 sudo 功能
+--disableSudo
+
+# 自定义超时（默认 60000ms）
+--timeout=120000
+
+# 取消命令长度限制
+--maxChars=none
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h3 id=&quot;liang-ge-ssh-mcp-dui-bi&quot;&gt;两个 SSH MCP 对比&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;classfang&#x2F;ssh-mcp-server&lt;&#x2F;th&gt;&lt;th&gt;tufantunc&#x2F;ssh-mcp&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;命令执行&lt;&#x2F;td&gt;&lt;td&gt;✅ &lt;code&gt;execute-command&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;✅ &lt;code&gt;exec&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;sudo 提权&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;✅ &lt;code&gt;sudo-exec&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;文件上传&#x2F;下载&lt;&#x2F;td&gt;&lt;td&gt;✅ &lt;code&gt;upload&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;download&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;跳板机&#x2F;Bastion&lt;&#x2F;td&gt;&lt;td&gt;✅ dual transport&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;命令黑白名单&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;❌ (长度限制)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;服务器列表&lt;&#x2F;td&gt;&lt;td&gt;✅ &lt;code&gt;list-servers&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;内置 Skill&lt;&#x2F;td&gt;&lt;td&gt;✅ ssh-mcp-helper&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;适用场景&lt;&#x2F;td&gt;&lt;td&gt;多服务器管理、文件传输、安全管控&lt;&#x2F;td&gt;&lt;td&gt;快速单机 SSH、sudo 操作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;python-库类工具&quot;&gt;Python 库类工具&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;通过 Python API 直接调用，不依赖 MCP 或 Skills 协议。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;17-browser-use自然语言浏览器控制-99k&quot;&gt;17. browser-use（自然语言浏览器控制）⭐99k&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;详情&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;GitHub&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;github.com&#x2F;browser-use&#x2F;browser-use&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;官网&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;https:&#x2F;&#x2F;browser-use.com&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;简介&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;通过自然语言控制浏览器，实现网页自动化与数据抓取&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;类型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;Python 库&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;an-zhuang-fang-fa-16&quot;&gt;安装方法&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pip install &amp;quot;browser-use[core]&amp;quot;
+# 或
+uv add &amp;quot;browser-use[core]&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;基本用法：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;from browser_use.beta import Agent
+from langchain_openai import ChatOpenAI
+
+agent = Agent(
+    task=&amp;quot;打开百度并搜索&amp;#x27;AI编程助手&amp;#x27;&amp;quot;,
+    llm=ChatOpenAI(model=&amp;quot;gpt-4o&amp;quot;),
+)
+result = await agent.run()
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;各代理-mcp-配置对照表&quot;&gt;各代理 MCP 配置对照表&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;opencode&quot;&gt;OpenCode&lt;&#x2F;h3&gt;
+&lt;p&gt;配置文件：&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;opencode.json&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;mcpServers&amp;quot;: {
+    &amp;quot;playwright&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;npx&amp;quot;,
+      &amp;quot;args&amp;quot;: [&amp;quot;@playwright&amp;#x2F;mcp@latest&amp;quot;]
+    },
+    &amp;quot;chrome-devtools&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;npx&amp;quot;,
+      &amp;quot;args&amp;quot;: [&amp;quot;chrome-devtools-mcp@latest&amp;quot;]
+    },
+    &amp;quot;linear&amp;quot;: {
+      &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot;
+    },
+    &amp;quot;mcp-atlassian&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;uvx&amp;quot;,
+      &amp;quot;args&amp;quot;: [&amp;quot;mcp-atlassian&amp;quot;],
+      &amp;quot;env&amp;quot;: {
+        &amp;quot;JIRA_URL&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;your-company.atlassian.net&amp;quot;,
+        &amp;quot;JIRA_USERNAME&amp;quot;: &amp;quot;your.email@company.com&amp;quot;,
+        &amp;quot;JIRA_API_TOKEN&amp;quot;: &amp;quot;your_token&amp;quot;
+      }
+    },
+    &amp;quot;dbhub&amp;quot;: {
+      &amp;quot;command&amp;quot;: &amp;quot;npx&amp;quot;,
+      &amp;quot;args&amp;quot;: [&amp;quot;@bytebase&amp;#x2F;dbhub@latest&amp;quot;, &amp;quot;--transport&amp;quot;, &amp;quot;stdio&amp;quot;, &amp;quot;--dsn&amp;quot;, &amp;quot;postgres:&amp;#x2F;&amp;#x2F;user:pass@host:5432&amp;#x2F;db&amp;quot;]
+    }
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;或使用命令行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;opencode mcp add &amp;lt;name&amp;gt; -- &amp;lt;command&amp;gt; [args...]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;claude-code&quot;&gt;Claude Code&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地 MCP
+claude mcp add &amp;lt;name&amp;gt; &amp;lt;command&amp;gt; [args...]
+
+# 远程 MCP（SSE&amp;#x2F;HTTP）
+claude mcp add &amp;lt;name&amp;gt; --url &amp;quot;&amp;lt;url&amp;gt;&amp;quot;
+
+# 示例
+claude mcp add playwright npx @playwright&amp;#x2F;mcp@latest
+claude mcp add linear --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot;
+
+# Skills &amp;#x2F; 插件
+&amp;#x2F;plugin marketplace add &amp;lt;owner&amp;#x2F;repo&amp;gt;
+&amp;#x2F;plugin install &amp;lt;name&amp;gt;@&amp;lt;namespace&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;codex-openai-codex-cli&quot;&gt;Codex（OpenAI Codex CLI）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地 MCP
+codex mcp add &amp;lt;name&amp;gt; -- &amp;lt;command&amp;gt; [args...]
+
+# 远程 MCP
+codex mcp add --url &amp;quot;&amp;lt;url&amp;gt;&amp;quot; &amp;lt;name&amp;gt;
+
+# 示例
+codex mcp add playwright npx &amp;quot;@playwright&amp;#x2F;mcp@latest&amp;quot;
+codex mcp add --url &amp;quot;https:&amp;#x2F;&amp;#x2F;mcp.linear.app&amp;#x2F;sse&amp;quot; linear
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;fu-lu&quot;&gt;附录&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;gong-ju-fen-lei-su-cha&quot;&gt;工具分类速查&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;类型&lt;&#x2F;th&gt;&lt;th&gt;安装方式&lt;&#x2F;th&gt;&lt;th&gt;适用代理&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;skill-creator&lt;&#x2F;td&gt;&lt;td&gt;Skill&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;gstack&lt;&#x2F;td&gt;&lt;td&gt;Skills&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;.&#x2F;setup&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部（原生支持）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;baoyu-skills&lt;&#x2F;td&gt;&lt;td&gt;Skills&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;find-skills&lt;&#x2F;td&gt;&lt;td&gt;Skill&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;supabase-postgres-best-practices&lt;&#x2F;td&gt;&lt;td&gt;Skill&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Cloudflare Skills&lt;&#x2F;td&gt;&lt;td&gt;Skills&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt; &#x2F; Claude Code Plugin&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Open Design&lt;&#x2F;td&gt;&lt;td&gt;Skills&#x2F;Plugin&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx skills&lt;&#x2F;code&gt; &#x2F; Plugin&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Superpowers&lt;&#x2F;td&gt;&lt;td&gt;Plugin + Skills&lt;&#x2F;td&gt;&lt;td&gt;插件市场（各代理原生安装）&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Playwright MCP&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Playwright CLI&lt;&#x2F;td&gt;&lt;td&gt;CLI + Skills&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm i -g&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;agent-browser&lt;&#x2F;td&gt;&lt;td&gt;CLI&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npm i -g&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Chrome DevTools&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Linear&lt;&#x2F;td&gt;&lt;td&gt;MCP (SSE)&lt;&#x2F;td&gt;&lt;td&gt;远程 URL&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Jira&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;uvx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;PostgreSQL&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SSH MCP (classfang)&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SSH MCP (tufantunc)&lt;&#x2F;td&gt;&lt;td&gt;MCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;npx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;browser-use&lt;&#x2F;td&gt;&lt;td&gt;Python 库&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;pip install&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;通用（Python）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;can-kao-lian-jie&quot;&gt;参考链接&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;Vercel Skills 生态：https:&#x2F;&#x2F;skills.sh&lt;&#x2F;li&gt;
+&lt;li&gt;Anthropic Skills 仓库：https:&#x2F;&#x2F;github.com&#x2F;anthropics&#x2F;skills&lt;&#x2F;li&gt;
+&lt;li&gt;MCP 协议规范：https:&#x2F;&#x2F;modelcontextprotocol.io&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

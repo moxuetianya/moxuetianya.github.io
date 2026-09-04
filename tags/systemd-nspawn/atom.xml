@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - systemd-nspawn</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/systemd-nspawn/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-12-08T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/systemd-nspawn/atom.xml</id>
+    <entry xml:lang="en">
+        <title>systemd-nspawn lxc podman 容器对比</title>
+        <published>2025-11-24T20:56:45+08:00</published>
+        <updated>2025-12-08T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/systemd-nspawn lxc podman 容器对比/"/>
+        <id>https://moxuetianya.github.io/2025/11/systemd-nspawn lxc podman 容器对比/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/systemd-nspawn lxc podman 容器对比/">&lt;h1 id=&quot;debootstrap-gou-jian-vmmu-lu&quot;&gt;debootstrap 构建vm目录&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+sudo debootstrap --verbose --include=tmux,apt-transport-https,ca-certificates,dbus bookworm &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;debian https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian
+sudo machinectl start debian
+sudo machinectl shell debian
+# sudo systemd-nspawn -D &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;debian -u root -- &amp;#x2F;bin&amp;#x2F;bash -c &amp;#x27;systemctl is-active dbus&amp;#x27;
+# sudo systemd-nspawn -D &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;debian
+
+podman pull ubuntu:24.04
+podman export ubuntu:24.04 &amp;gt; ubuntu.tar
+mkdir &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;ubuntu
+tar -xf ubuntu.tar -C &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;ubuntu
+
+machinectl start ubuntu
+systemd-nspawn -D &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;ubuntu
+# 单次运行 &amp;#x2F; 调试 &amp;#x2F; 灵活参数控制
+# 参数全由用户传递，例如：
+# 挂载
+# network
+# capabilities
+# user namespace 等
+sudo systemd-nspawn -b -M debian --private-users
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-machinede-qi-dong-can-shu&quot;&gt;配置machine的启动参数&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;cat &amp;lt;&amp;lt;EOF | sudo tee &amp;quot;&amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;nspawn&amp;#x2F;debian.nspawn&amp;quot; &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+# 安全执行环境
+[Exec]
+# 启用用户命名空间（关键！容器内 root ≠ 宿主 root）
+PrivateUsers=yes
+PrivateUsersChown=yes
+# 降权：禁止提权，限制能力集
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE CAP_CHOWN CAP_DAC_OVERRIDE CAP_SETGID CAP_SETUID
+# 隔离内核模块&amp;#x2F;参数
+PrivateMounts=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+# 文件系统
+[Files]
+# 只读绑定宿主关键配置
+BindReadOnly=&amp;#x2F;etc&amp;#x2F;resolv.conf
+# 可选：绑定项目目录（取消注释并修改路径）
+#Bind=&amp;#x2F;home&amp;#x2F;$USER&amp;#x2F;project:&amp;#x2F;mnt&amp;#x2F;project
+# 网络（桥接模式）
+[Network]
+VirtualEthernet=yes
+Bridge=$BRIDGE
+# 若需MACVLAN（高性能），替换为：
+#MACVLAN=$MAIN_IFACE
+# 资源控制（cgroup v2）
+[ResourceControl]
+# CPU：最多 2 核，权重 500
+CPUQuota=200%
+AllowedCPUs=0 1
+# 内存：硬限制 2GB，软限制 1.5GB
+MemoryMax=2G
+MemoryHigh=1500M
+# 进程数上限
+TasksMax=500
+# IO 权重
+IOWeight=500
+# 设备安全（仅允许必要设备）
+[Device]
+# 清空默认允许列表
+DeviceAllow=
+# 允许终端&amp;#x2F;随机数
+DeviceAllow=char-pts rw
+DeviceAllow=char-urandom r
+DeviceAllow=char-null r
+# 禁止访问磁盘&amp;#x2F;USB&amp;#x2F;内核设备
+#DeviceAllow=block-* r  # 取消注释可允许磁盘（危险！）
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;chang-qi-chi-jiu-wan-zheng-os-de-kai-fa-huan-jing-ru-bian-yi-nei-he-bu-shu-fu-wu-zhan-ce-shi-xi-tong-ji-ruan-jian&quot;&gt;长期、持久、完整 OS 的开发环境（如：编译内核、部署服务栈、测试系统级软件）&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;首选 systemd-nspawn&lt;&#x2F;li&gt;
+&lt;li&gt;优势：天然持久、systemd 原生、无缝 journal、machinectl 管理方便&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 创建 Ubuntu 开发机
+sudo debootstrap jammy &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;dev-ubuntu
+sudo systemd-nspawn -D &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;dev-ubuntu --boot
+sudo machinectl enable dev-ubuntu
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xu-ni-ji-zhong-pei-zhi-wang-luo&quot;&gt;虚拟机中配置网络&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ip route add  default via 192.168.2.1 dev host0
+tee -a  &amp;#x2F;etc&amp;#x2F;resolv.conf&amp;lt;&amp;lt;EOF
+nameserver 223.5.5.5
+EOF
+# 创建 networkd 配置，为 veth 接口（默认名是 host0）启用 DHCP
+cat &amp;gt; &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;network&amp;#x2F;20-wired.network &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+[Match]
+Name=host0
+[Network]
+DHCP=yes
+# 可选：添加 DNS
+# DNS=192.168.1.1
+# Domains=lan
+EOF
+systemctl enable --now systemd-networkd
+networkctl status
+
+cat &amp;#x2F;etc&amp;#x2F;subuid
+pid=$(machinectl show debian -p Leader --value)
+cat &amp;#x2F;proc&amp;#x2F;$pid&amp;#x2F;uid_map
+
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;shi-yong-isogou-zao-rootfs&quot;&gt;使用iso构造rootfs&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo mount -o loop &amp;#x2F;path&amp;#x2F;to&amp;#x2F;system.iso &amp;#x2F;mnt&amp;#x2F;iso
+sudo unsquashfs -f -d &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;machines&amp;#x2F;ubuntu &amp;#x2F;mnt&amp;#x2F;iso&amp;#x2F;casper&amp;#x2F;minimal.squashfs
+sudo machinectl start ubuntu
+sudo machinectl shell ubuntu
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-yao-gui-an-quan-rootless-docker-jing-xiang-sheng-tai&quot;&gt;需要 GUI + 安全 rootless + Docker 镜像生态&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;首选 Podman（rootless）&lt;&#x2F;li&gt;
+&lt;li&gt;优势：一行命令跑 GUI 应用、OCI 镜像丰富、与 Dockerfile 兼容、安全&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;podman run -d \
+  --name devbox \
+  --hostname devbox \
+  --systemd=always \
+  -e DISPLAY=$DISPLAY \
+  -v &amp;#x2F;tmp&amp;#x2F;.X11-unix:&amp;#x2F;tmp&amp;#x2F;.X11-unix \
+  -v ~&amp;#x2F;project:&amp;#x2F;home&amp;#x2F;user&amp;#x2F;project:z \
+  -v dev-data:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;mysql \
+  ghcr.io&amp;#x2F;linuxserver&amp;#x2F;code-server:latest
+
+# 通过--rootfs运行：Podman可以直接使用这个解压后的目录来运行容器，这证实了该目录可以作为有效的根文件系统使用：
+podman run --rootfs &amp;#x2F;path&amp;#x2F;to&amp;#x2F;lxc&amp;#x2F;rootfs
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-yao-kuai-zhao-mo-ban-chuan-tong-xu-ni-hua-ti-yan&quot;&gt;需要快照、模板、传统虚拟化体验&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;选 LXC（或 LXD）&lt;&#x2F;li&gt;
+&lt;li&gt;优势：快照&#x2F;迁移&#x2F;备份成熟；适合运维人员管理多容器&lt;&#x2F;li&gt;
+&lt;li&gt;推荐搭配 lxd（LXC 的 daemon + REST API + CLI 增强版）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;lxc launch ubuntu:22.04 dev --profile default --profile gui  # 若配置了 GUI profile
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

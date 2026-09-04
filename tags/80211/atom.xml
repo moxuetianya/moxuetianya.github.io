@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - 80211</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/80211/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2023-11-26T20:50:49+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/80211/atom.xml</id>
+    <entry xml:lang="en">
+        <title>80211_hwsim</title>
+        <published>2023-11-26T20:50:49+08:00</published>
+        <updated>2023-11-26T20:50:49+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2023/11/80211-hwsim/"/>
+        <id>https://moxuetianya.github.io/2023/11/80211-hwsim/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2023/11/80211-hwsim/">&lt;h1 id=&quot;80211-hwsim&quot;&gt;80211_hwsim&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Build mac80211_hwsim as part of kernel configuration
+# Load the module
+modprobe mac80211_hwsim
+# Run hostapd (AP) for wlan0
+hostapd hostapd.conf
+# Run wpa_supplicant (station) for wlan1
+wpa_supplicant -Dnl80211 -iwlan1 -c wpa_supplicant.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;modprobe -r mac80211_hwsim
+modprobe mac80211_hwsim radios=2
+
+# Launch in background, write logs to file instead of stdout
+hostapd -B -f hostapd.log -i wlan0 hostapd.conf
+# Set IP @ first (otherwise dhcpd will frown and just exit)
+ip addr add 192.168.42.1&amp;#x2F;24 dev wlan0
+# Launch in background is implicit
+dhcpd -cf dhcpd.conf wlan0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Launch in background, write logs to file instead of stdout
+wpa_supplicant -B -c wpa_supplicant.conf -f wpa_supplicant.log -i wlan1
+
+# Get ourselves a fresh IP @, and go into background once the lease has been obtained
+dhclient -4 wlan1
+# Note: you may get the following warning message; do not worry, it does not mean
+# you could not get an IP @
+# cat: can&amp;#x27;t open &amp;#x27;&amp;#x2F;etc&amp;#x2F;resolv.conf.*&amp;#x27;: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Record every function call in the kernel, for the whole duration of the command
+trace-cmd record -p function iw dev wlan1 set channel 8
+#   plugin &amp;#x27;function&amp;#x27;
+# CPU0 data recorded at offset=0x182000
+#     208896 bytes in size
+trace-cmd record -p function -l &amp;#x27;*80211*&amp;#x27; iw dev wlan1 set channel 8
+trace-cmd report
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;gt; .&amp;#x2F;send_deauth_pkt.py &amp;lt;&amp;lt;EOF
+#! &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;python3
+
+from scapy.all import *
+
+pkt = Dot11(addr1=&amp;#x27;02:00:00:00:00:00&amp;#x27;, addr2=&amp;#x27;02:00:00:00:01:00&amp;#x27;) &amp;#x2F; Dot11Deauth(reason=8)
+print(&amp;quot;Sending the following packet:&amp;quot;)
+pkt.show()
+sendp(pkt, count=1, iface=&amp;#x27;wlan1&amp;#x27;)
+EOF
+trace-cmd record -p function -l &amp;#x27;*80211*&amp;#x27; .&amp;#x2F;send_deauth_pkt.py
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;hostapd-pei-zhi&quot;&gt;hostapd 配置&lt;&#x2F;h2&gt;
+&lt;p&gt;##ssid：别人所看到的无线接入点的名称；
+##hw_mode：指定802.11协议，其中 a = IEEE 802.11a, b = IEEE 802.11b, g = IEEE 802.11g；
+##channel：设定无线频道；
+##interface：接入点设备名称，注意不要包含ap后缀，即如果该设备称为wlan0ap，填写wlan0即可；
+##bridge：指定所处网桥；
+##driver：设定无线驱动；
+##macaddr_acl：可选，指定MAC地址过滤规则，0表示除非在禁止列表否则允许，1表示除非在允许列表否则禁止，2表示使用外部RADIUS服务器；
+##accept_mac_file：指定允许MAC列表文件所在；
+##deny_mac_file：指定禁止MAC列表文件所在；&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;gt; .&amp;#x2F;hostapd.conf &amp;lt;&amp;lt;EOF
+ssid=test
+hw_mode=g
+channel=10
+interface=wlan0
+bridge=br0
+driver=nl80211
+ignore_broadcast_ssid=0
+macaddr_acl=0
+accept_mac_file=&amp;#x2F;etc&amp;#x2F;hostapd.accept
+deny_mac_file=&amp;#x2F;etc&amp;#x2F;hostapd.deny
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

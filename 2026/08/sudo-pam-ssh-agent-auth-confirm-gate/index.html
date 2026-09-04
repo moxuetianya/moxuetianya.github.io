@@ -1,0 +1,304 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="上一篇文章的 pass 方案存在口令可被 pass show sudo 提取的残余风险；本文梳理 sudo 能否走公钥体系、为什么 pam_ssh_agent_auth 难加人工门，并给出 pam_exec 确认门 + pam_ssh_agent_auth 的完整配置：密钥不可提取、每次 agent 的 sudo 都弹确认框" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/" />
+  <meta property="og:description" content="上一篇文章的 pass 方案存在口令可被 pass show sudo 提取的残余风险；本文梳理 sudo 能否走公钥体系、为什么 pam_ssh_agent_auth 难加人工门，并给出 pam_exec 确认门 + pam_ssh_agent_auth 的完整配置：密钥不可提取、每次 agent 的 sudo 都弹确认框" />
+  <meta name="twitter:description" content="上一篇文章的 pass 方案存在口令可被 pass show sudo 提取的残余风险；本文梳理 sudo 能否走公钥体系、为什么 pam_ssh_agent_auth 难加人工门，并给出 pam_exec 确认门 + pam_ssh_agent_auth 的完整配置：密钥不可提取、每次 agent 的 sudo 都弹确认框" />
+  <meta property="og:title" content="让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门 | 墨雪天琊" />
+  <meta name="twitter:title" content="让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-11" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/">让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 11, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/sudo/">sudo</a>  #<a href="https://moxuetianya.github.io/tags/security/">security</a>  #<a href="https://moxuetianya.github.io/tags/pam/">pam</a>  #<a href="https://moxuetianya.github.io/tags/ssh/">ssh</a> </span>
+
+    
+
+
+<h1 id="xu-qiu-bei-jing">需求背景</h1>
+<p><a href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/2026/08/sudo-askpass-pass-and-gpg-agent">上一篇文章</a> 用 <code>sudo -A</code> + askpass(pass + gpg-agent + yad)让 agent 执行 sudo 时弹窗授权:回车=允许、Esc=取消、免打字。这套方案解决了"未经同意静默 sudo"的问题,但有一个结构性残余风险:</p>
+<p><strong>任何人(或任何进程、任何 agent)只要绕过限制,执行 <code>pass show sudo</code>,就能拿到我的口令。</strong></p>
+<p>本文讨论这个风险到底有多真实、sudo 能否改用公钥体系认证(像 SSH 用 gpg-agent 里的带口令密钥认证那样),并最终给出一个可行的落地配置。</p>
+<h1 id="jiu-fang-an-de-can-yu-feng-xian">旧方案的残余风险</h1>
+<h2 id="feng-xian-de-zhen-shi-bian-jie">风险的真实边界</h2>
+<p>先纠正一个常见误解:<strong>gpg-agent 缓存的不是 sudo 密码,而是 GPG 私钥的 passphrase</strong>。sudo 密码以密文形式躺在 <code>~/.password-store/sudo.gpg</code> 里,askpass 每次调用时临时解密一次,明文只短暂存在于 helper 的 stdout→sudo 管道中,不进上下文、不落盘。</p>
+<p>但"泄露"的现实前提没那么难:</p>
+<ol>
+<li><strong>窗口期</strong>:gpg-agent 配置了 <code>default-cache-ttl 86400</code>(1 天),私钥解锁状态下,任何进程一条 <code>pass show sudo</code> 就静默解出明文,不弹任何提示。</li>
+<li><strong>deny 规则只保护 opencode 一个 agent</strong>:<code>~/.config/opencode/opencode.jsonc</code> 里的 deny 规则管的是 opencode 自己的工具调用。换一个 agent(Claude Code、Cursor、任何有 shell 的脚本)规则完全不存在。</li>
+<li><strong>字符串匹配本身有缝</strong>:<code>printf 'pass show sudo' | bash</code>、<code>gpg --output - --decrypt ~/.password-store/sudo.gpg</code> 这类变体可能不命中。</li>
+</ol>
+<p>所以"密码在磁盘上、且能被程序恢复出来"是真实存在的性质。</p>
+<h2 id="jie-gou-xing-shi-shi-tong-yi-ge-yong-hu-tong-yi-quan-xian">结构性事实:同一个用户 = 同一权限</h2>
+<p><code>pass show sudo</code> 能拿明文,是因为 gpg-agent 里私钥已解锁,<strong>任何以你身份运行的进程都能静默解密</strong>。你没法造一个"我的合法 agent 能读、恶意进程不能读"的秘密——它们在同一个用户下权限相同。规则、守卫只能抬高门槛,抬不掉"明文可提取"这个性质。</p>
+<h2 id="liang-ge-wei-xie-yao-fen-kai">两个威胁要分开</h2>
+<table><thead><tr><th>威胁</th><th>对话框门防不防</th><th>根子</th></tr></thead><tbody>
+<tr><td>agent 未经你同意静默 sudo</td><td>✅ 防(Enter/Esc)</td><td>这是门存在的意义</td></tr>
+<tr><td>恶意进程偷走可复用密码</td><td>❌ 不防</td><td><strong>密码本身可被提取</strong></td></tr>
+</tbody></table>
+<p>对话框门解决的是第一类;第二类唯一的解是<strong>让密码根本不存在</strong>。</p>
+<h1 id="sudo-you-mei-you-gong-yao-ren-zheng">sudo 有没有公钥认证?</h1>
+<p><strong>没有。</strong> sudo 的认证因子就是账户密码(PAM 密码认证),协议层没有像 SSH 那样的签名交换。要消除"账户密码"这个秘密,只能靠 PAM 模块把认证因子换成别的,主要是两条路:</p>
+<table><thead><tr><th>方案</th><th>口令是否可被程序恢复</th><th>每命令人工门</th></tr></thead><tbody>
+<tr><td>pass + askpass(现状)</td><td><strong>是</strong>,磁盘上存在可解密的账户密码</td><td>✅ 有(Enter/Esc)</td></tr>
+<tr><td>pam_ssh_agent_auth</td><td><strong>否</strong>,agent 是签名器,密钥不可提取</td><td>❌ 无</td></tr>
+<tr><td>pam_u2f(FIDO2 硬件)</td><td><strong>否</strong>,密钥永不离 token</td><td>✅ 有(物理按键)</td></tr>
+</tbody></table>
+<p>关键区别在"无密码"那一列:<strong>SSH 那套的精华是把私钥放在 agent 里,agent 只做签名,密钥材料不可提取</strong>——哪怕拿到 agent 的全部字节也恢复不出私钥。而 pass 方案是"存密码、用密码",性质完全不同。这就是为什么最开始的直觉(gpg-agent + 带口令 SSH 密钥认证)方向是对的。</p>
+<h1 id="wei-shen-me-pam-ssh-agent-auth-nan-jia-ren-gong-men">为什么 pam_ssh_agent_auth 难加人工门</h1>
+<p>你可能会想:那就在 pam_ssh_agent_auth 上叠一个人工确认门,每次 sudo 都弹个框。<strong>技术上可行,但门放哪才不被绕过才是症结</strong>:</p>
+<ul>
+<li><strong>包一层 wrapper 无效</strong>:密钥已解锁时,<code>sudo</code> 直接走 PAM 认证成功,根本不会经过 wrapper;进程绕过 wrapper 直接执行 <code>sudo</code> 就行,门形同虚设。</li>
+<li><strong>agent 是共享签名器,签名成功时没有提示点</strong>:任何进程都能请 agent 签名,agent 无从区分"人批准的"和"进程自发的"。sudo 又没有"按 y 确认"这种概念——它唯一的门就是认证提示。</li>
+<li><strong>pam_ssh_agent_auth 内部没有"必须确认"选项</strong>:它只在 agent 无匹配密钥时才回退到密码对话(此时要的门是反向的)。<code>ssh-add -c</code> 的确认约束也只对 OpenSSH 的 ssh-agent 生效,gpg-agent 不实现。</li>
+</ul>
+<h2 id="zhen-neng-zai-pam-ceng-gei-chu-ren-gong-men-de-san-chong-fang-shi">真能在 PAM 层给出人工门的三种方式</h2>
+<table><thead><tr><th>方式</th><th>门是什么</th><th>能否绕过</th><th>代价</th></tr></thead><tbody>
+<tr><td>gpg-agent <code>default-cache-ttl-ssh 0</code></td><td>每次签名弹 pinentry 重输密钥口令</td><td>不能(agent 拒绝无口令签名)</td><td>每次都要敲口令,且影响所有 SSH 签名(含 ssh 登录)</td></tr>
+<tr><td>自写 PAM 模块 / <code>pam_exec</code> 弹窗</td><td>弹 yad 确认框</td><td>可被注入 Enter 伪造(软件"声称有人确认")</td><td>对话框对"人的 sudo"也生效,要处理显示路由</td></tr>
+<tr><td>pam_u2f(FIDO2 硬件)</td><td>物理按键,由硬件验证</td><td>不能</td><td>需硬件,远程/waypipe 场景别扭</td></tr>
+</tbody></table>
+<h2 id="dan-chuang-men-vs-u2f-jiao-hu-deng-jia-xing-zhi-bu-tong">弹窗门 vs U2F:交互等价,性质不同</h2>
+<p>交互上两者都是"每次 sudo 要人做一个物理动作"。区别在<strong>谁能验证"这是人做的"</strong>:</p>
+<ul>
+<li>弹窗 Enter:恶意进程可以用 <code>ydotool</code>/<code>wtype</code>/<code>xdotool</code> 注入按键,sudo 收到的只是"一次按键事件",分不清是人按的还是程序按的。门是<strong>软件声称有人确认了</strong>。</li>
+<li>U2F 触摸:FIDO2 的"用户在场"检查发生在硬件 token 内部,没按实体键 token 就拒绝签名,user-presence 位由硬件置位,软件注入任何事件都无效。</li>
+</ul>
+<p>所以差异不在交互,而在**"人"这个字的验证方是软件还是硬件**。如果你的威胁模型是"机器上可能有恶意进程/被攻陷的 agent 会自己批准对话框",只有 U2F 这种硬件验证才算真门;如果只是"合法 agent 需要我每次确认",弹窗门够了。</p>
+<h2 id="she-qu-zen-me-kan-pam-ssh-agent-auth">社区怎么看 pam_ssh_agent_auth</h2>
+<ul>
+<li>本质是"密钥持有的免密 sudo",设计意图是"能用 SSH 密钥登录就有权 sudo"(自动化/Ansible 场景),不是"每命令确认"。多数安全向讨论把它归入与 NOPASSWD 同类,属便捷而非安全机制。</li>
+<li>固有弱点:agent 是共享签名器,同一会话任何进程(包括被攻陷的模型)都能请它签名。</li>
+<li>真正需要"每命令人工批准 + 无秘密落盘"的场景,社区的落地方案就是 askpass 对话框 + 密码保管库(pass/1Password/KeePass),或 FIDO2 硬件。</li>
+</ul>
+<h1 id="zui-zhong-fang-an-pam-ssh-agent-auth-pam-exec-que-ren-men">最终方案:pam_ssh_agent_auth + pam_exec 确认门</h1>
+<p>结合需求与可行性,选定:<strong>PAM 栈里在 <code>pam_ssh_agent_auth</code> 前面叠一个 <code>pam_exec</code> 确认门</strong>。不写 C 模块、不换 agent(gpg-agent 继续当唯一的 ssh-agent),并用 <code>SUDO_ASKPASS</code> 环境变量区分 agent 调用和人工终端调用,人工的 sudo 保持原有密码体验。</p>
+<h2 id="jia-gou">架构</h2>
+<pre><code>sudo(agent) ──&gt; PAM
+   ① pam_exec 确认门(仅当 SUDO_ASKPASS 已设置 → 弹 yad:Enter=放行&#x2F;Esc=拒绝)
+   ② pam_ssh_agent_auth(gpg-agent 里的 auth 子钥签名;密钥不可提取)
+   ③ common-auth 密码回退(仅人工终端 sudo 走这里,密钥缺省时兜底)
+</code></pre>
+<p>密钥路径下 <strong>pass 里的 sudo 密码整个移除</strong>,磁盘上没有任何可恢复口令;账户密码只留在 <code>/etc/shadow</code>(哈希,不可恢复)。</p>
+<h2 id="ju-ti-pei-zhi">具体配置</h2>
+<h3 id="1-an-zhuang-mo-kuai">1. 安装模块</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo apt install libpam-ssh-agent-auth
+</code></pre>
+<h3 id="2-deng-ji-shou-quan-gong-yao-yong-gpg-agent-li-xian-you-de-auth-zi-yao">2. 登记授权公钥(用 gpg-agent 里现有的 auth 子钥)</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ssh-add -L                        # 从 gpg-agent 列出 ssh 公钥
+sudo mkdir -p &#x2F;etc&#x2F;pam_ssh_agent_auth.d
+sudo install -m 644 &lt;上面列出的公钥&gt; &#x2F;etc&#x2F;pam_ssh_agent_auth.d&#x2F;peter
+</code></pre>
+<h3 id="3-etc-pam-d-sudo-zai-include-common-auth-qian-cha-ru-liang-xing">3. <code>/etc/pam.d/sudo</code>(在 <code>@include common-auth</code> 前插入两行)</h3>
+<pre><code>auth    required     pam_exec.so quiet &#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-confirm
+auth    sufficient   pam_ssh_agent_auth.so file=&#x2F;etc&#x2F;pam_ssh_agent_auth.d&#x2F;$USER
+@include common-auth
+</code></pre>
+<h3 id="4-etc-sudoers-d-ssh-agent-auth-rang-zhe-xie-huan-jing-bian-liang-jin-pam">4. <code>/etc/sudoers.d/ssh-agent-auth</code>(让这些环境变量进 PAM)</h3>
+<pre><code>Defaults env_keep += &quot;SSH_AUTH_SOCK SUDO_ASKPASS DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR&quot;
+</code></pre>
+<h3 id="5-que-ren-men-jiao-ben-usr-local-libexec-sudo-confirm">5. 确认门脚本 <code>/usr/local/libexec/sudo-confirm</code></h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">#!&#x2F;bin&#x2F;sh
+# 只有 agent 路径(SUDO_ASKPASS 已设置)才弹确认框;人工终端 sudo 直接放行
+[ -n &quot;$SUDO_ASKPASS&quot; ] || exit 0
+
+if &#x2F;usr&#x2F;bin&#x2F;yad --title=&quot;sudo 授权请求 [$(hostname)]&quot; \
+       --text=&quot;确认授权本次 sudo 操作？&quot; \
+       --button=&quot;允许:0&quot; --button=&quot;取消:1&quot; --center 2&gt;&#x2F;dev&#x2F;null; then
+    exit 0
+else
+    exit 1
+fi
+</code></pre>
+<h3 id="6-dou-di-du-si-pass-xie-lou-lu-jing">6. 兜底:堵死 pass 泄漏路径</h3>
+<p>把 <code>/usr/local/libexec/sudo-askpass</code> 改成"永不输出密码"(密钥路径下 askpass 根本不会被调用,这里只是防止密钥缺失时兜底回退到 pass):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">#!&#x2F;bin&#x2F;sh
+exit 1
+</code></pre>
+<p>可选再加 <code>pass rm sudo</code> 删掉口令,双保险。</p>
+<h2 id="xing-wei-yan-zheng">行为验证</h2>
+<table><thead><tr><th>场景</th><th>行为</th></tr></thead><tbody>
+<tr><td>人工终端 <code>sudo ...</code></td><td>无弹窗,密码提示,5 分钟缓存照旧</td></tr>
+<tr><td>agent <code>SUDO_ASKPASS=... sudo -A -k ...</code></td><td>每次弹确认框,Enter 放行 / Esc 拒绝</td></tr>
+<tr><td>密钥未加载时 agent sudo</td><td>确认框后 pam_ssh_agent_auth 失败→askpass 拒绝→sudo 失败(fail-closed)</td></tr>
+</tbody></table>
+<h2 id="luo-di-qian-yao-shi-ce-de-liang-ge-dian">落地前要实测的两个点</h2>
+<ol>
+<li><strong>yad 以 root 跑在用户显示上</strong>:<code>pam_exec</code> 默认以 root 运行,Wayland/X 的 socket root 一般能连,但要在机器上实测一次。</li>
+<li><strong><code>file=...$USER</code> 展开</strong>:若模块版本不展开变量,改成硬编码路径 <code>/etc/pam_ssh_agent_auth.d/peter</code>。</li>
+</ol>
+<h2 id="yuan-cheng-waypipe-chang-jing">远程(waypipe)场景</h2>
+<p>远程机的 PAM 栈需要拿到本地的 agent:<code>waypipe --no-gpu ssh -A -t server 'env SUDO_ASKPASS=... sudo -A cmd'</code>——<code>-A</code> 做 agent 转发,远程签名请求回到本地 gpg-agent,确认框经转发的显示弹在本地屏幕。注意:agent 转发也意味着远程机能用你的密钥,按需权衡。</p>
+<h1 id="bei-xuan-fang-an">备选方案</h1>
+<ul>
+<li><strong>gpg-agent <code>default-cache-ttl-ssh 0</code></strong>:零新增文件,但每次 SSH 签名(包括 ssh 登录)都要重输口令,全局影响。</li>
+<li><strong>pam_u2f(FIDO2 硬件)</strong>:密钥永不离 token、物理按键由硬件验证,是"非绕过人工门"的终极答案;代价是需硬件,远程场景 token 要在目标机上或做 U2F 转发。</li>
+</ul>
+<h1 id="zong-jie">总结</h1>
+<ul>
+<li>旧 pass 方案的残余风险是真实的:<strong>口令在磁盘上、能被程序恢复</strong>,deny 规则只是 opencode 层的保护且可绕过;结构性原因是"同一用户 = 同一权限",无法造"自己能读、恶意进程不能读"的秘密。</li>
+<li>两个威胁要分开:对话框门防"未同意静默 sudo",防不了"偷走可复用密码";后者只能靠<strong>无密码</strong>——签名器(pam_ssh_agent_auth)或硬件(pam_u2f)。</li>
+<li>sudo 没有原生公钥认证,只能靠 PAM 模块换认证因子。</li>
+<li>pam_ssh_agent_auth 加人工门技术上可行,但 agent 是共享签名器、无提示点,弹窗门可被注入按键伪造;要"非绕过门"只能靠 U2F 硬件。</li>
+<li><strong>最终方案</strong>:<code>pam_exec</code> 确认门 + <code>pam_ssh_agent_auth</code>,用 <code>SUDO_ASKPASS</code> 区分 agent 与人工路径,密钥不可提取、每次 agent 的 sudo 都弹确认框,并移除 pass 里的 sudo 口令。</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/">&#8249; Linux 使用优化记录（一）：终端与 Wayland 使用优化</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/tar-xz-format-and-random-access/"> tar.xz 深潜：格式、随机访问与导航解压提速实测 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xu-qiu-bei-jing">需求背景</a>
+        </div>
+        <div>
+          <a href="#jiu-fang-an-de-can-yu-feng-xian">旧方案的残余风险</a>
+        </div>
+        <div class="hpad">
+          <a href="#feng-xian-de-zhen-shi-bian-jie"><small>- 风险的真实边界</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-gou-xing-shi-shi-tong-yi-ge-yong-hu-tong-yi-quan-xian"><small>- 结构性事实:同一个用户 = 同一权限</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#liang-ge-wei-xie-yao-fen-kai"><small>- 两个威胁要分开</small></a>
+        </div>
+        <div>
+          <a href="#sudo-you-mei-you-gong-yao-ren-zheng">sudo 有没有公钥认证?</a>
+        </div>
+        <div>
+          <a href="#wei-shen-me-pam-ssh-agent-auth-nan-jia-ren-gong-men">为什么 pam_ssh_agent_auth 难加人工门</a>
+        </div>
+        <div class="hpad">
+          <a href="#zhen-neng-zai-pam-ceng-gei-chu-ren-gong-men-de-san-chong-fang-shi"><small>- 真能在 PAM 层给出人工门的三种方式</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dan-chuang-men-vs-u2f-jiao-hu-deng-jia-xing-zhi-bu-tong"><small>- 弹窗门 vs U2F:交互等价,性质不同</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#she-qu-zen-me-kan-pam-ssh-agent-auth"><small>- 社区怎么看 pam_ssh_agent_auth</small></a>
+        </div>
+        <div>
+          <a href="#zui-zhong-fang-an-pam-ssh-agent-auth-pam-exec-que-ren-men">最终方案:pam_ssh_agent_auth + pam_exec 确认门</a>
+        </div>
+        <div class="hpad">
+          <a href="#jia-gou"><small>- 架构</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ju-ti-pei-zhi"><small>- 具体配置</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-an-zhuang-mo-kuai"><small>· 1. 安装模块</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-deng-ji-shou-quan-gong-yao-yong-gpg-agent-li-xian-you-de-auth-zi-yao"><small>· 2. 登记授权公钥(用 gpg-agent 里现有的 auth 子钥)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-etc-pam-d-sudo-zai-include-common-auth-qian-cha-ru-liang-xing"><small>· 3. &#x2F;etc&#x2F;pam.d&#x2F;sudo(在 @include common-auth 前插入两行)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-etc-sudoers-d-ssh-agent-auth-rang-zhe-xie-huan-jing-bian-liang-jin-pam"><small>· 4. &#x2F;etc&#x2F;sudoers.d&#x2F;ssh-agent-auth(让这些环境变量进 PAM)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-que-ren-men-jiao-ben-usr-local-libexec-sudo-confirm"><small>· 5. 确认门脚本 &#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-confirm</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-dou-di-du-si-pass-xie-lou-lu-jing"><small>· 6. 兜底:堵死 pass 泄漏路径</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xing-wei-yan-zheng"><small>- 行为验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#luo-di-qian-yao-shi-ce-de-liang-ge-dian"><small>- 落地前要实测的两个点</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-cheng-waypipe-chang-jing"><small>- 远程(waypipe)场景</small></a>
+        </div>
+        <div>
+          <a href="#bei-xuan-fang-an">备选方案</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

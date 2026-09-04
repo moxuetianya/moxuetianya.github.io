@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ip rule</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ip-rule/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-14T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/ip-rule/atom.xml</id>
+    <entry xml:lang="en">
+        <title>默认路由到旁路由</title>
+        <published>2025-12-05T00:04:27+08:00</published>
+        <updated>2026-08-14T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/12/默认路由到旁路由/"/>
+        <id>https://moxuetianya.github.io/2025/12/默认路由到旁路由/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/12/默认路由到旁路由/">&lt;h1 id=&quot;zhi-jie-xiu-gai-mo-ren-lu-you&quot;&gt;直接修改默认路由&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 目标机器修改默认路由
+sudo ip route replace default via 172.17.66.222 dev enp125s0f3
+
+# 旁路由开启路由转发
+sysctl -w net.ipv4.ip_forward=1
+sysctl -w &amp;#x27;net.ipv4.ip_forward = 1&amp;#x27;
+sudo iptables -P FORWARD ACCPET
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这种方式简单直接，缺点是没有按源&#x2F;目的分流的灵活性。如果只想&quot;覆盖&quot;原默认路由而不想换表，也可以保留原路由、只调低新路由的 metric（数值小的优先）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip route replace default via 10.0.0.1 dev eth0 metric 10
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-ce-lue-lu-you&quot;&gt;配置策略路由&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# echo &amp;quot;2000 tor&amp;quot; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;iproute2&amp;#x2F;rt_tables     # 添加了这个映射后，table可以使用tor名称指定
+ip route add default via 192.168.10.10 table 2000 
+
+# 匹配所有流量到main表，但是不包括前缀是0的路由（即不匹配main中的默认路由）
+sudo ip rule add priority 5000 from all table main suppress_prefixlength 0  
+# 如果不加 not iif lo，本机产生的流量（如 curl localhost）也会查表 2000，可能导致无法访问 127.0.0.1??
+# 测试添加了not iif lo 本机器产生的所有流量都不匹配这个流量了？？
+sudo ip rule add priority 5001 from all lookup 2000
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;上面两个 &lt;code&gt;??&lt;&#x2F;code&gt; 的答案（当时留下的疑问，后来弄清楚了）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;not iif lo&lt;&#x2F;code&gt; 匹配的是&quot;不是从 lo 进来的&quot;包，即只匹配&lt;strong&gt;转发流量&lt;&#x2F;strong&gt;（从其他网卡进来的包），本机自己发出的流量（iif lo）不匹配。&lt;&#x2F;li&gt;
+&lt;li&gt;不加 &lt;code&gt;not iif lo&lt;&#x2F;code&gt; 时本机流量也会查表 2000 —— 这正是&quot;默认路由到旁路由&quot;想要的行为（本机流量同样走旁路由）。127.0.0.1 不会受影响：pref 0 的 local 表在 5000&#x2F;5001 之前就先命中了回环地址，根本轮不到查表 2000。&lt;&#x2F;li&gt;
+&lt;li&gt;加了 &lt;code&gt;not iif lo&lt;&#x2F;code&gt; 后本机流量不再匹配 2000，这是正确语义：本机流量会被&quot;漏&quot;到后面的 main 表直连。&lt;strong&gt;若希望本机也走旁路由，不要加 &lt;code&gt;not iif lo&lt;&#x2F;code&gt;。&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;lu-you-biao-ben-shen-mei-you-you-xian-ji-cha-zhao-shun-xu-you-gui-ze-lian-jue-ding&quot;&gt;路由表本身没有优先级，查找顺序由规则链决定&lt;&#x2F;h1&gt;
+&lt;p&gt;关键概念：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;路由表没有优先级&lt;&#x2F;strong&gt;。table 的 ID（2000、2022…）只是编号，不决定先后。&lt;&#x2F;li&gt;
+&lt;li&gt;内核按 &lt;code&gt;ip rule&lt;&#x2F;code&gt; 的 pref 从小到大&lt;strong&gt;逐条&lt;&#x2F;strong&gt;匹配：selector 命中 → 执行动作（&lt;code&gt;lookup 表X&lt;&#x2F;code&gt; → 在该表内做最长前缀匹配）；&lt;strong&gt;命中即终止&lt;&#x2F;strong&gt;；表内没命中则&lt;strong&gt;继续执行下一条规则&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;默认规则链（IPv4）：&lt;code&gt;0 local&lt;&#x2F;code&gt; → &lt;code&gt;32766 main&lt;&#x2F;code&gt; → &lt;code&gt;32767 default&lt;&#x2F;code&gt;（实际是 unreachable，兜底丢弃）。&lt;&#x2F;li&gt;
+&lt;li&gt;同一个 pref 允许多条规则（实测 sing-box 生成的 9002&#x2F;9003 各有两条），同 pref 内按插入顺序比较。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以&quot;main 表里的默认路由能匹配所有流量&quot;是真的，但它只有当规则链走到 &lt;code&gt;lookup main&lt;&#x2F;code&gt; 时才会被查询。5001 的 pref（5000&#x2F;5001）比 32766 小，在它之前就把流量带去了表 2000，main 的默认路由根本没机会被查。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gao-you-xian-ji-mo-ren-lu-you-hui-tun-diao-main-de-nei-wang-lu-you&quot;&gt;高优先级默认路由会吞掉 main 的内网路由&lt;&#x2F;h1&gt;
+&lt;p&gt;坑：表 2000 里的 default 匹配&lt;strong&gt;所有&lt;&#x2F;strong&gt;流量（包括内网网段），而 main 表里那些更具体的路由（比如 192.168.4.0&#x2F;22）只有在规则链走到 &lt;code&gt;lookup main&lt;&#x2F;code&gt; 时才有机会 —— 只要 5001 先命中，内网路由就永远轮不到，&lt;strong&gt;内网会断&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;规则链的先后必须按&quot;范围从精确到宽泛&quot;排，两种做法：&lt;&#x2F;p&gt;
+&lt;p&gt;做法 1：内网流量先查 main，其余才走自定义表&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip rule add priority 5000 from all table main suppress_prefixlength 0  # 内网直连兜底
+ip rule add priority 5001 from all lookup 2000                         # 其余流量走旁路由 default
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;5000 只匹配 main 里的&lt;strong&gt;具体&lt;&#x2F;strong&gt;路由（suppress_prefixlength 0 屏蔽了 main 的默认路由），内网包在此命中即结束，不进代理；漏网的流量才落到 5001，进表 2000 的 default。&lt;&#x2F;p&gt;
+&lt;p&gt;做法 2：把内网路由也复制进自定义表&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip route add 192.168.4.0&amp;#x2F;22 dev eth0 table 2000
+ip route add default via 192.168.10.10 table 2000
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;表内查找是&quot;最长前缀优先&quot;，具体网段永远比 0.0.0.0&#x2F;0 先命中。推荐做法 1：规则链即决策树，语义清晰，不用维护两份路由。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-ce-sing-box-tun-jiu-shi-tong-yi-tao-ji-zhi&quot;&gt;实测：sing-box tun 就是同一套机制&lt;&#x2F;h1&gt;
+&lt;p&gt;本机 sing-box tun 模式（auto_route）生成的规则链：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;0:    from all lookup local
+5210: from all fwmark 0x80000&amp;#x2F;0xff0000 lookup main      # 打标记的包放行直连（防回流）
+5270: from all lookup 52                                 # tailscale 直连，绕过代理
+9000: from all to 172.18.0.0&amp;#x2F;30 lookup 2022              # tun 网段本身
+9001: from all lookup 2022 suppress_prefixlength 0       # 表 2022 的具体路由兜底
+9002: not from all dport 53 lookup main suppress_prefixlength 0  # 非 DNS 先看 main 具体路由（内网直连）
+9002: from all iif singbox_tun goto 9010                 # 从 tun 回来的包跳过劫持，防环路
+9003: not from all iif lo lookup 2022                    # 非本机流量全量进 2022
+9003: from 0.0.0.0 iif lo lookup 2022                    # 本机未绑定地址的流量进代理
+9003: from 172.18.0.0&amp;#x2F;30 iif lo lookup 2022              # 绑 tun 地址的流量进代理
+32766: from all lookup main
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;table 2022 里就一条 &lt;code&gt;default via 172.18.0.2 dev singbox_tun&lt;&#x2F;code&gt; —— 这就是 sing-box 的&quot;高优先级默认路由&quot;：靠 9002&#x2F;9003 等规则把流量先引到 tun 网卡，优先级高于 32766 的 main。fwmark 0x80000 是 sing-box 给自己出站&#x2F;回注的包打的标记（用 nftables），让它们直接走 main 直连、避免再被灌回 tun 造成环路。更完整的规则逐条解读见《sing-box tun配置》（2025&#x2F;11&#x2F;sing-box tun配置）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-ming-ling&quot;&gt;排查命令&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip rule show                                   # 看规则链顺序
+ip route show table 2000                       # 看指定表的路由
+ip route get 1.2.3.4                           # 模拟选路：直接告诉你命中了哪条规则、查了哪个表、走了哪条路由
+ip route get 1.2.3.4 dport 53                  # 模拟 DNS 包（53 端口）走哪
+ip route get 1.2.3.4 iif eth0                  # 模拟从 eth0 进来的转发包走哪
+ip route get 1.2.3.4 mark 0x80000              # 模拟带 fwmark 标记的包走哪
+ip monitor rule route                          # 实时观察规则&amp;#x2F;路由变化
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-dns&quot;&gt;配置dns&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tee -a &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;resolved.conf&amp;lt;&amp;lt;EOF
+DNS=223.5.5.5 8.8.8.8 8.8.4.4
+FallbackDNS=1.1.1.1 1.0.0.1
+# DNSStubListener=no
+EOF
+
+sudo systemctl restart systemd-resolved.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

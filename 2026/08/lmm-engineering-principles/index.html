@@ -1,0 +1,275 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>多模态大模型（LMM）工程原理深度解析：从架构到推理 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="多模态 LLM 本质上是对 Transformer 的扩展：视觉编码器 + 投影层 + LLM 三段式结构，图像向量被直接映射进词向量空间；模态区分有两条路线——LLaVA 风格的隐式区分（靠向量模长等统计差异）与 Qwen 风格的显式边界 token（vision_start&#x2F;end）；训练阶段靠损失掩码、推理阶段靠 KV Cache 与起始符，各司其职" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/" />
+  <meta property="og:description" content="多模态 LLM 本质上是对 Transformer 的扩展：视觉编码器 + 投影层 + LLM 三段式结构，图像向量被直接映射进词向量空间；模态区分有两条路线——LLaVA 风格的隐式区分（靠向量模长等统计差异）与 Qwen 风格的显式边界 token（vision_start&#x2F;end）；训练阶段靠损失掩码、推理阶段靠 KV Cache 与起始符，各司其职" />
+  <meta name="twitter:description" content="多模态 LLM 本质上是对 Transformer 的扩展：视觉编码器 + 投影层 + LLM 三段式结构，图像向量被直接映射进词向量空间；模态区分有两条路线——LLaVA 风格的隐式区分（靠向量模长等统计差异）与 Qwen 风格的显式边界 token（vision_start&#x2F;end）；训练阶段靠损失掩码、推理阶段靠 KV Cache 与起始符，各司其职" />
+  <meta property="og:title" content="多模态大模型（LMM）工程原理深度解析：从架构到推理 | 墨雪天琊" />
+  <meta name="twitter:title" content="多模态大模型（LMM）工程原理深度解析：从架构到推理 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/">多模态大模型（LMM）工程原理深度解析：从架构到推理</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 25, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/ai/">ai</a>] #<a href="https://moxuetianya.github.io/tags/llm/">llm</a>  #<a href="https://moxuetianya.github.io/tags/multimodal/">multimodal</a>  #<a href="https://moxuetianya.github.io/tags/transformer/">transformer</a> </span>
+
+    
+
+
+<h1 id="duo-mo-tai-da-mo-xing-lmm-gong-cheng-yuan-li-shen-du-jie-xi-cong-jia-gou-dao-tui-li">多模态大模型（LMM）工程原理深度解析：从架构到推理</h1>
+<p>在了解大模型原理之前，很多人会好奇：多模态模型（如 GPT-4o、Qwen-VL）为什么能"看懂"图片？它们和外挂一个 OCR/检测模型，把文字描述塞给 LLM 的"外挂识别方案"有什么区别？本文从工程角度拆解 LMM 的底层机制，重点解答"图像向量如何被 LLM 理解"这一核心问题。</p>
+<h2 id="1-yuan-sheng-duo-mo-tai-vs-wai-gua-shi-bie-ben-zhi-chai-yi">1. 原生多模态 vs. 外挂识别：本质差异</h2>
+<p>多模态 LLM 和外挂图片识别的 LLM 差别是<strong>本质性</strong>的，核心在于<strong>信息流通的完整性</strong>。</p>
+<table><thead><tr><th style="text-align: left">方案类型</th><th style="text-align: left">工作流程</th><th style="text-align: left">信息损失</th></tr></thead><tbody>
+<tr><td style="text-align: left"><strong>外挂识别方案</strong></td><td style="text-align: left">图像 → 外部模型（OCR/检测）→ <strong>文字描述</strong> → LLM</td><td style="text-align: left"><strong>信息瓶颈（Information Bottleneck）</strong>。丢失了颜色深浅、光影、精确相对位置等无法用语言穷举的细节。LLM 处理的是"二手信息"。</td></tr>
+<tr><td style="text-align: left"><strong>原生多模态方案</strong></td><td style="text-align: left">图像 → 视觉编码器 → 投影层 → <strong>直接进入 LLM 嵌入空间</strong></td><td style="text-align: left"><strong>保留像素级语义</strong>。模型能看到"猫的胡须弧度"，并直接基于原始视觉信号推理，具备"视觉直觉"。</td></tr>
+</tbody></table>
+<p>也正因如此，现在的 SOTA 模型（如 GPT-4o、Qwen-VL）均采用原生多模态路线。</p>
+<h2 id="2-he-xin-jia-gou-san-da-mo-kuai-de-zhi-ze-yu-can-shu">2. 核心架构：三大模块的职责与参数</h2>
+<p>目前的架构（如 LLaVA、CogVLM）均采用 <strong>"视觉编码器 + 投影层 + 大语言模型"</strong> 的模块化结构：</p>
+<table><thead><tr><th style="text-align: left">模块</th><th style="text-align: left">作用</th><th style="text-align: left">输入</th><th style="text-align: left">输出</th><th style="text-align: left">参数规模参考</th></tr></thead><tbody>
+<tr><td style="text-align: left"><strong>视觉编码器</strong></td><td style="text-align: left">提取视觉语义特征</td><td style="text-align: left">原始像素 <code>(224x224x3)</code></td><td style="text-align: left">视觉特征向量 <code>(14x14x768)</code></td><td style="text-align: left">约 <strong>5B</strong>（如 CogVLM2）</td></tr>
+<tr><td style="text-align: left"><strong>投影层（关键纽带）</strong></td><td style="text-align: left">将视觉特征"翻译"到语言模型空间</td><td style="text-align: left">视觉特征向量</td><td style="text-align: left">视觉嵌入向量（维度与 LLM 词嵌入一致）</td><td style="text-align: left">较小（通常是 MLP）</td></tr>
+<tr><td style="text-align: left"><strong>大语言模型</strong></td><td style="text-align: left">综合视觉与文本信息，进行推理和生成</td><td style="text-align: left">文本 Token + 视觉嵌入</td><td style="text-align: left">回答文本</td><td style="text-align: left">约 <strong>8B</strong>（如 Llama-3）</td></tr>
+</tbody></table>
+<h2 id="3-mo-tai-dui-qi-de-di-ceng-shu-xue-ji-zhi-mei-you-biao-qian-ru-he-qu-fen">3. 模态对齐的底层数学机制：没有"标签"如何区分？</h2>
+<p>投影层将图片和文本都映射成了相同维度的向量，模型怎么区分它们？会不会把图片误读成文字？</p>
+<p>这是理解多模态模型最核心、最反直觉的一点。<strong>Transformer 本身并不依赖显式标签区分图片与文本</strong>，但不同模型在"模态边界"这个工程问题上走了<strong>两条路线</strong>：</p>
+<ul>
+<li><strong>隐式路线（LLaVA 风格）</strong>：靠输入向量的固有统计差异 + 注意力机制天然区分，见 3.1；</li>
+<li><strong>显式路线（Qwen 风格）</strong>：在序列中保留 <code>&lt;|vision_start|&gt;</code> / <code>&lt;|vision_end|&gt;</code> 边界 token，明确框出视觉信息块的起止，见 3.3。</li>
+</ul>
+<blockquote>
+<p>修正说明：初版文章只写了隐式路线，说法过于简化——它只对 LLaVA 风格的模型成立。下面先保留原分析，再补充显式边界 token 的正确图景（Qwen 的细节来自 tokenizer 配置观察，后续继续求证）。</p>
+</blockquote>
+<h3 id="3-1-yin-shi-lu-xian-shu-zhi-de-tong-ji-te-zheng-distribution-shift">3.1 隐式路线：数值的统计特征（Distribution Shift）</h3>
+<ul>
+<li><strong>文本向量（Embedding）</strong>：来自固定的词表查表。经过预训练后，所有文本 Token 的向量**模长（L2 Norm）**通常非常稳定且较小（如均值约为 2.3）。</li>
+<li><strong>图片向量（Projection）</strong>：由多层感知机（MLP）对实时像素进行<strong>非线性变换</strong>得到。由于 MLP 的激活函数（如 GELU），输出向量的<strong>模长通常远大于文本</strong>（如均值可达 15.0），且方差极大。</li>
+</ul>
+<p>类比：你不是靠标签去区分一堆<strong>乒乓球（文本）<strong>和</strong>铅球（图片）</strong>，而是因为<strong>质量（向量模长）的巨大差异</strong>，在计算力（Attention）时，它们对网络带来的影响本就不同。模型只需按照矩阵乘法计算，<strong>模长大的图片向量在 Attention 中会天然获得更高的权重</strong>。</p>
+<h3 id="3-2-wei-zhi-bian-ma-yu-mo-tai-wu-guan">3.2 位置编码与模态无关</h3>
+<p>位置编码<strong>只负责标记"顺序"和"相对坐标"，与模态区分无关</strong>。它解决的是"这句话从左到右的语序"问题，不是"这是图片还是文字"的问题。</p>
+<p>多张图片的交叉处理，靠的是<strong>位置编码提供"身份证"</strong>，让模型知道某个向量属于哪张图；而<strong>文本指令（如"图1"）作为 Query</strong>，通过注意力权重的高分检索，把目标坐标段的向量"拉取"出来。</p>
+<h3 id="3-3-xian-shi-lu-xian-vision-start-vision-end-bian-jie-token-qwen-feng-ge">3.3 显式路线：<code>&lt;|vision_start|&gt;</code> / <code>&lt;|vision_end|&gt;</code> 边界 token（Qwen 风格）</h3>
+<p>Qwen 系列的 tokenizer 中确实存在与视觉相关的特殊 token，且拥有独立 token ID（如 <code>&lt;|vision_start|&gt;</code> = 248053、<code>&lt;|vision_end|&gt;</code> = 248054），见 <a rel="noopener" target="_blank" href="https://huggingface.co/Qwen/Qwen3.8-27B/blob/main/tokenizer_config.json">Qwen3.8-27B tokenizer_config.json</a>：</p>
+<table><thead><tr><th style="text-align: left">Token</th><th style="text-align: left">作用</th></tr></thead><tbody>
+<tr><td style="text-align: left">`&lt;</td><td style="text-align: left">vision_start</td></tr>
+<tr><td style="text-align: left">`&lt;</td><td style="text-align: left">vision_end</td></tr>
+<tr><td style="text-align: left">`&lt;</td><td style="text-align: left">vision_pad</td></tr>
+<tr><td style="text-align: left">`&lt;</td><td style="text-align: left">image_pad</td></tr>
+<tr><td style="text-align: left">`&lt;</td><td style="text-align: left">video_pad</td></tr>
+</tbody></table>
+<p>与 LLaVA 风格（<code>&lt;image&gt;</code> 占位符在预处理时被物理移除、替换为图像向量）不同，Qwen 的做法是<strong>保留这些边界 token 在输入序列中</strong>，实际排列如：</p>
+<pre><code>&lt;|im_start|&gt;user&lt;|im_start|&gt; &lt;|vision_start|&gt; [576个图像向量] &lt;|vision_end|&gt; 请描述这张图 &lt;|im_end|&gt;
+</code></pre>
+<p>它们的作用：</p>
+<ol>
+<li><strong>结构化标记</strong>：<code>&lt;|vision_start|&gt;</code> 和 <code>&lt;|vision_end|&gt;</code> 像一对括号，明确划定了"图像特征向量"的边界，模型在 Self-Attention 中可以据此知道"夹在中间的这些向量是视觉特征，不是文本"。</li>
+<li><strong>Attention 锚点</strong>：文本 Token（如"请"、"描"、"述"）做 Query 时，可通过 <code>&lt;|vision_start|&gt;</code> 这个 Token 的 Key 精准定位到图像特征的起始位置，比纯靠位置编码推断更明确、更鲁棒。</li>
+<li><strong>区分输入类型</strong>：<code>&lt;|image_pad|&gt;</code> 与 <code>&lt;|video_pad|&gt;</code> 让同一序列中可区分当前填充的是图像还是视频特征（Qwen 同时支持图文和视频输入）。</li>
+</ol>
+<table><thead><tr><th style="text-align: left">特性</th><th style="text-align: left">LLaVA 风格</th><th style="text-align: left">Qwen 风格</th></tr></thead><tbody>
+<tr><td style="text-align: left">占位符处理</td><td style="text-align: left"><code>&lt;image&gt;</code> 在预处理时被移除，替换为图像向量</td><td style="text-align: left">`&lt;</td></tr>
+<tr><td style="text-align: left">边界标记</td><td style="text-align: left">无显式边界，靠位置编码区分</td><td style="text-align: left">有显式的 start/end 边界 token</td></tr>
+<tr><td style="text-align: left">优点</td><td style="text-align: left">序列更短，计算略快</td><td style="text-align: left">边界更明确，多模态类型区分更清晰</td></tr>
+<tr><td style="text-align: left">代表模型</td><td style="text-align: left">LLaVA、早期的 BLIP</td><td style="text-align: left">Qwen-VL、CogVLM、InternVL</td></tr>
+</tbody></table>
+<h2 id="4-xun-lian-gong-cheng-sun-shi-yan-ma-yu-zhu-yi-li-ji-zhi">4. 训练工程：损失掩码与注意力机制</h2>
+<p>训练时如何防止模型"乱输出像素"？这跟位置无关，真实的技术原理是 <strong>"注意力掩码（Attention Mask）" + "损失掩码（Loss Mask）"</strong> 的组合。</p>
+<h3 id="4-1-xun-lian-shi-sun-shi-yan-ma-loss-mask">4.1 训练时：损失掩码（Loss Mask）</h3>
+<p>在计算交叉熵损失时，代码会显式地将<strong>图片 Token 对应的标签（Label）设为 <code>-100</code></strong>（在 PyTorch 中，<code>-100</code> 代表忽略该位置的损失）：</p>
+<ul>
+<li>无论这张图出现在序列的第 1 位，还是第 1000 位，只要它是图片向量，<strong>它就不参与"预测下一个字"的误差计算</strong>。</li>
+<li>因此，模型不会因为"没预测出图片后面的像素"而受到惩罚。</li>
+</ul>
+<h3 id="4-2-tui-li-shi-yin-guo-zi-zhu-yi-li-causal-self-attention">4.2 推理时：因果自注意力（Causal Self-Attention）</h3>
+<p>推理阶段没有损失函数，依靠自回归生成机制。模型每次只生成<strong>一个</strong> Token，且<strong>只有序列最后一位的 Token 有资格发起 Query 去预测下一个词</strong>：</p>
+<ul>
+<li>前面的图片 Token 早已"躺"在历史缓存（KV Cache）中，只提供记忆，不发起生成请求。</li>
+<li>因此，<strong>推理时不需要显式地屏蔽图片预测</strong>。</li>
+</ul>
+<h2 id="5-tui-li-gong-cheng-chun-tu-pian-shu-ru-yu-duo-tu-jiao-hu">5. 推理工程：纯图片输入与多图交互</h2>
+<h3 id="5-1-tu-pian-token-mei-you-fa-yan-quan-dan-xi-tong-hui-qiang-zhi-pin-jie-qi-shi-fu">5.1 图片 Token 没有"发言权"，但系统会强制拼接起始符</h3>
+<p>如果输入只有一个图片、没有文本，图片 Token 不能作为 Query，怎么生成输出？</p>
+<p>现实工程中，<strong>根本不会出现"只有图片向量，没有文本 Token"的输入序列</strong>：</p>
+<ul>
+<li><strong>系统强制拼接</strong>：当用户没有输入文本时，系统会自动在图片向量<strong>后面</strong>拼接一个特殊的起始文本 Token（如 <code>&lt;BOS&gt;</code> 或 <code>Describe this image</code> 默认提示词）。</li>
+<li><strong>启动生成</strong>：第一个字是由这个系统添加的 <code>[BOS]</code> Token 发起 Query 去检索图片信息并生成，而不是由图片 Token 自己发起生成。</li>
+</ul>
+<p>结论：图片 Token 在多模态 LLM 中，只充当"记忆体"和"参考书"，而**"发言权（Query 权限）"永远只交给文本 Token 或起始符**。</p>
+<h3 id="5-2-duo-zhang-tu-jiao-cha-chu-xian-shi-ru-he-fang-zhi-gan-rao">5.2 多张图交叉出现时，如何防止干扰？</h3>
+<p>多张图交叉出现时，主流模型<strong>不仅不刻意"防止"图片互相干扰，反而"鼓励"它们互相看见</strong>（如对比"谁更开心"）。真正需要防止的是**"身份混淆"**，即把图 A 的特征安到图 B 上。</p>
+<table><thead><tr><th style="text-align: left">机制</th><th style="text-align: left">是否允许图片互看？</th><th style="text-align: left">核心作用</th></tr></thead><tbody>
+<tr><td style="text-align: left"><strong>Self-Attention（自注意力）</strong></td><td style="text-align: left"><strong>允许</strong>（全连接）</td><td style="text-align: left">实现跨图的对比和全局语义融合（这是好事）。</td></tr>
+<tr><td style="text-align: left"><strong>RoPE/绝对位置编码</strong></td><td style="text-align: left"><strong>不限制</strong>，但影响分数</td><td style="text-align: left">通过绝对距离，让模型知道"向量 A 属于图 1，向量 B 属于图 2"，这是数学上的"身份证"。</td></tr>
+<tr><td style="text-align: left"><strong>边界 token（Qwen 风格）</strong></td><td style="text-align: left"><strong>不限制</strong>，但锚定检索</td><td style="text-align: left">`&lt;</td></tr>
+<tr><td style="text-align: left"><strong>文本指代（如"图1"）</strong></td><td style="text-align: left"><strong>软屏蔽</strong></td><td style="text-align: left">文本 Query 的高分检索，使模型只关注目标坐标段，忽略无关图片。</td></tr>
+</tbody></table>
+<h2 id="6-gong-cheng-shi-jian-tu-pian-shu-liang-de-xian-zhi">6. 工程实践：图片数量的限制</h2>
+<p>模型训练时，输入中能包含几张图片？有明确限制，且因模型、平台和输入方式而异。</p>
+<h3 id="6-1-zhu-liu-ping-tai-xian-zhi-yi-lan">6.1 主流平台限制一览</h3>
+<ul>
+<li><strong>开源/学术探索</strong>：如 Emu3 支持最多 <strong>8 张</strong>；Qwen 系列在特定训练场景下支持<strong>最多 8000 张</strong>。</li>
+<li><strong>云服务微调平台</strong>：
+<ul>
+<li><strong>阿里云 (Qwen)</strong>：列表传入最多 <strong>8000 张</strong>；Base64 编码传入最多 <strong>250 张</strong>。</li>
+<li><strong>Microsoft Azure</strong>：每个样本最多 <strong>64 张</strong>。</li>
+<li><strong>OpenAI / Together AI</strong>：每个样本最多 <strong>10 张</strong>。</li>
+</ul>
+</li>
+</ul>
+<h3 id="6-2-yin-xing-xian-zhi">6.2 隐性限制</h3>
+<ul>
+<li><strong>Token 总量限制</strong>：所有图片的 Token 数 + 文本 Token 数 ≤ 模型的最大上下文长度。</li>
+<li><strong>显存（VRAM）限制</strong>：图片越多，序列越长，显存消耗呈平方级增长。</li>
+<li><strong>文件大小与格式</strong>：单张图通常限制最大 <strong>10MB</strong>，支持 JPEG、PNG 等格式。</li>
+<li><strong>训练数据总量</strong>：指整个数据集规模，而非单次输入（如 LLaVA 预训练用了约 60 万对图文数据）。</li>
+</ul>
+<h2 id="7-zong-jie-yi-zhang-tu-kan-dong-duo-mo-tai-he-xin-gai-nian">7. 总结：一张图看懂多模态核心概念</h2>
+<table><thead><tr><th style="text-align: left">核心疑问</th><th style="text-align: left">正确答案</th></tr></thead><tbody>
+<tr><td style="text-align: left">模型怎么知道输入里有图片？</td><td style="text-align: left">两条路线：<strong>隐式</strong>（LLaVA）靠输入向量<strong>模长、方差等统计特征的巨大差异</strong>，数学上本能区别对待；<strong>显式</strong>（Qwen）靠 `&lt;</td></tr>
+<tr><td style="text-align: left">图片和文本在底层怎么对齐？</td><td style="text-align: left">通过<strong>投影层（MLP）</strong> 将像素映射到与文本 Token 相同的向量空间，进行数学上的"坐标统一"。</td></tr>
+<tr><td style="text-align: left">图片 Token 有没有"发言权"？</td><td style="text-align: left"><strong>没有。</strong> 生成任务永远由文本 Token 或起始符 <code>[BOS]</code> 作为 Query 来发动。图片 Token 只作为被检索的 Key/Value。</td></tr>
+<tr><td style="text-align: left">多张图怎么避免张冠李戴？</td><td style="text-align: left">依靠 <strong>RoPE 位置编码</strong>提供绝对坐标作为"身份证"，Qwen 风格模型另有 start/end 边界 token 精确定位每张图的区间，并通过文本指令（如"图1"）的 Query 精准检索。</td></tr>
+<tr><td style="text-align: left">训练时如何防止模型乱输出像素？</td><td style="text-align: left">通过<strong>损失掩码（Loss Mask）</strong>，将图片 Token 位置的标签设为 <code>-100</code>，强制模型忽略图片位置的预测误差。</td></tr>
+<tr><td style="text-align: left">每次最多能传几张图？</td><td style="text-align: left">取决于<strong>模型上下文长度、显存容量和平台 API 限制</strong>，从 10 张到 8000 张不等。</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/tokio-runtime-hang-diagnosis/">&#8249; tokio 运行时「睡死」诊断记录：message-queue-enhance 服务异常排查</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/llm-jailbreak-lora-abliteration/"> 揭秘AI模型的“越狱”：从原理到实战，深入解析LoRA与Abliteration &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#duo-mo-tai-da-mo-xing-lmm-gong-cheng-yuan-li-shen-du-jie-xi-cong-jia-gou-dao-tui-li">多模态大模型（LMM）工程原理深度解析：从架构到推理</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-yuan-sheng-duo-mo-tai-vs-wai-gua-shi-bie-ben-zhi-chai-yi"><small>- 1. 原生多模态 vs. 外挂识别：本质差异</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-he-xin-jia-gou-san-da-mo-kuai-de-zhi-ze-yu-can-shu"><small>- 2. 核心架构：三大模块的职责与参数</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-mo-tai-dui-qi-de-di-ceng-shu-xue-ji-zhi-mei-you-biao-qian-ru-he-qu-fen"><small>- 3. 模态对齐的底层数学机制：没有&quot;标签&quot;如何区分？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-1-yin-shi-lu-xian-shu-zhi-de-tong-ji-te-zheng-distribution-shift"><small>· 3.1 隐式路线：数值的统计特征（Distribution Shift）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-2-wei-zhi-bian-ma-yu-mo-tai-wu-guan"><small>· 3.2 位置编码与模态无关</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-3-xian-shi-lu-xian-vision-start-vision-end-bian-jie-token-qwen-feng-ge"><small>· 3.3 显式路线：&lt;|vision_start|&gt; &#x2F; &lt;|vision_end|&gt; 边界 token（Qwen 风格）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-xun-lian-gong-cheng-sun-shi-yan-ma-yu-zhu-yi-li-ji-zhi"><small>- 4. 训练工程：损失掩码与注意力机制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-1-xun-lian-shi-sun-shi-yan-ma-loss-mask"><small>· 4.1 训练时：损失掩码（Loss Mask）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-2-tui-li-shi-yin-guo-zi-zhu-yi-li-causal-self-attention"><small>· 4.2 推理时：因果自注意力（Causal Self-Attention）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-tui-li-gong-cheng-chun-tu-pian-shu-ru-yu-duo-tu-jiao-hu"><small>- 5. 推理工程：纯图片输入与多图交互</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-1-tu-pian-token-mei-you-fa-yan-quan-dan-xi-tong-hui-qiang-zhi-pin-jie-qi-shi-fu"><small>· 5.1 图片 Token 没有&quot;发言权&quot;，但系统会强制拼接起始符</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-2-duo-zhang-tu-jiao-cha-chu-xian-shi-ru-he-fang-zhi-gan-rao"><small>· 5.2 多张图交叉出现时，如何防止干扰？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-gong-cheng-shi-jian-tu-pian-shu-liang-de-xian-zhi"><small>- 6. 工程实践：图片数量的限制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-1-zhu-liu-ping-tai-xian-zhi-yi-lan"><small>· 6.1 主流平台限制一览</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-2-yin-xing-xian-zhi"><small>· 6.2 隐性限制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-zong-jie-yi-zhang-tu-kan-dong-duo-mo-tai-he-xin-gai-nian"><small>- 7. 总结：一张图看懂多模态核心概念</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

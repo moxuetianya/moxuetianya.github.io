@@ -1,0 +1,242 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 如何判断模型是否支持图片——记一次能力判定排查 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从「模型不支持图片」的误判出发，完整梳理 opencode 的模型能力判定机制：models.dev 数据源、capabilities 归一化、运行时 unsupportedParts 兜底、配置逐字段覆盖、缓存刷新 TTL，以及 attachment 与 modalities 的分工。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/" />
+  <meta property="og:description" content="从「模型不支持图片」的误判出发，完整梳理 opencode 的模型能力判定机制：models.dev 数据源、capabilities 归一化、运行时 unsupportedParts 兜底、配置逐字段覆盖、缓存刷新 TTL，以及 attachment 与 modalities 的分工。" />
+  <meta name="twitter:description" content="从「模型不支持图片」的误判出发，完整梳理 opencode 的模型能力判定机制：models.dev 数据源、capabilities 归一化、运行时 unsupportedParts 兜底、配置逐字段覆盖、缓存刷新 TTL，以及 attachment 与 modalities 的分工。" />
+  <meta property="og:title" content="opencode 如何判断模型是否支持图片——记一次能力判定排查 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 如何判断模型是否支持图片——记一次能力判定排查 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-24" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/">opencode 如何判断模型是否支持图片——记一次能力判定排查</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 24, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/opencode/">opencode</a>, <a href="https://moxuetianya.github.io/categories/debug/">debug</a>] #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/models-dev/">models.dev</a>  #<a href="https://moxuetianya.github.io/tags/llm/">llm</a> </span>
+
+    
+
+
+<h2 id="bei-jing">背景</h2>
+<p>一次对话中我给模型 <code>deepseek-v4-flash-vision-exp</code> 下结论说「该模型不支持图片」——理由是它不在模型目录里。用户纠正:文件实际上声明了图片支持(<code>attachment = true</code>,<code>modalities.input = ["text", "image"]</code>)。这促使我完整排查了 opencode 的能力判定链路,结论是:<strong>我最初的推断是错的——该模型确实在目录里,且支持图片</strong>。本文记录这整条排查路径。</p>
+<h2 id="opencode-ru-he-pan-duan-mo-xing-zhi-chi-tu-pian">opencode 如何判断模型支持图片</h2>
+<h3 id="1-shu-ju-yuan-models-dev-mu-lu">1. 数据源:models.dev 目录</h3>
+<p>模型的元数据来自 <code>https://models.dev</code>(可以 <code>OPENCODE_MODELS_URL</code> 换源),opencode 拉取 <code>/api.json</code> 快照缓存到本地:</p>
+<pre data-lang="ts" class="language-ts "><code class="language-ts" data-lang="ts">&#x2F;&#x2F; packages&#x2F;core&#x2F;src&#x2F;models-dev.ts
+const source = Flag.OPENCODE_MODELS_URL || &quot;https:&#x2F;&#x2F;models.dev&quot;
+const filepath = path.join(
+  Global.Path.cache,
+  source === &quot;https:&#x2F;&#x2F;models.dev&quot; ? &quot;models.json&quot; : `models-${Hash.fast(source)}.json`,
+)
+</code></pre>
+<p><code>Global.Path.cache</code> = XDG cache 目录(global.ts),Linux 上就是 <code>~/.cache/opencode/models.json</code>(我自己机器上 4.3MB)。这个文件和网上能看到的 models.dev 仓库里每个模型的 <code>*.toml</code> <strong>是同一份数据的两种形态</strong>:TOML 是仓库源文件,本地缓存的是 api.json 生成的 JSON 快照,字段一致(如该模型 <code>attachment: true</code>、<code>modalities.input: ["text","image"]</code>),只是序列化格式不同——「为什么网上看到的不一样」的答案就在这。</p>
+<h3 id="2-gui-yi-hua-jin-provider-model">2. 归一化进 Provider.Model</h3>
+<p><code>packages/opencode/src/provider/provider.ts</code> 把 models.dev + 配置合并成 <code>Provider.Model</code>:</p>
+<pre data-lang="ts" class="language-ts "><code class="language-ts" data-lang="ts">capabilities: {
+  temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
+  reasoning:  model.reasoning  ?? existingModel?.capabilities.reasoning  ?? false,
+  attachment: model.attachment ?? existingModel?.capabilities.attachment ?? false,
+  toolcall:   model.tool_call  ?? existingModel?.capabilities.toolcall  ?? true,
+  input: {
+    image: model.modalities?.input?.includes(&quot;image&quot;) ?? existingModel?.capabilities.input.image ?? false,
+    text:  ...,
+    pdf:   ...,
+  },
+}
+</code></pre>
+<p>注意优先级:<strong>配置值 <code>??</code> models.dev 值 <code>??</code> 默认值</strong>——这也是「配置可以只覆盖一部分」的秘密。</p>
+<h3 id="3-yun-xing-shi-qiang-zhi-unsupportedparts">3. 运行时强制:unsupportedParts</h3>
+<p>真正干活的是 <code>packages/opencode/src/provider/transform.ts</code> 的 <code>unsupportedParts()</code>:把每条 user 消息里的 <code>file</code>/<code>image</code> part 按 MIME 映射到 modality,若 <code>model.capabilities.input[modality]</code> 为 false,就把该 part <strong>替换成一条文本错误</strong>:</p>
+<pre><code>ERROR: Cannot read image (this model does not support image input). Inform the user.
+</code></pre>
+<p>替换(空 base64 图同理)后<strong>照常发送请求</strong>,模型看到错误文本自行告知用户——所以不支持的类型<strong>不会在 agent 侧直接报错停止</strong>,而是友好降级:媒体不发送、错误送进上下文。调用点:<code>session/llm/native-runtime.ts</code> 与 <code>session/llm.ts</code>。comment 里也印证着这条规则(<code>message-v2.ts</code>):</p>
+<blockquote>
+<p>Only apply this workaround if the model actually supports that media input - otherwise unsupportedParts() will turn it into a user-visible error.</p>
+</blockquote>
+<h2 id="attachment-yu-modalities-de-fen-gong">attachment 与 modalities 的分工</h2>
+<ul>
+<li><code>attachment</code> = 粗粒度开关:该模型<strong>能不能带附件</strong>(文件/图片),主要作为模型元数据/UI 层展示;历史上用于门控附件选择器,当前 TUI/App 代码已不读它。GitHub Copilot 插件从微软 <code>/models</code> 的 <code>supports.vision + supported_media_types</code> 推断出 <code>attachment: true</code>(<code>packages/opencode/src/plugin/github-copilot/models.ts</code>),DigitalOcean 直接写死 false。</li>
+<li><code>modalities.input</code> = 细粒度模态清单(还是 <code>output</code> 同样结构),运行时拦截<strong>以它为准</strong>。</li>
+</ul>
+<p>结论:两个都要对——<code>attachment: true</code> 但 <code>input</code> 漏写 <code>image</code>,图片仍会在运行时被替换成错误;反过来若 models.dev 只给 attachment 不给 modalities,则默认无 image。</p>
+<h2 id="pei-zhi-fu-gai-zhi-xie-yao-gai-de-zi-duan">配置覆盖:只写要改的字段</h2>
+<p>逐字段合并(<code>配置值 ?? models.dev ?? 默认</code>)意味着可以<strong>局部覆盖</strong>:</p>
+<pre data-lang="jsonc" class="language-jsonc "><code class="language-jsonc" data-lang="jsonc">&#x2F;&#x2F; ~&#x2F;.config&#x2F;opencode&#x2F;opencode.jsonc
+{
+  &quot;provider&quot;: {
+    &quot;deepseek&quot;: {
+      &quot;models&quot;: {
+        &quot;deepseek-v4-flash-vision-exp&quot;: {
+          &quot;reasoning&quot;: false,
+          &quot;limit&quot;: { &quot;context&quot;: 800_000 },
+          &quot;options&quot;: { &quot;max_tokens&quot;: 384000 }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<p><code>provider.&lt;id&gt;.models.&lt;modelID&gt;</code> 对应 <code>ConfigProviderV1.Model</code>(<code>packages/core/src/v1/config/provider.ts</code>),字段全部可选:可覆盖 <code>attachment</code>、<code>reasoning</code>、<code>temperature</code>、<code>tool_call</code>、<code>interleaved</code>、<code>modalities</code>、<code>limit</code>、<code>cost</code>、<code>status</code>、<code>options</code>、<code>headers</code>、<code>variants</code> 等;provider 级还有 <code>whitelist</code>/<code>blacklist</code> 过滤整组模型。</p>
+<h2 id="models-json-de-huan-cun-yu-shua-xin">models.json 的缓存与刷新</h2>
+<ul>
+<li><strong>启动不联网</strong>:<code>populate</code> 优先 <code>loadFromDisk</code> 读缓存,只有文件缺失/损坏才 fetch(或走内置 snapshot / <code>OPENCODE_MODELS_PATH</code> 指定快照)</li>
+<li><strong>后台轮询</strong>:启动 fork 一个 fiber,立刻跑一次 <code>refresh()</code>,然后每 <strong>60 分钟</strong>一次(Schedule.spaced + forkScoped)</li>
+<li><strong>新鲜度判断</strong>:就一条规则——<code>mtime</code> 距今是否超过 5 分钟 TTL(<code>Duration.minutes(5)</code>);过期才 fetch</li>
+<li><strong>并发安全</strong>:fetch 前拿跨进程 <code>Flock</code>(key 是 <code>models-dev:&lt;path&gt;</code>),锁内<strong>再查一次</strong> fresh,双重检查防止多进程竞态;写盘是 <code>tmp 文件 + rename</code> 原子替换</li>
+<li><strong>手动</strong>:<code>opencode models --refresh</code>;<code>OPENCODE_DISABLE_MODELS_FETCH=1</code> 可永久禁用联网刷新</li>
+<li>顺带发现:目录里躺着 <code>models.json.&lt;pid&gt;.&lt;ts&gt;.tmp</code> 的历史失败残留,正常现象不影响使用</li>
+</ul>
+<p>因此这个模型在缓存里确实存在(<code>attachment: true</code>,<code>input: ["text","image"]</code>),我上一轮"不在 models.dev 所以默认 false"的判断是错的——<strong>元数据判断前先看本地缓存,别凭 ID 猜</strong>。</p>
+<h2 id="state-model-json-shi-ling-yi-hui-shi">state/model.json 是另一回事</h2>
+<p><code>~/.local/state/opencode/model.json</code>(XDG state,<code>Global.Path.state</code>)是用户级 UI 状态,和目录<strong>无关但有存在价值</strong>:</p>
+<ul>
+<li><code>recent</code>:最近用过的模型。<code>opencode.json</code> 没配顶层 <code>model</code> 时,<code>Provider.defaultModel()</code> 会逐条读 recent,取第一个 provider+model 都存在的条目当新会话默认模型</li>
+<li><code>favorite</code>:收藏,模型选择器置顶用</li>
+<li><code>variant</code>:每个模型记住的变体选择(如 <code>deepseek/deepseek-v4-pro: "max"</code>,即 reasoning effort),生成请求时注入对应 options</li>
+</ul>
+<h2 id="cha-kan-mo-xing-ju-ti-pei-zhi">查看模型具体配置</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">opencode models --verbose           # 全部模型完整 JSON
+opencode models deepseek --verbose  # 只列 deepseek,含合并后的 capabilities&#x2F;limit&#x2F;cost&#x2F;options
+</code></pre>
+<p><code>--verbose</code> 打印的就是归一化后的 <code>Provider.Model</code>。其中:</p>
+<h3 id="api-npm-shi-shen-me">api.npm 是什么</h3>
+<p><code>api</code> 三元组:<code>id</code>(API 名,用于选项键映射/日志)、<code>url</code>(baseURL)、<code>npm</code>(<strong>SDK 实现标识</strong>)。opencode 的 provider 机制是「每个 API 对应一个 AI SDK 实现包」,<code>npm</code> 决定实例化哪个:</p>
+<ul>
+<li><code>@ai-sdk/openai-compatible</code> → <code>packages/llm/src/providers/openai-compatible.ts</code>,<code>createOpenAICompatible({ baseURL: api.url })</code>,deepseek 就走这个(<code>url: https://api.deepseek.com</code>)</li>
+<li>它还是大量运行时行为分支的判据:<code>supportsMediaInToolResult</code>(anthropic 支持媒体型 tool 结果、bedrock/xai 仅图片)、anthropic system 消息缓存、bedrock cachePoint、<code>sdkKey(npm)</code> 重映射 providerOptions 键、openai/azure/bedrock-mantle/copilot 剥离 itemId 等</li>
+</ul>
+<h2 id="cha-qu-tu-pian-shi-bie-de-liang-tiao-lu">插曲:图片识别的两条路</h2>
+<p>排查过程中用户让识别一张评测表截图。规划路径是外挂 vision 脚本(<code>~/.config/opencode/skills/vision</code>,底层模型无原生视觉时用),但用户指出该模型原生支持图片,改用 Read 直接读图——<strong>成功</strong>,证明模型原生视觉通道可用,无需外挂。两条路都能走通,这也验证了能力判定环节的最终结论:这个模型 <code>attachment: true</code> + <code>input: ["text", "image"]</code> 在 opencode 里就是"支持图片"。</p>
+<h2 id="zong-jie">总结</h2>
+<ol>
+<li>判定依据是<strong>声明式元数据</strong>(models.dev + 配置),不做能力探测</li>
+<li>运行时以 <code>capabilities.input</code> 为准,不支持的媒体 part 被<strong>替换为错误文本照常发送</strong>,不中断请求</li>
+<li><code>attachment</code>(粗,能否带附件)与 <code>modalities</code>(细,具体模态)分工明确,配置层逐字段覆盖 <code>??</code> 合并</li>
+<li>缓存位于 XDG cache,启动读盘、5 分钟 TTL、60 分钟轮询、flock 防止并发</li>
+<li>排查教训:先查本地缓存和配置,再下结论——目录里没有 ≠ 不支持</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/ssh-controlmaster-port-forward-leftover/">&#8249; SSH ControlMaster 复用引发的「幽灵监听」：-L 端口转发生命周期详解</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/caddy-reverse-proxy-dsh-web-lan/"> caddy 反代 dsh web，让局域网用户也能访问 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#opencode-ru-he-pan-duan-mo-xing-zhi-chi-tu-pian">opencode 如何判断模型支持图片</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-shu-ju-yuan-models-dev-mu-lu"><small>- 1. 数据源:models.dev 目录</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-gui-yi-hua-jin-provider-model"><small>- 2. 归一化进 Provider.Model</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-yun-xing-shi-qiang-zhi-unsupportedparts"><small>- 3. 运行时强制:unsupportedParts</small></a>
+        </div>
+        <div>
+          <a href="#attachment-yu-modalities-de-fen-gong">attachment 与 modalities 的分工</a>
+        </div>
+        <div>
+          <a href="#pei-zhi-fu-gai-zhi-xie-yao-gai-de-zi-duan">配置覆盖:只写要改的字段</a>
+        </div>
+        <div>
+          <a href="#models-json-de-huan-cun-yu-shua-xin">models.json 的缓存与刷新</a>
+        </div>
+        <div>
+          <a href="#state-model-json-shi-ling-yi-hui-shi">state&#x2F;model.json 是另一回事</a>
+        </div>
+        <div>
+          <a href="#cha-kan-mo-xing-ju-ti-pei-zhi">查看模型具体配置</a>
+        </div>
+        <div class="hpad">
+          <a href="#api-npm-shi-shen-me"><small>- api.npm 是什么</small></a>
+        </div>
+        <div>
+          <a href="#cha-qu-tu-pian-shi-bie-de-liang-tiao-lu">插曲:图片识别的两条路</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

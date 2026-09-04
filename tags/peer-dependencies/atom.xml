@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - peer-dependencies</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/peer-dependencies/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-24T13:56:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/peer-dependencies/atom.xml</id>
+    <entry xml:lang="en">
+        <title>npx 安装卡死排查：workspace 误匹配与循环 peerDependencies</title>
+        <published>2026-08-24T13:56:16+08:00</published>
+        <updated>2026-08-24T13:56:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/npx-cyclic-peer-deps-troubleshooting/"/>
+        <id>https://moxuetianya.github.io/2026/08/npx-cyclic-peer-deps-troubleshooting/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/npx-cyclic-peer-deps-troubleshooting/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;在 deepseek-harness 仓库（pnpm workspace）根目录执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ npx @deepseek-ai&amp;#x2F;dsh web
+sh: 1: dsh: not found
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;瞬间失败，退出码 127。同样的命令换到仓库外（如 &lt;code&gt;&#x2F;home&#x2F;peter&lt;&#x2F;code&gt;）执行，则是另一个极端：&lt;strong&gt;CPU 100%、内存 1.9GB、几分钟没有任何输出&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;两段症状截然不同，排查结论也完全不同：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;仓库内失败：&lt;strong&gt;npm exec 把 workspace 里的同名包误判为&quot;已安装&quot;&lt;&#x2F;strong&gt;，跳过下载直接去找 PATH 里的 &lt;code&gt;dsh&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;仓库外卡死：&lt;strong&gt;npm arborist 在解析互相 peerDependencies 的循环依赖图时性能爆炸&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;以下按排查顺序记录完整过程，所有命令均可复现。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-yi-duan-cang-ku-nei-dsh-not-found&quot;&gt;第一段：仓库内 &lt;code&gt;dsh: not found&lt;&#x2F;code&gt;&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;chu-shi-pai-cha&quot;&gt;初始排查&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ npx --loglevel verbose @deepseek-ai&amp;#x2F;dsh web
+npm verbose title npm exec @deepseek-ai&amp;#x2F;dsh web
+...
+sh: 1: dsh: not found
+npm verbose exit 127
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键线索：verbose 日志只有 19 行，&lt;strong&gt;没有任何安装动作&lt;&#x2F;strong&gt;——没下载、没建缓存目录。&lt;code&gt;~&#x2F;.npm&#x2F;_npx&#x2F;&lt;&#x2F;code&gt; 下也没有新的缓存目录产生：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ which dsh                    # PATH 中没有 dsh
+dsh not found
+$ ls ~&amp;#x2F;.npm&amp;#x2F;_npx&amp;#x2F;              # 无新增缓存目录
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;说明 npm 根本没走&quot;安装到 npx 缓存&quot;的路径，而是直接去执行一个名为 &lt;code&gt;dsh&lt;&#x2F;code&gt; 的命令——但 PATH 里没有它，于是 shell 报 &lt;code&gt;command not found&lt;&#x2F;code&gt;（127）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cha-zhuang-libnpmexec&quot;&gt;插桩 libnpmexec&lt;&#x2F;h2&gt;
+&lt;p&gt;npm 11 的 &lt;code&gt;npx&lt;&#x2F;code&gt; 实现位于 npm 自带的 &lt;code&gt;libnpmexec&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;.nvm&amp;#x2F;versions&amp;#x2F;node&amp;#x2F;v26.3.0&amp;#x2F;lib&amp;#x2F;node_modules&amp;#x2F;npm&amp;#x2F;node_modules&amp;#x2F;libnpmexec&amp;#x2F;lib&amp;#x2F;index.js
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;备份后插入 &lt;code&gt;console.error&lt;&#x2F;code&gt; 调试标记，跟踪关键分支：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;js&quot; class=&quot;language-js &quot;&gt;&lt;code class=&quot;language-js&quot; data-lang=&quot;js&quot;&gt;let pkgPaths = opts.pkgPath
+console.error(&amp;#x27;DBG pkgPaths=&amp;#x27;, JSON.stringify(pkgPaths))
+&amp;#x2F;&amp;#x2F; ...
+console.error(&amp;#x27;DBG needPackageCommandSwap=&amp;#x27;, needPackageCommandSwap)
+console.error(&amp;#x27;DBG before loadActual&amp;#x27;)
+console.error(&amp;#x27;DBG after loadActual&amp;#x27;)
+console.error(&amp;#x27;DBG needInstall=&amp;#x27;, JSON.stringify(needInstall.map(x=&amp;gt;x.spec.raw)), &amp;#x27;commandManifest=&amp;#x27;, commandManifest &amp;amp;&amp;amp; commandManifest._id)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重跑后拿到决定性输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;DBG pkgPaths= &amp;quot;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;learn-dsh&amp;quot;
+DBG needPackageCommandSwap= true
+DBG before loadActual
+DBG after loadActual
+DBG needInstall= [] commandManifest= @deepseek-ai&amp;#x2F;dsh@0.1.0-rc.8
+sh: 1: dsh: not found
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;&lt;code&gt;needInstall=[]&lt;&#x2F;code&gt;，而 &lt;code&gt;commandManifest&lt;&#x2F;code&gt; 是本地 workspace 的版本 &lt;code&gt;0.1.0-rc.8&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——npm 认为 &lt;code&gt;@deepseek-ai&#x2F;dsh&lt;&#x2F;code&gt; 已经&quot;装好了&quot;（实际用的是仓库里 &lt;code&gt;apps&#x2F;cli&lt;&#x2F;code&gt; 这个 workspace 包），于是跳过安装，把命令翻译成 &lt;code&gt;dsh&lt;&#x2F;code&gt; 直接执行。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-libnpmexec-de-workspace-wu-pi-pei&quot;&gt;根因：libnpmexec 的 workspace 误匹配&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;libnpmexec&#x2F;lib&#x2F;index.js&lt;&#x2F;code&gt; 中 &lt;code&gt;missingFromTree()&lt;&#x2F;code&gt; 的这段逻辑：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;js&quot; class=&quot;language-js &quot;&gt;&lt;code class=&quot;language-js&quot; data-lang=&quot;js&quot;&gt;if (spec.registry &amp;amp;&amp;amp; spec.type !== &amp;#x27;tag&amp;#x27; &amp;amp;&amp;amp; !npxByNameOnly) {
+  const nodesBySpec = tree.inventory.query(&amp;#x27;packageName&amp;#x27;, spec.name)
+  for (const node of nodesBySpec) {
+    if (shallow &amp;amp;&amp;amp; node.depth) continue
+    if (spec.rawSpec === &amp;#x27;*&amp;#x27;) {
+      return { node }          &amp;#x2F;&amp;#x2F; ← 命中这里
+    }
+    ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;npx @deepseek-ai&#x2F;dsh&lt;&#x2F;code&gt; 被 &lt;code&gt;npm-package-arg&lt;&#x2F;code&gt; 解析成 &lt;code&gt;rawSpec: &#x27;*&#x27;&lt;&#x2F;code&gt; 的 range 规格，命中 &lt;code&gt;spec.rawSpec === &#x27;*&#x27;&lt;&#x2F;code&gt; 分支——&lt;strong&gt;不做任何版本比对，直接返回本地树中同名节点&lt;&#x2F;strong&gt;。本仓库的 workspace 恰好包含 &lt;code&gt;apps&#x2F;cli&lt;&#x2F;code&gt;（包名 &lt;code&gt;@deepseek-ai&#x2F;dsh&lt;&#x2F;code&gt;），于是：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;npm 认为已安装 → 跳过 npx 缓存安装&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;args[0]&lt;&#x2F;code&gt; 被替换为 bin 名 &lt;code&gt;dsh&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;直接 &lt;code&gt;sh -c &#x27;dsh web&#x27;&lt;&#x2F;code&gt;——但 pnpm workspace 不会把该包的 bin 链到根 &lt;code&gt;node_modules&#x2F;.bin&lt;&#x2F;code&gt;（根 package.json 没有依赖它），PATH 中不存在 &lt;code&gt;dsh&lt;&#x2F;code&gt; → 127&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;用独立脚本验证了树中的实际节点状态（脚本需放在 npm 的 node_modules 内以解析 &lt;code&gt;@npmcli&#x2F;arborist&lt;&#x2F;code&gt; 等依赖）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;js&quot; class=&quot;language-js &quot;&gt;&lt;code class=&quot;language-js&quot; data-lang=&quot;js&quot;&gt;const spec = npa(&amp;#x27;@deepseek-ai&amp;#x2F;dsh&amp;#x27;, &amp;#x27;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;learn-dsh&amp;#x27;)
+console.log(&amp;#x27;spec:&amp;#x27;, JSON.stringify(spec))       &amp;#x2F;&amp;#x2F; rawSpec: &amp;#x27;*&amp;#x27;
+
+const manifest = await pacote.manifest(spec, flatOptions)
+console.log(&amp;#x27;manifest._resolved:&amp;#x27;, manifest._resolved)
+&amp;#x2F;&amp;#x2F; https:&amp;#x2F;&amp;#x2F;registry.npmmirror.com&amp;#x2F;@deepseek-ai&amp;#x2F;dsh&amp;#x2F;-&amp;#x2F;dsh-0.1.1-rc.2.tgz
+
+const localTree = await new Arborist({ path: &amp;#x27;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;learn-dsh&amp;#x27; }).loadActual()
+for (const node of localTree.inventory.query(&amp;#x27;packageName&amp;#x27;, &amp;#x27;@deepseek-ai&amp;#x2F;dsh&amp;#x27;)) {
+  console.log(&amp;#x27;node:&amp;#x27;, node.pkgid)               &amp;#x2F;&amp;#x2F; cli@npm:@deepseek-ai&amp;#x2F;dsh@0.1.0-rc.8
+  console.log(&amp;#x27;package.resolved:&amp;#x27;, node.package.resolved)  &amp;#x2F;&amp;#x2F; undefined
+  console.log(&amp;#x27;realpath:&amp;#x27;, node.realpath)        &amp;#x2F;&amp;#x2F; ...&amp;#x2F;apps&amp;#x2F;cli
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;rao-guo-fang-an-cang-ku-nei&quot;&gt;绕过方案（仓库内）&lt;&#x2F;h2&gt;
+&lt;p&gt;钉版本后 &lt;code&gt;rawSpec&lt;&#x2F;code&gt; 不再是 &lt;code&gt;&#x27;*&#x27;&lt;&#x2F;code&gt;，会走版本比对分支，从而绕过 workspace 误匹配：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;npx --yes @deepseek-ai&amp;#x2F;dsh@latest web
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证有效（开始正常安装）。其他两个等价方案：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;# 1. 到仓库外执行（无同名 workspace 包）
+cd &amp;#x2F;home&amp;#x2F;peter &amp;amp;&amp;amp; npx @deepseek-ai&amp;#x2F;dsh web
+
+# 2. 仓库内开发直接用本地源码入口（root script）
+pnpm dsh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注意：&lt;code&gt;npx --yes&lt;&#x2F;code&gt; 才会跳过交互确认；&lt;code&gt;@latest&lt;&#x2F;code&gt; 钉版本是为了跳过 workspace 匹配。&lt;code&gt;pnpm dsh&lt;&#x2F;code&gt; 是仓库自身定义的 &lt;code&gt;node --import tsx&#x2F;esm apps&#x2F;cli&#x2F;src&#x2F;bin.ts&lt;&#x2F;code&gt;，才是仓库内开发的正道。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;di-er-duan-cang-ku-wai-cpu-100-qia-si&quot;&gt;第二段：仓库外 CPU 100% 卡死&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;zheng-zhuang-fen-lei-cpu-mi-ji-wang-luo-deng-dai&quot;&gt;症状分类：CPU 密集 ≠ 网络等待&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ ps aux | grep &amp;quot;npm exec&amp;quot;
+peter  1422431  98.2  7.3  3569764 1948164 pts&amp;#x2F;8  Rl+ 13:27  2:13 npm exec @deepseek-ai&amp;#x2F;dsh web
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;100% CPU + 1.9GB 内存。网络下载时 CPU 应该很低，这个组合指向纯计算。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-chu-fa-que-ren-mei-zai-xia-zai-ye-bu-shi-si-xun-huan&quot;&gt;排除法：确认没在下载、也不是死循环&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ ss -tnp | grep 1422431                    # 无任何 TCP 连接
+$ find ~&amp;#x2F;.npm&amp;#x2F;_cacache -newermt &amp;quot;13:25&amp;quot;     # 无新增下载
+$ timeout 3 strace -p 1422431 -f -e trace=write,read,epoll_wait,futex,connect,recvfrom
+# 只有 futex（线程间同步），没有 connect&amp;#x2F;read
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;strace 里没有网络和磁盘系统调用。再观察 npm 日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ wc -l ~&amp;#x2F;.npm&amp;#x2F;_logs&amp;#x2F;2026-08-24T05_27_24_258Z-debug-0.log
+597
+$ sleep 20 &amp;amp;&amp;amp; wc -l ...                     # → 600 → 601
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;行数在增长、mtime 在更新&lt;&#x2F;strong&gt;——不是死循环，是极慢地推进。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ri-zhi-ding-wei-jie-duan-qia-zai-idealtree-gou-jian&quot;&gt;日志定位阶段：卡在 idealTree 构建&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ head -30 &amp;lt;最新日志&amp;gt;
+silly idealTree buildDeps
+silly fetch manifest @deepseek-ai&amp;#x2F;dsh@0.1.1-rc.2
+silly placeDep ROOT @deepseek-ai&amp;#x2F;dsh-client-ui-theme@0.1.1-rc.2 OK for: @deepseek-ai&amp;#x2F;dsh-client-ui-layout@0.1.1-rc.2 want: ^0.1.1-rc.2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;placeDep&lt;&#x2F;code&gt; 每放置一个依赖节点写一行日志。正常包几百行几秒完成；这里&lt;strong&gt;每行要几十秒&lt;&#x2F;strong&gt;——每个节点放置都要对已建的部分树做大量重复校验，强烈指向循环引用 &#x2F; peerDependencies 爆炸。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yan-yi-lai-tu-fa-bu-bao-que-shi-cun-zai-xun-huan-peerdependencies&quot;&gt;验依赖图：发布包确实存在循环 peerDependencies&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ npm view @deepseek-ai&amp;#x2F;cordis@4.0.1 peerDependencies
+{
+  &amp;#x27;@deepseek-ai&amp;#x2F;cordis-plugin-loader&amp;#x27;: &amp;#x27;^1.0.2&amp;#x27;,
+  &amp;#x27;@deepseek-ai&amp;#x2F;cordis-plugin-include&amp;#x27;: &amp;#x27;^1.0.6&amp;#x27;
+}
+
+$ npm view @deepseek-ai&amp;#x2F;cordis-plugin-loader@1.0.2 peerDependencies
+{ &amp;#x27;@deepseek-ai&amp;#x2F;cordis&amp;#x27;: &amp;#x27;^4.0.1&amp;#x27;, &amp;#x27;node-addon-require-builtin&amp;#x27;: &amp;#x27;^0.1.4&amp;#x27; }
+
+$ npm view @deepseek-ai&amp;#x2F;cordis-plugin-include@1.0.6 peerDependencies
+{ &amp;#x27;@deepseek-ai&amp;#x2F;cordis-plugin-loader&amp;#x27;: &amp;#x27;^1.0.2&amp;#x27;, &amp;#x27;@deepseek-ai&amp;#x2F;cordis&amp;#x27;: &amp;#x27;^4.0.1&amp;#x27; }
+
+$ npm view @deepseek-ai&amp;#x2F;cordis-plugin-hmr@1.0.16 peerDependencies
+{ &amp;#x27;@deepseek-ai&amp;#x2F;cordis-plugin-timer&amp;#x27;: &amp;#x27;^1.1.3&amp;#x27;, &amp;#x27;@deepseek-ai&amp;#x2F;cordis&amp;#x27;: &amp;#x27;^4.0.1&amp;#x27; }
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;环坐实：&lt;strong&gt;cordis ⇄ loader ⇄ include&lt;&#x2F;strong&gt;，加上 60+ 个 &lt;code&gt;@deepseek-ai&#x2F;dsh-*&lt;&#x2F;code&gt; 包全部 peerDepend 回 &lt;code&gt;@deepseek-ai&#x2F;cordis&lt;&#x2F;code&gt;（本仓库 AGENTS.md 的约定：&quot;cordis 是每个 harness 包的 peerDependency&quot;）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dui-zhao-zu-zheng-ming-tu-ke-jie-zhi-shi-npm-man&quot;&gt;对照组：证明&quot;图可解，只是 npm 慢&quot;&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;$ cd &amp;#x2F;tmp &amp;amp;&amp;amp; npx @deepseek-ai&amp;#x2F;dsh@latest --version   # 同样卡 5 分钟+
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;与目录无关，是 npm 解析器对 peer 环的通病。而仓库自己的 &lt;code&gt;pnpm-lock.yaml&lt;&#x2F;code&gt; 对同一张图有完整解析——pnpm 秒级。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;gai-nian-cheng-qing&quot;&gt;概念澄清&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xun-huan-yi-lai-shi-bu-shi-bug&quot;&gt;循环依赖是不是 bug？&lt;&#x2F;h2&gt;
+&lt;p&gt;要区分两层：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;层面&lt;&#x2F;th&gt;&lt;th&gt;语言&#x2F;生态&lt;&#x2F;th&gt;&lt;th&gt;循环是否允许&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;源码 import&lt;&#x2F;td&gt;&lt;td&gt;JS&#x2F;TS (ESM)&lt;&#x2F;td&gt;&lt;td&gt;允许（live binding + 函数提升；注意顶层 &lt;code&gt;const&lt;&#x2F;code&gt; 会 TDZ）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;源码 import&lt;&#x2F;td&gt;&lt;td&gt;Python&lt;&#x2F;td&gt;&lt;td&gt;允许但 import 期穿越环就 &lt;code&gt;ImportError&lt;&#x2F;code&gt;，需延迟 import 补丁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;源码 import&lt;&#x2F;td&gt;&lt;td&gt;Rust&lt;&#x2F;td&gt;&lt;td&gt;同 crate 允许；跨 crate 报 &lt;code&gt;cyclic package dependency detected&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;源码 include&lt;&#x2F;td&gt;&lt;td&gt;C++&lt;&#x2F;td&gt;&lt;td&gt;允许（头文件守卫 + 前置声明 + 链接器处理互引）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;包清单依赖&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;npm&#x2F;pnpm&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;允许&lt;&#x2F;strong&gt;——依赖树被扁平化切断，环在安装期就是合法图&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;而 cordis 的环在&lt;strong&gt;包清单层&lt;&#x2F;strong&gt;（&lt;code&gt;peerDependencies&lt;&#x2F;code&gt;），是元数据不是执行图，连&quot;编译错误&quot;都不涉及，只是 npm 解析慢。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dependencies-vs-peerdependencies&quot;&gt;dependencies vs peerDependencies&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;dependencies&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;peerDependencies&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;含义&lt;&#x2F;td&gt;&lt;td&gt;自己运行要用的库，自动装&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;不装自己的副本，要求宿主提供，必须共享同一个实例&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;安装&lt;&#x2F;td&gt;&lt;td&gt;自动（可多版本共存）&lt;&#x2F;td&gt;&lt;td&gt;npm 7+ 自动装顶层；npm 6 只警告&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;场景&lt;&#x2F;td&gt;&lt;td&gt;普通工具库&lt;&#x2F;td&gt;&lt;td&gt;插件&#x2F;框架扩展、单例需求&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;插件为什么必须 peerDep：两份拷贝破坏身份——&lt;code&gt;instanceof&lt;&#x2F;code&gt;、事件总线、全局注册表全部分家。cordis 是 &quot;everything is a plugin&quot; 架构，连&quot;加载插件&quot;本身都是插件（&lt;code&gt;cordis-plugin-loader&lt;&#x2F;code&gt;），所以 core 需要 loader、loader 又必须共享同一个 core 实例——&lt;strong&gt;互相 peerDep 是这个架构的必然产物&lt;&#x2F;strong&gt;，环合法且是刻意的。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-npm-zhe-me-man-pnpm-zhe-me-kuai&quot;&gt;为什么 npm 这么慢、pnpm 这么快&lt;&#x2F;h2&gt;
+&lt;p&gt;npm arborist 的 idealTree 构建目标苛刻：&lt;strong&gt;同一个包尽量只装一份，且每个 peerDep 都必须由已放置的节点满足&lt;&#x2F;strong&gt;。每放置一个包：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;在整棵已建的树里搜索满足 peerDep 的现成节点&lt;&#x2F;li&gt;
+&lt;li&gt;找到就挂上去，找不到就新建节点&lt;&#x2F;li&gt;
+&lt;li&gt;新建节点可能让已满足的 peer 边失效 → 重新解析 → 连锁反应&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;复杂度 O(n²) 起步。有环时不存在拓扑序，算法只能&lt;strong&gt;反复迭代到不动点&lt;&#x2F;strong&gt;，环上的包互相触发，轮次随树增长——这就是 CPU 100% 每行日志几十秒的来源。&lt;&#x2F;p&gt;
+&lt;p&gt;pnpm 快是因为它&lt;strong&gt;根本没解同一个难题&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;strict-peer-dependencies=false&lt;&#x2F;code&gt;（默认）→ peerDep 当普通依赖自动装一份，不参与反复求解&lt;&#x2F;li&gt;
+&lt;li&gt;内容寻址 store + 硬链接，多版本共存免费&lt;&#x2F;li&gt;
+&lt;li&gt;代价：&lt;strong&gt;不保证全局单例&lt;&#x2F;strong&gt;——两个插件要不同版本 cordis 就装两份，运行时悄悄出 bug（身份分裂），出错时机从安装期推迟到运行期&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以现状是分工：&lt;strong&gt;npm 慢而严格（正确优先，ERESOLVE 大声失败），pnpm 快而宽松（能用优先，静默容忍）&lt;&#x2F;strong&gt;。npm 不抄 pnpm 的原因：扁平 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 物理上难容纳多版本、历史语义承诺、以及病态图在真实世界极少见（npm 优化了常见场景）。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;jie-jue-yu-dui-bi&quot;&gt;解决与对比&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;# 仓库内（绕过 workspace 误匹配）
+npx --yes @deepseek-ai&amp;#x2F;dsh@latest web
+
+# 仓库外
+cd &amp;#x2F;home&amp;#x2F;peter &amp;amp;&amp;amp; npx @deepseek-ai&amp;#x2F;dsh web        # npm：会卡在 peer 环解析
+cd &amp;#x2F;home&amp;#x2F;peter &amp;amp;&amp;amp; pnpm dlx @deepseek-ai&amp;#x2F;dsh@latest web   # 推荐：pnpm 秒级
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;pnpm dlx&lt;&#x2F;code&gt; 与 &lt;code&gt;npx&lt;&#x2F;code&gt; 对比：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;npx&lt;&#x2F;code&gt; (npm exec)&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;pnpm dlx&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;解析目标&lt;&#x2F;td&gt;&lt;td&gt;先查本地 tree&#x2F;workspace 同名包，再查全局，最后装 &lt;code&gt;~&#x2F;.npm&#x2F;_npx&#x2F;&amp;lt;hash&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;直接按 registry 解析，不查 workspace&#x2F;全局&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;确认提示&lt;&#x2F;td&gt;&lt;td&gt;交互询问 &quot;Ok to proceed?&quot;&lt;&#x2F;td&gt;&lt;td&gt;无提示&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;缓存&lt;&#x2F;td&gt;&lt;td&gt;npm 缓存，每命令独立目录&lt;&#x2F;td&gt;&lt;td&gt;pnpm 内容寻址 store，临时目录跑完即弃&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;依赖解析&lt;&#x2F;td&gt;&lt;td&gt;npm arborist（peer 环会卡）&lt;&#x2F;td&gt;&lt;td&gt;pnpm 解析器（秒级），peer 自动补装&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注意区分：&lt;code&gt;pnpm dlx&lt;&#x2F;code&gt; 取远程包执行；&lt;code&gt;pnpm exec&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;pnpm dsh&lt;&#x2F;code&gt; 执行项目内已装的。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;仓库内 &lt;code&gt;npx&lt;&#x2F;code&gt; 失败&lt;&#x2F;strong&gt;是 npm 行为缺陷：&lt;code&gt;rawSpec === &#x27;*&#x27;&lt;&#x2F;code&gt; 分支不做版本比对就返回 workspace 同名节点，误判&quot;已安装&quot;后跳过安装，bin 又不在 PATH → 127。钉版本或到仓库外可绕过。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;仓库外卡死&lt;&#x2F;strong&gt;不是网络、不是死循环，是 npm arborist 对&lt;strong&gt;合法但病态&lt;&#x2F;strong&gt;的循环 peerDependencies 图做全局满足验证时的性能爆炸；图本身可解（pnpm 秒级），问题在解析器算法。&lt;&#x2F;li&gt;
+&lt;li&gt;循环依赖不是 bug：&lt;code&gt;dependencies&lt;&#x2F;code&gt; 环被树扁平化切断，&lt;code&gt;peerDependencies&lt;&#x2F;code&gt; 环是插件框架的标准形态（cordis 全员 peerDep 核心是刻意设计）。&lt;&#x2F;li&gt;
+&lt;li&gt;npm 与 pnpm 的取舍是&lt;strong&gt;正确性 vs 性能&lt;&#x2F;strong&gt;的分工：npm 保证单实例与大声失败，pnpm 默认静默容忍版本冲突。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

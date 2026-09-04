@@ -1,0 +1,419 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - openvpn</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/openvpn/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-04T11:12:17+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/openvpn/atom.xml</id>
+    <entry xml:lang="en">
+        <title>tailscale 为什么不能像 OpenVPN 那样用 via 路由访问对端局域网</title>
+        <published>2026-09-04T11:12:17+08:00</published>
+        <updated>2026-09-04T11:12:17+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/"/>
+        <id>https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/">&lt;h1 id=&quot;bei-jing-xiang-zai-tailscale-wang-luo-li-jie-yong-dui-duan-fang-wen-qi-ju-yu-wang&quot;&gt;背景：想在 tailscale 网络里&quot;借用&quot;对端访问其局域网&lt;&#x2F;h1&gt;
+&lt;p&gt;本机（tailscale 100.64.0.1）想临时访问对端节点（100.64.0.2）所在站点的局域网设备 192.168.2.1。
+直觉做法是加一条经对端转发的路由，就像 OpenVPN 里那样：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip r replace 192.168.2.1&amp;#x2F;32 via 100.64.0.2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;Error: Nexthop has invalid gateway.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;换成写进 tailscale 自己的路由表也报一样的错。而另一台 OpenVPN 机器上同样的姿势却完全正常：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;# OpenVPN 机器上实测可行
+ip r add 192.168.2.1 via 10.8.0.5   # 成功，且能正常访问 192.168.2.1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;同样的命令形态，一个报错一个成功，差在哪？本文完整记录排查过程与背后的架构差异。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ben-ji-tailscale-de-lu-you-bu-ju&quot;&gt;本机 tailscale 的路由布局&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ip route show
+default via 192.168.4.1 dev bridge0 proto static metric 425
+192.168.4.0&amp;#x2F;22 dev bridge0 proto kernel scope link src 192.168.5.244 metric 425
+...   # main 表里没有任何 100.64.0.0&amp;#x2F;10 相关路由
+
+$ ip route show table 52
+100.64.0.2 dev tailscale0
+100.64.0.3 dev tailscale0
+...
+100.100.100.100 dev tailscale0
+
+$ ip rule show
+5270: from all lookup 52
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键事实：&lt;strong&gt;所有 tailscale peer 的 &#x2F;32 路由都在独立的 table 52 里&lt;&#x2F;strong&gt;，main 表一条都没有；
+&lt;code&gt;ip rule 5270: from all lookup 52&lt;&#x2F;code&gt; 让 peer IP 的查表先落到 52。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ip route get 100.64.0.2
+100.64.0.2 dev tailscale0 table 52 src 100.64.0.1 uid 1000
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但 &lt;code&gt;ip route get&lt;&#x2F;code&gt; 能查到，不代表 add 能通过——实测 main 表、table 52 &lt;strong&gt;两个目标表都报同样的错&lt;&#x2F;strong&gt;
+（2026-09-04 于 7.0.0-28 内核复核，同结果）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yi-ge-bei-tui-fan-de-jia-she-wang-guan-xiao-yan-bu-shi-cha-mu-biao-biao&quot;&gt;一个被推翻的假设：网关校验不是&quot;查目标表&quot;&lt;&#x2F;h2&gt;
+&lt;p&gt;最初以为是&quot;网关必须在目标表内可达&quot;，于是试 &lt;code&gt;table 52&lt;&#x2F;code&gt;（网关 100.64.0.2 明明就在 52 里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo ip r add 192.168.2.1&amp;#x2F;32 via 100.64.0.2 table 52
+Error: Nexthop has invalid gateway.   # 依然失败
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;kan-wu-zao-xian-zhi-cha-main-biao-bu-gen-ip-rule-de-gui-yin-shi-cuo-de&quot;&gt;勘误：早先&quot;只查 main 表、不跟 ip rule&quot;的归因是错的&lt;&#x2F;h3&gt;
+&lt;p&gt;初稿曾把报错归因于&quot;内核校验网关时 &lt;code&gt;fib_lookup()&lt;&#x2F;code&gt; 固定只查 main 表（RT_TABLE_MAIN）、
+路由添加时的 nexthop 校验不查规则链&quot;。该解释被下面的实测推翻——真正的判官是
+&lt;strong&gt;scope（on-link）过滤，与查哪张表无关&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;实测 A（证伪&quot;只查 main&quot;）&lt;&#x2F;strong&gt;：往 table 52 放一条专门当网关的路由、scope 写成 link
+（main 表里没有它，只有经 &lt;code&gt;ip rule 5270&lt;&#x2F;code&gt; 能到）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo ip r add 100.64.0.254&amp;#x2F;32 dev tailscale0 scope link table 52
+$ sudo ip r add 10.99.99.99&amp;#x2F;32 via 100.64.0.254    # 加进 main，成功！
+10.99.99.99 via 100.64.0.254 dev tailscale0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;网关只存在于 table 52、目标却是 main 表，却能加上——说明添加路由时校验 gateway
+&lt;strong&gt;会走完整 ip rule 链&lt;&#x2F;strong&gt;（fib_lookup → fib_rules_lookup → table 52），并非只查 main。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;实测 B（定位到 scope）&lt;&#x2F;strong&gt;：关键线索在路由属性——tailscaled 写进 table 52 的 peer 路由
+全部是 &lt;strong&gt;scope global&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ip -d route show table 52 | head -2
+unicast 100.64.0.2 dev tailscale0 proto boot scope global
+unicast 100.64.0.3 dev tailscale0 proto boot scope global
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;内核在添加路由时（&lt;code&gt;fib_check_nh_v4_gw()&lt;&#x2F;code&gt;，net&#x2F;ipv4&#x2F;fib_semantics.c）解析 gateway，
+查询 scope 被钳制为 ≥ RT_SCOPE_LINK——语义是**&quot;网关必须由一条 on-link（直连、
+scope ≥ link）的路由覆盖&quot;**；查表时 scope 不足的路由会被丢弃（fib_trie.c：
+&lt;code&gt;fib_scope &amp;lt; flowi4_scope&lt;&#x2F;code&gt; 即跳过，global=0 &amp;lt; link=253）。于是 100.64.0.2 无论
+main、table 52、带不带 &lt;code&gt;dev&lt;&#x2F;code&gt;，全部 invalid gateway；只有显式 &lt;code&gt;dev + onlink&lt;&#x2F;code&gt;
+能跳过这套校验：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo ip r add 10.99.99.99&amp;#x2F;32 via 100.64.0.2 dev tailscale0 onlink table 52   # 成功
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;（反向对照：把实测 A 那条 100.64.0.254 的 scope 改成 global，&lt;code&gt;via 100.64.0.254&lt;&#x2F;code&gt;
+立刻回到 invalid gateway——同一条路由只差 scope。）&lt;&#x2F;p&gt;
+&lt;p&gt;那 &lt;code&gt;ip route get&lt;&#x2F;code&gt; 为什么能查到？它走独立的查询路径（inet_rtm_getroute），查询 scope 是
+universe、不过滤 global 路由——所以&quot;查得到&quot;与&quot;能当网关&quot;是两个不同的问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jiu-suan-xiao-yan-guo-liao-ye-dao-bu-liao-dui-duan&quot;&gt;就算校验过了，也到不了对端&lt;&#x2F;h2&gt;
+&lt;p&gt;把报错消掉很容易（不带 &lt;code&gt;via&lt;&#x2F;code&gt; 的 dev 路由不触发网关校验，带 &lt;code&gt;via&lt;&#x2F;code&gt; 的加 &lt;code&gt;dev + onlink&lt;&#x2F;code&gt; 也行，见上节实测）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip r add 192.168.2.1&amp;#x2F;32 dev tailscale0   # 能装上
+ping -c2 192.168.2.1                          # 预期全丢：隧道内无对端认领该目标
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这就触及真正的架构差异了。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin-liang-ji-zhuan-fa-mo-xing-vs-openvpn-de-dan-lian-lu-mo-xing&quot;&gt;根因：两级转发模型 vs OpenVPN 的单链路模型&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bao-jin-sui-dao-hou-shui-jue-ding-fa-gei-shui&quot;&gt;包进隧道后，谁决定发给谁？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;tailscale0 是普通 TUN（本机实测 &lt;code&gt;type tun&lt;&#x2F;code&gt;，wireguard-go 用户态模式）&lt;&#x2F;strong&gt;。
+内核路由表只负责&quot;把包交给 tailscale0&quot;这一级——TUN 设备不检查目标 IP 是否被允许，
+任何路由进来的包都原样写进 tun fd。真正判决在第二级：&lt;&#x2F;p&gt;
+&lt;p&gt;tailscaled 用户态进程从 tun 读走包后，wireguard-go 拿 &lt;strong&gt;dst 去匹配各 peer 的 AllowedIPs&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;本机是 100.64.0.1，对端们是 100.64.0.2&#x2F;.3&#x2F;...——每个 peer 的 AllowedIPs 只有它自己的
+tailscale IP（+ MagicDNS 100.100.100.100）；&lt;&#x2F;li&gt;
+&lt;li&gt;192.168.2.1 不属于任何 peer → &lt;strong&gt;无匹配 → 包在用户态进程内直接丢弃&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;via 100.64.0.2&lt;&#x2F;code&gt; 只是内核的&quot;下一跳&quot;概念，对 TUN 设备来说包原样进隧道，
+&lt;strong&gt;&quot;发给 peer .2&quot;这个意图根本传不到 wireguard 层&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以这不是路由表技巧能绕过的：手工路由改的是第一级，判决在第二级，而第二级只认宣告。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;openvpn-wei-shen-me-neng-tong&quot;&gt;OpenVPN 为什么能通&lt;&#x2F;h2&gt;
+&lt;p&gt;OpenVPN 的 tun0 是&lt;strong&gt;单对端 ptp 链路&lt;&#x2F;strong&gt;：包进隧道后没有&quot;选谁&quot;这回事——固定发往唯一的 server。
+而 server 是&lt;strong&gt;显式开启转发的真实路由器&lt;&#x2F;strong&gt;（内核 ip_forward + 它自己的 LAN 路由），
+所以任何你路由过去的目标，只要 server 能到达就通。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;# OpenVPN 机器实测路由
+10.8.0.0&amp;#x2F;24 via 10.8.0.5 dev tun0          # config 里 route 指令，程序经 netlink 写入
+10.8.0.5 dev tun0 proto kernel scope link src 10.8.0.6   # 内核自动生成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;顺带解答一个疑问：&lt;strong&gt;&lt;code&gt;ip route&lt;&#x2F;code&gt; 为什么能看到 10.8.0.5 这个&quot;peer&quot;？它不可能读 openvpn 配置。&lt;&#x2F;strong&gt;
+看 &lt;code&gt;proto kernel&lt;&#x2F;code&gt; 标记——这条路由是内核在配置 ptp 地址时自动生成的：
+openvpn 配地址用的是 &lt;code&gt;10.8.0.6 peer 10.8.0.5&lt;&#x2F;code&gt;（点对点形式），对端地址成为&lt;strong&gt;接口地址属性&lt;&#x2F;strong&gt;，
+内核自动为链路对端建 &#x2F;32 路由（与给网桥配 IP 自动生成链路路由同理）。
+对比 tailscale0 的地址 &lt;code&gt;100.64.0.1&#x2F;32&lt;&#x2F;code&gt;——纯 &#x2F;32、没有 &lt;code&gt;peer&lt;&#x2F;code&gt; 字段（多对端不存在单一链路对端），
+所以内核不会生成任何 peer 路由，对端们是 tailscaled 手工写进 table 52 的。&lt;&#x2F;p&gt;
+&lt;p&gt;这同时也解释了开头那个&quot;一个报错一个成功&quot;的表层差异：OpenVPN 机上 &lt;code&gt;via 10.8.0.5&lt;&#x2F;code&gt; 能装上，
+除了隧道路由在 main 表里，更关键的是内核自动生成的 peer 路由是 &lt;strong&gt;scope link&lt;&#x2F;strong&gt;
+（&lt;code&gt;proto kernel scope link&lt;&#x2F;code&gt;）——正好满足上文&quot;网关必须由 on-link 路由覆盖&quot;的校验；
+而 tailscaled 手写的 peer 路由是 &lt;code&gt;proto boot scope global&lt;&#x2F;code&gt;，在同样的校验处就被拦下。
+报错与否取决于&lt;strong&gt;覆盖网关那条路由的 scope&lt;&#x2F;strong&gt;，与规则链、目标表都无关。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;liang-tiao-peer-lu-you-de-lai-li-scope-yu-proto-wei-shen-me-bu-tong&quot;&gt;两条&quot;peer&quot;路由的来历：scope 与 proto 为什么不同&lt;&#x2F;h3&gt;
+&lt;p&gt;顺着上面两个输出再问一层：同样是&quot;对端可达&quot;，为什么 OpenVPN 的是 &lt;code&gt;proto kernel scope link&lt;&#x2F;code&gt;、
+tailscale 的是 &lt;code&gt;proto boot scope global&lt;&#x2F;code&gt;？因为两者根本不是同一种东西——生成方、生成时机都不同。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;OpenVPN 的 peer 路由是&quot;配地址&quot;的副作用，由内核自己生成。&lt;&#x2F;strong&gt; openvpn 配 &lt;code&gt;10.8.0.6 peer 10.8.0.5&lt;&#x2F;code&gt;
+时，对端 IP 作为接口地址属性（IFA_ADDRESS）随地址一起下发；内核 &lt;code&gt;fib_add_ifaddr()&lt;&#x2F;code&gt;
+（net&#x2F;ipv4&#x2F;fib_frontend.c）除了把本端 10.8.0.6 收进 local 表，还会为对端地址自动建一条
+&#x2F;32 路由，且 scope&#x2F;proto 是&lt;strong&gt;写死&lt;&#x2F;strong&gt;的（fib_magic()）：&lt;code&gt;proto = RTPROT_KERNEL&lt;&#x2F;code&gt;（标记&quot;内核创建&quot;）、
+&lt;code&gt;scope = RT_SCOPE_LINK&lt;&#x2F;code&gt;——ptp 对端在语义上就是直连对端（on-link、不经过任何中间网关），
+天然满足上文网关校验对 scope 的要求。这也是 OpenVPN 的 &lt;code&gt;via 10.8.0.5&lt;&#x2F;code&gt; 能装上的直接原因。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;tailscale 的&quot;peer 路由&quot;是 tailscaled 经 netlink 手工写入的普通 dev 路由&lt;&#x2F;strong&gt;（wgengine&#x2F;router&#x2F;
+osrouter&#x2F;router_linux.go 的 addRoute()）：只填 LinkIndex（tailscale0）、Dst、Table=52 三个字段，
+不带 via、也不指定 scope&#x2F;proto——于是落在其 netlink 库的默认值上：scope=universe、proto=boot
+（nl.NewRtMsg() 的缺省）。所以 &lt;code&gt;proto boot scope global&lt;&#x2F;code&gt; &lt;strong&gt;不是设计选择，是&quot;没设置 + 库默认&quot;&lt;&#x2F;strong&gt;：
+tailscaled 自己从不用 &lt;code&gt;via&lt;&#x2F;code&gt; 指 peer（包进隧道后的归属由 wg 引擎按 AllowedIPs 判决，路由只负责
+把包送进 tun），scope 写多少对它毫无影响。&lt;&#x2F;p&gt;
+&lt;p&gt;侧面印证：tailscaled 在 netlink 不可用的兜底路径会退化执行 &lt;code&gt;ip route add &amp;lt;网段&amp;gt; dev tailscale0&lt;&#x2F;code&gt;
+（iproute2），而 iproute2 对 dev-only 路由默认给 scope link——同一条路由若由这条路径写入，
+&lt;code&gt;via peer IP&lt;&#x2F;code&gt; 就能装上（对照上节实测 A：scope link 的网关路由只放 table 52，main 表加 via 照样成功）。&lt;&#x2F;p&gt;
+&lt;p&gt;两个&quot;peer&quot;路由的性质也不同：OpenVPN 那条描述&quot;链路另一端是谁&quot;（内核地址模型的一部分）；
+tailscale 那条描述&quot;哪些目标 IP 属于隧道&quot;——本质是 AllowedIPs 的内核投影，随 netmap 增删、
+与点对点链路毫无关系。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;he-xin-chai-yi-yi-tu-liu&quot;&gt;核心差异一图流&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;OpenVPN（tun 模式）&lt;&#x2F;th&gt;&lt;th&gt;Tailscale（本机）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;隧道形态&lt;&#x2F;td&gt;&lt;td&gt;每客户端 1 条到 server 的链路&lt;&#x2F;td&gt;&lt;td&gt;1 个 TUN 设备对 N 个 peer&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;包进隧道后的判决&lt;&#x2F;td&gt;&lt;td&gt;无判决：固定发唯一 server&lt;&#x2F;td&gt;&lt;td&gt;用户态 wg-go 按 dst 匹配 AllowedIPs&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;未宣告的目标&lt;&#x2F;td&gt;&lt;td&gt;无此概念（server 来者不拒）&lt;&#x2F;td&gt;&lt;td&gt;直接丢弃&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;隧道→LAN 转发&lt;&#x2F;td&gt;&lt;td&gt;server 内核 ip_forward&lt;&#x2F;td&gt;&lt;td&gt;仅 subnet router 节点（内核 ip_forward + nftables）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;peer 表在哪&lt;&#x2F;td&gt;&lt;td&gt;openvpn daemon 用户态（config 单点）&lt;&#x2F;td&gt;&lt;td&gt;tailscaled 用户态（netmap 动态下发）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;peer&quot;路由的来历&lt;&#x2F;td&gt;&lt;td&gt;配地址时内核自动生成（&lt;code&gt;proto kernel scope link&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;AllowedIPs 的内核镜像，tailscaled netlink 写入（&lt;code&gt;proto boot scope global&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;用 via 路由借道&quot;&lt;&#x2F;td&gt;&lt;td&gt;天然成立（server 就是路由器）&lt;&#x2F;td&gt;&lt;td&gt;不成立（peer 默认是叶子，不承担转发）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;一句话：转发执行者两边都是内核，判决者都是用户态程序；区别是 OpenVPN 用配置把&quot;谁当路由器&quot;
+写死成唯一的 server（无条件信任），tailscale 用宣告机制动态决定谁当路由器（默认谁都不当，最小暴露）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bu-gai-tailscale-pei-zhi-yi-dui-duan-zuo-tiao-ban&quot;&gt;不改 tailscale 配置：以对端做跳板&lt;&#x2F;h2&gt;
+&lt;p&gt;peer 的 tailscale IP（100.64.0.2）现在就能通（table 52 有路由），所以：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# TCP 服务透传
+ssh -L 8080:192.168.2.1:80 user@100.64.0.2
+# 通用 SOCKS 代理（任意协议）
+ssh -D 1080 user@100.64.0.2
+# 直接登录对端操作
+ssh user@100.64.0.2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yao-ip-ceng-tou-ming-zhi-da-subnet-router-wei-yi-de-zheng-gui-jie&quot;&gt;要 IP 层透明直达：subnet router（唯一的正规解）&lt;&#x2F;h2&gt;
+&lt;p&gt;tailscale 版&quot;让对端扮演 OpenVPN server&quot;= 在对端宣告子网路由，本机接受：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 对端（能路由到 192.168.2.0&amp;#x2F;24 的节点）
+tailscale set --advertise-routes=192.168.2.0&amp;#x2F;24
+# 本机
+tailscale set --accept-routes
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;tailscale set&lt;&#x2F;code&gt; 全程&lt;strong&gt;不掉线&lt;&#x2F;strong&gt;，撤销只需把值清空。生效过程不只是用户态配置：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;用户态：两端 prefs 持久化；&lt;&#x2F;li&gt;
+&lt;li&gt;控制面：对端宣告上传协调服务器，审核后把新 netmap 推给所有 peer；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;本机内核改动&lt;&#x2F;strong&gt;：192.168.2.0&#x2F;24 加入对端 AllowedIPs（本机是 wg-go 用户态持有；
+内核 wireguard 模式则写入内核 wg 对象），同时 tailscaled 经 netlink 新增一条内核路由；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;对端内核改动&lt;&#x2F;strong&gt;：nftables 加 forward&#x2F;SNAT 规则，开启 ip_forward sysctl——这就是
+&quot;OpenVPN server 转发角色&quot;的等价物。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-zhan-keng-accept-routes-quan-liang-jie-shou-ben-wang-duan-bei-zi-shen-tong-gao-jie-chi&quot;&gt;实战坑：accept-routes 全量接受——本网段被自身通告劫持&lt;&#x2F;h2&gt;
+&lt;p&gt;上面&quot;正规解&quot;要求本机开 accept-routes，但它有一个设计限制：&lt;strong&gt;接受是全量的，没有按前缀过滤&lt;&#x2F;strong&gt;。
+假设本机所在网段（192.168.4.0&#x2F;22）里有两台机器同时向 tailnet 宣告了本网段（常见的冗余
+subnet router 配置：两台都 advertise 192.168.4.0&#x2F;22，供远端 192.168.2.0&#x2F;24 站点访问），
+本机一开 accept-routes 就会把&quot;自己所在的网段&quot;也收下来，后果：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;本机布局里 tailscale 路由在 table 52、rule 5270 先于 main 表 → 本地流量查表先命中
+隧道路由 → 被劫进 tailscale0，经隧道 hairpin 到另一台广告节点再绕回本网段；&lt;&#x2F;li&gt;
+&lt;li&gt;该节点一挂，本网段访问直接断；即使在线路径也畸形（绕一圈，默认 SNAT 下源地址还变成
+广告节点）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;现状核验：&lt;code&gt;tailscale debug prefs&lt;&#x2F;code&gt; 的 &lt;code&gt;AdvertiseRoutes&lt;&#x2F;code&gt;、&lt;code&gt;tailscale status --json&lt;&#x2F;code&gt; 的
+&lt;code&gt;Self.AllowedIPs&lt;&#x2F;code&gt;（本机自己也在宣告时可见本网段）。三种解法（按推荐序）：&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;a-xuan-ze-xing-shou-gong-lu-you-bu-kai-accept-routes-shi-ce-bu-cheng-li&quot;&gt;A. 选择性手工路由——不开 accept-routes（实测：不成立）&lt;&#x2F;h3&gt;
+&lt;p&gt;只加目标网段、不开 accept 的思路看起来干净：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip r add 192.168.2.1&amp;#x2F;32 dev tailscale0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但实测包进隧道即被&lt;strong&gt;本机 wg 引擎丢弃&lt;&#x2F;strong&gt;（广告节点侧 tcpdump 全空）。原因是一个容易踩的视角陷阱：
+&lt;code&gt;tailscale status --json&lt;&#x2F;code&gt; 里对端 &lt;code&gt;AllowedIPs&lt;&#x2F;code&gt; 显示包含通告（如 &lt;code&gt;&quot;192.168.2.1&#x2F;32&quot;&lt;&#x2F;code&gt;），
+那是 &lt;strong&gt;netmap 视角&lt;&#x2F;strong&gt;；而 accept-routes=false 时，wireguard 引擎&lt;strong&gt;实际使用的 allowedIPs 会把
+对端子网通告过滤掉&lt;&#x2F;strong&gt;，只留各 peer 的 tailscale IP。用 status json 判断&quot;wg 是否放行&quot;会误判。
+所以想走 subnet router，accept-routes 这一侧绕不开。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;b-accept-routes-gao-you-xian-ji-ip-rule-ba-ben-wang-duan-bo-hui-main-shi-ce-you-xiao-tui-jian&quot;&gt;B. accept-routes + 高优先级 ip rule 把本网段拨回 main（实测：有效，推荐）&lt;&#x2F;h3&gt;
+&lt;p&gt;保留 accept 的自动全量能力，用内核规则修正冲突（rule 插在 tailscale 的 5270 之前）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip rule add pref 100 to 192.168.4.0&amp;#x2F;22 lookup main   # 先加保护，再开 accept
+sudo tailscale set --accept-routes
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;rule 100 先于 rule 5270 命中：本网段查表直接落到 main 表的本地直连，不进隧道；
+远端 192.168.2.1&#x2F;32 不在规则内，照走 tailscale（accept 后自动装入 table 52）。
+实测结果：table 52 出现 &lt;code&gt;192.168.2.1 dev tailscale0&lt;&#x2F;code&gt;，远端 ping 通（~11ms），
+本地网关 ping 仍直连（0.5ms）。等于把&quot;全量接受&quot;改成&quot;按需屏蔽&quot;——以后新增的其他远端
+通告仍会自动收，需要时再补规则精确屏蔽。该规则需自行持久化，tailscaled 不会清理它管理
+的规则号段之外的条目：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;tailscale-protect-lan.service
+[Unit]
+Description=Protect local LAN subnet from tailscale route shadowing
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=&amp;#x2F;bin&amp;#x2F;sh -c &amp;#x27;ip rule add pref 100 to 192.168.4.0&amp;#x2F;22 lookup main 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || true&amp;#x27;
+ExecStop=&amp;#x2F;bin&amp;#x2F;sh -c &amp;#x27;ip rule del pref 100 to 192.168.4.0&amp;#x2F;22 lookup main 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || true&amp;#x27;
+
+[Install]
+WantedBy=multi-user.target
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl enable --now tailscale-protect-lan.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;c-xian-ce-xin-ban-tailscaled-shi-fou-zi-dai-chong-tu-tiao-guo-5-miao-shi-yan-ke-hui-gun&quot;&gt;C. 先测新版 tailscaled 是否自带冲突跳过（5 秒实验，可回滚）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tailscale set --accept-routes
+ip route show table 52              # 192.168.4.0&amp;#x2F;22 是否被装上？
+journalctl -u tailscaled --since &amp;quot;1 min ago&amp;quot; | grep -i conflict   # 有 skip 日志 = 被保护
+ping -c1 192.168.4.1                # 本网段网关仍直连即安全
+tailscale set --accept-routes=false # 不对就立即回滚
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;新版若对与本地直连冲突的 accepted 路由自动跳过（日志可见 skip），直接 accept 即可无事。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-zhang-shi-lu-cong-xuan-gao-cheng-gong-dao-zhen-zheng-lian-tong-de-wan-zheng-lian-lu&quot;&gt;排障实录：从&quot;宣告成功&quot;到&quot;真正连通&quot;的完整链路&lt;&#x2F;h3&gt;
+&lt;p&gt;本机与对端网络（headscale v0.29.3 + tailscale 1.102）实测踩坑全过程，按检查顺序：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;广告节点宣告&lt;&#x2F;strong&gt;：&lt;code&gt;tailscale set --advertise-routes=192.168.2.1&#x2F;32&lt;&#x2F;code&gt;（对端能直达该目标为前提）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;headscale 批准&lt;&#x2F;strong&gt;：v0.29 CLI 重构后是 &lt;code&gt;headscale nodes list-routes&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;headscale nodes approve-routes &amp;lt;node-id&amp;gt; &amp;lt;prefix&amp;gt;&lt;&#x2F;code&gt;，不再有顶层 &lt;code&gt;routes&lt;&#x2F;code&gt; 命令。批准前 &lt;code&gt;Self.AllowedIPs&lt;&#x2F;code&gt; 不会出现该路由。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;广告节点进入 serving 状态&lt;&#x2F;strong&gt;（本次最大暗坑）：headscale 侧已显示 Approved + Serving、
+其他节点的 netmap 也已收到通告，但&lt;strong&gt;广告节点自己的 netmap 迟迟不更新&lt;&#x2F;strong&gt;——&lt;code&gt;force-netmap-update&lt;&#x2F;code&gt;
+无效，&lt;code&gt;Self.AllowedIPs&lt;&#x2F;code&gt; 始终缺路由、&lt;code&gt;PrimaryRoutes&lt;&#x2F;code&gt; 为空，&lt;strong&gt;必须重启 tailscaled&lt;&#x2F;strong&gt; 才进入
+serving 状态并应用 netfilter 规则。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;广告节点 netfilter 后端判定&lt;&#x2F;strong&gt;：tailscaled 日志显示 &lt;code&gt;netfilter running in iptables mode&lt;&#x2F;code&gt;——
+规则在 &lt;strong&gt;iptables&lt;&#x2F;strong&gt; 而非 nftables！&lt;code&gt;nft list ruleset&lt;&#x2F;code&gt; 为空不代表没规则，误判会带偏排查。
+正确查法：&lt;code&gt;iptables -S | grep ts-&lt;&#x2F;code&gt; 与 &lt;code&gt;iptables -t nat -S&lt;&#x2F;code&gt;，可见 ts-forward&#x2F;ts-input&#x2F;
+ts-postrouting 链 + mark 0x40000 MASQUERADE，规则本身逻辑正确。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;访问端包是否真的进隧道&lt;&#x2F;strong&gt;（定位到本机的关键证据）：在广告节点 &lt;code&gt;tcpdump -ni any icmp&lt;&#x2F;code&gt;
+抓包全空 → 包根本没到广告节点，被&lt;strong&gt;访问端本地丢弃&lt;&#x2F;strong&gt;。结合第 3 节视角陷阱定位到：
+accept-routes=false 时 wg 引擎过滤对端通告，本机装 dev 路由也白搭。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;解法落地&lt;&#x2F;strong&gt;：先加 &lt;code&gt;ip rule pref 100 to 192.168.4.0&#x2F;22 lookup main&lt;&#x2F;code&gt; 保护本网段，
+再 &lt;code&gt;tailscale set --accept-routes&lt;&#x2F;code&gt; → table 52 自动出现 &lt;code&gt;192.168.2.1 dev tailscale0&lt;&#x2F;code&gt;，
+远端与本地 ping 同时验证通过。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;关键教训：&lt;strong&gt;&quot;宣告成功&quot;与&quot;真正连通&quot;之间隔着 5 个独立环节&lt;&#x2F;strong&gt;（宣告→批准→节点 serving→
+广告节点 netfilter→访问端 accept），任一环节静默失效都不通；其中 status json 的 AllowedIPs
+是 netmap 视角、accept-routes 才是 wg 引擎的开关、netfilter 后端要按日志判断——三个陷阱
+分别浪费一轮排查。&lt;&#x2F;p&gt;
+&lt;p&gt;关键认知：tailscale 接受侧没有 OpenVPN 那样的&quot;要不要这条路由&quot;细粒度控制，但内核 ip rule
+可以补齐这个缺口——方案 B 就是&quot;选择性接受&quot;的内核等价物。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fu-tun-huan-shi-tap-zen-me-pan-ding&quot;&gt;附：TUN 还是 TAP，怎么判定&lt;&#x2F;h1&gt;
+&lt;p&gt;排查中顺手验证 tailscale0 是 TUN（三层）不是 TAP（二层）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ip -d link show dev tailscale0 | head -1
+tailscale0: &amp;lt;POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP&amp;gt; ... tun type tun ...   # type tun = TUN
+$ cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;net&amp;#x2F;tailscale0&amp;#x2F;type       # 65534 = ARPHRD_NONE（TUN）；TAP 会是 1
+$ cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;net&amp;#x2F;tailscale0&amp;#x2F;tun_flags  # 0x5001：含 0x1(TUN_TUN_DEV) 无 0x2(TUN_TAP_DEV)
+$ cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;net&amp;#x2F;tailscale0&amp;#x2F;address    # 空：TUN 无 MAC；TAP 会有
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;若用内核 wireguard（非 wg-go），&lt;code&gt;ip -d link&lt;&#x2F;code&gt; 会显示 &lt;code&gt;type wireguard&lt;&#x2F;code&gt;，丢弃判决会移交给
+内核 wg 模块执行——但 AllowedIPs 的内容仍由 tailscaled 按 netmap 下发，规则始终是 tailscale 定的。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;报错根源（勘误：早先&quot;&lt;code&gt;fib_lookup&lt;&#x2F;code&gt; 只查 main 表、不跟 ip rule&quot;的归因是错的——实测 scope link 的网关路由只放 table 52、main 加 via 照样成功，说明校验走完整规则链）：添加路由时内核 &lt;code&gt;fib_check_nh_v4_gw()&lt;&#x2F;code&gt; 要求网关由 &lt;strong&gt;scope ≥ link 的 on-link 路由&lt;&#x2F;strong&gt;覆盖，tailscaled 的 peer 路由全是 &lt;code&gt;proto boot scope global&lt;&#x2F;code&gt; → 被 scope 过滤判 invalid gateway。与写进 main 还是 table 52、带不带 dev 都无关，只有显式 &lt;code&gt;onlink&lt;&#x2F;code&gt; 能绕过；对照 OpenVPN：内核 ptp 路由是 &lt;code&gt;scope link&lt;&#x2F;code&gt;，天然满足校验；&lt;&#x2F;li&gt;
+&lt;li&gt;但就算消掉报错也到不了：tailscale 多对端隧道按 AllowedIPs 在用户态判决目标归属，未宣告的子网一律丢弃，&lt;code&gt;via&lt;&#x2F;code&gt; 的意图传不到隧道内部；&lt;&#x2F;li&gt;
+&lt;li&gt;OpenVPN 能行是因为单 ptp 链路无判决 + server 是显式内核转发路由器；&lt;&#x2F;li&gt;
+&lt;li&gt;想让 tailscale 节点扮演 OpenVPN server 的角色，唯一机制是 subnet router（advertise-routes + accept-routes），会同时改动两端的内核状态；&lt;&#x2F;li&gt;
+&lt;li&gt;accept-routes 是全量接受：本网段若被其他节点宣告，一开 accept 就会收下自己的网段导致本地流量 hairpin；实测解法=先加高优先级 ip rule 把本网段拨回 main 再开 accept（&quot;选择性接受&quot;的内核等价物，含 systemd 持久化）；&quot;不开 accept 手工路由&quot;方案实测不成立——wg 引擎会过滤对端通告，且 status json 的 AllowedIPs 是 netmap 视角会误导判断；&lt;&#x2F;li&gt;
+&lt;li&gt;临时借用：ssh 跳板 &#x2F; &lt;code&gt;-L&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;-D&lt;&#x2F;code&gt;，无需动任何配置。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>openvpn 配置</title>
+        <published>2025-10-26T10:30:40+08:00</published>
+        <updated>2025-11-03T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/openvpn 配置/"/>
+        <id>https://moxuetianya.github.io/2025/10/openvpn 配置/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/openvpn 配置/">&lt;h1 id=&quot;an-zhuang-he-pei-zhi&quot;&gt;安装和配置&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install openvpn
+# 覆盖默认配置， 探测192.168.2.1可达
+sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;openvpn-client@work.service &amp;lt;&amp;lt;EOF
+[Unit]
+Description=OpenVPN tunnel for %I after IP 192.168.2.1 to be reachable
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=notify
+PrivateTmp=true
+WorkingDirectory=&amp;#x2F;etc&amp;#x2F;openvpn&amp;#x2F;client
+ExecStartPre=&amp;#x2F;bin&amp;#x2F;bash -c &amp;#x27;until ping -c 1 -W 5 192.168.2.1; do sleep 1; done
+ExecStart=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;openvpn --suppress-timestamps --nobind --config %i.conf
+CapabilityBoundingSet=CAP_IPC_LOCK CAP_NET_ADMIN CAP_NET_RAW CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_CHROOT CAP_DAC_OVERRIDE
+LimitNPROC=10
+DeviceAllow=&amp;#x2F;dev&amp;#x2F;null rw
+DeviceAllow=&amp;#x2F;dev&amp;#x2F;net&amp;#x2F;tun rw
+ProtectSystem=true
+ProtectHome=true
+KillMode=process
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;openvpn&amp;#x2F;client&amp;#x2F;work.conf
+client
+dev tun
+proto tcp
+remote &amp;lt;ip&amp;gt; &amp;lt;port&amp;gt;
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+comp-lzo no
+
+auth-user-pass
+# openvpn3 客户端支持账户认证, openvpn2 好像支持环境变量热证
+# &amp;lt;auth-user-pass&amp;gt;
+# VPN_USERNAME_HERE
+# VPN_PASSWORD_HERE
+# &amp;lt;&amp;#x2F;auth-user-pass&amp;gt;
+remote-cert-tls server
+
+data-ciphers AES-256-GCM:AES-256-CBC
+data-ciphers-fallback AES-256-CBC
+verb 3
+&amp;lt;ca&amp;gt;
+-----BEGIN CERTIFICATE-----
+XXX base 64
+-----END CERTIFICATE-----
+&amp;lt;&amp;#x2F;ca&amp;gt;
+EOF
+sudo systemctl start openvpn-client@work.service
+# 可以手动调节metric 防止影响局域网路由
+sudo ip route change default via 10.8.0.1 dev tun0 metric 300
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;fu-wu-duan-pei-zhi&quot;&gt;服务端配置&lt;&#x2F;h1&gt;
+&lt;p&gt;可以参考ldap账户认证&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pei-zhi-lu-you&quot;&gt;配置路由&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip route
+# 192.168.5.0&amp;#x2F;24 dev eno1 proto kernel scope link src 192.168.5.23 metric 100 
+# 192.168.4.0&amp;#x2F;22 via 10.8.0.9 dev tun0 
+# 192.168.4.0&amp;#x2F;22 via 10.8.0.9 dev tun0 metric 10
+ip route get 192.168.5.244
+# 192.168.5.244 dev eno1 src 192.168.5.23 uid 1000
+#     cache
+
+# 为什么经过dev tun0 的路由地址metric优先级(10)更高, 但是路由却走了直连的路由？？？
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Metric 只在“相同目标前缀”的多条路由之间比较时才生效。
+&lt;ul&gt;
+&lt;li&gt;例如：两条都是 192.168.5.0&#x2F;24，一个 metric 10，一个 metric 100 → 选 metric 10。&lt;&#x2F;li&gt;
+&lt;li&gt;但你的 metric 10 路由是 192.168.4.0&#x2F;22，和 192.168.5.0&#x2F;24 不是相同前缀！&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;前缀长度优先于 metric
+&lt;ul&gt;
+&lt;li&gt;目标地址 192.168.5.244 属于 192.168.5.0&#x2F;24 网段。&lt;&#x2F;li&gt;
+&lt;li&gt;Linux 路由查找时会做 最长前缀匹配（Longest Prefix Match），而：&lt;&#x2F;li&gt;
+&lt;li&gt;192.168.5.0&#x2F;24 是 &#x2F;24 前缀&lt;&#x2F;li&gt;
+&lt;li&gt;192.168.4.0&#x2F;22 虽然也包含 192.168.5.244（因为 &#x2F;22 覆盖 192.168.4.0 ~ 192.168.7.255），但它是 更短的前缀（&#x2F;22 &amp;lt; &#x2F;24）&lt;&#x2F;li&gt;
+&lt;li&gt;✅ 所以系统 优先选择更具体的 &#x2F;24 路由&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ru-guo-ni-zhen-de-xiang-rang-192-168-5-244-zou-tun0-zen-me-ban&quot;&gt;如果你真的想让 192.168.5.244 走 tun0 怎么办？&lt;&#x2F;h2&gt;
+&lt;p&gt;这是个非常规需求（因为 192.168.5.244 和你本机在同一个局域网），但技术上可以做到：&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;tian-jia-geng-ju-ti-de-32-lu-you-tui-jian&quot;&gt;添加更具体的 &#x2F;32 路由（推荐）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip route add 192.168.5.244 via 10.8.0.9 dev tun0 metric 5
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;shi-yong-ce-lue-lu-you-gao-ji&quot;&gt;使用策略路由（高级）&lt;&#x2F;h3&gt;
+&lt;p&gt;通过 ip rule + 自定义路由表，对特定用户&#x2F;进程&#x2F;防火墙标记的流量使用不同路由。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip rule add to 192.168.5.244&amp;#x2F;24 lookup 100
+sudo ip route add default via 10.8.0.9 dev tun0 table 100
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

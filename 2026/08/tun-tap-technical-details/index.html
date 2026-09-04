@@ -1,0 +1,281 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>TUN / TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从内核视角拆解 Linux TUN&#x2F;TAP 虚拟网卡:工作层级差异、为什么 TUN 没有 MAC 而 TAP 有、tap0 的 MAC 为何只是内核占位符、网桥如何通过 MAC 表学习转发、VM→外网完整收发路径、一个 50 行 Python 简易 VPN 演示 ARP 伪造,TUN 与 TAP 的应用选型对比(结合本机 tailscale0&#x2F;OpenVPN tun0 实测)" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/" />
+  <meta property="og:description" content="从内核视角拆解 Linux TUN&#x2F;TAP 虚拟网卡:工作层级差异、为什么 TUN 没有 MAC 而 TAP 有、tap0 的 MAC 为何只是内核占位符、网桥如何通过 MAC 表学习转发、VM→外网完整收发路径、一个 50 行 Python 简易 VPN 演示 ARP 伪造,TUN 与 TAP 的应用选型对比(结合本机 tailscale0&#x2F;OpenVPN tun0 实测)" />
+  <meta name="twitter:description" content="从内核视角拆解 Linux TUN&#x2F;TAP 虚拟网卡:工作层级差异、为什么 TUN 没有 MAC 而 TAP 有、tap0 的 MAC 为何只是内核占位符、网桥如何通过 MAC 表学习转发、VM→外网完整收发路径、一个 50 行 Python 简易 VPN 演示 ARP 伪造,TUN 与 TAP 的应用选型对比(结合本机 tailscale0&#x2F;OpenVPN tun0 实测)" />
+  <meta property="og:title" content="TUN &#x2F; TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍 | 墨雪天琊" />
+  <meta name="twitter:title" content="TUN &#x2F; TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-16" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/">TUN / TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 16, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/networking/">networking</a>] #<a href="https://moxuetianya.github.io/tags/tun/">tun</a>  #<a href="https://moxuetianya.github.io/tags/tap/">tap</a>  #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/vpn/">vpn</a>  #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/tailscale/">tailscale</a> </span>
+
+    
+
+
+<h1 id="bei-jing-ben-ji-wang-luo-zhan-li-na-xie-kan-bu-jian-de-wang-qia">背景:本机网络栈里那些看不见的"网卡"</h1>
+<p>日常 <code>ip link</code> 会看到一堆奇怪的接口——<code>tun0</code>、<code>tap0</code>、<code>tailscale0</code>、<code>docker0</code>、<code>veth</code>。它们不是物理网卡,而是内核虚拟设备。本机(Proxmox 宿主)实测:</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">tailscale0: &lt;POINTOPOINT,MULTICAST,NOARP&gt; ...    ← TUN,三层
+    inet 100.64.0.3&#x2F;32 scope global tailscale0
+tun0: &lt;POINTOPOINT,MULTICAST,NOARP&gt; ...          ← TUN,OpenVPN
+    inet 10.8.0.6 peer 10.8.0.5&#x2F;32 scope global tun0
+vmbr0: ...                                        ← 网桥,二层
+</code></pre>
+<p>TUN 和 TAP 是 Linux 提供的一对"用户空间 ↔ 内核协议栈"的虚拟管道设备:程序打开 <code>/dev/net/tun</code>,通过 read/write 收发数据包。区别只在<strong>收发的是什么东西</strong>。</p>
+<h1 id="tun-yu-tap-de-ji-ben-gai-nian">TUN 与 TAP 的基本概念</h1>
+<table><thead><tr><th>特性</th><th>TUN</th><th>TAP</th></tr></thead><tbody>
+<tr><td>工作层级</td><td>三层(网络层)</td><td>二层(数据链路层)</td></tr>
+<tr><td>处理的数据</td><td>IP 数据包</td><td>以太网帧</td></tr>
+<tr><td>有 MAC 地址?</td><td>没有(<code>link/none</code>)</td><td>有(<code>link/ether</code>)</td></tr>
+<tr><td>有 IP 地址?</td><td>有(手动配置)</td><td>有(手动配置)</td></tr>
+<tr><td>能加入网桥?</td><td>不能</td><td>可以</td></tr>
+<tr><td>典型应用</td><td>VPN(OpenVPN、WireGuard、Tailscale/Headscale)</td><td>虚拟机网络(QEMU/KVM)</td></tr>
+</tbody></table>
+<h1 id="tun-she-bei-xiang-jie-san-ceng-wu-mac-dian-dui-dian">TUN 设备详解:三层、无 MAC、点对点</h1>
+<h2 id="ji-ben-shu-xing">基本属性</h2>
+<p>TUN 是<strong>三层(网络层)设备</strong>,只处理 IP 包,不涉及以太网帧,因此<strong>没有 MAC 地址</strong>:</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text"># TUN 设备 —— link&#x2F;none,没有 MAC
+5: tun0: &lt;POINTOPOINT,MULTICAST,NOARP&gt; ...
+    link&#x2F;none
+# ifconfig 视角:硬件地址全是零
+tun0  Link encap:UNSPEC  HWaddr 00-00-00-00-00-00-...
+      inet addr:10.8.0.5  P-T-P:10.8.0.5  Mask:255.255.255.0
+      UP POINTOPOINT RUNNING NOARP MULTICAST
+</code></pre>
+<h2 id="wei-shen-me-bu-xu-yao-mac">为什么不需要 MAC?</h2>
+<p>TUN 工作在三层,数据直接以 <strong>IP 包</strong>形式在内核协议栈和用户空间程序之间传递,不经过以太网帧封装,自然不需要 MAC 做二层寻址。</p>
+<p><code>POINTOPOINT</code>(点对点)标志揭示了它的本质:一条<strong>虚拟点对点链路</strong>——一端是宿主机内核协议栈,另一端是用户空间的 VPN 程序。数据通过这条管道直接传递 IP 包,不存在二层寻址的概念。</p>
+<p><strong>这也是 Tailscale/OpenVPN 等 VPN 选择 TUN 的根本原因</strong>:省去 ARP、MAC、广播等二层烦恼,VPN 程序只需专注"路由 IP 包 → 加密 → UDP/TCP 发到远端"。本机 <code>tailscale0</code> 就是 TUN,100.64.0.3/32 点对点。</p>
+<h1 id="tap-she-bei-xiang-jie-er-ceng-bi-xu-you-mac-wei-gei-wang-qiao">TAP 设备详解:二层、必须"有"MAC、喂给网桥</h1>
+<h2 id="chuang-jian-yu-pei-zhi">创建与配置</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip tuntap add dev tap0 mode tap user $(whoami)   # user 参数允许普通用户读写
+sudo ip link set tap0 up
+sudo ip addr add 10.0.0.1&#x2F;24 dev tap0
+</code></pre>
+<h2 id="mac-di-zhi-de-liang-ge-can-yu-zhe-bi-xu-bu-tong">MAC 地址的两个"参与者"必须不同</h2>
+<ul>
+<li><strong>tap0 自身的 MAC</strong>:创建时内核<strong>随机生成</strong>(常以 <code>fe:</code> 开头),只是占位符,不是虚拟机的 MAC。</li>
+<li><strong>虚拟机网卡的 MAC</strong>:QEMU 打开 tap0 后,在 VM 内部模拟网卡硬件(virtio-net),分配自己的 MAC(常以 <code>52:54:</code> 开头;可用 <code>-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56</code> 固定)。</li>
+</ul>
+<p><strong>两者必须不同</strong>,原因在网桥:br0 依靠 MAC 地址表决定帧的转发端口,若 tap0 与 VM 网卡 MAC 相同,网桥将无法判断该 MAC 对应的设备在 tap0 端口侧还是外部物理网络侧,转发混乱。libvirt 的规律:把 VM MAC 首字节改为 <code>0xFE</code> 生成 tap0 的 MAC(如 VM <code>52:54:d7:18:09:2a</code> → tap0 <code>fe:54:d7:18:09:2a</code>)。</p>
+<h2 id="tap0-de-mac-ji-hu-mei-you-shi-ji-zuo-yong">tap0 的 MAC 几乎没有实际作用</h2>
+<p>回顾数据流:网桥学习的是<strong>帧里的源 MAC</strong>(VM 的),不是 tap0 接口自身的 MAC;帧经过 tap0 时 MAC 不被替换;TAP 设备设了 NOARP,没人 ARP 查询它。<strong>那为什么它还存在?</strong>——Linux 内核 <code>net_device</code> 结构体的硬性要求:任何网络设备都必须有一个 MAC 地址,即使实际用不到。它是"存在即合理"的占位符。</p>
+<h2 id="shu-ju-bao-ru-he-lu-you-dao-xu-ni-ji-wang-qiao-de-mac-biao-dong-tai-xue-xi">数据包如何路由到虚拟机:网桥的 MAC 表动态学习</h2>
+<p>数据包路由到 VM 依赖的是网桥 MAC 转发表,由 VM 发出帧的源 MAC <strong>动态学习</strong>建立:</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">初始:br0 转发表为空
+VM1 发帧(src MAC 52:54:d7:18:09:2a)从 tap0 进入
+  → 网桥记录:52:54:d7:18:09:2a → tap0 端口
+VM2 发帧(src MAC 52:54:aa:bb:cc:dd)从 tap1 进入
+  → 网桥记录:52:54:aa:bb:cc:dd → tap1 端口
+回包:外部帧 dst=52:54:d7:18:09:2a
+  → 网桥查表 → 从 tap0 端口转发 → QEMU 读帧注入 VM1
+</code></pre>
+<h1 id="shu-ju-bao-jiao-hu-liu-cheng-vm-wai-wang">数据包交互流程:VM → 外网</h1>
+<p>拓扑:VM(eth0 10.0.0.2) ↔ QEMU 进程 ↔ 宿主机 tap0 ↔ 网桥 br0(10.0.0.1) ↔ 物理网卡 eth0 ↔ 外网。</p>
+<p><strong>发送(VM1 → 外网)</strong>:</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">VM1 应用 → VM1 内核查路由表 → 虚拟网卡 eth0
+  → QEMU 进程把帧写入宿主机 tap0
+  → 内核发现 tap0 挂在 br0 上,转发到网桥
+  → br0 查 MAC 表,目标不在本地 VM → 从物理网卡 eth0 发出
+  → (VM 访问外网通常还需宿主机 NAT:iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE)
+  → 路由器 → 外网目标
+</code></pre>
+<p><strong>接收(外网 → VM1)</strong>:对称反向——物理网卡收帧 → br0 查 MAC 表找到 tap0 端口 → 帧交给 QEMU → 注入 VM 虚拟网卡 → VM 内核协议栈 → 应用。</p>
+<p><strong>核心要点</strong>:</p>
+<ul>
+<li>TAP 是<strong>桥梁</strong>:一头连内核网桥,一头被 QEMU 持有,负责搬运帧</li>
+<li>网桥 br0 是<strong>交换机</strong>:二层按 MAC 决定转发端口</li>
+<li>NAT 是<strong>可选的</strong>:VM 要出外网才需要 MASQUERADE</li>
+<li>QEMU 是<strong>搬运工</strong>:read/write tap0 与 VM 网卡之间持续搬运</li>
+</ul>
+<h1 id="50-xing-python-jian-yi-vpn-yan-zheng-vpn-ben-zhi">50 行 Python 简易 VPN:验证"VPN 本质"</h1>
+<p>核心逻辑:打开 <code>/dev/net/tun</code> → ioctl 配置为 tap0 → 死循环读包/写包。示例程序只处理 ARP 请求,构造假回复声称"10.0.0.2 存在":</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">import os, struct
+from fcntl import ioctl
+
+TUNSETIFF = 0x400454ca
+IFF_TAP   = 0x0002
+IFF_NO_PI = 0x1000
+
+def create_tap(ifname):
+    tap_fd = os.open(&quot;&#x2F;dev&#x2F;net&#x2F;tun&quot;, os.O_RDWR)
+    ifr = struct.pack(&quot;16sH&quot;, ifname.encode(&quot;utf-8&quot;), IFF_TAP | IFF_NO_PI)
+    ioctl(tap_fd, TUNSETIFF, ifr)
+    return tap_fd
+
+def handle_arp_request(packet, tap_fd):
+    host_mac = packet[6:12]          # 提取 ARP 请求源 MAC
+    fake_mac = bytes([0x00,0x11,0x22,0x33,0x44,0x55])
+    arp_reply = (host_mac + fake_mac + b&#x27;\x08\x06&#x27; + b&#x27;\x00\x01&#x27; + b&#x27;\x08\x00&#x27; +
+                 b&#x27;\x06&#x27; + b&#x27;\x04&#x27; + b&#x27;\x00\x02&#x27; + fake_mac +
+                 b&#x27;\x0a\x00\x00\x02&#x27; + host_mac + b&#x27;\x0a\x00\x00\x01&#x27;)
+    os.write(tap_fd, arp_reply)
+    print(&quot;捕获到 ARP 请求,已伪造 10.0.0.2 的回复!&quot;)
+
+def main():
+    tap_fd = create_tap(&quot;tap0&quot;)
+    print(&quot;启动简易 VPN 程序,正在监听 tap0...&quot;)
+    while True:
+        packet = os.read(tap_fd, 1514)
+        if packet[12:14] == b&#x27;\x08\x06&#x27;:   # ARP
+            handle_arp_request(packet, tap_fd)
+        else:
+            pass                            # 其他包(IP)直接丢弃
+
+if __name__ == &quot;__main__&quot;:
+    main()
+</code></pre>
+<p><strong>运行与现象</strong>:<code>python3 simple_vpn.py</code> + 另一终端 <code>ping 10.0.0.2</code>——先通(ARP 被拦截伪造了假回复),随后 <code>Destination Host Unreachable</code> 或卡住。<strong>为什么卡住</strong>:ping 拿到假 MAC 后发出 ICMP IP 包,程序在 else 分支直接丢弃——没有完整 TCP/IP 协议栈就回不了 ICMP Echo Reply。</p>
+<p>这揭示了 <strong>VPN 的本质</strong>:</p>
+<ul>
+<li><strong>TAP 模式</strong>:读的是完整以太网帧,要实现完整网络功能,程序内部必须实现一套虚拟协议栈(ARP/ICMP/TCP 握手),或把帧转发到真实物理网络——复杂</li>
+<li><strong>TUN 模式</strong>(Tailscale 用):读的是纯 IP 包(无 MAC 头),省去 ARP 烦恼,VPN 程序只需路由、加密、UDP/TCP 传输——简单,这正是 tailscale0 走的路</li>
+</ul>
+<h1 id="ge-xu-ni-hua-ping-tai-de-tap-tun-guan-li">各虚拟化平台的 TAP/TUN 管理</h1>
+<table><thead><tr><th>场景</th><th>需要手动创建?</th><th>说明</th></tr></thead><tbody>
+<tr><td>QEMU/KVM 手动配置</td><td>需要</td><td>每个 VM 一个 TAP</td></tr>
+<tr><td>libvirt / virt-manager</td><td>自动</td><td>libvirt 自动管理</td></tr>
+<tr><td>VMware / VirtualBox</td><td>自动</td><td>工具内部自动处理</td></tr>
+<tr><td>Docker</td><td>自动</td><td>用 veth pair,非 TAP</td></tr>
+<tr><td>Tailscale/Headscale</td><td>自动</td><td>每节点自动创建自己的 TUN</td></tr>
+</tbody></table>
+<h1 id="zong-jie">总结</h1>
+<ul>
+<li>TUN = 三层点对点管道,<strong>无 MAC</strong>,只管 IP 包 → VPN 首选(OpenVPN/WireGuard/Tailscale)</li>
+<li>TAP = 二层以太网管道,<strong>有 MAC</strong>(内核硬性要求,实际是占位符),能进网桥 → 虚拟机网络首选(QEMU/KVM)</li>
+<li>网桥靠<strong>帧内源 MAC 动态学习</strong>转发表,与 tap0 自身 MAC 无关</li>
+<li>"为什么 VPN 不用 TAP":二层帧需要完整协议栈或桥接转发,三层 TUN 省掉 ARP/MAC/广播,实现和排障都简单得多</li>
+<li>虚拟化为什么不用 TUN:VM 需要完整二层语义(广播/ARP/交换机行为),TAP + 网桥正是干这个的</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/jos-learning-notes/">&#8249; JOS 学习笔记</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/"> 触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing-ben-ji-wang-luo-zhan-li-na-xie-kan-bu-jian-de-wang-qia">背景:本机网络栈里那些看不见的&quot;网卡&quot;</a>
+        </div>
+        <div>
+          <a href="#tun-yu-tap-de-ji-ben-gai-nian">TUN 与 TAP 的基本概念</a>
+        </div>
+        <div>
+          <a href="#tun-she-bei-xiang-jie-san-ceng-wu-mac-dian-dui-dian">TUN 设备详解:三层、无 MAC、点对点</a>
+        </div>
+        <div class="hpad">
+          <a href="#ji-ben-shu-xing"><small>- 基本属性</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-bu-xu-yao-mac"><small>- 为什么不需要 MAC?</small></a>
+        </div>
+        <div>
+          <a href="#tap-she-bei-xiang-jie-er-ceng-bi-xu-you-mac-wei-gei-wang-qiao">TAP 设备详解:二层、必须&quot;有&quot;MAC、喂给网桥</a>
+        </div>
+        <div class="hpad">
+          <a href="#chuang-jian-yu-pei-zhi"><small>- 创建与配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#mac-di-zhi-de-liang-ge-can-yu-zhe-bi-xu-bu-tong"><small>- MAC 地址的两个&quot;参与者&quot;必须不同</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tap0-de-mac-ji-hu-mei-you-shi-ji-zuo-yong"><small>- tap0 的 MAC 几乎没有实际作用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shu-ju-bao-ru-he-lu-you-dao-xu-ni-ji-wang-qiao-de-mac-biao-dong-tai-xue-xi"><small>- 数据包如何路由到虚拟机:网桥的 MAC 表动态学习</small></a>
+        </div>
+        <div>
+          <a href="#shu-ju-bao-jiao-hu-liu-cheng-vm-wai-wang">数据包交互流程:VM → 外网</a>
+        </div>
+        <div>
+          <a href="#50-xing-python-jian-yi-vpn-yan-zheng-vpn-ben-zhi">50 行 Python 简易 VPN:验证&quot;VPN 本质&quot;</a>
+        </div>
+        <div>
+          <a href="#ge-xu-ni-hua-ping-tai-de-tap-tun-guan-li">各虚拟化平台的 TAP&#x2F;TUN 管理</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

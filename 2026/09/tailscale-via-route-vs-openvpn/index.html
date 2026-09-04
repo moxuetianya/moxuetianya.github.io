@@ -1,0 +1,440 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>tailscale 为什么不能像 OpenVPN 那样用 via 路由访问对端局域网 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="排查「ip route via tailscale 对端 IP 报 Nexthop has invalid gateway」的完整过程：内核 nexthop 校验要求网关由 on-link（scope ≥ link）路由覆盖、tailscaled 的 peer 路由却全是 scope global → via 一律 invalid gateway（与写进哪张表无关，含勘误）、tailscale 多对端隧道按 AllowedIPs 在用户态判决、OpenVPN 单 ptp 链路 + server 内核转发的架构差异，以及 subnet router（advertise-routes）作为等价物、ssh 跳板等不改配置的替代方案；并记录 accept-routes 全量接受导致本网段被自身通告劫持的冲突与三种解法" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/" />
+  <meta property="og:description" content="排查「ip route via tailscale 对端 IP 报 Nexthop has invalid gateway」的完整过程：内核 nexthop 校验要求网关由 on-link（scope ≥ link）路由覆盖、tailscaled 的 peer 路由却全是 scope global → via 一律 invalid gateway（与写进哪张表无关，含勘误）、tailscale 多对端隧道按 AllowedIPs 在用户态判决、OpenVPN 单 ptp 链路 + server 内核转发的架构差异，以及 subnet router（advertise-routes）作为等价物、ssh 跳板等不改配置的替代方案；并记录 accept-routes 全量接受导致本网段被自身通告劫持的冲突与三种解法" />
+  <meta name="twitter:description" content="排查「ip route via tailscale 对端 IP 报 Nexthop has invalid gateway」的完整过程：内核 nexthop 校验要求网关由 on-link（scope ≥ link）路由覆盖、tailscaled 的 peer 路由却全是 scope global → via 一律 invalid gateway（与写进哪张表无关，含勘误）、tailscale 多对端隧道按 AllowedIPs 在用户态判决、OpenVPN 单 ptp 链路 + server 内核转发的架构差异，以及 subnet router（advertise-routes）作为等价物、ssh 跳板等不改配置的替代方案；并记录 accept-routes 全量接受导致本网段被自身通告劫持的冲突与三种解法" />
+  <meta property="og:title" content="tailscale 为什么不能像 OpenVPN 那样用 via 路由访问对端局域网 | 墨雪天琊" />
+  <meta name="twitter:title" content="tailscale 为什么不能像 OpenVPN 那样用 via 路由访问对端局域网 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-09-04" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/09/tailscale-via-route-vs-openvpn/">tailscale 为什么不能像 OpenVPN 那样用 via 路由访问对端局域网</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 九月 04, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/networking/">networking</a>] #<a href="https://moxuetianya.github.io/tags/tailscale/">tailscale</a>  #<a href="https://moxuetianya.github.io/tags/openvpn/">openvpn</a>  #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/routing/">routing</a>  #<a href="https://moxuetianya.github.io/tags/wireguard/">wireguard</a>  #<a href="https://moxuetianya.github.io/tags/tun/">tun</a> </span>
+
+    
+
+
+<h1 id="bei-jing-xiang-zai-tailscale-wang-luo-li-jie-yong-dui-duan-fang-wen-qi-ju-yu-wang">背景：想在 tailscale 网络里"借用"对端访问其局域网</h1>
+<p>本机（tailscale 100.64.0.1）想临时访问对端节点（100.64.0.2）所在站点的局域网设备 192.168.2.1。
+直觉做法是加一条经对端转发的路由，就像 OpenVPN 里那样：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip r replace 192.168.2.1&#x2F;32 via 100.64.0.2
+</code></pre>
+<p>结果：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Error: Nexthop has invalid gateway.
+</code></pre>
+<p>换成写进 tailscale 自己的路由表也报一样的错。而另一台 OpenVPN 机器上同样的姿势却完全正常：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text"># OpenVPN 机器上实测可行
+ip r add 192.168.2.1 via 10.8.0.5   # 成功，且能正常访问 192.168.2.1
+</code></pre>
+<p>同样的命令形态，一个报错一个成功，差在哪？本文完整记录排查过程与背后的架构差异。</p>
+<h1 id="pai-cha-guo-cheng">排查过程</h1>
+<h2 id="ben-ji-tailscale-de-lu-you-bu-ju">本机 tailscale 的路由布局</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ip route show
+default via 192.168.4.1 dev bridge0 proto static metric 425
+192.168.4.0&#x2F;22 dev bridge0 proto kernel scope link src 192.168.5.244 metric 425
+...   # main 表里没有任何 100.64.0.0&#x2F;10 相关路由
+
+$ ip route show table 52
+100.64.0.2 dev tailscale0
+100.64.0.3 dev tailscale0
+...
+100.100.100.100 dev tailscale0
+
+$ ip rule show
+5270: from all lookup 52
+...
+</code></pre>
+<p>关键事实：<strong>所有 tailscale peer 的 /32 路由都在独立的 table 52 里</strong>，main 表一条都没有；
+<code>ip rule 5270: from all lookup 52</code> 让 peer IP 的查表先落到 52。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ip route get 100.64.0.2
+100.64.0.2 dev tailscale0 table 52 src 100.64.0.1 uid 1000
+</code></pre>
+<p>但 <code>ip route get</code> 能查到，不代表 add 能通过——实测 main 表、table 52 <strong>两个目标表都报同样的错</strong>
+（2026-09-04 于 7.0.0-28 内核复核，同结果）。</p>
+<h2 id="yi-ge-bei-tui-fan-de-jia-she-wang-guan-xiao-yan-bu-shi-cha-mu-biao-biao">一个被推翻的假设：网关校验不是"查目标表"</h2>
+<p>最初以为是"网关必须在目标表内可达"，于是试 <code>table 52</code>（网关 100.64.0.2 明明就在 52 里）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ sudo ip r add 192.168.2.1&#x2F;32 via 100.64.0.2 table 52
+Error: Nexthop has invalid gateway.   # 依然失败
+</code></pre>
+<h3 id="kan-wu-zao-xian-zhi-cha-main-biao-bu-gen-ip-rule-de-gui-yin-shi-cuo-de">勘误：早先"只查 main 表、不跟 ip rule"的归因是错的</h3>
+<p>初稿曾把报错归因于"内核校验网关时 <code>fib_lookup()</code> 固定只查 main 表（RT_TABLE_MAIN）、
+路由添加时的 nexthop 校验不查规则链"。该解释被下面的实测推翻——真正的判官是
+<strong>scope（on-link）过滤，与查哪张表无关</strong>：</p>
+<p><strong>实测 A（证伪"只查 main"）</strong>：往 table 52 放一条专门当网关的路由、scope 写成 link
+（main 表里没有它，只有经 <code>ip rule 5270</code> 能到）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ sudo ip r add 100.64.0.254&#x2F;32 dev tailscale0 scope link table 52
+$ sudo ip r add 10.99.99.99&#x2F;32 via 100.64.0.254    # 加进 main，成功！
+10.99.99.99 via 100.64.0.254 dev tailscale0
+</code></pre>
+<p>网关只存在于 table 52、目标却是 main 表，却能加上——说明添加路由时校验 gateway
+<strong>会走完整 ip rule 链</strong>（fib_lookup → fib_rules_lookup → table 52），并非只查 main。</p>
+<p><strong>实测 B（定位到 scope）</strong>：关键线索在路由属性——tailscaled 写进 table 52 的 peer 路由
+全部是 <strong>scope global</strong>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ip -d route show table 52 | head -2
+unicast 100.64.0.2 dev tailscale0 proto boot scope global
+unicast 100.64.0.3 dev tailscale0 proto boot scope global
+</code></pre>
+<p>内核在添加路由时（<code>fib_check_nh_v4_gw()</code>，net/ipv4/fib_semantics.c）解析 gateway，
+查询 scope 被钳制为 ≥ RT_SCOPE_LINK——语义是**"网关必须由一条 on-link（直连、
+scope ≥ link）的路由覆盖"**；查表时 scope 不足的路由会被丢弃（fib_trie.c：
+<code>fib_scope &lt; flowi4_scope</code> 即跳过，global=0 &lt; link=253）。于是 100.64.0.2 无论
+main、table 52、带不带 <code>dev</code>，全部 invalid gateway；只有显式 <code>dev + onlink</code>
+能跳过这套校验：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ sudo ip r add 10.99.99.99&#x2F;32 via 100.64.0.2 dev tailscale0 onlink table 52   # 成功
+</code></pre>
+<p>（反向对照：把实测 A 那条 100.64.0.254 的 scope 改成 global，<code>via 100.64.0.254</code>
+立刻回到 invalid gateway——同一条路由只差 scope。）</p>
+<p>那 <code>ip route get</code> 为什么能查到？它走独立的查询路径（inet_rtm_getroute），查询 scope 是
+universe、不过滤 global 路由——所以"查得到"与"能当网关"是两个不同的问题。</p>
+<h2 id="jiu-suan-xiao-yan-guo-liao-ye-dao-bu-liao-dui-duan">就算校验过了，也到不了对端</h2>
+<p>把报错消掉很容易（不带 <code>via</code> 的 dev 路由不触发网关校验，带 <code>via</code> 的加 <code>dev + onlink</code> 也行，见上节实测）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip r add 192.168.2.1&#x2F;32 dev tailscale0   # 能装上
+ping -c2 192.168.2.1                          # 预期全丢：隧道内无对端认领该目标
+</code></pre>
+<p>这就触及真正的架构差异了。</p>
+<h1 id="gen-yin-liang-ji-zhuan-fa-mo-xing-vs-openvpn-de-dan-lian-lu-mo-xing">根因：两级转发模型 vs OpenVPN 的单链路模型</h1>
+<h2 id="bao-jin-sui-dao-hou-shui-jue-ding-fa-gei-shui">包进隧道后，谁决定发给谁？</h2>
+<p><strong>tailscale0 是普通 TUN（本机实测 <code>type tun</code>，wireguard-go 用户态模式）</strong>。
+内核路由表只负责"把包交给 tailscale0"这一级——TUN 设备不检查目标 IP 是否被允许，
+任何路由进来的包都原样写进 tun fd。真正判决在第二级：</p>
+<p>tailscaled 用户态进程从 tun 读走包后，wireguard-go 拿 <strong>dst 去匹配各 peer 的 AllowedIPs</strong>：</p>
+<ul>
+<li>本机是 100.64.0.1，对端们是 100.64.0.2/.3/...——每个 peer 的 AllowedIPs 只有它自己的
+tailscale IP（+ MagicDNS 100.100.100.100）；</li>
+<li>192.168.2.1 不属于任何 peer → <strong>无匹配 → 包在用户态进程内直接丢弃</strong>；</li>
+<li><code>via 100.64.0.2</code> 只是内核的"下一跳"概念，对 TUN 设备来说包原样进隧道，
+<strong>"发给 peer .2"这个意图根本传不到 wireguard 层</strong>。</li>
+</ul>
+<p>所以这不是路由表技巧能绕过的：手工路由改的是第一级，判决在第二级，而第二级只认宣告。</p>
+<h2 id="openvpn-wei-shen-me-neng-tong">OpenVPN 为什么能通</h2>
+<p>OpenVPN 的 tun0 是<strong>单对端 ptp 链路</strong>：包进隧道后没有"选谁"这回事——固定发往唯一的 server。
+而 server 是<strong>显式开启转发的真实路由器</strong>（内核 ip_forward + 它自己的 LAN 路由），
+所以任何你路由过去的目标，只要 server 能到达就通。</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text"># OpenVPN 机器实测路由
+10.8.0.0&#x2F;24 via 10.8.0.5 dev tun0          # config 里 route 指令，程序经 netlink 写入
+10.8.0.5 dev tun0 proto kernel scope link src 10.8.0.6   # 内核自动生成
+</code></pre>
+<p>顺带解答一个疑问：<strong><code>ip route</code> 为什么能看到 10.8.0.5 这个"peer"？它不可能读 openvpn 配置。</strong>
+看 <code>proto kernel</code> 标记——这条路由是内核在配置 ptp 地址时自动生成的：
+openvpn 配地址用的是 <code>10.8.0.6 peer 10.8.0.5</code>（点对点形式），对端地址成为<strong>接口地址属性</strong>，
+内核自动为链路对端建 /32 路由（与给网桥配 IP 自动生成链路路由同理）。
+对比 tailscale0 的地址 <code>100.64.0.1/32</code>——纯 /32、没有 <code>peer</code> 字段（多对端不存在单一链路对端），
+所以内核不会生成任何 peer 路由，对端们是 tailscaled 手工写进 table 52 的。</p>
+<p>这同时也解释了开头那个"一个报错一个成功"的表层差异：OpenVPN 机上 <code>via 10.8.0.5</code> 能装上，
+除了隧道路由在 main 表里，更关键的是内核自动生成的 peer 路由是 <strong>scope link</strong>
+（<code>proto kernel scope link</code>）——正好满足上文"网关必须由 on-link 路由覆盖"的校验；
+而 tailscaled 手写的 peer 路由是 <code>proto boot scope global</code>，在同样的校验处就被拦下。
+报错与否取决于<strong>覆盖网关那条路由的 scope</strong>，与规则链、目标表都无关。</p>
+<h3 id="liang-tiao-peer-lu-you-de-lai-li-scope-yu-proto-wei-shen-me-bu-tong">两条"peer"路由的来历：scope 与 proto 为什么不同</h3>
+<p>顺着上面两个输出再问一层：同样是"对端可达"，为什么 OpenVPN 的是 <code>proto kernel scope link</code>、
+tailscale 的是 <code>proto boot scope global</code>？因为两者根本不是同一种东西——生成方、生成时机都不同。</p>
+<p><strong>OpenVPN 的 peer 路由是"配地址"的副作用，由内核自己生成。</strong> openvpn 配 <code>10.8.0.6 peer 10.8.0.5</code>
+时，对端 IP 作为接口地址属性（IFA_ADDRESS）随地址一起下发；内核 <code>fib_add_ifaddr()</code>
+（net/ipv4/fib_frontend.c）除了把本端 10.8.0.6 收进 local 表，还会为对端地址自动建一条
+/32 路由，且 scope/proto 是<strong>写死</strong>的（fib_magic()）：<code>proto = RTPROT_KERNEL</code>（标记"内核创建"）、
+<code>scope = RT_SCOPE_LINK</code>——ptp 对端在语义上就是直连对端（on-link、不经过任何中间网关），
+天然满足上文网关校验对 scope 的要求。这也是 OpenVPN 的 <code>via 10.8.0.5</code> 能装上的直接原因。</p>
+<p><strong>tailscale 的"peer 路由"是 tailscaled 经 netlink 手工写入的普通 dev 路由</strong>（wgengine/router/
+osrouter/router_linux.go 的 addRoute()）：只填 LinkIndex（tailscale0）、Dst、Table=52 三个字段，
+不带 via、也不指定 scope/proto——于是落在其 netlink 库的默认值上：scope=universe、proto=boot
+（nl.NewRtMsg() 的缺省）。所以 <code>proto boot scope global</code> <strong>不是设计选择，是"没设置 + 库默认"</strong>：
+tailscaled 自己从不用 <code>via</code> 指 peer（包进隧道后的归属由 wg 引擎按 AllowedIPs 判决，路由只负责
+把包送进 tun），scope 写多少对它毫无影响。</p>
+<p>侧面印证：tailscaled 在 netlink 不可用的兜底路径会退化执行 <code>ip route add &lt;网段&gt; dev tailscale0</code>
+（iproute2），而 iproute2 对 dev-only 路由默认给 scope link——同一条路由若由这条路径写入，
+<code>via peer IP</code> 就能装上（对照上节实测 A：scope link 的网关路由只放 table 52，main 表加 via 照样成功）。</p>
+<p>两个"peer"路由的性质也不同：OpenVPN 那条描述"链路另一端是谁"（内核地址模型的一部分）；
+tailscale 那条描述"哪些目标 IP 属于隧道"——本质是 AllowedIPs 的内核投影，随 netmap 增删、
+与点对点链路毫无关系。</p>
+<h2 id="he-xin-chai-yi-yi-tu-liu">核心差异一图流</h2>
+<table><thead><tr><th></th><th>OpenVPN（tun 模式）</th><th>Tailscale（本机）</th></tr></thead><tbody>
+<tr><td>隧道形态</td><td>每客户端 1 条到 server 的链路</td><td>1 个 TUN 设备对 N 个 peer</td></tr>
+<tr><td>包进隧道后的判决</td><td>无判决：固定发唯一 server</td><td>用户态 wg-go 按 dst 匹配 AllowedIPs</td></tr>
+<tr><td>未宣告的目标</td><td>无此概念（server 来者不拒）</td><td>直接丢弃</td></tr>
+<tr><td>隧道→LAN 转发</td><td>server 内核 ip_forward</td><td>仅 subnet router 节点（内核 ip_forward + nftables）</td></tr>
+<tr><td>peer 表在哪</td><td>openvpn daemon 用户态（config 单点）</td><td>tailscaled 用户态（netmap 动态下发）</td></tr>
+<tr><td>"peer"路由的来历</td><td>配地址时内核自动生成（<code>proto kernel scope link</code>）</td><td>AllowedIPs 的内核镜像，tailscaled netlink 写入（<code>proto boot scope global</code>）</td></tr>
+<tr><td>"用 via 路由借道"</td><td>天然成立（server 就是路由器）</td><td>不成立（peer 默认是叶子，不承担转发）</td></tr>
+</tbody></table>
+<p>一句话：转发执行者两边都是内核，判决者都是用户态程序；区别是 OpenVPN 用配置把"谁当路由器"
+写死成唯一的 server（无条件信任），tailscale 用宣告机制动态决定谁当路由器（默认谁都不当，最小暴露）。</p>
+<h1 id="jie-jue-fang-an">解决方案</h1>
+<h2 id="bu-gai-tailscale-pei-zhi-yi-dui-duan-zuo-tiao-ban">不改 tailscale 配置：以对端做跳板</h2>
+<p>peer 的 tailscale IP（100.64.0.2）现在就能通（table 52 有路由），所以：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># TCP 服务透传
+ssh -L 8080:192.168.2.1:80 user@100.64.0.2
+# 通用 SOCKS 代理（任意协议）
+ssh -D 1080 user@100.64.0.2
+# 直接登录对端操作
+ssh user@100.64.0.2
+</code></pre>
+<h2 id="yao-ip-ceng-tou-ming-zhi-da-subnet-router-wei-yi-de-zheng-gui-jie">要 IP 层透明直达：subnet router（唯一的正规解）</h2>
+<p>tailscale 版"让对端扮演 OpenVPN server"= 在对端宣告子网路由，本机接受：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 对端（能路由到 192.168.2.0&#x2F;24 的节点）
+tailscale set --advertise-routes=192.168.2.0&#x2F;24
+# 本机
+tailscale set --accept-routes
+</code></pre>
+<p><code>tailscale set</code> 全程<strong>不掉线</strong>，撤销只需把值清空。生效过程不只是用户态配置：</p>
+<ol>
+<li>用户态：两端 prefs 持久化；</li>
+<li>控制面：对端宣告上传协调服务器，审核后把新 netmap 推给所有 peer；</li>
+<li><strong>本机内核改动</strong>：192.168.2.0/24 加入对端 AllowedIPs（本机是 wg-go 用户态持有；
+内核 wireguard 模式则写入内核 wg 对象），同时 tailscaled 经 netlink 新增一条内核路由；</li>
+<li><strong>对端内核改动</strong>：nftables 加 forward/SNAT 规则，开启 ip_forward sysctl——这就是
+"OpenVPN server 转发角色"的等价物。</li>
+</ol>
+<h2 id="shi-zhan-keng-accept-routes-quan-liang-jie-shou-ben-wang-duan-bei-zi-shen-tong-gao-jie-chi">实战坑：accept-routes 全量接受——本网段被自身通告劫持</h2>
+<p>上面"正规解"要求本机开 accept-routes，但它有一个设计限制：<strong>接受是全量的，没有按前缀过滤</strong>。
+假设本机所在网段（192.168.4.0/22）里有两台机器同时向 tailnet 宣告了本网段（常见的冗余
+subnet router 配置：两台都 advertise 192.168.4.0/22，供远端 192.168.2.0/24 站点访问），
+本机一开 accept-routes 就会把"自己所在的网段"也收下来，后果：</p>
+<ul>
+<li>本机布局里 tailscale 路由在 table 52、rule 5270 先于 main 表 → 本地流量查表先命中
+隧道路由 → 被劫进 tailscale0，经隧道 hairpin 到另一台广告节点再绕回本网段；</li>
+<li>该节点一挂，本网段访问直接断；即使在线路径也畸形（绕一圈，默认 SNAT 下源地址还变成
+广告节点）。</li>
+</ul>
+<p>现状核验：<code>tailscale debug prefs</code> 的 <code>AdvertiseRoutes</code>、<code>tailscale status --json</code> 的
+<code>Self.AllowedIPs</code>（本机自己也在宣告时可见本网段）。三种解法（按推荐序）：</p>
+<h3 id="a-xuan-ze-xing-shou-gong-lu-you-bu-kai-accept-routes-shi-ce-bu-cheng-li">A. 选择性手工路由——不开 accept-routes（实测：不成立）</h3>
+<p>只加目标网段、不开 accept 的思路看起来干净：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip r add 192.168.2.1&#x2F;32 dev tailscale0
+</code></pre>
+<p>但实测包进隧道即被<strong>本机 wg 引擎丢弃</strong>（广告节点侧 tcpdump 全空）。原因是一个容易踩的视角陷阱：
+<code>tailscale status --json</code> 里对端 <code>AllowedIPs</code> 显示包含通告（如 <code>"192.168.2.1/32"</code>），
+那是 <strong>netmap 视角</strong>；而 accept-routes=false 时，wireguard 引擎<strong>实际使用的 allowedIPs 会把
+对端子网通告过滤掉</strong>，只留各 peer 的 tailscale IP。用 status json 判断"wg 是否放行"会误判。
+所以想走 subnet router，accept-routes 这一侧绕不开。</p>
+<h3 id="b-accept-routes-gao-you-xian-ji-ip-rule-ba-ben-wang-duan-bo-hui-main-shi-ce-you-xiao-tui-jian">B. accept-routes + 高优先级 ip rule 把本网段拨回 main（实测：有效，推荐）</h3>
+<p>保留 accept 的自动全量能力，用内核规则修正冲突（rule 插在 tailscale 的 5270 之前）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ip rule add pref 100 to 192.168.4.0&#x2F;22 lookup main   # 先加保护，再开 accept
+sudo tailscale set --accept-routes
+</code></pre>
+<p>rule 100 先于 rule 5270 命中：本网段查表直接落到 main 表的本地直连，不进隧道；
+远端 192.168.2.1/32 不在规则内，照走 tailscale（accept 后自动装入 table 52）。
+实测结果：table 52 出现 <code>192.168.2.1 dev tailscale0</code>，远端 ping 通（~11ms），
+本地网关 ping 仍直连（0.5ms）。等于把"全量接受"改成"按需屏蔽"——以后新增的其他远端
+通告仍会自动收，需要时再补规则精确屏蔽。该规则需自行持久化，tailscaled 不会清理它管理
+的规则号段之外的条目：</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;tailscale-protect-lan.service
+[Unit]
+Description=Protect local LAN subnet from tailscale route shadowing
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=&#x2F;bin&#x2F;sh -c &#x27;ip rule add pref 100 to 192.168.4.0&#x2F;22 lookup main 2&gt;&#x2F;dev&#x2F;null || true&#x27;
+ExecStop=&#x2F;bin&#x2F;sh -c &#x27;ip rule del pref 100 to 192.168.4.0&#x2F;22 lookup main 2&gt;&#x2F;dev&#x2F;null || true&#x27;
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo systemctl enable --now tailscale-protect-lan.service
+</code></pre>
+<h3 id="c-xian-ce-xin-ban-tailscaled-shi-fou-zi-dai-chong-tu-tiao-guo-5-miao-shi-yan-ke-hui-gun">C. 先测新版 tailscaled 是否自带冲突跳过（5 秒实验，可回滚）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tailscale set --accept-routes
+ip route show table 52              # 192.168.4.0&#x2F;22 是否被装上？
+journalctl -u tailscaled --since &quot;1 min ago&quot; | grep -i conflict   # 有 skip 日志 = 被保护
+ping -c1 192.168.4.1                # 本网段网关仍直连即安全
+tailscale set --accept-routes=false # 不对就立即回滚
+</code></pre>
+<p>新版若对与本地直连冲突的 accepted 路由自动跳过（日志可见 skip），直接 accept 即可无事。</p>
+<h3 id="pai-zhang-shi-lu-cong-xuan-gao-cheng-gong-dao-zhen-zheng-lian-tong-de-wan-zheng-lian-lu">排障实录：从"宣告成功"到"真正连通"的完整链路</h3>
+<p>本机与对端网络（headscale v0.29.3 + tailscale 1.102）实测踩坑全过程，按检查顺序：</p>
+<ol>
+<li><strong>广告节点宣告</strong>：<code>tailscale set --advertise-routes=192.168.2.1/32</code>（对端能直达该目标为前提）。</li>
+<li><strong>headscale 批准</strong>：v0.29 CLI 重构后是 <code>headscale nodes list-routes</code> / <code>headscale nodes approve-routes &lt;node-id&gt; &lt;prefix&gt;</code>，不再有顶层 <code>routes</code> 命令。批准前 <code>Self.AllowedIPs</code> 不会出现该路由。</li>
+<li><strong>广告节点进入 serving 状态</strong>（本次最大暗坑）：headscale 侧已显示 Approved + Serving、
+其他节点的 netmap 也已收到通告，但<strong>广告节点自己的 netmap 迟迟不更新</strong>——<code>force-netmap-update</code>
+无效，<code>Self.AllowedIPs</code> 始终缺路由、<code>PrimaryRoutes</code> 为空，<strong>必须重启 tailscaled</strong> 才进入
+serving 状态并应用 netfilter 规则。</li>
+<li><strong>广告节点 netfilter 后端判定</strong>：tailscaled 日志显示 <code>netfilter running in iptables mode</code>——
+规则在 <strong>iptables</strong> 而非 nftables！<code>nft list ruleset</code> 为空不代表没规则，误判会带偏排查。
+正确查法：<code>iptables -S | grep ts-</code> 与 <code>iptables -t nat -S</code>，可见 ts-forward/ts-input/
+ts-postrouting 链 + mark 0x40000 MASQUERADE，规则本身逻辑正确。</li>
+<li><strong>访问端包是否真的进隧道</strong>（定位到本机的关键证据）：在广告节点 <code>tcpdump -ni any icmp</code>
+抓包全空 → 包根本没到广告节点，被<strong>访问端本地丢弃</strong>。结合第 3 节视角陷阱定位到：
+accept-routes=false 时 wg 引擎过滤对端通告，本机装 dev 路由也白搭。</li>
+<li><strong>解法落地</strong>：先加 <code>ip rule pref 100 to 192.168.4.0/22 lookup main</code> 保护本网段，
+再 <code>tailscale set --accept-routes</code> → table 52 自动出现 <code>192.168.2.1 dev tailscale0</code>，
+远端与本地 ping 同时验证通过。</li>
+</ol>
+<p>关键教训：<strong>"宣告成功"与"真正连通"之间隔着 5 个独立环节</strong>（宣告→批准→节点 serving→
+广告节点 netfilter→访问端 accept），任一环节静默失效都不通；其中 status json 的 AllowedIPs
+是 netmap 视角、accept-routes 才是 wg 引擎的开关、netfilter 后端要按日志判断——三个陷阱
+分别浪费一轮排查。</p>
+<p>关键认知：tailscale 接受侧没有 OpenVPN 那样的"要不要这条路由"细粒度控制，但内核 ip rule
+可以补齐这个缺口——方案 B 就是"选择性接受"的内核等价物。</p>
+<h1 id="fu-tun-huan-shi-tap-zen-me-pan-ding">附：TUN 还是 TAP，怎么判定</h1>
+<p>排查中顺手验证 tailscale0 是 TUN（三层）不是 TAP（二层）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ip -d link show dev tailscale0 | head -1
+tailscale0: &lt;POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP&gt; ... tun type tun ...   # type tun = TUN
+$ cat &#x2F;sys&#x2F;class&#x2F;net&#x2F;tailscale0&#x2F;type       # 65534 = ARPHRD_NONE（TUN）；TAP 会是 1
+$ cat &#x2F;sys&#x2F;class&#x2F;net&#x2F;tailscale0&#x2F;tun_flags  # 0x5001：含 0x1(TUN_TUN_DEV) 无 0x2(TUN_TAP_DEV)
+$ cat &#x2F;sys&#x2F;class&#x2F;net&#x2F;tailscale0&#x2F;address    # 空：TUN 无 MAC；TAP 会有
+</code></pre>
+<p>若用内核 wireguard（非 wg-go），<code>ip -d link</code> 会显示 <code>type wireguard</code>，丢弃判决会移交给
+内核 wg 模块执行——但 AllowedIPs 的内容仍由 tailscaled 按 netmap 下发，规则始终是 tailscale 定的。</p>
+<h1 id="zong-jie">总结</h1>
+<ul>
+<li>报错根源（勘误：早先"<code>fib_lookup</code> 只查 main 表、不跟 ip rule"的归因是错的——实测 scope link 的网关路由只放 table 52、main 加 via 照样成功，说明校验走完整规则链）：添加路由时内核 <code>fib_check_nh_v4_gw()</code> 要求网关由 <strong>scope ≥ link 的 on-link 路由</strong>覆盖，tailscaled 的 peer 路由全是 <code>proto boot scope global</code> → 被 scope 过滤判 invalid gateway。与写进 main 还是 table 52、带不带 dev 都无关，只有显式 <code>onlink</code> 能绕过；对照 OpenVPN：内核 ptp 路由是 <code>scope link</code>，天然满足校验；</li>
+<li>但就算消掉报错也到不了：tailscale 多对端隧道按 AllowedIPs 在用户态判决目标归属，未宣告的子网一律丢弃，<code>via</code> 的意图传不到隧道内部；</li>
+<li>OpenVPN 能行是因为单 ptp 链路无判决 + server 是显式内核转发路由器；</li>
+<li>想让 tailscale 节点扮演 OpenVPN server 的角色，唯一机制是 subnet router（advertise-routes + accept-routes），会同时改动两端的内核状态；</li>
+<li>accept-routes 是全量接受：本网段若被其他节点宣告，一开 accept 就会收下自己的网段导致本地流量 hairpin；实测解法=先加高优先级 ip rule 把本网段拨回 main 再开 accept（"选择性接受"的内核等价物，含 systemd 持久化）；"不开 accept 手工路由"方案实测不成立——wg 引擎会过滤对端通告，且 status json 的 AllowedIPs 是 netmap 视角会误导判断；</li>
+<li>临时借用：ssh 跳板 / <code>-L</code> / <code>-D</code>，无需动任何配置。</li>
+</ul>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/09/libvirt-usb-device-hotplug/"> libvirt USB 设备直通虚拟机：在线热插拔，不硬编码 domain XML &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing-xiang-zai-tailscale-wang-luo-li-jie-yong-dui-duan-fang-wen-qi-ju-yu-wang">背景：想在 tailscale 网络里&quot;借用&quot;对端访问其局域网</a>
+        </div>
+        <div>
+          <a href="#pai-cha-guo-cheng">排查过程</a>
+        </div>
+        <div class="hpad">
+          <a href="#ben-ji-tailscale-de-lu-you-bu-ju"><small>- 本机 tailscale 的路由布局</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-ge-bei-tui-fan-de-jia-she-wang-guan-xiao-yan-bu-shi-cha-mu-biao-biao"><small>- 一个被推翻的假设：网关校验不是&quot;查目标表&quot;</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#kan-wu-zao-xian-zhi-cha-main-biao-bu-gen-ip-rule-de-gui-yin-shi-cuo-de"><small>· 勘误：早先&quot;只查 main 表、不跟 ip rule&quot;的归因是错的</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jiu-suan-xiao-yan-guo-liao-ye-dao-bu-liao-dui-duan"><small>- 就算校验过了，也到不了对端</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin-liang-ji-zhuan-fa-mo-xing-vs-openvpn-de-dan-lian-lu-mo-xing">根因：两级转发模型 vs OpenVPN 的单链路模型</a>
+        </div>
+        <div class="hpad">
+          <a href="#bao-jin-sui-dao-hou-shui-jue-ding-fa-gei-shui"><small>- 包进隧道后，谁决定发给谁？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#openvpn-wei-shen-me-neng-tong"><small>- OpenVPN 为什么能通</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#liang-tiao-peer-lu-you-de-lai-li-scope-yu-proto-wei-shen-me-bu-tong"><small>· 两条&quot;peer&quot;路由的来历：scope 与 proto 为什么不同</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#he-xin-chai-yi-yi-tu-liu"><small>- 核心差异一图流</small></a>
+        </div>
+        <div>
+          <a href="#jie-jue-fang-an">解决方案</a>
+        </div>
+        <div class="hpad">
+          <a href="#bu-gai-tailscale-pei-zhi-yi-dui-duan-zuo-tiao-ban"><small>- 不改 tailscale 配置：以对端做跳板</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yao-ip-ceng-tou-ming-zhi-da-subnet-router-wei-yi-de-zheng-gui-jie"><small>- 要 IP 层透明直达：subnet router（唯一的正规解）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-zhan-keng-accept-routes-quan-liang-jie-shou-ben-wang-duan-bei-zi-shen-tong-gao-jie-chi"><small>- 实战坑：accept-routes 全量接受——本网段被自身通告劫持</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#a-xuan-ze-xing-shou-gong-lu-you-bu-kai-accept-routes-shi-ce-bu-cheng-li"><small>· A. 选择性手工路由——不开 accept-routes（实测：不成立）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#b-accept-routes-gao-you-xian-ji-ip-rule-ba-ben-wang-duan-bo-hui-main-shi-ce-you-xiao-tui-jian"><small>· B. accept-routes + 高优先级 ip rule 把本网段拨回 main（实测：有效，推荐）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#c-xian-ce-xin-ban-tailscaled-shi-fou-zi-dai-chong-tu-tiao-guo-5-miao-shi-yan-ke-hui-gun"><small>· C. 先测新版 tailscaled 是否自带冲突跳过（5 秒实验，可回滚）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pai-zhang-shi-lu-cong-xuan-gao-cheng-gong-dao-zhen-zheng-lian-tong-de-wan-zheng-lian-lu"><small>· 排障实录：从&quot;宣告成功&quot;到&quot;真正连通&quot;的完整链路</small></a>
+        </div>
+        <div>
+          <a href="#fu-tun-huan-shi-tap-zen-me-pan-ding">附：TUN 还是 TAP，怎么判定</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

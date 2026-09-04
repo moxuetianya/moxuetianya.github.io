@@ -1,0 +1,206 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>开启 TCP BBR 实测：代理隧道发送端才有收益 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="sing-box 代理场景（本机客户端→服务端→国内站点）开启 TCP BBR 的实测：BBR 是发送端拥塞控制，直连国内站开 BBR 无收益，经链时服务端（隧道发送端）开 BBR 吞吐更稳不掉底，并给出开启命令" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/" />
+  <meta property="og:description" content="sing-box 代理场景（本机客户端→服务端→国内站点）开启 TCP BBR 的实测：BBR 是发送端拥塞控制，直连国内站开 BBR 无收益，经链时服务端（隧道发送端）开 BBR 吞吐更稳不掉底，并给出开启命令" />
+  <meta name="twitter:description" content="sing-box 代理场景（本机客户端→服务端→国内站点）开启 TCP BBR 的实测：BBR 是发送端拥塞控制，直连国内站开 BBR 无收益，经链时服务端（隧道发送端）开 BBR 吞吐更稳不掉底，并给出开启命令" />
+  <meta property="og:title" content="开启 TCP BBR 实测：代理隧道发送端才有收益 | 墨雪天琊" />
+  <meta name="twitter:title" content="开启 TCP BBR 实测：代理隧道发送端才有收益 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-24" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/">开启 TCP BBR 实测：代理隧道发送端才有收益</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 21, 2026 <span class="rpad"></span>更新: 八月 24, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/learn/">learn</a>] #<a href="https://moxuetianya.github.io/tags/sing-box/">sing-box</a>  #<a href="https://moxuetianya.github.io/tags/wang-luo/">网络</a>  #<a href="https://moxuetianya.github.io/tags/dai-li/">代理</a> </span>
+
+    
+
+
+<h1 id="bei-jing">背景</h1>
+<p>sing-box 代理链路（本机客户端 → 服务端 → 目标站）部署完成后，常听说「服务端开 TCP BBR 可以提速」。是否属实、在哪个环节有效，用内网测试拓扑实测一把：</p>
+<ul>
+<li>本机为客户端（mixed 入站 127.0.0.1:2080），内网一台测试机为服务端（VLESS + Reality，回源握手走 amazon.com）</li>
+<li>只测国内站点：清华镜像 3.3GB ISO 下载吞吐 + baidu/bilibili 页面可达性</li>
+<li>两端系统参数基线为 <code>cubic</code> + <code>fq_codel</code>，开启后为 <code>bbr</code> + <code>fq</code></li>
+<li>交错 A/B 对比（cubic/bbr 交替各 3 轮），每轮 30s 窗口取平均下载速率</li>
+</ul>
+<h1 id="ji-zhi-bbr-shi-fa-song-duan-yong-sai-kong-zhi">机制：BBR 是发送端拥塞控制</h1>
+<p>TCP 拥塞控制由<strong>数据发送方</strong>决定。下载场景下发送方是目标站（如镜像站），本机/代理服务端是接收方——<strong>接收方内核开不开 BBR，对下载吞吐没有直接影响</strong>。BBR 的收益体现在：</p>
+<ol>
+<li>发送方（你自己）→ 接收方的路径：如代理服务端把数据发给客户端（VPS → 本机）</li>
+<li>高带宽时延积 + 有丢包的路径：cubic 遇丢包就线性退避，BBR 不因丢包降速</li>
+</ol>
+<h1 id="shi-ce-shu-ju">实测数据</h1>
+<h2 id="1-zhi-lian-guo-nei-zhan-dian-fa-song-fang-jing-xiang-zhan">1. 直连国内站点（发送方 = 镜像站）</h2>
+<table><thead><tr><th>轮次</th><th>cubic</th><th>bbr</th></tr></thead><tbody>
+<tr><td>1</td><td>3.82 MB/s</td><td>0.43 MB/s</td></tr>
+<tr><td>2</td><td>3.50 MB/s</td><td>4.88 MB/s</td></tr>
+<tr><td>3</td><td>0.21 MB/s</td><td>0.38 MB/s</td></tr>
+</tbody></table>
+<p>两者无稳定差异（第三轮是路径整体拥塞，双双掉底）。本机是接收方，本地开 BBR 与直连下载速度无关。</p>
+<h2 id="2-fu-wu-duan-jing-xiang-zhan-fu-wu-duan-wei-jie-shou-fang">2. 服务端 → 镜像站（服务端为接收方）</h2>
+<p>cubic 0.5~3.4 MB/s，bbr 0.3~3.7 MB/s，同样无差异——再次印证接收方 CC 无关。</p>
+<h2 id="3-jing-lian-quan-lian-lu-ben-ji-fu-wu-duan-jing-xiang-zhan">3. 经链全链路（本机 → 服务端 → 镜像站）</h2>
+<table><thead><tr><th>轮次</th><th>cubic（两端）</th><th>bbr（两端）</th></tr></thead><tbody>
+<tr><td>1</td><td>2.23 MB/s</td><td>3.01 MB/s</td></tr>
+<tr><td>2</td><td>1.22 MB/s</td><td>4.14 MB/s</td></tr>
+<tr><td>3</td><td>1.33 MB/s</td><td>3.42 MB/s</td></tr>
+</tbody></table>
+<p>bbr 稳定 3.0~4.1 MB/s 不掉底，cubic 掉底到 1.2~1.8 MB/s。进一步拆分确认：<strong>只有服务端（隧道发送端）开 BBR 有效</strong>——</p>
+<table><thead><tr><th>配置</th><th>结果</th></tr></thead><tbody>
+<tr><td>本机 cubic + 服务端 bbr（发送端 BBR）</td><td>3.86 / 4.18 / 2.78 MB/s，稳定</td></tr>
+<tr><td>本机 bbr + 服务端 cubic（接收端 BBR）</td><td>0.26 / 4.01 / 1.77 MB/s，掉底</td></tr>
+</tbody></table>
+<h2 id="4-chun-nei-wang-sui-dao-duan-dui-zhao">4. 纯内网隧道段对照</h2>
+<p>服务端本地起 HTTP 服务（1GB 文件）走隧道下载：cubic 与 bbr 均为 117 MB/s 满速——内网段本身无丢包，CC 无差异，问题出在跨网路径。</p>
+<h1 id="jie-lun">结论</h1>
+<ol>
+<li><strong>直连国内站点</strong>：本机（接收方）开 BBR 没有收益，开启与否不影响下载速度</li>
+<li><strong>经链场景</strong>：<strong>服务端（隧道发送端）开 BBR 有收益</strong>——实测吞吐更稳、不掉底；这正是境外 VPS 部署的对应位置：VPS 是隧道发送端，跨境链路丢包率高，是 BBR 的典型受益场景，建议开启</li>
+<li>本机开 BBR 无副作用；唯一的本机受益场景是<strong>上传</strong>（本机为发送方时）</li>
+<li>内网测试无法完全复现跨境长路径的丢包特征，收益方向明确，幅度随路径而异</li>
+</ol>
+<h1 id="shi-ji-bu-shu-vps">实际部署（VPS）</h1>
+<p>按上述结论在 VPS（隧道发送端）上实际开启并持久化：</p>
+<ul>
+<li>开启前基线：内核 6.1 cloud 镜像，<code>cubic</code> + <code>fq_codel</code>，<code>tcp_bbr</code> 模块未加载（<code>tcp_available_congestion_control</code> 只有 reno/cubic）</li>
+<li>三条命令落地（模块加载 → 立即生效 → 持久化）：</li>
+</ul>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo modprobe tcp_bbr
+sudo sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+printf &quot;net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n&quot; | sudo tee &#x2F;etc&#x2F;sysctl.d&#x2F;99-bbr.conf
+</code></pre>
+<p>验证输出：<code>net.ipv4.tcp_congestion_control = bbr</code>、<code>net.core.default_qdisc = fq</code>，<code>/sys/module/tcp_bbr</code> 存在。</p>
+<p>两点注意：</p>
+<ul>
+<li><code>sysctl -w</code> 只影响<strong>新建立的连接</strong>，存量 TCP 不受扰动——在线服务无需重启，对既有连接零影响</li>
+<li>部署后若客户端日志出现个别连接异常（如读响应 <code>unexpected EOF</code>），不要直接归因 BBR：实测链路正常时多为客户端 keep-alive 连接复用问题，先用 curl 复现再下结论</li>
+</ul>
+<h1 id="kai-qi-ming-ling">开启命令</h1>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">modprobe tcp_bbr
+sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+</code></pre>
+<p>持久化（<code>/etc/sysctl.d/99-bbr.conf</code>）：</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini">net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+</code></pre>
+<p>验证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sysctl net.ipv4.tcp_congestion_control   # 应输出 bbr
+ls &#x2F;sys&#x2F;module&#x2F;tcp_bbr                   # 模块已加载
+</code></pre>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/learn/sing-box 手动配置(deb安装)/"> sing-box 手动配置 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#ji-zhi-bbr-shi-fa-song-duan-yong-sai-kong-zhi">机制：BBR 是发送端拥塞控制</a>
+        </div>
+        <div>
+          <a href="#shi-ce-shu-ju">实测数据</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-zhi-lian-guo-nei-zhan-dian-fa-song-fang-jing-xiang-zhan"><small>- 1. 直连国内站点（发送方 = 镜像站）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-fu-wu-duan-jing-xiang-zhan-fu-wu-duan-wei-jie-shou-fang"><small>- 2. 服务端 → 镜像站（服务端为接收方）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-jing-lian-quan-lian-lu-ben-ji-fu-wu-duan-jing-xiang-zhan"><small>- 3. 经链全链路（本机 → 服务端 → 镜像站）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-chun-nei-wang-sui-dao-duan-dui-zhao"><small>- 4. 纯内网隧道段对照</small></a>
+        </div>
+        <div>
+          <a href="#jie-lun">结论</a>
+        </div>
+        <div>
+          <a href="#shi-ji-bu-shu-vps">实际部署（VPS）</a>
+        </div>
+        <div>
+          <a href="#kai-qi-ming-ling">开启命令</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

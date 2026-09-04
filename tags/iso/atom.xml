@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - iso</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/iso/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-12-10T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/iso/atom.xml</id>
+    <entry xml:lang="en">
+        <title>制作iso启动镜像</title>
+        <published>2025-12-08T17:03:21+08:00</published>
+        <updated>2025-12-10T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/12/制作iso启动镜像/"/>
+        <id>https://moxuetianya.github.io/2025/12/制作iso启动镜像/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/12/制作iso启动镜像/">&lt;h1 id=&quot;shi-yong-lb-buildji-yu-debianshang-you-zhi-zuo-ni-de-linuxfa-xing-ban&quot;&gt;使用lb-build基于Debian上游制作你的Linux发行版&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install live-build
+mkdir TestOS
+cd TestOS
+
+# Ubuntu 系统的 live-build 会自动注入 Ubuntu 默认包： 使用debian环境构建
+podman pull debian:bookworm
+podman run --privileged -it --rm -v.&amp;#x2F;:&amp;#x2F;build&amp;#x2F; debian:bookworm bash
+
+sudo sed -i &amp;#x27;s&amp;#x2F;deb.debian.org&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;g&amp;#x27; &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;debian.sources
+apt update
+apt install -y live-build debootstrap debian-archive-keyring
+cd &amp;#x2F;build&amp;#x2F;
+
+sudo lb clean --purge
+sudo rm config chroot cache -rf
+lb config \
+  --distribution bookworm \
+  --archive-areas &amp;quot;main contrib non-free non-free-firmware&amp;quot; \
+  --mirror-bootstrap https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian&amp;#x2F; \
+  --mirror-chroot https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian&amp;#x2F; \
+  --mirror-chroot-security https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian-security&amp;#x2F; \
+  --mirror-binary-security https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian-security \
+  --mirror-debian-installer https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;debian \
+  --security true
+
+sudo lb build
+
+xorriso -as cdrecord -v dev=&amp;#x2F;dev&amp;#x2F;sr0 Blank=as_needed .&amp;#x2F;live-image-amd64.hybrid.iso
+dd if=.&amp;#x2F;live-image-amd64.hybrid.iso of=&amp;#x2F;dev&amp;#x2F;sdb bs=64M conv=fsync status=progress
+
+aptitude search &amp;#x27;~prequired|~pimportant&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;p&#x2F;643461882&quot;&gt;参考教程&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-yong-ben-di-xi-tong-huo-debootstrapgou-jian-zui-xiao-gen-wen-jian-xi-tong&quot;&gt;使用本地系统或debootstrap构建最小根文件系统&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;an-zhuang-gong-ju-yu-zhun-bei-huan-jing&quot;&gt;安装工具与准备环境&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装核心工具
+sudo apt update
+sudo apt install debootstrap squashfs-tools xorriso grub-pc-bin grub-efi-amd64-bin isolinux
+# sudo apt install syslinux-utils mtools genisoimage rsync
+
+# 创建工作目录
+mkdir ~&amp;#x2F;debian-custom-iso &amp;amp;&amp;amp; cd ~&amp;#x2F;debian-custom-iso
+mkdir rootfs iso
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gou-jian-zui-xiao-gen-wen-jian-xi-tong&quot;&gt;构建最小根文件系统&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 假设构建Debian 12 (Bookworm) 系统
+sudo debootstrap --verbose --arch=amd64 bookworm .&amp;#x2F;rootfs http:&amp;#x2F;&amp;#x2F;deb.debian.org&amp;#x2F;debian
+# 进入新系统进行基本配置
+sudo mount -t proc proc rootfs&amp;#x2F;proc
+sudo mount --rbind &amp;#x2F;sys rootfs&amp;#x2F;sys
+sudo mount --rbind &amp;#x2F;dev rootfs&amp;#x2F;dev
+sudo chroot .&amp;#x2F;rootfs &amp;#x2F;bin&amp;#x2F;bash
+# 在chroot环境中执行以下命令
+# 1. 安装一些最基础的软件和内核
+apt update
+apt install --no-install-recommends linux-image-amd64 systemd-sysv passwd
+apt install live-boot live-config
+# grub-pc-bin grub-efi-amd64 grub-efi-amd64-bin parted dosfstools openssh-server
+# 2. 设置root密码（重要，否则可能无法登录）
+echo custom-debian &amp;gt; &amp;#x2F;etc&amp;#x2F;hostname
+echo &amp;quot;127.0.1.1 custom-debian&amp;quot; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;hosts
+echo &amp;quot;root:root&amp;quot; | chpasswd
+# 3. 配置网络（基础DHCP）
+echo &amp;quot;auto eth0&amp;quot; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;network&amp;#x2F;interfaces.d&amp;#x2F;eth0
+echo &amp;quot;iface eth0 inet dhcp&amp;quot; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;network&amp;#x2F;interfaces.d&amp;#x2F;eth0
+# 4. 退出chroot环境
+exit
+sudo umount -l rootfs&amp;#x2F;{proc,sys,dev}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zhi-zuo-squashfs-zuo-wei-live-xi-tong-root&quot;&gt;制作 squashfs（作为 live 系统 root）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# sudo apt install live-boot live-config
+chroot rootfs apt install live-boot live-config
+chroot rootfs update-initramfs -u
+
+mkdir -p iso&amp;#x2F;live
+sudo mksquashfs rootfs iso&amp;#x2F;live&amp;#x2F;filesystem.squashfs -comp xz -wildcards
+cp rootfs&amp;#x2F;boot&amp;#x2F;vmlinuz-* iso&amp;#x2F;live&amp;#x2F;vmlinuz
+cp rootfs&amp;#x2F;boot&amp;#x2F;initrd.img-* iso&amp;#x2F;live&amp;#x2F;initrd.img
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;pei-zhi-qing-dan&quot;&gt;配置清单&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir iso&amp;#x2F;isolinux&amp;#x2F;
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;ISOLINUX&amp;#x2F;isolinux.bin iso&amp;#x2F;isolinux&amp;#x2F;
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;syslinux&amp;#x2F;modules&amp;#x2F;bios&amp;#x2F;ldlinux.c32 iso&amp;#x2F;isolinux&amp;#x2F;
+
+cat &amp;gt; iso&amp;#x2F;isolinux&amp;#x2F;isolinux.cfg &amp;lt;&amp;lt;EOF
+DEFAULT install
+TIMEOUT 3
+PROMPT 1
+LABEL install
+  SAY Booting custom Debian live system...
+  MENU LABEL ^Install Debian (text mode)
+  KERNEL &amp;#x2F;live&amp;#x2F;vmlinuz
+  APPEND vga=788 initrd=&amp;#x2F;live&amp;#x2F;initrd.img boot=live quiet rd.debug 
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;uefiyin-dao-grub-efi&quot;&gt;UEFI引导(grub-efi)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir -p iso&amp;#x2F;EFI&amp;#x2F;BOOT iso&amp;#x2F;boot&amp;#x2F;grub
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;grub&amp;#x2F;x86_64-efi&amp;#x2F;monolithic&amp;#x2F;grubx64.efi iso&amp;#x2F;EFI&amp;#x2F;BOOT&amp;#x2F;BOOTX64.EFI
+
+
+# 创建GRUB配置文件 (iso&amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg)
+cat &amp;gt; iso&amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg &amp;lt;&amp;lt; &amp;#x27;EOF&amp;#x27;
+set timeout=5
+menuentry &amp;quot;Custom Debian Live&amp;quot; {
+    linux &amp;#x2F;live&amp;#x2F;vmlinuz boot=live quiet
+    initrd &amp;#x2F;live&amp;#x2F;initrd.img
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;sheng-cheng-ke-qi-dong-iso&quot;&gt;生成可启动ISO&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 注意！！！ 相对ISO 内路径是 &amp;#x2F;isolinux&amp;#x2F;isolinux.bin
+# 注意！！！ 相对ISO 内路径是 &amp;#x2F;EFI&amp;#x2F;BOOT&amp;#x2F;BOOTX64.EFI
+xorriso -as mkisofs \
+  -o debian-custom.iso \
+  -iso-level 3 \
+  -full-iso9660-filenames \
+  -volid &amp;quot;CUSTOM_DEBIAN&amp;quot; \
+  -eltorito-boot isolinux&amp;#x2F;isolinux.bin \
+  -eltorito-catalog isolinux&amp;#x2F;boot.cat \
+  -no-emul-boot -boot-load-size 4 -boot-info-table \
+  -eltorito-alt-boot \
+  -e EFI&amp;#x2F;BOOT&amp;#x2F;BOOTX64.EFI \
+  -no-emul-boot \
+  iso&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ke-xuan-jia-ru-ni-de-an-zhuang-jiao-ben-zi-ding-yi-installer&quot;&gt;（可选）：加入你的“安装脚本”（自定义 installer）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 你自己的安装脚本可以把 rootfs 安装进真实硬盘：
+# 你就拥有了一个 完全自己定制的 Debian 安装 ISO。
+cat &amp;gt; iso&amp;#x2F;install.sh &amp;lt;&amp;lt;EOF
+mkfs.ext4 &amp;#x2F;dev&amp;#x2F;sda1
+mount &amp;#x2F;dev&amp;#x2F;sda1 &amp;#x2F;mnt
+unsquashfs -f -d &amp;#x2F;mnt &amp;#x2F;live&amp;#x2F;filesystem.squashfs
+grub-install &amp;#x2F;dev&amp;#x2F;sda
+update-grub
+EOF
+
+cat &amp;gt;&amp;gt; grub.cfg &amp;lt;&amp;lt;EOF
+menuentry &amp;quot;Run installer&amp;quot; {
+    linux &amp;#x2F;live&amp;#x2F;vmlinuz boot=live autoexec=&amp;#x2F;install.sh
+    initrd &amp;#x2F;live&amp;#x2F;initrd.img
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ce-shi-yan-zheng&quot;&gt;测试验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# bios
+qemu-system-x86_64 -m 1024 -cdrom debian-custom.iso -boot d -enable-kvm
+
+# uefi 启动
+sudo apt install ovmf
+qemu-system-x86_64 -m 1024 \
+-bios &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;OVMF&amp;#x2F;OVMF.fd \
+-cdrom debian-custom.iso \
+-boot d -enable-kvm
+
+# 可 dd 到 U 盘
+sudo dd if=debian-custom.iso of=&amp;#x2F;dev&amp;#x2F;sdX bs=4M status=progress
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;diao-shi-pai-cha&quot;&gt;调试排查&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;xorriso -indev debian-custom.iso -ls | grep -i &amp;#x27;initrd\|vmlinuz&amp;#x27;
+mkdir &amp;#x2F;tmp&amp;#x2F;iso
+sudo mount -o loop debian-custom.iso &amp;#x2F;tmp&amp;#x2F;iso
+find &amp;#x2F;tmp&amp;#x2F;iso -name &amp;quot;*initrd*&amp;quot; -o -name &amp;quot;*vmlinuz*&amp;quot; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo umount &amp;#x2F;tmp&amp;#x2F;iso
+xorriso -indev debian-custom.iso -extract &amp;#x27;&amp;#x2F;isolinux&amp;#x2F;isolinux.cfg&amp;#x27; &amp;#x2F;tmp&amp;#x2F;isolinux.cfg 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || true
+xorriso -indev debian-custom.iso -extract &amp;#x27;&amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg&amp;#x27; &amp;#x2F;tmp&amp;#x2F;grub.cfg 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || true
+
+cat &amp;#x2F;tmp&amp;#x2F;isolinux.cfg &amp;#x2F;tmp&amp;#x2F;grub.cfg 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | grep -A1 -B1 &amp;#x27;initrd\|vmlinuz&amp;#x27;
+
+mkdir &amp;#x2F;tmp&amp;#x2F;initrd
+cd &amp;#x2F;tmp&amp;#x2F;initrd
+zcat &amp;#x2F;tmp&amp;#x2F;iso&amp;#x2F;live&amp;#x2F;initrd.img | cpio -idmv
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;debian-guan-fang-de-mini-live-zhi-zuo-liu-cheng&quot;&gt;Debian 官方的 mini live 制作流程&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# chroot 内安装 live-boot + rebuild initrd
+chroot rootfs apt update
+chroot rootfs apt install --no-install-recommends live-boot live-config systemd-sysv linux-image-amd64
+chroot rootfs update-initramfs -u
+
+# ISOLINUX 目录结构
+mkdir -p iso&amp;#x2F;isolinux
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;ISOLINUX&amp;#x2F;isolinux.bin iso&amp;#x2F;isolinux&amp;#x2F;
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;syslinux&amp;#x2F;modules&amp;#x2F;bios&amp;#x2F;*.c32 iso&amp;#x2F;isolinux&amp;#x2F;
+
+# 创建 UEFI FAT ESP
+mkdir -p iso&amp;#x2F;efi-img
+mkdir -p esp&amp;#x2F;EFI&amp;#x2F;BOOT
+cp &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;grub&amp;#x2F;x86_64-efi&amp;#x2F;monolithic&amp;#x2F;grubx64.efi esp&amp;#x2F;EFI&amp;#x2F;BOOT&amp;#x2F;BOOTX64.EFI
+
+# 制作 FAT 镜像
+dd if=&amp;#x2F;dev&amp;#x2F;zero of=iso&amp;#x2F;efi.img bs=1M count=10
+mkfs.vfat iso&amp;#x2F;efi.img
+mcopy -i iso&amp;#x2F;efi.img -s esp&amp;#x2F;* ::&amp;#x2F;
+
+# xorriso 构建正确的混合引导 ISO
+xorriso -as mkisofs \
+  -o debian-custom.iso \
+  -iso-level 3 \
+  -full-iso9660-filenames \
+  -eltorito-boot isolinux&amp;#x2F;isolinux.bin \
+    -eltorito-catalog isolinux&amp;#x2F;boot.cat \
+    -no-emul-boot -boot-load-size 4 -boot-info-table \
+  -eltorito-alt-boot \
+    -e efi.img \
+    -no-emul-boot \
+  -append_partition 2 0xef iso&amp;#x2F;efi.img \
+  iso&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

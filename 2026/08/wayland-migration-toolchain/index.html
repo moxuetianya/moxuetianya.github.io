@@ -1,0 +1,313 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>工具链迁移 Wayland：剪贴板踩坑与适配方案 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从 xclip&#x2F;xsel 迁移到 wl-clipboard 过程中遇到的各种坑：WAYLAND_DISPLAY 失效、waypipe 隧道 dmabuf 报错、wl-copy 与 xclip 的差异，以及 QXL 虚拟机升级 virtio-gpu 3D 的根治方案。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/" />
+  <meta property="og:description" content="从 xclip&#x2F;xsel 迁移到 wl-clipboard 过程中遇到的各种坑：WAYLAND_DISPLAY 失效、waypipe 隧道 dmabuf 报错、wl-copy 与 xclip 的差异，以及 QXL 虚拟机升级 virtio-gpu 3D 的根治方案。" />
+  <meta name="twitter:description" content="从 xclip&#x2F;xsel 迁移到 wl-clipboard 过程中遇到的各种坑：WAYLAND_DISPLAY 失效、waypipe 隧道 dmabuf 报错、wl-copy 与 xclip 的差异，以及 QXL 虚拟机升级 virtio-gpu 3D 的根治方案。" />
+  <meta property="og:title" content="工具链迁移 Wayland：剪贴板踩坑与适配方案 | 墨雪天琊" />
+  <meta name="twitter:title" content="工具链迁移 Wayland：剪贴板踩坑与适配方案 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-09" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/">工具链迁移 Wayland：剪贴板踩坑与适配方案</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 09, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/wayland/">wayland</a>] #<a href="https://moxuetianya.github.io/tags/wayland/">wayland</a>  #<a href="https://moxuetianya.github.io/tags/clipboard/">clipboard</a>  #<a href="https://moxuetianya.github.io/tags/wl-clipboard/">wl-clipboard</a>  #<a href="https://moxuetianya.github.io/tags/tmux/">tmux</a>  #<a href="https://moxuetianya.github.io/tags/virtio-gpu/">virtio-gpu</a>  #<a href="https://moxuetianya.github.io/tags/waypipe/">waypipe</a> </span>
+
+    
+
+
+<h2 id="bei-jing">背景</h2>
+<p>X11 时代复制粘贴很简单：<code>xclip</code> / <code>xsel</code> 全家桶，tmux、fzf、vim 里全是它们的影子。切到 Wayland 后，剪贴板不再由"全局 X server"统一管理，而是每个合成器（compositor）自己实现，工具链也得跟着换。</p>
+<p>本文记录迁移到 Wayland 剪贴板工具链的完整踩坑过程与最终方案，包含一个容易误判的 waypipe 报错，以及虚拟机显卡升级（QXL → virtio-gpu 3D）的根治思路。</p>
+<h2 id="wayland-yu-x11-jian-tie-ban-de-chai-yi">Wayland 与 X11 剪贴板的差异</h2>
+<table><thead><tr><th>项目</th><th>X11 (xclip/xsel)</th><th>Wayland (wl-clipboard)</th></tr></thead><tbody>
+<tr><td>环境变量</td><td><code>DISPLAY</code></td><td><code>WAYLAND_DISPLAY</code> + <code>XDG_RUNTIME_DIR</code></td></tr>
+<tr><td>剪贴板</td><td>一个全局剪贴板</td><td>clipboard 与 primary selection <strong>分开</strong></td></tr>
+<tr><td>复制命令</td><td><code>xclip -selection clipboard</code></td><td><code>wl-copy</code>（clipboard）/ <code>wl-copy --primary</code></td></tr>
+<tr><td>粘贴命令</td><td><code>xclip -o</code></td><td><code>wl-paste</code></td></tr>
+<tr><td>常驻方式</td><td><code>-r</code> 保持存活</td><td><strong>默认 fork 守护进程</strong>，持有数据直到被替换</td></tr>
+<tr><td>回显管道</td><td><code>-f</code> 支持 stdin 原样回显</td><td><strong>无回显选项</strong></td></tr>
+</tbody></table>
+<h3 id="wayland-de-shuang-jian-tie-ban-clipboard-yu-primary-selection">Wayland 的双剪贴板：clipboard 与 primary selection</h3>
+<p>X11 有三个 selection（primary / secondary / clipboard），Wayland 只有两个：<strong>clipboard</strong> 和 <strong>primary selection</strong>，它们不是同一个协议的两种用法，而是<strong>两套机制几乎一样、语义完全不同的协议</strong>。</p>
+<h4 id="xie-yi-ceng-mian">协议层面</h4>
+<table><thead><tr><th></th><th>clipboard</th><th>primary selection</th></tr></thead><tbody>
+<tr><td>协议</td><td><code>wl_data_device</code>（Wayland <strong>核心协议</strong>自带）</td><td><code>wp_primary_selection</code>（<strong>独立扩展协议</strong>，2024 年才进 stable）</td></tr>
+<tr><td>触发方式</td><td><strong>显式复制</strong>：Ctrl+C / 右键复制 / 应用内"复制"按钮</td><td><strong>选中即复制</strong>：鼠标选中文本的瞬间，应用立刻设置 selection，没有"复制"这个动作</td></tr>
+<tr><td>常用快捷键</td><td>复制 <code>Ctrl+C</code>（终端 <code>Ctrl+Shift+C</code>）、剪切 <code>Ctrl+X</code>、粘贴 <code>Ctrl+V</code>（终端 <code>Ctrl+Shift+V</code>）；<code>Ctrl+Insert</code> / <code>Shift+Insert</code> 在多数场景也映射到 clipboard</td><td><strong>没有复制快捷键</strong>（选中即复制）；粘贴是<strong>鼠标中键单击</strong>；<code>Shift+Insert</code> 在部分终端（xterm 系、foot）粘贴 primary</td></tr>
+<tr><td>粘贴方式</td><td>Ctrl+V / 右键粘贴 / <code>wl-paste</code></td><td><strong>中键单击</strong>（终端/编辑器里） / <code>wl-paste --primary</code></td></tr>
+<tr><td>生命周期</td><td>持续到下一次复制或被显式清空</td><td>下一次选中立刻被替换；多数合成器在<strong>焦点切换后清空</strong></td></tr>
+<tr><td>对应工具</td><td><code>wl-copy</code> / <code>wl-paste</code></td><td><code>wl-copy --primary</code> / <code>wl-paste --primary</code></td></tr>
+</tbody></table>
+<blockquote>
+<p>易混点：<code>Shift+Insert</code> 的映射因终端而异——X11 传统（xterm）它粘贴 <strong>primary</strong>，GNOME Terminal 等则当作 clipboard 粘贴；Wayland 终端（如 foot）保留 X11 语义：<code>Shift+Insert</code> = primary，<code>Ctrl+Shift+V</code> = clipboard。</p>
+</blockquote>
+<h4 id="lian-xi">联系</h4>
+<p>两套协议的实现结构完全同构：<code>data_source</code>（数据提供方）+ <code>data_offer</code>（数据接受方）+ <code>data_device</code>（会话对象），走同一套 <strong>MIME 类型协商</strong>机制。<code>wl-copy</code> 加不加 <code>--primary</code> 只是往哪套协议上挂 source。</p>
+<p>部分合成器提供"联动"选项（比如选中文本时同步写入 clipboard），但那是合成器的额外实现，不是协议保证的行为——迁移时不要假设 Ctrl+C 和选中是同一个剪贴板。</p>
+<h3 id="wl-copy-gong-zuo-yuan-li-wei-shen-me-fu-zhi-gong-ju-bi-xu-chang-zhu">wl-copy 工作原理：为什么复制工具必须常驻</h3>
+<p>理解了这个机制，前面表格里"daemon 常驻"和"管道挂死"两个坑就都说得通了。</p>
+<h4 id="duo-xing-chuan-shu-lazy-transfer">惰性传输（lazy transfer）</h4>
+<p>Wayland 剪贴板<strong>不是"复制时把数据交给合成器"</strong>，而是"注册一个数据源，谁要粘贴谁自己来取"：</p>
+<pre><code>复制方(wl-copy)                    合成器                      粘贴方(wl-paste)
+     │ 创建 data_source               │                           │
+     │ 声明 MIME(text&#x2F;plain 等)        │                           │
+     │ set_selection(source) ───────►│                           │
+     │                                │── 收到 data_offer ───────►│
+     │                                │◄───── receive(mime, fd) ──│
+     │◄── send(mime, fd) 回调 ────────│                           │
+     │ 把数据写进 fd ──────────────────────────────►               │
+     │                                │                           │
+</code></pre>
+<p>关键点：<strong>数据在"复制"时刻并没有传输</strong>。合成器只记下"当前剪贴板内容是哪个进程提供的"。直到有人真的执行粘贴，合成器才会回调数据源进程的 <code>send()</code> 回调，把数据中转到粘贴方。</p>
+<p>所以数据源进程（wl-copy 的守护进程）<strong>必须活着</strong>——它死了，合成器就只能给粘贴方一份空数据。xclip 常驻是同一个道理。</p>
+<h4 id="wl-copy-de-zhi-xing-liu-cheng">wl-copy 的执行流程</h4>
+<ol>
+<li>读入全部 stdin（或参数/文件内容），按内容推断 MIME：UTF-8 纯文本 → <code>text/plain;charset=utf-8</code>，含 NUL 字节/非 UTF-8 → <code>application/octet-stream</code></li>
+<li>内容先落到临时缓冲（<code>/tmp/wl-copy-buffer-*/</code> 目录 + memfd），大剪贴板（截图、视频帧）不会撑爆内存——实测守护进程的 fd 列表里能看到这个文件</li>
+<li>连接合成器，创建 <code>wl_data_source</code>，声明 MIME</li>
+<li><code>set_selection()</code> 提交 → <strong>fork 守护进程</strong>：父进程退出，子进程保持 wayland 连接，等待 <code>send()</code> 回调</li>
+<li>每次有人粘贴，把缓冲里的数据写进合成器给的 fd；被新复制替换或收到 release 后退出</li>
+</ol>
+<h4 id="zhe-jie-shi-liao-liang-ge-keng">这解释了两个坑</h4>
+<ul>
+<li><strong>管道挂死</strong>：<code>printf x | wl-copy</code> 卡住——守护进程 fork 时继承了管道读端 fd，shell 等管道 EOF 永远等不到</li>
+<li><strong>异步报错</strong>：wl-copy/waypipe 的很多错误是"粘贴发生时"才触发的（比如前文的 dmabuf 报错延迟 15~60 秒才出现），不是复制那一刻</li>
+</ul>
+<h3 id="guan-jian-chai-yi-yi-wl-copy-mei-you-f-hui-xian">关键差异一：wl-copy 没有 <code>-f</code> 回显</h3>
+<p>X11 时代的经典管道：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">xclip -i -f -selection primary | xclip -i -f -selection clipboard
+</code></pre>
+<p><code>xclip -f</code> 会把 stdin 原样回显到 stdout，所以可以串联多个 selection。wl-copy <strong>没有这个选项</strong>，<code>wl-copy | wl-copy --primary</code> 的第二段会读到空。</p>
+<p>解法：先用临时文件接住数据，再分别喂给两个 wl-copy：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">f=$(mktemp &#x2F;tmp&#x2F;wlyank.XXXXXX)
+cat &gt;&quot;$f&quot;          # 接住 stdin
+wl-copy &lt;&quot;$f&quot;      # clipboard
+wl-copy --primary &lt;&quot;$f&quot;   # primary
+</code></pre>
+<h3 id="guan-jian-chai-yi-er-daemon-chang-zhu-guan-dao-gua-si">关键差异二：daemon 常驻 + 管道挂死</h3>
+<p><code>echo foo | wl-copy</code> 在脚本里没问题，但<strong>放到管道链尾部会挂住</strong>：wl-copy fork 出的守护进程继承了管道读端 fd，shell 等管道关闭时永远等不到。</p>
+<p>实测：<code>printf x | wl-copy</code> 在 bash 里能卡 120 秒以上。所以 tmux 绑定里不要写成管道，用文件重定向最稳。</p>
+<h3 id="guan-jian-chai-yi-san-mei-you-quan-ju-jian-tie-ban-zhi-you-socket">关键差异三：没有全局剪贴板，只有 socket</h3>
+<p>Wayland 客户端通过 <code>$XDG_RUNTIME_DIR/$WAYLAND_DISPLAY</code> 这个 unix socket 连合成器。坑点：</p>
+<ul>
+<li><strong>tmux server 继承旧 socket</strong>：tmux server 是长驻进程，它启动时的 <code>WAYLAND_DISPLAY</code> 可能早已失效（会话退出、waypipe 重连后 socket 名都变了）。新 pane 继承 server 环境 → 复制直接报 <code>Failed to connect to a Wayland server</code>。</li>
+<li><strong>多个 socket 并存</strong>：SSH 多会话 + waypipe 隧道时，<code>/run/user/$UID/</code> 下可能同时躺着好几个 <code>wayland-*</code> socket，肉眼无法判断哪个有效。</li>
+</ul>
+<p>解法（wlyank.sh 运行时自愈）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># socket 失效时自动回退到最新可用 socket
+if [ -n &quot;${WAYLAND_DISPLAY:-}&quot; ] &amp;&amp; [ ! -S &quot;&#x2F;run&#x2F;user&#x2F;$(id -u)&#x2F;$WAYLAND_DISPLAY&quot; ]; then
+  export WAYLAND_DISPLAY=$(ls -t &#x2F;run&#x2F;user&#x2F;$(id -u)&#x2F;wayland-* 2&gt;&#x2F;dev&#x2F;null | head -1 | xargs -r basename)
+fi
+</code></pre>
+<h2 id="yi-nan-bao-cuo-yi-dmabuf-cuo-wu-qi-shi-shi-waypipe-de">疑难报错一：dmabuf 错误其实是 waypipe 的</h2>
+<p>症状：tmux 消息行每隔一阵刷一条绿色报错：</p>
+<pre><code>$591700: 15.880863 [src&#x2F;dmabuf.c:125] Failed to open drm fd for &#x2F;dev&#x2F;dri&#x2F;renderD128: No such file or directory
+</code></pre>
+<p>第一反应是 wl-copy 的错——查了 wl-clipboard 2.2.1 源码，<strong>根本没有 <code>dmabuf.c</code></strong>。报错格式 <code>$pid: elapsed [src/xxx.c:line]</code> 是 waypipe 的日志风格。</p>
+<h3 id="pai-cha-guo-cheng">排查过程</h3>
+<ol>
+<li>看进程：机器上跑着 <code>waypipe ... --display wayland-n49YaBhs server</code>，<code>wayland-n49YaBhs</code> 正是 tmux 客户端在用的 socket——这个会话是<strong>经 waypipe 隧道转发</strong>的。</li>
+<li>时间线吻合：waypipe 进程启动 60 秒后出现 <code>60.485827</code> 的报错，与每次复制/粘贴的传输时机对得上。</li>
+<li>根因：waypipe 在隧道间传缓冲区时优先走 <strong>GPU dmabuf 直传</strong>，但这台虚拟机是 QXL 显卡，<code>/dev/dri</code> 下没有渲染节点 <code>renderD128</code> → 每次传剪贴板都异步失败一次。</li>
+<li>复制本身是成功的（waypipe/wl-copy 会回退到共享内存拷贝），纯粹是噪音——但天天刷也烦。</li>
+</ol>
+<h3 id="jie-jue">解决</h3>
+<p><code>waypipe</code> 客户端加 <code>--no-gpu</code>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">waypipe --no-gpu ssh -t &lt;server&gt; &#x27;env SUDO_ASKPASS=&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-askpass sudo -A &lt;command&gt;&#x27;
+</code></pre>
+<p><code>--no-gpu</code> 禁用 GPU 相关协议、改走共享内存拷贝。<strong>注意是客户端侧参数</strong>，而且当前已建立的隧道要重连才生效。</p>
+<p>教训：报错文本里的源码路径 + pid 前缀是定位<strong>哪个程序</strong>在叫的关键证据，别被"看起来像剪贴板错误"带偏。先 <code>grep</code> 一下报错字符串属于哪个项目，再动手改。</p>
+<h2 id="tmux-jian-tie-ban-bang-ding-zui-zhong-xing-tai">tmux 剪贴板绑定最终形态</h2>
+<pre data-lang="tmux" class="language-tmux "><code class="language-tmux" data-lang="tmux"># copy-mode 按 y：复制到 wayland clipboard
+bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel &#x27;wl-copy&#x27;
+
+# 鼠标拖拽：clipboard + primary + OSC52 兜底（ssh 远程无 wayland 时降级）
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel wlyank.sh
+
+# prefix + M：切换成纯 OSC52 模式（copy-pipe-no-clear，适合连续选区）
+</code></pre>
+<p><code>wlyank.sh</code> 完整逻辑：接 stdin → 校验/回退 WAYLAND_DISPLAY → <code>wl-copy</code> + <code>wl-copy --primary</code>（<code>2&gt;/dev/null</code> 压掉连接噪音）→ <code>myyank.sh</code> 发 OSC52 兜底。</p>
+<p>依赖关系也要理清：脚本放 <code>~/.my_local/bin</code>（整目录软链，自动部署），绑定放 <code>~/.tmux.conf</code>，apt 依赖 <code>wl-clipboard</code> 在根 <code>run.sh</code> 的 <code>install_pre</code> 里——新环境 <code>bash run.sh default</code> 一键落地。</p>
+<h2 id="gen-zhi-fang-an-qxl-virtio-gpu-3d">根治方案：QXL → virtio-gpu 3D</h2>
+<p>以上都是"兼容性修补"。想让 dmabuf 真正可用，得让虚拟机有渲染节点。</p>
+<h3 id="yuan-li">原理</h3>
+<ul>
+<li><strong>QXL</strong>：纯显示卡，没有 3D 加速，不提供 <code>renderD128</code>。</li>
+<li><strong>virtio-gpu + virgl</strong>：虚拟 GPU 支持 3D 加速，guest 里出现 <code>/dev/dri/renderD128</code>，dmabuf 直传可用（waypipe 也能开 GPU 传输了）。</li>
+</ul>
+<h3 id="cao-zuo-su-zhu-ji-shang">操作（宿主机上）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 停 VM，编辑配置
+virsh shutdown &lt;vm&gt;
+virsh edit &lt;vm&gt;
+</code></pre>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;video&gt;
+  &lt;model type=&quot;virtio&quot; heads=&quot;1&quot; primary=&quot;yes&quot;&gt;
+    &lt;acceleration accel3d=&quot;yes&quot; rendernode=&quot;&#x2F;dev&#x2F;dri&#x2F;renderD128&quot;&#x2F;&gt;
+  &lt;&#x2F;model&gt;
+&lt;&#x2F;video&gt;
+</code></pre>
+<p>要点：</p>
+<ul>
+<li>图形输出走 SPICE（<code>&lt;graphics type='spice'&gt;</code>）才能用 virgl 3D；QXL 显示协议要改成 spice/virtio</li>
+<li>宿主必须本身有 render 节点（物理 GPU 或另一层 virtio-gpu），否则 <code>rendernode</code> 指向的节点不存在</li>
+<li>guest 内核需要 <code>virtio_gpu</code> 模块（主线内核默认有），装好 <code>mesa</code> 的 virgl 驱动</li>
+<li>改完重启 VM，验证：<code>ls /dev/dri/renderD128</code> 存在即可</li>
+</ul>
+<h2 id="zong-jie-wayland-jian-tie-ban-gua-pei-jian-cha-qing-dan">总结：Wayland 剪贴板适配检查清单</h2>
+<ol>
+<li>所有 <code>xclip</code>/<code>xsel</code> 换成 <code>wl-copy</code>/<code>wl-paste</code>，注意 <code>--primary</code> 与默认 clipboard 的区别</li>
+<li>不要写 <code>wl-copy | wl-copy</code> 管道（无回显 + daemon 挂管道），用临时文件</li>
+<li>长驻进程（tmux server）的 <code>WAYLAND_DISPLAY</code> 可能失效，脚本里做 socket 存在性检查 + 回退</li>
+<li>遇到 <code>[src/xxx.c]</code> 格式的报错先确认属于哪个程序（本案例是 waypipe 不是 wl-copy）</li>
+<li>waypipe 隧道在无渲染节点机器上必加 <code>--no-gpu</code></li>
+<li>想根治 dmabuf：虚拟机升 virtio-gpu 3D（virgl），宿主需有 render 节点</li>
+<li>ssh 远程/无 wayland 场景，OSC52（myyank.sh）兜底不能丢</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/">&#8249; waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/updated/"> 最近更新 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#wayland-yu-x11-jian-tie-ban-de-chai-yi">Wayland 与 X11 剪贴板的差异</a>
+        </div>
+        <div class="hpad">
+          <a href="#wayland-de-shuang-jian-tie-ban-clipboard-yu-primary-selection"><small>- Wayland 的双剪贴板：clipboard 与 primary selection</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xie-yi-ceng-mian"><small>· 协议层面</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#lian-xi"><small>· 联系</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wl-copy-gong-zuo-yuan-li-wei-shen-me-fu-zhi-gong-ju-bi-xu-chang-zhu"><small>- wl-copy 工作原理：为什么复制工具必须常驻</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#duo-xing-chuan-shu-lazy-transfer"><small>· 惰性传输（lazy transfer）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wl-copy-de-zhi-xing-liu-cheng"><small>· wl-copy 的执行流程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zhe-jie-shi-liao-liang-ge-keng"><small>· 这解释了两个坑</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-chai-yi-yi-wl-copy-mei-you-f-hui-xian"><small>- 关键差异一：wl-copy 没有 -f 回显</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-chai-yi-er-daemon-chang-zhu-guan-dao-gua-si"><small>- 关键差异二：daemon 常驻 + 管道挂死</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-chai-yi-san-mei-you-quan-ju-jian-tie-ban-zhi-you-socket"><small>- 关键差异三：没有全局剪贴板，只有 socket</small></a>
+        </div>
+        <div>
+          <a href="#yi-nan-bao-cuo-yi-dmabuf-cuo-wu-qi-shi-shi-waypipe-de">疑难报错一：dmabuf 错误其实是 waypipe 的</a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-guo-cheng"><small>- 排查过程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-jue"><small>- 解决</small></a>
+        </div>
+        <div>
+          <a href="#tmux-jian-tie-ban-bang-ding-zui-zhong-xing-tai">tmux 剪贴板绑定最终形态</a>
+        </div>
+        <div>
+          <a href="#gen-zhi-fang-an-qxl-virtio-gpu-3d">根治方案：QXL → virtio-gpu 3D</a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-li"><small>- 原理</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cao-zuo-su-zhu-ji-shang"><small>- 操作（宿主机上）</small></a>
+        </div>
+        <div>
+          <a href="#zong-jie-wayland-jian-tie-ban-gua-pei-jian-cha-qing-dan">总结：Wayland 剪贴板适配检查清单</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

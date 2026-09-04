@@ -1,0 +1,260 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>SSH ControlMaster 复用引发的「幽灵监听」：-L 端口转发生命周期详解 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="systemd-run 托管的 ssh -L 隧道并入共享 ControlMaster mux 后，unit 进程退出但 3080 端口监听却残留在 mux master 上：systemctl stop 摘不掉、start 报端口占用。从证据链到根因（mux 转发生命周期语义），到手术刀式修复（ssh -O cancel 只摘转发不动 master），再到脚本层双保险" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/ssh-controlmaster-port-forward-leftover/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/ssh-controlmaster-port-forward-leftover/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/ssh-controlmaster-port-forward-leftover/" />
+  <meta property="og:description" content="systemd-run 托管的 ssh -L 隧道并入共享 ControlMaster mux 后，unit 进程退出但 3080 端口监听却残留在 mux master 上：systemctl stop 摘不掉、start 报端口占用。从证据链到根因（mux 转发生命周期语义），到手术刀式修复（ssh -O cancel 只摘转发不动 master），再到脚本层双保险" />
+  <meta name="twitter:description" content="systemd-run 托管的 ssh -L 隧道并入共享 ControlMaster mux 后，unit 进程退出但 3080 端口监听却残留在 mux master 上：systemctl stop 摘不掉、start 报端口占用。从证据链到根因（mux 转发生命周期语义），到手术刀式修复（ssh -O cancel 只摘转发不动 master），再到脚本层双保险" />
+  <meta property="og:title" content="SSH ControlMaster 复用引发的「幽灵监听」：-L 端口转发生命周期详解 | 墨雪天琊" />
+  <meta name="twitter:title" content="SSH ControlMaster 复用引发的「幽灵监听」：-L 端口转发生命周期详解 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-24" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/ssh-controlmaster-port-forward-leftover/">SSH ControlMaster 复用引发的「幽灵监听」：-L 端口转发生命周期详解</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 24, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/ssh/">ssh</a>  #<a href="https://moxuetianya.github.io/tags/systemd/">systemd</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/port-forward/">port-forward</a> </span>
+
+    
+
+
+<h1 id="xian-xiang-yi-ge-sha-bu-diao-de-duan-kou-jian-ting">现象：一个"杀不掉"的端口监听</h1>
+<p>我有个 <code>dsh-proxy.sh</code>，职责很单纯：用 <code>systemd-run --user</code> 起一条 ssh 隧道，把远端机器的 3080 端口暴露到本机 <code>127.0.0.1:3080</code>（远端 caddy + dsh web 的 basicauth HTTPS 入口，浏览器 origin 必须落在 loopback 才能操作配置平面）。</p>
+<p>某天它开始闹鬼，三个症状互相矛盾：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">$ dsh-proxy.sh start
+本地端口 3080 已被占用（可能本机有 dsh 在跑？），中止启动
+
+$ dsh-proxy.sh stop
+unit 未在运行
+
+$ lsof -i:3080 -nP | grep LISTEN
+ssh      206121 peter  16u  IPv4 ... TCP 127.0.0.1:3080 (LISTEN)
+</code></pre>
+<ul>
+<li><code>start</code> 说端口被占用 → 确实有 ssh 在监听 3080</li>
+<li><code>stop</code> 说 unit 根本没在运行 → systemd 层面查无此 unit</li>
+<li>但那个 ssh 进程确实活着，且监听端口就是它</li>
+</ul>
+<p><strong>stop 停不掉、start 起不来、端口还被一个"不属于任何 unit"的进程占着</strong>——这到底是谁？</p>
+<h1 id="pai-cha-zheng-ju-lian">排查：证据链</h1>
+<h2 id="1-unit-que-shi-bu-cun-zai-liao">1. unit 确实不存在了</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ systemctl --user status dsh-proxy --no-pager
+Unit dsh-proxy.service could not be found.
+</code></pre>
+<p>unit 是 <code>systemd-run --collect</code> 起的临时 unit，进程退出后会被立即回收。所以 <strong>unit 存在过、但它的进程已经死了</strong>——这是 <code>--collect</code> 的预期行为。</p>
+<h2 id="2-jian-ting-jin-cheng-bu-shi-sui-dao-de-ssh-er-shi-mux-master">2. 监听进程不是隧道的 ssh，而是 mux master</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ps -fp 206121
+UID   PID  PPID  ...  CMD
+peter 206121 3559 ...  ssh: &#x2F;home&#x2F;peter&#x2F;.ssh&#x2F;socket&#x2F;user@192.168.1.10-22 [mux]
+</code></pre>
+<p>命令行的 <code>[mux]</code> 是关键词：<strong>这是一个 ControlMaster 复用 master 进程</strong>。它 13:21 就存在了——比隧道 19:44 的启动早得多。查 <code>~/.ssh/config</code>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ grep -nE &quot;ControlMaster|ControlPath|ControlPersist&quot; ~&#x2F;.ssh&#x2F;config
+52:  ControlMaster auto
+53:  ControlPath ~&#x2F;.ssh&#x2F;socket&#x2F;%r@%h-%p
+54:  ControlPersist 1h
+</code></pre>
+<p>全局开着 ControlMaster，任何到同一主机的 ssh 都会走复用。</p>
+<h2 id="3-master-shang-huan-gua-zhao-bie-de-huo">3. master 上还挂着别的活</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ss -tnp | grep 206121
+ESTAB 127.0.0.1:13081 &lt;- 127.0.0.1:47262  ssh(206121)   # -D 动态转发（SOCKS）
+ESTAB 192.168.1.20:60688 -&gt; 192.168.1.10:22 ssh(206121) # master 到远端的真实连接
+</code></pre>
+<p>这个 master 是 <strong>VS Code Remote-SSH</strong> 建的（<code>-D</code> SOCKS + 会话），正被实时使用着。→ <strong>不能杀 master 释放端口</strong>，一杀 VS Code 的远程会话就断。</p>
+<h2 id="4-journal-li-zhi-you-yi-tiao-started">4. journal 里只有一条 Started</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ journalctl --user -u dsh-proxy --no-pager
+Started dsh-proxy.service - &#x2F;usr&#x2F;bin&#x2F;ssh -N -L 3080:127.0.0.1:3080 ... -- user@192.168.1.10.
+</code></pre>
+<p>隧道确实启动过，之后 unit 干净消失（无 Stopped、无失败重启日志，<code>--collect</code> 的典型表现）。</p>
+<p><strong>证据链闭环</strong>：unit 的 ssh 进程死了，但 3080 的监听还活在一个别人家的 mux master 进程里。</p>
+<h1 id="gen-yin-mux-fu-yong-xia-l-zhuan-fa-de-sheng-ming-zhou-qi-bu-zai-client-shou-li">根因：mux 复用下，<code>-L</code> 转发的生命周期不在 client 手里</h1>
+<h2 id="openssh-connection-multiplexing-ji-zhi">OpenSSH Connection Multiplexing 机制</h2>
+<p>当 <code>ControlMaster auto</code> + 已有同主机 master 时，新的 <code>ssh -N -L 3080:...</code> <strong>不会自己建 TCP 连接</strong>，而是变成 master 的 mux <strong>client</strong>：通过本地 unix socket（<code>~/.ssh/socket/%r@%h-%p</code>）把请求发给 master，包括「帮我监听 3080」：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">              unix socket                      TCP:22
+systemd-run ssh ──────────► mux master 206121 ────────► remote
+  (client, unit进程)         (VS Code 建的 master)      (真实连接)
+                              │
+                              └─► bind()&#x2F;listen() 127.0.0.1:3080  ← 监听在 master 上！
+</code></pre>
+<p>于是 <strong>真正 <code>listen()</code> 3080 的是 master 进程</strong>——这就是为什么 lsof 的 owner 是 master 而不是 unit 的进程。</p>
+<h2 id="guan-jian-yu-yi-client-tui-chu-zhuan-fa-che-xiao">关键语义：client 退出 ≠ 转发撤销</h2>
+<p>OpenSSH 的 mux 转发由 master 统一持有：<strong>client 断开后，master 不会自动撤销它注册的转发</strong>（master 无法判断还有没有别的 client 在依赖它）。加上 <code>ControlPersist 1h</code>（且 VS Code 一直占用 master），master 会一直活着：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">19:44:34  unit 启动，ssh 加入 master，master listen 3080
+19:44:3x  unit 进程退出（任何原因：stop、断链、干净退出）
+         --collect 回收 unit，systemctl 查无此 unit
+         master 继续活着，3080 监听继续挂着 ← 幽灵监听诞生
+之后      stop 报&quot;未在运行&quot;，start 报&quot;端口被占用&quot;
+</code></pre>
+<p>端口要等 <strong>master 进程死亡</strong>才释放——而 VS Code 不退出，master 永不退出。死锁。</p>
+<p>这个 bug 的普适性值得记住：<strong>凡是"进程 A 替进程 B 干了一件事（监听端口、持有资源），但资源生命周期的开关却在 A 手里"的场景，都会出现这种幽灵资源</strong>。mux 复用的性能收益（免握手、共享连接）换来的就是这个副作用。</p>
+<h1 id="shou-shu-dao-ssh-o-cancel-zhi-zhai-zhuan-fa-bu-dong-master">手术刀：<code>ssh -O cancel</code> 只摘转发，不动 master</h1>
+<p>杀 master 是钝刀子（VS Code 会话会断）。正确工具是 <strong>control command</strong>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ssh -O cancel -L 3080:127.0.0.1:3080 user@192.168.1.10
+</code></pre>
+<p><code>-O</code> 命令走的是<strong>本地 unix socket</strong>（<code>ControlPath</code>），不发网络包、不触发认证，只是请求 master「撤销 3080 这条转发」。master 关掉那个监听 socket，但 TCP 连接、<code>-D</code> SOCKS、其它 client 一概不受影响：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ lsof -i:3080 -nP | grep LISTEN   # 没了
+$ ssh -O check user@192.168.1.10
+Master running (pid=206121)          # master 还活着，VS Code 毫发无损
+</code></pre>
+<p>实测瞬时生效。这相当于给共享 master 上的转发做了一次外科手术。</p>
+<h1 id="jiao-ben-xiu-fu-shuang-bao-xian">脚本修复：双保险</h1>
+<p>只手动 cancel 一次治标不治本，修脚本：</p>
+<h2 id="1-gen-zhi-sui-dao-ssh-du-zhan-lian-jie">1. 根治：隧道 ssh 独占连接</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">SSH_OPTS=(
+    -N
+    -L &quot;3080:127.0.0.1:3080&quot;
+    -o ControlMaster=no        # 不建 master
+    -o ControlPath=none        # 不连任何 master
+    -o ExitOnForwardFailure=yes
+    ...
+)
+</code></pre>
+<p><code>ControlMaster=no + ControlPath=none</code> 让隧道的 ssh 永远是<strong>独立连接</strong>：转发由自己进程持有，<code>systemctl stop</code> 杀进程即释放端口，unit 生命周期 = 端口生命周期，不再有第三方。</p>
+<h2 id="2-dou-di-start-stop-li-de-cancel-zi-yu">2. 兜底：start / stop 里的 cancel 自愈</h2>
+<p>历史遗留（或别的脚本复用 mux 挂了转发）时，<code>start</code> 遇到 ssh 进程占着端口就尝试 <code>-O cancel</code> 摘掉再继续，摘不掉才报错；<code>stop</code> 停完 unit 后再检查一次端口，发现 ssh 残留就顺手 cancel：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">port_owner() {
+    ss -ltnp 2&gt;&#x2F;dev&#x2F;null | awk -v p=&quot;:3080&quot; &#x27;$4 ~ p&quot;$&quot;&#x27; |
+        sed -nE &#x27;s&#x2F;.*users:\(\(&quot;([^&quot;]+)&quot;.*&#x2F;\1&#x2F;p&#x27; | head -1
+}
+
+# stop 流程中：
+case &quot;$(port_owner)&quot; in
+    ssh) ssh -O cancel -L &quot;3080:127.0.0.1:3080&quot; &quot;$REMOTE&quot; ;;
+    &quot;&quot;)  ;;   # 本来就干净
+    *)   echo &quot;端口被非 ssh 进程占用，未处理&quot; ;;
+esac
+</code></pre>
+<p>验证过完整链路：<code>start</code> → 3080 归 unit 自有 ssh 进程（curl 过隧道得到 401 = basicauth 质询，转发功能正常）→ <code>stop</code> → 端口完全释放、master 全程未动。</p>
+<h1 id="zong-jie">总结</h1>
+<table><thead><tr><th>层</th><th>教训</th></tr></thead><tbody>
+<tr><td>ssh</td><td>共享 mux master 是性能利器，但 <code>-L</code> 转发的生命周期挂在 master 上，client 退出不等于转发撤销；<code>ssh -O cancel</code> 是唯一不伤 master 的摘除手段</td></tr>
+<tr><td>systemd</td><td>别让托管进程把关键资源（端口、socket）注册到不受 systemd 管辖的进程上，否则 stop/start 语义全部失真</td></tr>
+<tr><td>排查</td><td>端口被"幽灵进程"占着时先看进程命令行：<code>[mux]</code> 标记 = 复用 master，立刻去查 <code>~/.ssh/socket/</code> 下对应 ControlPath 的归属</td></tr>
+<tr><td>预防</td><td>需要 systemd 严格管理生命周期的隧道，一律 <code>-o ControlMaster=no -o ControlPath=none</code> 独占连接；万不得已共享时，预留 <code>-O cancel</code> 清理路径</td></tr>
+</tbody></table>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/">&#8249; 深入浅出大模型推理加速：从 DSpark 到 MTP</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/"> opencode 如何判断模型是否支持图片——记一次能力判定排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang-yi-ge-sha-bu-diao-de-duan-kou-jian-ting">现象：一个&quot;杀不掉&quot;的端口监听</a>
+        </div>
+        <div>
+          <a href="#pai-cha-zheng-ju-lian">排查：证据链</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-unit-que-shi-bu-cun-zai-liao"><small>- 1. unit 确实不存在了</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-jian-ting-jin-cheng-bu-shi-sui-dao-de-ssh-er-shi-mux-master"><small>- 2. 监听进程不是隧道的 ssh，而是 mux master</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-master-shang-huan-gua-zhao-bie-de-huo"><small>- 3. master 上还挂着别的活</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-journal-li-zhi-you-yi-tiao-started"><small>- 4. journal 里只有一条 Started</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin-mux-fu-yong-xia-l-zhuan-fa-de-sheng-ming-zhou-qi-bu-zai-client-shou-li">根因：mux 复用下，-L 转发的生命周期不在 client 手里</a>
+        </div>
+        <div class="hpad">
+          <a href="#openssh-connection-multiplexing-ji-zhi"><small>- OpenSSH Connection Multiplexing 机制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-yu-yi-client-tui-chu-zhuan-fa-che-xiao"><small>- 关键语义：client 退出 ≠ 转发撤销</small></a>
+        </div>
+        <div>
+          <a href="#shou-shu-dao-ssh-o-cancel-zhi-zhai-zhuan-fa-bu-dong-master">手术刀：ssh -O cancel 只摘转发，不动 master</a>
+        </div>
+        <div>
+          <a href="#jiao-ben-xiu-fu-shuang-bao-xian">脚本修复：双保险</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-gen-zhi-sui-dao-ssh-du-zhan-lian-jie"><small>- 1. 根治：隧道 ssh 独占连接</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-dou-di-start-stop-li-de-cancel-zi-yu"><small>- 2. 兜底：start &#x2F; stop 里的 cancel 自愈</small></a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,413 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>caddy 反代 dsh web，让局域网用户也能访问 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="dsh（DeepSeek Harness）web UI 默认只监听 127.0.0.1，本文用 caddy 加 basicauth + 内部 HTTPS 反代到局域网，覆盖 Debian 版 caddy 的指令名差异、裸端口不签发证书、根证书信任、dsh &#x2F;api 浏览器信任围栏等全部踩坑。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/caddy-reverse-proxy-dsh-web-lan/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/caddy-reverse-proxy-dsh-web-lan/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/caddy-reverse-proxy-dsh-web-lan/" />
+  <meta property="og:description" content="dsh（DeepSeek Harness）web UI 默认只监听 127.0.0.1，本文用 caddy 加 basicauth + 内部 HTTPS 反代到局域网，覆盖 Debian 版 caddy 的指令名差异、裸端口不签发证书、根证书信任、dsh &#x2F;api 浏览器信任围栏等全部踩坑。" />
+  <meta name="twitter:description" content="dsh（DeepSeek Harness）web UI 默认只监听 127.0.0.1，本文用 caddy 加 basicauth + 内部 HTTPS 反代到局域网，覆盖 Debian 版 caddy 的指令名差异、裸端口不签发证书、根证书信任、dsh &#x2F;api 浏览器信任围栏等全部踩坑。" />
+  <meta property="og:title" content="caddy 反代 dsh web，让局域网用户也能访问 | 墨雪天琊" />
+  <meta name="twitter:title" content="caddy 反代 dsh web，让局域网用户也能访问 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-24" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/caddy-reverse-proxy-dsh-web-lan/">caddy 反代 dsh web，让局域网用户也能访问</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 24, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/homelab/">homelab</a>, <a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/caddy/">caddy</a>  #<a href="https://moxuetianya.github.io/tags/dsh/">dsh</a>  #<a href="https://moxuetianya.github.io/tags/reverse-proxy/">reverse-proxy</a> </span>
+
+    
+
+
+<p>dsh（DeepSeek Harness）的 Web UI 用一条命令就能起：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">npx @deepseek-ai&#x2F;dsh --profile web
+</code></pre>
+<p>默认监听 <code>127.0.0.1:3080</code>，只有本机能访问。想实现三个目标：<strong>局域网设备（手机/其他电脑）能访问</strong>、<strong>有用户名密码认证</strong>、<strong>传输加密</strong>（basicauth 明文走 HTTP 等于裸奔）。</p>
+<p>方案：本机 caddy 反代，<code>tls internal</code> 内部证书 + <code>basicauth</code>。最终链路：</p>
+<pre><code>浏览器(局域网设备) ──https──&gt; caddy:3080 (tls internal + basicauth) ──&gt; 127.0.0.1:3081 (dsh web)
+</code></pre>
+<p>这篇文章记录完整配置和一路踩过的坑。</p>
+<h2 id="yi-duan-kou-gui-hua">一、端口规划</h2>
+<p>caddy 要占 3080，dsh web 就得让位。用 <code>--port</code> 挪到 3081：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">npx @deepseek-ai&#x2F;dsh --profile web --host 127.0.0.1 --port 3081 --no-open
+</code></pre>
+<p>用一个 systemd-run 临时服务包起来（<code>dotfiles/.my_local/bin/dsh-web.sh</code>，start/stop/restart/status/log 子命令）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">systemd-run --user --unit=dsh-web --collect \
+    --working-directory=&quot;$HOME&quot; \
+    --setenv=PATH=&quot;$PATH&quot; \
+    --property=Restart=on-failure --property=RestartSec=2 \
+    -- &quot;$(command -v npx)&quot; -y @deepseek-ai&#x2F;dsh --profile web \
+    --host 127.0.0.1 --port 3081 --no-open \
+    --trusted-host 127.0.0.1:3080 --trusted-host localhost:3080 \
+    --trusted-host 192.168.5.68:3080   # 局域网 IP，见第四节
+</code></pre>
+<p><code>--trusted-host</code> 是 dsh 的 <code>/api</code> 浏览器信任围栏配置，后面单独讲。</p>
+<h2 id="er-caddy-pei-zhi-debian-ban-cai-keng-zui-duo">二、caddy 配置（Debian 版踩坑最多）</h2>
+<p>系统：Debian 13，<code>apt install caddy</code>（版本 2.6.2）。Caddyfile：</p>
+<pre><code>https:&#x2F;&#x2F;127.0.0.1:3080, https:&#x2F;&#x2F;localhost:3080, https:&#x2F;&#x2F;192.168.5.68:3080 {
+	tls internal
+
+	basicauth {
+		peter $2a$14$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+	}
+
+	reverse_proxy 127.0.0.1:3081
+}
+</code></pre>
+<p>密码哈希用 <code>caddy hash-password --plaintext '你的密码'</code> 生成。</p>
+<h3 id="keng-1-zhi-ling-ming-shi-basicauth-bu-shi-basic-auth">坑 1：指令名是 <code>basicauth</code> 不是 <code>basic_auth</code></h3>
+<p>上游 caddy 2.9 才把 <code>basic_auth</code> 改名为 <code>basicauth</code>，但 Debian 打包的 2.6.2 已经把改名打了进去。用老名字直接报 <code>unrecognized directive: basic_auth</code>。二进制里明明有模块、其他指令都正常，唯独认证指令对不上——排查时一度很迷惑。</p>
+<h3 id="keng-2-zhan-dian-di-zhi-bi-xu-xie-https-host-port-wan-zheng-xing-shi">坑 2：站点地址必须写 <code>https://host:port</code> 完整形式</h3>
+<p>这是最隐蔽的坑。写 <code>:3080 { tls internal }</code>（裸端口 + tls 指令）时配置校验能过，但<strong>自动 HTTPS 不会为它签发任何证书</strong>——握手直接 <code>tlsv1 alert internal error</code>，浏览器报 <code>ERR_SSL_PROTOCOL_ERROR</code>。</p>
+<p>原因：caddy 的自动证书管理只覆盖「站点地址里写了主机名/IP 的站点」。裸端口站点没有标识符，自动 HTTPS 无从下手。改成 <code>https://127.0.0.1:3080</code> 这种带 scheme + 地址的形式，caddy 就会为每个地址签发内部证书。</p>
+<h3 id="keng-3-nei-bu-gen-zheng-shu-zhuang-bu-jin-xi-tong-xin-ren-ku">坑 3：内部根证书装不进系统信任库</h3>
+<p>caddy 服务以 <code>caddy</code> 用户运行，首次启动想自动把内部根证书装进系统信任库，但该用户不在 sudoers，静默失败：</p>
+<pre><code>pki.ca.local: failed to install root certificate: failed to execute sudo: exit status 1
+</code></pre>
+<p>手动装（注意 HOME 必须指向 caddy 用户的存储目录，否则会用 root 的身份另建一套 CA）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo env HOME=&#x2F;var&#x2F;lib&#x2F;caddy caddy trust
+</code></pre>
+<p>装完后本机 <code>curl https://127.0.0.1:3080/</code> 无需 <code>-k</code>，浏览器也不报证书错误。</p>
+<h2 id="san-wei-shen-me-bi-xu-pei-trusted-host">三、为什么必须配 <code>--trusted-host</code></h2>
+<p>dsh web 的 <code>/api</code> 是特权接口（能驱动 agent 干活），它自身没有认证，只绑 127.0.0.1——这防得住远程，但防不住本机恶意网页的跨站请求（CSRF/驱动式攻击连 127.0.0.1 不需要任何权限）。所以 dsh 加了「浏览器信任围栏」：校验浏览器请求的 <strong>Origin</strong> 头，只信任自己监听地址 <code>127.0.0.1:3081</code>。</p>
+<p>关键点：<strong>Origin 是浏览器按地址栏 URL 生成的，反向代理不会、也不该改写它</strong>。所以经过 caddy 后：</p>
+<pre><code>直连:   浏览器访问 http:&#x2F;&#x2F;127.0.0.1:3081   → Origin: http:&#x2F;&#x2F;127.0.0.1:3081   ← 与 dsh 一致，放行
+经反代: 浏览器访问 https:&#x2F;&#x2F;127.0.0.1:3080  → Origin: https:&#x2F;&#x2F;127.0.0.1:3080  ← 不一致，403
+</code></pre>
+<p>dsh 从 TCP 视角看不出区别（请求都来自本机），但围栏只认 Origin。实测证据：</p>
+<table><thead><tr><th>请求</th><th>结果</th></tr></thead><tbody>
+<tr><td>直连 3081，无 Origin（curl/非浏览器）</td><td>放行（围栏只管浏览器请求）</td></tr>
+<tr><td>直连 3081，Origin=<code>127.0.0.1:3080</code>（未放行）</td><td><strong>403</strong></td></tr>
+<tr><td>经 caddy，Origin=<code>127.0.0.1:3080</code>（已放行）</td><td>放行</td></tr>
+<tr><td>经 caddy，Origin=<code>evil.example</code></td><td><strong>403</strong></td></tr>
+</tbody></table>
+<p><code>--trusted-host 127.0.0.1:3080 --trusted-host localhost:3080</code> 就是把这些「反代入口地址」加进白名单。症状也很有迷惑性：UI 能打开、页面渲染正常，但所有 <code>/api</code> 请求 403，功能全废。</p>
+<p>顺带一提：恶意网页请求 <code>https://127.0.0.1:3080</code> 时浏览器会自动带上缓存的基本认证凭据，caddy 那关拦不住它——围栏是最后一道防线（origin 不对直接 403）。</p>
+<h3 id="ding-wei-zhe-shi-csrf-fang-hu-bu-shi-cors">定位：这是 CSRF 防护，不是 CORS</h3>
+<p>容易混淆，「校验 Origin」和「CORS 配置」是两回事，区别在浏览器管什么：</p>
+<table><thead><tr><th></th><th>管什么</th><th>谁执行</th><th>dsh 案例</th></tr></thead><tbody>
+<tr><td><strong>CORS</strong></td><td>响应可不可读</td><td>浏览器（看服务器回不回的 <code>Access-Control-Allow-*</code> 头）</td><td>恶意页面 fetch <code>/api</code> 即使被 CORS 拒，<strong>请求本身也已在服务器执行</strong>，只是读不到响应</td></tr>
+<tr><td><strong>CSRF 防护（dsh 的 Origin 围栏）</strong></td><td>请求该不该被执行</td><td>服务端（校验请求自带的 Origin 头）</td><td>请求到 dsh，Origin 不在白名单 → 403，不执行</td></tr>
+</tbody></table>
+<p>CORS 通常用于「开放 API 给第三方域」场景，方向相反；想拦住<strong>执行</strong>只能靠服务端校验。</p>
+<h3 id="wei-shen-me-cors-lan-bu-zhu-csrf-yu-jian-zhi-dui-yi-lei-qing-qiu-sheng-xiao">为什么 CORS 拦不住 CSRF：预检只对一类请求生效</h3>
+<p>浏览器 fetch 分两类：</p>
+<table><thead><tr><th>请求</th><th>是否预检</th><th>CORS 拦得住吗</th></tr></thead><tbody>
+<tr><td><strong>简单请求</strong>：GET/POST、content-type 只有 <code>form-urlencoded</code> / <code>multipart</code> / <code>text/plain</code>、无自定义头</td><td>不预检，直接发出</td><td><strong>拦不住</strong>——请求在服务器执行，只是 JS 读不到响应（SOP）</td></tr>
+<tr><td><strong>非简单请求</strong>：<code>application/json</code>、自定义头、<code>Authorization</code> 等</td><td>先发 OPTIONS 预检</td><td>拦截：服务器没回 CORS 头，浏览器连正式请求都不发，也读不到</td></tr>
+</tbody></table>
+<p>所以「随便 fetch application/json 打任意网站」被预检拦死，但「用 <code>&lt;form&gt;</code> 或 <code>text/plain</code> 的 POST/GET」畅通无阻——这正是经典 CSRF 的载体，<strong>必须服务端自己判断</strong>。</p>
+<h3 id="san-chong-zhen-shi-gong-ji-wei-lan-ru-he-lan-jie">三种真实攻击：围栏如何拦截</h3>
+<p><strong>攻击 A：表单 CSRF（经典形态，不需要点击）</strong></p>
+<p>恶意网页放一个隐藏表单 + 一段自动提交脚本——用户打开页面即发起请求，无感知、无需点击：</p>
+<pre data-lang="html" class="language-html "><code class="language-html" data-lang="html">&lt;form id=&quot;evil&quot; method=&quot;POST&quot; action=&quot;https:&#x2F;&#x2F;127.0.0.1:3080&#x2F;api&#x2F;run-agent&quot;&gt;
+  &lt;input name=&quot;prompt&quot; value=&quot;rm -rf ~ &amp;&amp; ...&quot;&gt;
+&lt;&#x2F;form&gt;
+&lt;script&gt;
+  document.getElementById(&#x27;evil&#x27;).submit()   &#x2F;&#x2F; JS 自动提交，不依赖用户点击
+&lt;&#x2F;script&gt;
+</code></pre>
+<p>表单的跨站提交不受 CORS/SOP 限制（CORS 只管 fetch/XHR 的响应可读性），浏览器会带上 Caddy 缓存的 Basic 凭据。<strong>无围栏</strong>：dsh 执行，<code>rm -rf</code> 跑起来。<strong>有围栏</strong>：浏览器自动带的 <code>Origin: https://evil.example</code> 不在白名单 → 403。</p>
+<p><strong>攻击 B：<code>text/plain</code> 伪 JSON</strong></p>
+<p>攻击者知道后端收 JSON，但 fetch 用 <code>text/plain</code> 发 <code>JSON.stringify</code> 的 body 绕过预检——很多 API 只看内容不看 content-type，照样执行。围栏同样以 Origin 一票否决。</p>
+<p><strong>攻击 C：DNS rebinding（最隐蔽）</strong></p>
+<p>攻击者域名 <code>evil.com</code> 先解析到外网，JS 建立连接后再解析到 <code>127.0.0.1</code>——此时 fetch <code>https://evil.com/api/...</code> 在浏览器眼里是<strong>同源请求</strong>：不预检、响应可读、直连 dsh。但 Origin 头仍是 <code>https://evil.com</code>，围栏 403。没有服务端 Origin 校验的话，这个攻击连 CORS 都拦不住（它根本不同源）。</p>
+<h3 id="wei-shen-me-caddy-de-basicauth-dang-bu-zhu-wei-lan-shi-zui-hou-yi-dao">为什么 caddy 的 basicauth 挡不住、围栏是最后一道</h3>
+<p>攻击者的请求确实会带着<strong>你浏览器缓存的 Basic 凭据</strong>（你访问 <code>https://127.0.0.1:3080</code> 时输过的密码，浏览器记忆后会自动附上 <code>Authorization</code> 头），caddy 认证天然放行——caddy 认不出「这是恶意页面发的，用户没点」。所以防线落在 dsh：Origin 头永远只有地址栏来源意义上的值，<strong>攻击者无法伪造页面来源</strong>，他永远过不了这关（无 Origin 的请求 dsh 视为非浏览器、放行，但恶意网页的跨站请求一定带 Origin）。</p>
+<h3 id="wei-shen-me-pu-tong-wang-zhan-bu-kao-origin-xiao-yan-dang-zhu-fang-xian">为什么普通网站不靠 Origin 校验当主防线</h3>
+<p>Origin/Referer 校验是少量站点会用的补充手段（GitHub 曾用「Origin 校验 + token 兜底」），但主流主防线是：</p>
+<ol>
+<li><strong>SameSite Cookie</strong>：浏览器默认 <code>SameSite=Lax</code>（2020 年 Chromium 默认），恶意页面发起的跨站 POST 连登录 Cookie 都不带，CSRF 自动失效——大多数站点就靠这一条</li>
+<li><strong>CSRF token</strong>：表单嵌服务端签发的 token，提交校验</li>
+<li><strong>CORS 配置</strong>：管读取不挡执行，<code>Access-Control-Allow-Origin: *</code> 的站一抓一大把，从不是 CSRF 防线</li>
+</ol>
+<p><strong>dsh 是特殊形态</strong>：无认证、无 Cookie、无会话的本地特权 API——SameSite 没 Cookie 可保护，token 没有登录仪式可签发，只剩 Origin 头本身可校验。所以「裸 API + 本机监听」才不得不用 Origin 围栏。</p>
+<h2 id="si-ju-yu-wang-ip-zi-dong-shou-ji">四、局域网 IP 自动收集</h2>
+<p>caddy 只给站点地址列表里的 IP 签发证书，DHCP 换 IP 就断。我让 install 脚本渲染时自动收集 <code>hostname -I</code> 的全部非回环 IPv4（局域网/tailscale/docker bridge），拼进站点地址：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 渲染 Caddyfile 时
+for h in $(hostname -I | tr &#x27; &#x27; &#x27;\n&#x27; | grep -E &#x27;^[0-9.]+$&#x27; | grep -v &#x27;^127\.&#x27;); do
+    SITES=&quot;$SITES, https:&#x2F;&#x2F;$h:3080&quot;
+done
+</code></pre>
+<p>dsh-web.sh 启动时做同样的事，把每个 IP 都加进 <code>--trusted-host</code>——否则通过局域网 IP 访问时 <code>/api</code> 照样 403。换 IP 后重跑安装脚本 + 重启 dsh web 即可。</p>
+<p>完整实现（模板 + 幂等安装脚本 + 服务脚本）在工具仓库：<code>homelab/caddy/</code>（Caddyfile.tmpl、install.sh，密钥不入库）和 <code>dotfiles/.my_local/bin/dsh-web.sh</code>。</p>
+<h2 id="wu-ju-yu-wang-qi-ta-she-bei-fang-wen">五、局域网其他设备访问</h2>
+<p>本机浏览器直接可用（根证书已装系统信任库）。<strong>其他设备</strong>（手机/别的电脑）需要先信任 caddy 的根证书，否则握手成功但报 <code>ERR_CERT_AUTHORITY_INVALID</code>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 本机把根证书复制出来，起个临时 HTTP 服务供设备下载
+sudo cp &#x2F;usr&#x2F;local&#x2F;share&#x2F;ca-certificates&#x2F;Caddy_Local_Authority_*.crt &#x2F;tmp&#x2F;caddy-root.crt
+python3 -m http.server 8000 -d &#x2F;tmp
+</code></pre>
+<p>设备浏览器访问 <code>http://192.168.5.68:8000/caddy-root.crt</code> 下载并安装：</p>
+<ul>
+<li><strong>Android</strong>：设置 → 安全 → 安装 CA 证书（网络与互联网 → 加密与凭据）</li>
+<li><strong>iOS</strong>：下载 → 设置 → 已下载描述文件 → 安装，再在「证书信任设置」开启完全信任</li>
+<li><strong>桌面</strong>：导入系统信任库（Debian/Ubuntu：拷到 <code>/usr/local/share/ca-certificates/</code> 后 <code>update-ca-certificates</code>）</li>
+</ul>
+<p>装完后访问 <code>https://192.168.5.68:3080</code>，输入用户名密码即可。</p>
+<h2 id="liu-mo-xing-pei-zhi-wei-shen-me-bi-xu-cong-127-0-0-1-fang-wen">六、模型配置为什么必须从 127.0.0.1 访问</h2>
+<p>第五节做完后，UI 打开正常、聊天正常，但<strong>点开「模型配置」页却报错</strong>：</p>
+<pre><code>加载提供方目录失败: settings are unavailable in this browser
+</code></pre>
+<p><code>--trusted-host 192.168.5.68:3080</code> 明明加了（见第一节），为什么 <code>/api</code> 还是不放行？——因为它没坏，<strong>这是 dsh 0.1.1-rc.2 起的设计</strong>：<code>/api</code> 被分成两类方法：</p>
+<table><thead><tr><th>方法类</th><th>例子</th><th>围栏白名单</th></tr></thead><tbody>
+<tr><td>普通</td><td>会话创建、<code>llm.providers</code> 目录、聊天</td><td><code>trustedHosts</code>（<code>--trusted-host</code>）全部生效</td></tr>
+<tr><td><strong>配置平面</strong></td><td><code>settings.describe/update/replace/mutate</code>、<code>credentials.*</code>、<code>agentPreset.*</code>、<code>host.*</code>、<code>llm.discoverModels</code></td><td><strong>固定传「空列表」——只有 loopback 来源才放行</strong></td></tr>
+</tbody></table>
+<p>设计文档原话（大意）：<code>trustedHosts</code> 只是 DNS-rebinding 围栏，<strong>不是认证层</strong>；配置平面（读也不行——<code>settings.describe</code> 会原样返回全部配置和密钥状态）在真正的认证层出现前，永远保持 loopback-same-origin。<code>--host 0.0.0.0</code> 也因此被官方禁用。</p>
+<h3 id="wei-shen-me-fan-dai-liao-huan-shi-bu-xing-dsh-bu-kan-tcp-lai-yuan-zhi-kan-host-tou">为什么反代了还是不行：dsh 不看 TCP 来源，只看 Host 头</h3>
+<p>反代后 dsh 收到的连接确实来自 127.0.0.1（caddy 转发），但 dsh <strong>故意不信任 TCP 回环</strong>——因为 DNS rebinding 攻击的经典形态就是「socket 打到 loopback、Host 却是攻击者域名」，回环连接完全不能证明来源可信。而 caddy 的 <code>reverse_proxy</code> 默认把客户端原始 Host 原样透传（<code>192.168.5.68:3080</code>），dsh 看到的权威是非回环 → 配置平面 403。</p>
+<p>实测证据（直接打 3081，模拟反代过来的请求）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># Host=局域网 IP，Origin=局域网 IP → 配置平面 403
+curl -s -X POST -o &#x2F;dev&#x2F;null -w &#x27;%{http_code}\n&#x27; \
+  -H &#x27;Host: 192.168.5.68:3080&#x27; -H &#x27;Origin: https:&#x2F;&#x2F;192.168.5.68:3080&#x27; \
+  http:&#x2F;&#x2F;127.0.0.1:3081&#x2F;api&#x2F;settings.describe
+# → 403
+
+# 同一 TCP 回环、Host 换回 127.0.0.1 → 通过围栏（后面的 415 只是没带 content-type）
+curl -s -X POST -o &#x2F;dev&#x2F;null -w &#x27;%{http_code}\n&#x27; \
+  -H &#x27;Host: 127.0.0.1:3081&#x27; -H &#x27;Origin: https:&#x2F;&#x2F;127.0.0.1:3081&#x27; \
+  http:&#x2F;&#x2F;127.0.0.1:3081&#x2F;api&#x2F;settings.describe
+# → 415
+</code></pre>
+<h3 id="jie-fa-rang-liu-lan-qi-origin-hui-dao-127-0-0-1">解法：让浏览器 origin 回到 127.0.0.1</h3>
+<p>两个方案，都不需要改 dsh/caddy 上游：</p>
+<p><strong>方案 A（最推荐）：本机配一次，全局域网共享。</strong> 在本机访问 <code>https://127.0.0.1:3080</code> 配置模型/凭证——配置存进 dsh 的共享配置文件，其他设备的浏览器 UI 读同一份，聊天照常。大多数场景到这里就结束了。</p>
+<p><strong>方案 B（其他设备上也要配模型）：SSH 隧道，<code>dotfiles/.my_local/bin/dsh-proxy.sh</code>。</strong> 客户端起一条隧道，把远端 <code>127.0.0.1:3080</code>（caddy）转发成本地 <code>127.0.0.1:3080</code>，浏览器地址栏仍是回环，origin 回到 <code>https://127.0.0.1:3080</code>，一切放行（caddy basicauth 依然生效）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 客户端（任何 Linux，systemd --user + ssh + iproute2）
+dsh-proxy.sh start                 # 默认 peter@192.168.5.68，可用 $DSH_REMOTE &#x2F; 参数覆盖
+# 然后本机浏览器开 https:&#x2F;&#x2F;127.0.0.1:3080
+
+dsh-proxy.sh [stop|restart|status|log]
+</code></pre>
+<p>内部实现就是一个 systemd-run --user 包起来的 ssh：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">systemd-run --user --unit=dsh-proxy --collect \
+    --setenv=GPG_TTY=&#x2F;dev&#x2F;nonexistent \
+    --property=Restart=on-failure --property=RestartSec=5 \
+    -- ssh -N -L 3080:127.0.0.1:3080 \
+    -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+    peter@192.168.5.68
+</code></pre>
+<p>几个细节：</p>
+<ul>
+<li><code>GPG_TTY=/dev/nonexistent</code>：ssh 可能触发 gpg-agent 口令提示，隧道环境没有终端，pinentry 会挂起无输出；失效时让它快速失败（报 <code>agent refused operation</code>），自己在客户端终端解锁一次 ssh 密钥即可</li>
+<li><code>ExitOnForwardFailure</code>：本地端口被占（如本机也在跑 caddy 3080）直接失败退出，不静默挂起</li>
+<li><code>ServerAliveInterval + Restart=on-failure</code>：网络断了 ssh 快速退出（exit 255），systemd 自动重连</li>
+<li><code>StrictHostKeyChecking=accept-new</code>：首次连接自动接受 host key，居家环境免交互</li>
+</ul>
+<h3 id="wei-shen-me-bu-gan-cui-rang-caddy-gai-xie-host">为什么不干脆让 caddy 改写 Host</h3>
+<p>加 <code>header_up Host 127.0.0.1:3081</code> 确实能骗过 Host 检查，但浏览器对同源 <code>fetch</code> 的 <strong>POST 会带 <code>Origin: https://192.168.5.68:3080</code></strong>，Host 换成 <code>127.0.0.1:3081</code> 后 Origin 与 Host 不匹配 → 依旧 403。再 <code>header_up -Origin</code> 删掉 Origin 倒能过，但这就等于把 dsh 的配置平面围栏<strong>整体拆除</strong>——服务器对「任意来源的配置平面请求」放行，只剩 basicauth 一层（而 basicauth 本就挡不住浏览器自动附带的缓存凭据，参考第三节）。dsh 官方把这标为设计特性等着「真正的认证层」出现，不建议硬拆。</p>
+<h2 id="qi-rong-qi-chang-jing-jian-ting-suo-you-di-zhi-zheng-shu-dao-di-fa-gei-shui">七、容器场景：监听「所有地址」，证书到底发给谁？</h2>
+<p>本节实测（caddy:2.10 容器 + <code>-p 8000:8000</code>）。结论一句话：<strong>证书发给「站点地址」，与监听地址无关</strong>。caddy 对同一端口自动以通配地址监听（<code>[::]:8000</code>，也就是 0.0.0.0 的效果），但证书 SAN 只按你写进站点地址列表的标识符签发。所以「监听 0.0.0.0 证书是不是还能正确」答案取决于你写了什么：</p>
+<table><thead><tr><th>站点地址</th><th>结果（实测）</th></tr></thead><tbody>
+<tr><td><code>:8000</code></td><td>不签发任何证书，握手直接 <code>internal error</code>（同坑 2，2.6/2.10 行为一致）</td></tr>
+<tr><td><code>https://0.0.0.0:8000</code></td><td><strong>危险</strong>：caddy 真的会签发证书，但 SAN 是字面 <code>IP Address:0.0.0.0</code>，真实 IP 访问全部验证失败</td></tr>
+<tr><td><code>https://&lt;容器IP&gt;:8000</code></td><td>SAN=容器 IP（如 172.17.0.2），签出来的是「容器内地址的证书」；宿主机/局域网用户访问用的是宿主 IP，至少 SNI 对不上、容器重建 IP 还变，<strong>永远用不上</strong></td></tr>
+<tr><td><code>https://&lt;宿主LAN IP&gt;:8000</code></td><td>SAN=宿主 LAN IP（正确），但还差最后一公里，见下</td></tr>
+</tbody></table>
+<p><strong>为什么 <code>https://IP</code> 这种访问会失败——SNI 才是领证书的钥匙。</strong> 证书按站点地址签发，但 TLS 握手时客户端要发一个 SNI（Server Name Indication）告诉服务端「我要哪张证书」。实测各客户端对 IP 地址的行为并不一致：</p>
+<table><thead><tr><th>客户端</th><th>访问 <code>https://IP:8000</code> 时发 SNI 吗</th><th>无 <code>default_sni</code> 时结果</th></tr></thead><tbody>
+<tr><td>Chromium 系（Chrome/Edge/Android）</td><td><strong>不发</strong>（对域名才发）</td><td><code>ERR_SSL_PROTOCOL_ERROR</code></td></tr>
+<tr><td>curl</td><td><strong>不发</strong>（对域名才发）</td><td>000（TLS internal error），和 Chrome 站一边，最容易误导排查</td></tr>
+<tr><td>openssl s_client</td><td>默认不发；<code>-servername</code> 显式发</td><td>不发 SNI 会被拒；显式 <code>-servername IP</code> 能拿到证书</td></tr>
+</tbody></table>
+<p>caddy 2.10 对无 SNI 的 ClientHello 直接拒绝；<strong>老版 2.6.2 反而有兜底</strong>（发给首域证书——本机浏览器直接访问 <code>https://127.0.0.1:3080</code> 能工作正是靠它），2.7 引入 <code>default_sni</code> 后移除了这个兜底，所以容器版必须显式配置。</p>
+<p>解法：全局 <code>default_sni</code> 指定无 SNI 时该给哪张证书：</p>
+<pre data-lang="caddyfile" class="language-caddyfile "><code class="language-caddyfile" data-lang="caddyfile">{
+	default_sni 192.168.5.68
+}
+
+https:&#x2F;&#x2F;127.0.0.1:8000, https:&#x2F;&#x2F;localhost:8000, https:&#x2F;&#x2F;192.168.5.68:8000 {
+	tls internal
+	basicauth {
+		peter $2a$14$xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+	}
+	reverse_proxy 127.0.0.1:3081
+}
+</code></pre>
+<p>加 <code>default_sni</code> 前后对照（同样配置、同一容器）：</p>
+<table><thead><tr><th>客户端</th><th>无 <code>default_sni</code></th><th>有 <code>default_sni</code></th></tr></thead><tbody>
+<tr><td>curl（无 SNI）</td><td>000 / internal error</td><td>200，证书 SAN 正确</td></tr>
+<tr><td>chromium 打开 IP URL</td><td><code>ERR_SSL_PROTOCOL_ERROR</code></td><td><code>ERR_CERT_AUTHORITY_INVALID</code>（握手已成功，只差 CA 信任）</td></tr>
+</tbody></table>
+<p><code>ERR_CERT_AUTHORITY_INVALID</code> 意味着"证书和域名都对，只差设备信任根证书"。容器里的 CA 这样导出：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">docker cp &lt;容器名&gt;:&#x2F;data&#x2F;caddy&#x2F;pki&#x2F;authorities&#x2F;local&#x2F;root.crt .&#x2F;root.crt
+openssl x509 -in root.crt -noout -subject -dates
+# subject=CN=Caddy Local Authority - 2026 ECC Root，有效期 10 年
+</code></pre>
+<p>（容器内证书以容器用户写入，卷目录在宿主机侧常是 uid 1000/root 权限，直接 <code>ls</code> 可能没权限，用 <code>docker cp</code> 最省事；挂卷前 <code>mkdir -p ./data &amp;&amp; sudo chown 1000:1000 ./data</code> 也能解决。）</p>
+<p>容器场景几个经验：</p>
+<ul>
+<li><strong>别拿容器 IP 当站点地址</strong>——每次重建都会变，还会让 LAN 用户 SNI 对不上。固定写宿主机 LAN IP，或配内部域名更稳（浏览器对域名一定发 SNI，证书按域名签，不受 default_sni 限制）。</li>
+<li><strong><code>default_sni</code> 只能设一个值</strong>：LAN / tailscale 多个 IP 里只有它指定的那个能被"裸 IP 无 SNI"访问；其余 IP 要么换域名，要么接受 hostname 不匹配。</li>
+<li><strong>内部证书叶证书默认只有 12h 有效期</strong>，长跑要拉长。注意 caddy 2.10 的全局块里没有 <code>tls</code> 选项（实测报 <code>unrecognized global option: tls</code>），lifetime 写在站点级：</li>
+</ul>
+<pre data-lang="caddyfile" class="language-caddyfile "><code class="language-caddyfile" data-lang="caddyfile">https:&#x2F;&#x2F;192.168.5.68:8000 {
+	tls {
+		issuer internal {
+			lifetime 8760h   # 默认仅 12h
+		}
+	}
+	basicauth { ... }
+	reverse_proxy 127.0.0.1:3081
+}
+</code></pre>
+<h2 id="yan-zheng">验证</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">curl -s -o &#x2F;dev&#x2F;null -w &#x27;%{http_code}\n&#x27; https:&#x2F;&#x2F;192.168.5.68:3080&#x2F;          # 无凭据 → 401
+curl -s -u peter:密码 -o &#x2F;dev&#x2F;null -w &#x27;%{http_code}\n&#x27; https:&#x2F;&#x2F;192.168.5.68:3080&#x2F;  # → 200
+curl -s -u peter:密码 -H &#x27;Origin: https:&#x2F;&#x2F;evil.example&#x27; https:&#x2F;&#x2F;192.168.5.68:3080&#x2F;api&#x2F;  # → 403
+</code></pre>
+<h2 id="zong-jie">总结</h2>
+<ul>
+<li>端口让位：caddy 占 3080，dsh web 挪到 3081</li>
+<li>Debian 版 caddy 两个差异：<code>basicauth</code> 指令名、站点地址必须 <code>https://host:port</code> 完整形式</li>
+<li>内部根证书手动信任：<code>sudo env HOME=/var/lib/caddy caddy trust</code></li>
+<li>dsh 的 <code>/api</code> 围栏校验浏览器 Origin（服务端 CSRF 防护，不是 CORS），代理不改 Origin，必须用 <code>--trusted-host</code> 显式放行反代入口（包括局域网 IP）；围栏也是 basicauth 拦不住的本机 CSRF 的最后防线</li>
+<li>局域网设备装一次根证书即可永久使用，换 IP 重跑脚本重新签发</li>
+<li>配置模型/凭证永远走 loopback origin：本机 <code>https://127.0.0.1:3080</code>，或客户端 <code>dsh-proxy.sh</code> SSH 隧道转发；<code>--trusted-host</code> 帮不了配置平面（dsh ≥0.1.1-rc.2 设计如此），也别用 caddy 改写 Host/删 Origin 硬拆围栏</li>
+<li>容器场景：证书按「站点地址」（勿用容器 IP/0.0.0.0），配全局 <code>default_sni</code> 兜底 Chromium 系的无 SNI 请求，CA 从卷目录 <code>/data/caddy/pki/authorities/local/root.crt</code> 导出</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/">&#8249; opencode 如何判断模型是否支持图片——记一次能力判定排查</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/npx-cyclic-peer-deps-troubleshooting/"> npx 安装卡死排查：workspace 误匹配与循环 peerDependencies &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-duan-kou-gui-hua">一、端口规划</a>
+        </div>
+        <div>
+          <a href="#er-caddy-pei-zhi-debian-ban-cai-keng-zui-duo">二、caddy 配置（Debian 版踩坑最多）</a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-1-zhi-ling-ming-shi-basicauth-bu-shi-basic-auth"><small>- 坑 1：指令名是 basicauth 不是 basic_auth</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-2-zhan-dian-di-zhi-bi-xu-xie-https-host-port-wan-zheng-xing-shi"><small>- 坑 2：站点地址必须写 https:&#x2F;&#x2F;host:port 完整形式</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-3-nei-bu-gen-zheng-shu-zhuang-bu-jin-xi-tong-xin-ren-ku"><small>- 坑 3：内部根证书装不进系统信任库</small></a>
+        </div>
+        <div>
+          <a href="#san-wei-shen-me-bi-xu-pei-trusted-host">三、为什么必须配 --trusted-host</a>
+        </div>
+        <div class="hpad">
+          <a href="#ding-wei-zhe-shi-csrf-fang-hu-bu-shi-cors"><small>- 定位：这是 CSRF 防护，不是 CORS</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-cors-lan-bu-zhu-csrf-yu-jian-zhi-dui-yi-lei-qing-qiu-sheng-xiao"><small>- 为什么 CORS 拦不住 CSRF：预检只对一类请求生效</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-chong-zhen-shi-gong-ji-wei-lan-ru-he-lan-jie"><small>- 三种真实攻击：围栏如何拦截</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-caddy-de-basicauth-dang-bu-zhu-wei-lan-shi-zui-hou-yi-dao"><small>- 为什么 caddy 的 basicauth 挡不住、围栏是最后一道</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-pu-tong-wang-zhan-bu-kao-origin-xiao-yan-dang-zhu-fang-xian"><small>- 为什么普通网站不靠 Origin 校验当主防线</small></a>
+        </div>
+        <div>
+          <a href="#si-ju-yu-wang-ip-zi-dong-shou-ji">四、局域网 IP 自动收集</a>
+        </div>
+        <div>
+          <a href="#wu-ju-yu-wang-qi-ta-she-bei-fang-wen">五、局域网其他设备访问</a>
+        </div>
+        <div>
+          <a href="#liu-mo-xing-pei-zhi-wei-shen-me-bi-xu-cong-127-0-0-1-fang-wen">六、模型配置为什么必须从 127.0.0.1 访问</a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-fan-dai-liao-huan-shi-bu-xing-dsh-bu-kan-tcp-lai-yuan-zhi-kan-host-tou"><small>- 为什么反代了还是不行：dsh 不看 TCP 来源，只看 Host 头</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-fa-rang-liu-lan-qi-origin-hui-dao-127-0-0-1"><small>- 解法：让浏览器 origin 回到 127.0.0.1</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-bu-gan-cui-rang-caddy-gai-xie-host"><small>- 为什么不干脆让 caddy 改写 Host</small></a>
+        </div>
+        <div>
+          <a href="#qi-rong-qi-chang-jing-jian-ting-suo-you-di-zhi-zheng-shu-dao-di-fa-gei-shui">七、容器场景：监听「所有地址」，证书到底发给谁？</a>
+        </div>
+        <div>
+          <a href="#yan-zheng">验证</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

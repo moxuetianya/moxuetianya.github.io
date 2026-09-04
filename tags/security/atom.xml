@@ -1,0 +1,1085 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - security</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/security/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-14T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/security/atom.xml</id>
+    <entry xml:lang="en">
+        <title>让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门</title>
+        <published>2026-08-11T10:23:55+08:00</published>
+        <updated>2026-08-11T10:23:55+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/"/>
+        <id>https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/">&lt;h1 id=&quot;xu-qiu-bei-jing&quot;&gt;需求背景&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;08&#x2F;sudo-pam-ssh-agent-auth-confirm-gate&#x2F;2026&#x2F;08&#x2F;sudo-askpass-pass-and-gpg-agent&quot;&gt;上一篇文章&lt;&#x2F;a&gt; 用 &lt;code&gt;sudo -A&lt;&#x2F;code&gt; + askpass(pass + gpg-agent + yad)让 agent 执行 sudo 时弹窗授权:回车=允许、Esc=取消、免打字。这套方案解决了&quot;未经同意静默 sudo&quot;的问题,但有一个结构性残余风险:&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;任何人(或任何进程、任何 agent)只要绕过限制,执行 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt;,就能拿到我的口令。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;本文讨论这个风险到底有多真实、sudo 能否改用公钥体系认证(像 SSH 用 gpg-agent 里的带口令密钥认证那样),并最终给出一个可行的落地配置。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jiu-fang-an-de-can-yu-feng-xian&quot;&gt;旧方案的残余风险&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;feng-xian-de-zhen-shi-bian-jie&quot;&gt;风险的真实边界&lt;&#x2F;h2&gt;
+&lt;p&gt;先纠正一个常见误解:&lt;strong&gt;gpg-agent 缓存的不是 sudo 密码,而是 GPG 私钥的 passphrase&lt;&#x2F;strong&gt;。sudo 密码以密文形式躺在 &lt;code&gt;~&#x2F;.password-store&#x2F;sudo.gpg&lt;&#x2F;code&gt; 里,askpass 每次调用时临时解密一次,明文只短暂存在于 helper 的 stdout→sudo 管道中,不进上下文、不落盘。&lt;&#x2F;p&gt;
+&lt;p&gt;但&quot;泄露&quot;的现实前提没那么难:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;窗口期&lt;&#x2F;strong&gt;:gpg-agent 配置了 &lt;code&gt;default-cache-ttl 86400&lt;&#x2F;code&gt;(1 天),私钥解锁状态下,任何进程一条 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 就静默解出明文,不弹任何提示。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;deny 规则只保护 opencode 一个 agent&lt;&#x2F;strong&gt;:&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;opencode.jsonc&lt;&#x2F;code&gt; 里的 deny 规则管的是 opencode 自己的工具调用。换一个 agent(Claude Code、Cursor、任何有 shell 的脚本)规则完全不存在。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;字符串匹配本身有缝&lt;&#x2F;strong&gt;:&lt;code&gt;printf &#x27;pass show sudo&#x27; | bash&lt;&#x2F;code&gt;、&lt;code&gt;gpg --output - --decrypt ~&#x2F;.password-store&#x2F;sudo.gpg&lt;&#x2F;code&gt; 这类变体可能不命中。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;所以&quot;密码在磁盘上、且能被程序恢复出来&quot;是真实存在的性质。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-gou-xing-shi-shi-tong-yi-ge-yong-hu-tong-yi-quan-xian&quot;&gt;结构性事实:同一个用户 = 同一权限&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 能拿明文,是因为 gpg-agent 里私钥已解锁,&lt;strong&gt;任何以你身份运行的进程都能静默解密&lt;&#x2F;strong&gt;。你没法造一个&quot;我的合法 agent 能读、恶意进程不能读&quot;的秘密——它们在同一个用户下权限相同。规则、守卫只能抬高门槛,抬不掉&quot;明文可提取&quot;这个性质。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;liang-ge-wei-xie-yao-fen-kai&quot;&gt;两个威胁要分开&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;威胁&lt;&#x2F;th&gt;&lt;th&gt;对话框门防不防&lt;&#x2F;th&gt;&lt;th&gt;根子&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;agent 未经你同意静默 sudo&lt;&#x2F;td&gt;&lt;td&gt;✅ 防(Enter&#x2F;Esc)&lt;&#x2F;td&gt;&lt;td&gt;这是门存在的意义&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;恶意进程偷走可复用密码&lt;&#x2F;td&gt;&lt;td&gt;❌ 不防&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;密码本身可被提取&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;对话框门解决的是第一类;第二类唯一的解是&lt;strong&gt;让密码根本不存在&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;sudo-you-mei-you-gong-yao-ren-zheng&quot;&gt;sudo 有没有公钥认证?&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;strong&gt;没有。&lt;&#x2F;strong&gt; sudo 的认证因子就是账户密码(PAM 密码认证),协议层没有像 SSH 那样的签名交换。要消除&quot;账户密码&quot;这个秘密,只能靠 PAM 模块把认证因子换成别的,主要是两条路:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;口令是否可被程序恢复&lt;&#x2F;th&gt;&lt;th&gt;每命令人工门&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;pass + askpass(现状)&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;是&lt;&#x2F;strong&gt;,磁盘上存在可解密的账户密码&lt;&#x2F;td&gt;&lt;td&gt;✅ 有(Enter&#x2F;Esc)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_ssh_agent_auth&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;否&lt;&#x2F;strong&gt;,agent 是签名器,密钥不可提取&lt;&#x2F;td&gt;&lt;td&gt;❌ 无&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;否&lt;&#x2F;strong&gt;,密钥永不离 token&lt;&#x2F;td&gt;&lt;td&gt;✅ 有(物理按键)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键区别在&quot;无密码&quot;那一列:&lt;strong&gt;SSH 那套的精华是把私钥放在 agent 里,agent 只做签名,密钥材料不可提取&lt;&#x2F;strong&gt;——哪怕拿到 agent 的全部字节也恢复不出私钥。而 pass 方案是&quot;存密码、用密码&quot;,性质完全不同。这就是为什么最开始的直觉(gpg-agent + 带口令 SSH 密钥认证)方向是对的。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wei-shen-me-pam-ssh-agent-auth-nan-jia-ren-gong-men&quot;&gt;为什么 pam_ssh_agent_auth 难加人工门&lt;&#x2F;h1&gt;
+&lt;p&gt;你可能会想:那就在 pam_ssh_agent_auth 上叠一个人工确认门,每次 sudo 都弹个框。&lt;strong&gt;技术上可行,但门放哪才不被绕过才是症结&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;包一层 wrapper 无效&lt;&#x2F;strong&gt;:密钥已解锁时,&lt;code&gt;sudo&lt;&#x2F;code&gt; 直接走 PAM 认证成功,根本不会经过 wrapper;进程绕过 wrapper 直接执行 &lt;code&gt;sudo&lt;&#x2F;code&gt; 就行,门形同虚设。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;agent 是共享签名器,签名成功时没有提示点&lt;&#x2F;strong&gt;:任何进程都能请 agent 签名,agent 无从区分&quot;人批准的&quot;和&quot;进程自发的&quot;。sudo 又没有&quot;按 y 确认&quot;这种概念——它唯一的门就是认证提示。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pam_ssh_agent_auth 内部没有&quot;必须确认&quot;选项&lt;&#x2F;strong&gt;:它只在 agent 无匹配密钥时才回退到密码对话(此时要的门是反向的)。&lt;code&gt;ssh-add -c&lt;&#x2F;code&gt; 的确认约束也只对 OpenSSH 的 ssh-agent 生效,gpg-agent 不实现。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zhen-neng-zai-pam-ceng-gei-chu-ren-gong-men-de-san-chong-fang-shi&quot;&gt;真能在 PAM 层给出人工门的三种方式&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;门是什么&lt;&#x2F;th&gt;&lt;th&gt;能否绕过&lt;&#x2F;th&gt;&lt;th&gt;代价&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;gpg-agent &lt;code&gt;default-cache-ttl-ssh 0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;每次签名弹 pinentry 重输密钥口令&lt;&#x2F;td&gt;&lt;td&gt;不能(agent 拒绝无口令签名)&lt;&#x2F;td&gt;&lt;td&gt;每次都要敲口令,且影响所有 SSH 签名(含 ssh 登录)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;自写 PAM 模块 &#x2F; &lt;code&gt;pam_exec&lt;&#x2F;code&gt; 弹窗&lt;&#x2F;td&gt;&lt;td&gt;弹 yad 确认框&lt;&#x2F;td&gt;&lt;td&gt;可被注入 Enter 伪造(软件&quot;声称有人确认&quot;)&lt;&#x2F;td&gt;&lt;td&gt;对话框对&quot;人的 sudo&quot;也生效,要处理显示路由&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;td&gt;&lt;td&gt;物理按键,由硬件验证&lt;&#x2F;td&gt;&lt;td&gt;不能&lt;&#x2F;td&gt;&lt;td&gt;需硬件,远程&#x2F;waypipe 场景别扭&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;dan-chuang-men-vs-u2f-jiao-hu-deng-jia-xing-zhi-bu-tong&quot;&gt;弹窗门 vs U2F:交互等价,性质不同&lt;&#x2F;h2&gt;
+&lt;p&gt;交互上两者都是&quot;每次 sudo 要人做一个物理动作&quot;。区别在&lt;strong&gt;谁能验证&quot;这是人做的&quot;&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;弹窗 Enter:恶意进程可以用 &lt;code&gt;ydotool&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;wtype&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;xdotool&lt;&#x2F;code&gt; 注入按键,sudo 收到的只是&quot;一次按键事件&quot;,分不清是人按的还是程序按的。门是&lt;strong&gt;软件声称有人确认了&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;U2F 触摸:FIDO2 的&quot;用户在场&quot;检查发生在硬件 token 内部,没按实体键 token 就拒绝签名,user-presence 位由硬件置位,软件注入任何事件都无效。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以差异不在交互,而在**&quot;人&quot;这个字的验证方是软件还是硬件**。如果你的威胁模型是&quot;机器上可能有恶意进程&#x2F;被攻陷的 agent 会自己批准对话框&quot;,只有 U2F 这种硬件验证才算真门;如果只是&quot;合法 agent 需要我每次确认&quot;,弹窗门够了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;she-qu-zen-me-kan-pam-ssh-agent-auth&quot;&gt;社区怎么看 pam_ssh_agent_auth&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;本质是&quot;密钥持有的免密 sudo&quot;,设计意图是&quot;能用 SSH 密钥登录就有权 sudo&quot;(自动化&#x2F;Ansible 场景),不是&quot;每命令确认&quot;。多数安全向讨论把它归入与 NOPASSWD 同类,属便捷而非安全机制。&lt;&#x2F;li&gt;
+&lt;li&gt;固有弱点:agent 是共享签名器,同一会话任何进程(包括被攻陷的模型)都能请它签名。&lt;&#x2F;li&gt;
+&lt;li&gt;真正需要&quot;每命令人工批准 + 无秘密落盘&quot;的场景,社区的落地方案就是 askpass 对话框 + 密码保管库(pass&#x2F;1Password&#x2F;KeePass),或 FIDO2 硬件。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zui-zhong-fang-an-pam-ssh-agent-auth-pam-exec-que-ren-men&quot;&gt;最终方案:pam_ssh_agent_auth + pam_exec 确认门&lt;&#x2F;h1&gt;
+&lt;p&gt;结合需求与可行性,选定:&lt;strong&gt;PAM 栈里在 &lt;code&gt;pam_ssh_agent_auth&lt;&#x2F;code&gt; 前面叠一个 &lt;code&gt;pam_exec&lt;&#x2F;code&gt; 确认门&lt;&#x2F;strong&gt;。不写 C 模块、不换 agent(gpg-agent 继续当唯一的 ssh-agent),并用 &lt;code&gt;SUDO_ASKPASS&lt;&#x2F;code&gt; 环境变量区分 agent 调用和人工终端调用,人工的 sudo 保持原有密码体验。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jia-gou&quot;&gt;架构&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;sudo(agent) ──&amp;gt; PAM
+   ① pam_exec 确认门(仅当 SUDO_ASKPASS 已设置 → 弹 yad:Enter=放行&amp;#x2F;Esc=拒绝)
+   ② pam_ssh_agent_auth(gpg-agent 里的 auth 子钥签名;密钥不可提取)
+   ③ common-auth 密码回退(仅人工终端 sudo 走这里,密钥缺省时兜底)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;密钥路径下 &lt;strong&gt;pass 里的 sudo 密码整个移除&lt;&#x2F;strong&gt;,磁盘上没有任何可恢复口令;账户密码只留在 &lt;code&gt;&#x2F;etc&#x2F;shadow&lt;&#x2F;code&gt;(哈希,不可恢复)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ju-ti-pei-zhi&quot;&gt;具体配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-an-zhuang-mo-kuai&quot;&gt;1. 安装模块&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install libpam-ssh-agent-auth
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-deng-ji-shou-quan-gong-yao-yong-gpg-agent-li-xian-you-de-auth-zi-yao&quot;&gt;2. 登记授权公钥(用 gpg-agent 里现有的 auth 子钥)&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh-add -L                        # 从 gpg-agent 列出 ssh 公钥
+sudo mkdir -p &amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d
+sudo install -m 644 &amp;lt;上面列出的公钥&amp;gt; &amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d&amp;#x2F;peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-etc-pam-d-sudo-zai-include-common-auth-qian-cha-ru-liang-xing&quot;&gt;3. &lt;code&gt;&#x2F;etc&#x2F;pam.d&#x2F;sudo&lt;&#x2F;code&gt;(在 &lt;code&gt;@include common-auth&lt;&#x2F;code&gt; 前插入两行)&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;auth    required     pam_exec.so quiet &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-confirm
+auth    sufficient   pam_ssh_agent_auth.so file=&amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d&amp;#x2F;$USER
+@include common-auth
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-etc-sudoers-d-ssh-agent-auth-rang-zhe-xie-huan-jing-bian-liang-jin-pam&quot;&gt;4. &lt;code&gt;&#x2F;etc&#x2F;sudoers.d&#x2F;ssh-agent-auth&lt;&#x2F;code&gt;(让这些环境变量进 PAM)&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Defaults env_keep += &amp;quot;SSH_AUTH_SOCK SUDO_ASKPASS DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;5-que-ren-men-jiao-ben-usr-local-libexec-sudo-confirm&quot;&gt;5. 确认门脚本 &lt;code&gt;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-confirm&lt;&#x2F;code&gt;&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;sh
+# 只有 agent 路径(SUDO_ASKPASS 已设置)才弹确认框;人工终端 sudo 直接放行
+[ -n &amp;quot;$SUDO_ASKPASS&amp;quot; ] || exit 0
+
+if &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;yad --title=&amp;quot;sudo 授权请求 [$(hostname)]&amp;quot; \
+       --text=&amp;quot;确认授权本次 sudo 操作？&amp;quot; \
+       --button=&amp;quot;允许:0&amp;quot; --button=&amp;quot;取消:1&amp;quot; --center 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null; then
+    exit 0
+else
+    exit 1
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-dou-di-du-si-pass-xie-lou-lu-jing&quot;&gt;6. 兜底:堵死 pass 泄漏路径&lt;&#x2F;h3&gt;
+&lt;p&gt;把 &lt;code&gt;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-askpass&lt;&#x2F;code&gt; 改成&quot;永不输出密码&quot;(密钥路径下 askpass 根本不会被调用,这里只是防止密钥缺失时兜底回退到 pass):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;sh
+exit 1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;可选再加 &lt;code&gt;pass rm sudo&lt;&#x2F;code&gt; 删掉口令,双保险。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xing-wei-yan-zheng&quot;&gt;行为验证&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;行为&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;人工终端 &lt;code&gt;sudo ...&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;无弹窗,密码提示,5 分钟缓存照旧&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;agent &lt;code&gt;SUDO_ASKPASS=... sudo -A -k ...&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;每次弹确认框,Enter 放行 &#x2F; Esc 拒绝&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;密钥未加载时 agent sudo&lt;&#x2F;td&gt;&lt;td&gt;确认框后 pam_ssh_agent_auth 失败→askpass 拒绝→sudo 失败(fail-closed)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;luo-di-qian-yao-shi-ce-de-liang-ge-dian&quot;&gt;落地前要实测的两个点&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;yad 以 root 跑在用户显示上&lt;&#x2F;strong&gt;:&lt;code&gt;pam_exec&lt;&#x2F;code&gt; 默认以 root 运行,Wayland&#x2F;X 的 socket root 一般能连,但要在机器上实测一次。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;file=...$USER&lt;&#x2F;code&gt; 展开&lt;&#x2F;strong&gt;:若模块版本不展开变量,改成硬编码路径 &lt;code&gt;&#x2F;etc&#x2F;pam_ssh_agent_auth.d&#x2F;peter&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;yuan-cheng-waypipe-chang-jing&quot;&gt;远程(waypipe)场景&lt;&#x2F;h2&gt;
+&lt;p&gt;远程机的 PAM 栈需要拿到本地的 agent:&lt;code&gt;waypipe --no-gpu ssh -A -t server &#x27;env SUDO_ASKPASS=... sudo -A cmd&#x27;&lt;&#x2F;code&gt;——&lt;code&gt;-A&lt;&#x2F;code&gt; 做 agent 转发,远程签名请求回到本地 gpg-agent,确认框经转发的显示弹在本地屏幕。注意:agent 转发也意味着远程机能用你的密钥,按需权衡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;gpg-agent &lt;code&gt;default-cache-ttl-ssh 0&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;:零新增文件,但每次 SSH 签名(包括 ssh 登录)都要重输口令,全局影响。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;strong&gt;:密钥永不离 token、物理按键由硬件验证,是&quot;非绕过人工门&quot;的终极答案;代价是需硬件,远程场景 token 要在目标机上或做 U2F 转发。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;旧 pass 方案的残余风险是真实的:&lt;strong&gt;口令在磁盘上、能被程序恢复&lt;&#x2F;strong&gt;,deny 规则只是 opencode 层的保护且可绕过;结构性原因是&quot;同一用户 = 同一权限&quot;,无法造&quot;自己能读、恶意进程不能读&quot;的秘密。&lt;&#x2F;li&gt;
+&lt;li&gt;两个威胁要分开:对话框门防&quot;未同意静默 sudo&quot;,防不了&quot;偷走可复用密码&quot;;后者只能靠&lt;strong&gt;无密码&lt;&#x2F;strong&gt;——签名器(pam_ssh_agent_auth)或硬件(pam_u2f)。&lt;&#x2F;li&gt;
+&lt;li&gt;sudo 没有原生公钥认证,只能靠 PAM 模块换认证因子。&lt;&#x2F;li&gt;
+&lt;li&gt;pam_ssh_agent_auth 加人工门技术上可行,但 agent 是共享签名器、无提示点,弹窗门可被注入按键伪造;要&quot;非绕过门&quot;只能靠 U2F 硬件。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;最终方案&lt;&#x2F;strong&gt;:&lt;code&gt;pam_exec&lt;&#x2F;code&gt; 确认门 + &lt;code&gt;pam_ssh_agent_auth&lt;&#x2F;code&gt;,用 &lt;code&gt;SUDO_ASKPASS&lt;&#x2F;code&gt; 区分 agent 与人工路径,密钥不可提取、每次 agent 的 sudo 都弹确认框,并移除 pass 里的 sudo 口令。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>让 agent 执行 sudo 时弹窗授权：sudo -A + pass + gpg-agent 免费方案</title>
+        <published>2026-08-04T13:38:26+08:00</published>
+        <updated>2026-08-08T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/sudo-askpass-pass-and-gpg-agent/"/>
+        <id>https://moxuetianya.github.io/2026/08/sudo-askpass-pass-and-gpg-agent/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/sudo-askpass-pass-and-gpg-agent/">&lt;h1 id=&quot;xu-qiu&quot;&gt;需求&lt;&#x2F;h1&gt;
+&lt;p&gt;agent(如 opencode)执行 sudo 命令时,希望弹出一个授权窗口:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;回车 = 允许&lt;&#x2F;strong&gt;,sudo 正常执行&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Esc = 取消&lt;&#x2F;strong&gt;,sudo 直接失败&lt;&#x2F;li&gt;
+&lt;li&gt;全程&lt;strong&gt;不需要输入密码&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;背景:SSH 登录远程机器,opencode 在终端里跑,需要 root 权限时由用户人工把关。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;sudo-a-ji-zhi&quot;&gt;sudo -A 机制&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;sudo -A&lt;&#x2F;code&gt; 让 sudo 调用 &lt;code&gt;SUDO_ASKPASS&lt;&#x2F;code&gt; 指向的辅助程序来获取密码,而不是从终端读取:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass sudo -A &amp;lt;command&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;askpass 程序把密码打到标准输出,sudo 拿来用。所以思路就是:&lt;strong&gt;askpass = 确认对话框 + 密码来源&lt;&#x2F;strong&gt;,密码来源不能让用户每次打字。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;shi-ce-liang-ge-guan-jian-shi-shi&quot;&gt;实测两个关键事实&lt;&#x2F;h2&gt;
+&lt;p&gt;动手之前先验证了环境,两个事实直接决定了方案走向:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. askpass 进程的 stdio 是 &amp;#x2F;dev&amp;#x2F;null,没有终端
+#    写一个探针 askpass 打印自己的 stdio:
+$ printf &amp;#x27;#!&amp;#x2F;bin&amp;#x2F;sh\necho &amp;quot;tty=$(tty) stdin=$(readlink &amp;#x2F;proc&amp;#x2F;$$&amp;#x2F;fd&amp;#x2F;0) disp=$DISPLAY&amp;quot;\nexit 1\n&amp;#x27; &amp;gt; &amp;#x2F;tmp&amp;#x2F;t-askpass
+$ chmod +x &amp;#x2F;tmp&amp;#x2F;t-askpass &amp;amp;&amp;amp; SUDO_ASKPASS=&amp;#x2F;tmp&amp;#x2F;t-askpass sudo -A true
+tty=不是一个 tty stdin=&amp;#x2F;dev&amp;#x2F;null disp=localhost:10.0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;askpass 没有 controlling tty,stdio 是 &lt;code&gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt; → &lt;strong&gt;不能靠终端提示&lt;&#x2F;strong&gt;,得靠 X 弹窗或显式 &lt;code&gt;exec &amp;lt;&#x2F;dev&#x2F;tty&lt;&#x2F;code&gt;(后者在 tmux&#x2F;后台场景不可靠)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;DISPLAY=localhost:10.0&lt;&#x2F;code&gt; → &lt;strong&gt;SSH 有 X11 转发&lt;&#x2F;strong&gt;,yad 对话框可以直接弹到本地屏幕,回车&#x2F;Esc 可行&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 2. systemd-creds 在这台机器上不可用(无 TPM)
+$ echo test | systemd-creds encrypt --name=test - &amp;#x2F;tmp&amp;#x2F;x.cred
+Failed to encrypt: io.systemd.InteractiveAuthenticationRequired
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;本打算用 systemd-creds 做机器绑定的免费密码存储,无 TPM 直接出局。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fang-an-xuan-xing&quot;&gt;方案选型&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;免费&lt;&#x2F;th&gt;&lt;th&gt;SSH 可用&lt;&#x2F;th&gt;&lt;th&gt;免打字&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1Password CLI&lt;&#x2F;td&gt;&lt;td&gt;❌ 付费&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;功能最好,要钱&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GNOME Keyring (secret-tool)&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;❌ 无 daemon&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;SSH 会话里 keyring 未解锁,反而要输解锁密码&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;systemd-creds&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;无 TPM 报错&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;pass + gpg-agent&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;选中(主方案)&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;ssh-askpass-gnome&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;有限&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;备选&lt;&#x2F;strong&gt;:GNOME 桌面可用,弹密码框&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;600 权限明文文件&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;兜底,密码明文落盘&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;最终选择 &lt;strong&gt;pass + gpg-agent + yad&lt;&#x2F;strong&gt;:免费、SSH 下可用、配置一次后零输入,密码以 gpg 密文落盘。&lt;code&gt;ssh-askpass-gnome&lt;&#x2F;code&gt; 保留为备选,在桌面环境无 GPG 密钥时也能用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-yong-yad-er-bu-shi-zenity&quot;&gt;为什么用 yad 而不是 zenity?&lt;&#x2F;h2&gt;
+&lt;p&gt;实测发现 &lt;strong&gt;zenity 4.1.90 是 GTK4 版,而 yad 0.40.0 是 GTK3 版&lt;&#x2F;strong&gt;,在本机(SSH 登录 + waypipe&#x2F;X11 转发显示)环境下 GTK4 的窗口&lt;strong&gt;根本创建不出来&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ldd&lt;&#x2F;code&gt;:zenity → &lt;code&gt;libgtk-4&lt;&#x2F;code&gt;,yad → &lt;code&gt;libgtk-3&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;WAYLAND_DEBUG=1&lt;&#x2F;code&gt;:zenity 只 bind 到 &lt;code&gt;xdg_wm_base&lt;&#x2F;code&gt;,&lt;strong&gt;从不创建 &lt;code&gt;xdg_surface&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;xdg_toplevel&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;,不 commit → 窗口永远不出现,进程在 GTK 主循环挂死(超时 exit 124,即&quot;执行失败&quot;)&lt;&#x2F;li&gt;
+&lt;li&gt;yad 完整走 &lt;code&gt;get_xdg_surface → xdg_toplevel → commit&lt;&#x2F;code&gt;,窗口正常弹出&lt;&#x2F;li&gt;
+&lt;li&gt;强制 &lt;code&gt;GDK_BACKEND=x11&lt;&#x2F;code&gt; 也一样:zenity 窗口停在 &lt;code&gt;1x1 IsUnMapped&lt;&#x2F;code&gt;,照样挂死&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;:GTK4 是底层重写,Wayland 窗口管理用了新协议(&lt;code&gt;gtk_shell1&lt;&#x2F;code&gt;、&lt;code&gt;wl_compositor&lt;&#x2F;code&gt; v6 等),比 GTK3 更严格。waypipe 是&quot;按协议类型逐条解包重组&quot;的代理(它只转发自己内置协议表认识的内容),GTK4 的新协议它 0.9.2 版没跟上,GTK4 又&lt;strong&gt;没有兜底降级&lt;&#x2F;strong&gt;,于是窗口静默消失。GTK3 容忍度高、能降级,所以 yad 稳定。&lt;&#x2F;p&gt;
+&lt;p&gt;这不是接口&quot;新旧&quot;的错,而是 &lt;strong&gt;waypipe 这条转发链路跟不上 GTK4 的新接口&lt;&#x2F;strong&gt;。遇到 zenity 弹不出窗口的问题,先确认它是不是 GTK4 版(&lt;code&gt;ldd &#x2F;usr&#x2F;bin&#x2F;zenity | grep gtk&lt;&#x2F;code&gt;),是的话直接换 yad。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fang-an-yuan-li&quot;&gt;方案原理&lt;&#x2F;h1&gt;
+&lt;p&gt;pass(passwordstore)是一个 shell 脚本工具,底层调用 gpg 加解密:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;每个密码是一个独立的 gpg 加密文件(&lt;code&gt;~&#x2F;.password-store&#x2F;sudo.gpg&lt;&#x2F;code&gt;)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;公钥加密&lt;&#x2F;strong&gt; — &lt;code&gt;pass init &amp;lt;gpg-key-id&amp;gt;&lt;&#x2F;code&gt; 把该公钥设为接收者,&lt;code&gt;pass insert sudo&lt;&#x2F;code&gt; 时用公钥加密,不碰私钥,所以&lt;strong&gt;写入时不弹任何提示&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;私钥解密&lt;&#x2F;strong&gt; — &lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 需要私钥,私钥未解锁时 gpg-agent 弹 pinentry 要 passphrase&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;内存缓存&lt;&#x2F;strong&gt; — gpg-agent 把解锁后的私钥缓存在&lt;strong&gt;内存&lt;&#x2F;strong&gt;(默认仅 10 分钟),缓存期内 &lt;code&gt;pass show&lt;&#x2F;code&gt; 不再弹任何提示&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这里有两个容易混淆的点,值得单独说:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;gpg-agent 缓存的&lt;strong&gt;不是 sudo 密码&lt;&#x2F;strong&gt;,而是 &lt;strong&gt;GPG 私钥的 passphrase&lt;&#x2F;strong&gt;(私钥解锁状态)。sudo 密码本身以密文形式躺在 &lt;code&gt;sudo.gpg&lt;&#x2F;code&gt; 里。&lt;&#x2F;li&gt;
+&lt;li&gt;所以真实体验:设置时输一次 sudo 密码;之后&lt;strong&gt;每个会话第一次&lt;&#x2F;strong&gt; sudo 会弹一次 GPG passphrase(pinentry,不是 sudo 密码),配置 &lt;code&gt;default-cache-ttl&lt;&#x2F;code&gt; 后基本一天只输一次。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;wei-shen-me-mi-wen-fang-ci-pan-si-yao-cai-fang-nei-cun&quot;&gt;为什么密文放磁盘、私钥才放内存?&lt;&#x2F;h2&gt;
+&lt;p&gt;这是公钥加密的核心设计,不是缺陷:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;密文&lt;&#x2F;strong&gt; = 公钥侧,可以随便存。&lt;code&gt;sudo.gpg&lt;&#x2F;code&gt; 被别人复制走也解不开,没有私钥就是垃圾,放磁盘零风险。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;私钥&lt;&#x2F;strong&gt; = 秘密侧,需要保护。加密形态落盘(&lt;code&gt;~&#x2F;.gnupg&#x2F;&lt;&#x2F;code&gt;),解锁状态只留内存,gpg-agent 重启(重启&#x2F;注销&#x2F;&lt;code&gt;gpgconf --kill gpg-agent&lt;&#x2F;code&gt;)即清空。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;和 ssh-agent 同理:公钥到处放,私钥只在 agent 内存里。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bei-xuan-fang-an-ssh-askpass-gnome&quot;&gt;备选方案:ssh-askpass-gnome&lt;&#x2F;h1&gt;
+&lt;p&gt;主方案需要 pass + GPG 密钥,若环境里没有 GPG 密钥、或不想走公钥加密这套,可以用桌面环境自带的 &lt;code&gt;ssh-askpass-gnome&lt;&#x2F;code&gt; 兜底:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install ssh-askpass-gnome
+secret-tool store --label=&amp;#x27;sudo password&amp;#x27; application sudo   # 首次把 sudo 密码存入 GNOME 密钥环
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;用法(同样带 &lt;code&gt;-k&lt;&#x2F;code&gt;,强制每次弹窗):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ssh-askpass sudo -A -k &amp;lt;command&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;与主方案的取舍:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;ssh-askpass 弹的是&lt;strong&gt;普通密码输入框&lt;&#x2F;strong&gt;,你每次要输密码(或解锁密钥环);主方案是&lt;strong&gt;回车&#x2F;Esc 确认框&lt;&#x2F;strong&gt;,免打字。&lt;&#x2F;li&gt;
+&lt;li&gt;主方案不依赖 GNOME keyring daemon,SSH 会话下更可靠(参见方案选型里 keyring 在 SSH 下未解锁的问题)。&lt;&#x2F;li&gt;
+&lt;li&gt;桌面(有 DISPLAY、有密钥环)上 ssh-askpass 开箱即用,作为应急备选足够。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;wan-zheng-pei-zhi&quot;&gt;完整配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-an-zhuang-pass-pinentry-yu-yad&quot;&gt;1. 安装 pass、pinentry 与 yad&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install pass pinentry-curses yad   # yad 是 GTK3,替代 GTK4 的 zenity
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-sheng-cheng-gpg-mi-yao-dui-ruo-mei-you&quot;&gt;2. 生成 GPG 密钥对(若没有)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --full-generate-key
+gpg --list-secret-keys   # 记下 KEY_ID
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;3-chu-shi-hua-pass-bing-cun-ru-sudo-mi-ma&quot;&gt;3. 初始化 pass 并存入 sudo 密码&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pass init &amp;lt;KEY_ID&amp;gt;
+echo &amp;#x27;你的sudo密码&amp;#x27; | pass insert sudo    # 只输这一次
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;4-yan-chang-gpg-agent-huan-cun&quot;&gt;4. 延长 gpg-agent 缓存&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.gnupg&#x2F;gpg-agent.conf&lt;&#x2F;code&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;default-cache-ttl 86400
+pinentry-program &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;pinentry-curses
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启 agent 生效:&lt;code&gt;gpgconf --kill gpg-agent&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-askpass-jiao-ben&quot;&gt;5. askpass 脚本&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;sudo-askpass.sh&lt;&#x2F;code&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;bash
+# sudo -A 的 askpass:确认对话框 + 从 pass 取密码,全程免打字
+PW=$(pass show sudo 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null)
+[ -z &amp;quot;$PW&amp;quot; ] &amp;amp;&amp;amp; exit 1
+if yad --question --title=&amp;quot;sudo 授权请求&amp;quot; \
+       --text=&amp;quot;Agent 请求运行 sudo 命令&amp;quot; \
+       --button=&amp;quot;允许 (回车):0&amp;quot; \
+       --button=&amp;quot;取消 (Esc):1&amp;quot;; then
+    echo &amp;quot;$PW&amp;quot;
+else
+    exit 1
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;回车 → yad 返回 0 → 输出密码,sudo 执行;Esc → 非 0 → exit 1,sudo 失败。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;6-an-zhuang-askpass-bi-xu-root-suo-you-bu-ke-bei-ta-ren-xie&quot;&gt;6. 安装(askpass 必须 root 所有、不可被他人写)&lt;&#x2F;h2&gt;
+&lt;p&gt;sudo 对 askpass 程序有安全检查,必须是 root 所有且不可被 group&#x2F;other 写:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo install -o root -m 755 sudo-askpass.sh &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;7-rang-mei-ci-sudo-du-dan-chuang-jia-k-bu-yao-gai-sudoers-guan-jian-xi-jie&quot;&gt;7. 让每次 sudo 都弹窗:加 &lt;code&gt;-k&lt;&#x2F;code&gt;,不要改 sudoers(关键细节)&lt;&#x2F;h2&gt;
+&lt;p&gt;sudo 默认缓存密码 5 分钟(&lt;code&gt;timestamp_timeout=5&lt;&#x2F;code&gt;),连续命令根本不会触发 askpass,&quot;每次确认&quot;就失效了。解决办法是让 agent 的命令带上 &lt;code&gt;-k&lt;&#x2F;code&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass sudo -A -k &amp;lt;command&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;sudo -k&lt;&#x2F;code&gt; 带命令时&lt;strong&gt;忽略已缓存的凭据&lt;&#x2F;strong&gt;,强制重新走 askpass,且认证成功后&lt;strong&gt;不把新凭据写回缓存&lt;&#x2F;strong&gt;——所以每次命令都会弹窗,而你终端里手动 sudo 的 5 分钟缓存完全不受影响。&lt;&#x2F;p&gt;
+&lt;p&gt;不要为此设置 &lt;code&gt;timestamp_timeout=0&lt;&#x2F;code&gt;:它是全局的,连手动 sudo 的缓存一起关掉。脚本里连续调用的多个 sudo(apt、make install、systemctl 等)会反复要密码,非交互环境(无 tty、无 askpass)里 sudo 直接失败。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;8-agent-ce-shi-yong&quot;&gt;8. agent 侧使用&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 等 agent 执行命令时带(注意 &lt;code&gt;-k&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass sudo -A -k &amp;lt;command&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;chang-jian-cuo-wu-bie-zai-fan&quot;&gt;常见错误（别再犯）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;cuo-wu-1-updatestartuptty-qian-wang-liao-export-gpg-tty-ben-ci-cai-de-keng&quot;&gt;错误 1：&lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 前忘了 &lt;code&gt;export GPG_TTY&lt;&#x2F;code&gt;（本次踩的坑）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;错误写法&lt;&#x2F;strong&gt;（&lt;code&gt;~&#x2F;.zshrc&lt;&#x2F;code&gt; 或 &lt;code&gt;run.sh&lt;&#x2F;code&gt; 里的经典配置）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+gpg-connect-agent updatestartuptty &amp;#x2F;bye    # ← GPG_TTY 没导出
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;现象&lt;&#x2F;strong&gt;：&lt;code&gt;ssh-add ~&#x2F;.ssh&#x2F;id_ed25519&lt;&#x2F;code&gt; 输完原密钥口令后卡住，过一会儿报 &lt;code&gt;Could not add identity ... agent refused operation&lt;&#x2F;code&gt;。而 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 等 gpg 路径&lt;strong&gt;完全正常&lt;&#x2F;strong&gt;——这正是迷惑性最强的地方。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;（两层，缺一不可）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 依赖客户端先发 &lt;code&gt;OPTION ttyname=...&lt;&#x2F;code&gt;，而这个值来自 &lt;code&gt;GPG_TTY&lt;&#x2F;code&gt; 环境变量。没导出 &lt;code&gt;GPG_TTY&lt;&#x2F;code&gt;，startup_tty 永远是空，但 &lt;code&gt;gpg-connect-agent&lt;&#x2F;code&gt; 照样返回 OK，&lt;strong&gt;静默失败&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;gpg 路径（&lt;code&gt;pass&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;gpg&lt;&#x2F;code&gt;）每次连接都会自带 ttyname，所以 pinentry 正常弹窗；&lt;strong&gt;ssh 路径（&lt;code&gt;ssh-add&lt;&#x2F;code&gt;）走 SSH 协议，不带任何 tty 信息&lt;&#x2F;strong&gt;，只能靠 gpg-agent 的全局 startup_tty。startup_tty 为空 → gpg-agent（systemd 守护进程，无控制终端）拉起 pinentry-curses 时无处画界面 → 报 &lt;code&gt;Inappropriate ioctl for device&lt;&#x2F;code&gt; → 拒绝操作。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;正确写法&lt;&#x2F;strong&gt;（顺序不能反）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+export GPG_TTY=&amp;quot;$(tty)&amp;quot;                                  # 必须先导出
+gpg-connect-agent updatestartuptty &amp;#x2F;bye &amp;gt;&amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;排查定位&lt;&#x2F;strong&gt;：怀疑 pinentry 时开 gpg-agent debug 日志复现，抓 &lt;code&gt;gpg-agent&lt;&#x2F;code&gt; 日志里的 &lt;code&gt;error calling pinentry: 对设备不适当的 ioctl 操作 &amp;lt;Pinentry&amp;gt;&lt;&#x2F;code&gt;，即可确认是 tty 没传到位，而非 pinentry 本身的问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cuo-wu-2-ba-liang-ci-pinentry-ti-shi-dang-cheng-qia-zhu&quot;&gt;错误 2：把两次 pinentry 提示当成&quot;卡住&quot;&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;ssh-add&lt;&#x2F;code&gt; 导入有口令密钥会弹&lt;strong&gt;两次&lt;&#x2F;strong&gt; pinentry：第一次是 ssh-add 读原密钥文件的原口令，第二次是 gpg-agent 为 &lt;code&gt;private-keys-v1.d&#x2F;&lt;&#x2F;code&gt; 副本&lt;strong&gt;新设保护口令&lt;&#x2F;strong&gt;（提示语&quot;请输入一个密码，以便于在 gpg-agent 的密钥存储中保护接收到的私钥&quot;）。第二次只在无 tty 时才是故障；正常有 tty 时会出现密码 + 重复确认两个输入框，输完即成功。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;更多原理：为什么经典 ssh-agent 从不错位弹窗、gpg-agent 会，以及多终端弹窗错位问题，见 &lt;code&gt;notes&#x2F;2025-07-18-gpg.md&lt;&#x2F;code&gt; 的&quot;与经典 ssh-agent 的差异&quot;一节。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;an-quan-bian-jie&quot;&gt;安全边界&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;人工闸门在 yad 对话框&lt;&#x2F;strong&gt;:agent 无法静默执行 sudo,必须用户按回车。这是整套方案的核心价值。&lt;&#x2F;li&gt;
+&lt;li&gt;pass 密文、GPG 私钥本地加密,&lt;code&gt;~&#x2F;.password-store&#x2F;&lt;&#x2F;code&gt; 与 &lt;code&gt;~&#x2F;.gnupg&#x2F;&lt;&#x2F;code&gt; 默认权限即可。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;不要用 &lt;code&gt;pam_ssh_agent_auth&lt;&#x2F;code&gt; 这类免密 sudo&lt;&#x2F;strong&gt;:SSH agent 转发下,远程 agent 能拿到 agent socket,等于无声无息获得 root,确认闸门形同虚设。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;sudo -A&lt;&#x2F;code&gt; + askpass 是标准机制,askpass 程序 = 确认对话框 + 密码来源&lt;&#x2F;li&gt;
+&lt;li&gt;免费方案:yad(GTK3)确认 + pass(gpg 公钥加密)存密码 + gpg-agent 内存缓存私钥&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别用 zenity(GTK4)&lt;&#x2F;strong&gt;:本机 waypipe&#x2F;转发显示环境下窗口创建失败(不建 xdg_surface、X11 下卡 1x1),弹不出对话框且进程挂死;用 yad(GTK3)替代&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ssh-askpass-gnome&lt;&#x2F;code&gt; 留作备选:无 GPG 密钥时在桌面环境弹密码框兜底&lt;&#x2F;li&gt;
+&lt;li&gt;三个实测结论:askpass 无 tty 只能用 X 弹窗;SSH X11 转发可用;无 TPM 时 systemd-creds 不可用&lt;&#x2F;li&gt;
+&lt;li&gt;用 &lt;code&gt;sudo -A -k&lt;&#x2F;code&gt; 而不是改 &lt;code&gt;timestamp_timeout=0&lt;&#x2F;code&gt;:&lt;code&gt;-k&lt;&#x2F;code&gt; 只对 agent 的命令强制弹窗、不写回缓存,手动 sudo 的缓存不受影响&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>C++ 技术笔记</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/cpp-notes/"/>
+        <id>https://moxuetianya.github.io/2025/07/cpp-notes/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/cpp-notes/">&lt;h1 id=&quot;c-ji-shu-bi-ji&quot;&gt;C++ 技术笔记&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;nei-cun-fen-pei-qi-gai-lan&quot;&gt;内存分配器概览&lt;&#x2F;h2&gt;
+&lt;p&gt;Linux 下常见的 malloc 实现：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;ptmalloc&lt;&#x2F;strong&gt; — glibc 默认分配器，基于 arena 的多线程优化&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;tcmalloc&lt;&#x2F;strong&gt; — Google 开发，线程本地缓存，小对象分配极快&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;mimalloc&lt;&#x2F;strong&gt; — Microsoft 出品，性能优于 tcmalloc 和 jemalloc&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;jemalloc&lt;&#x2F;strong&gt; — FreeBSD 默认，广泛应用于高性能服务&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;C++ 可通过自定义 allocator 替换底层分配策略。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;dong-tai-ku-zhong-de-dan-li-wen-ti&quot;&gt;动态库中的单例问题&lt;&#x2F;h2&gt;
+&lt;p&gt;在动态库中使用单例时可能产生多个实例，根因是符号隔离：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;头文件中定义的静态局部变量，每个 &lt;code&gt;.so&lt;&#x2F;code&gt; 各自生成一份&lt;&#x2F;li&gt;
+&lt;li&gt;模板单例在不同动态库中独立实例化&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;解决方案&lt;&#x2F;strong&gt;：将单例实例的定义放到 &lt;code&gt;.cpp&lt;&#x2F;code&gt; 源文件中，避免头文件重复生成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;&amp;#x2F;&amp;#x2F; singleton.cpp
+Singleton&amp;amp; Singleton::instance() {
+    static Singleton instance;
+    return instance;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;mo-ban-tui-dao-yu-template-typename-guan-jian-zi&quot;&gt;模板推导与 &lt;code&gt;template&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;typename&lt;&#x2F;code&gt; 关键字&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;template-xiao-qi-yi&quot;&gt;&lt;code&gt;template&lt;&#x2F;code&gt; 消歧义&lt;&#x2F;h3&gt;
+&lt;p&gt;在模板函数中调用依赖模板参数的成员函数模板时，编译器不会自动推导第二层：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;template&amp;lt;class T&amp;gt;
+int call(T t) {
+    return t.value.template a&amp;lt;int&amp;gt;();  &amp;#x2F;&amp;#x2F; 必须用 template 关键字
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;template&lt;&#x2F;code&gt; 告诉编译器 &lt;code&gt;a&lt;&#x2F;code&gt; 是一个模板，需要再次推导生成具体符号。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;typename-xiao-qi-yi&quot;&gt;&lt;code&gt;typename&lt;&#x2F;code&gt; 消歧义&lt;&#x2F;h3&gt;
+&lt;p&gt;在模板内部，依赖于模板参数的类型名称（嵌套从属名称）必须用 &lt;code&gt;typename&lt;&#x2F;code&gt; 声明：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;template&amp;lt;typename T&amp;gt;
+void fun(const T&amp;amp; proto) {
+    typename T::const_iterator it(proto.begin());  &amp;#x2F;&amp;#x2F; 必须声明为类型
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;没有 &lt;code&gt;typename&lt;&#x2F;code&gt;，编译器无法区分 &lt;code&gt;T::const_iterator&lt;&#x2F;code&gt; 是类型还是静态成员变量。在模板参数声明中 &lt;code&gt;typename&lt;&#x2F;code&gt; 和 &lt;code&gt;class&lt;&#x2F;code&gt; 等价，但在嵌套从属名称消歧义时只能用 &lt;code&gt;typename&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cfi-yu-endbr64-zhi-ling&quot;&gt;CFI 与 &lt;code&gt;endbr64&lt;&#x2F;code&gt; 指令&lt;&#x2F;h2&gt;
+&lt;p&gt;**CFI（Control Flow Integrity）**是一种防御控制流劫持的机制。攻击手段演进：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;代码注入 → DEP（数据执行保护）&lt;&#x2F;li&gt;
+&lt;li&gt;代码重用（ROP&#x2F;JOP）→ CFI&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;Intel CET&lt;&#x2F;strong&gt; 提供硬件级 CFI，包含两部分：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Shadow Stack&lt;&#x2F;strong&gt;：追踪返回地址&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Indirect Branch Tracking&lt;&#x2F;strong&gt;：&lt;code&gt;endbr64&lt;&#x2F;code&gt; 指令是其组成部分&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;code&gt;endbr64&lt;&#x2F;code&gt; 标记间接跳转的有效目标。若 CET 未启用，该指令退化为 NOP，不影响旧处理器。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;luo-ji-chu-ling-xing-wei&quot;&gt;裸机除零行为&lt;&#x2F;h2&gt;
+&lt;p&gt;Intel x86 CPU 在裸机（BIOS 环境）执行除法指令时，除零会触发 0 号中断。BIOS 的中断向量表将 0 号中断指向 &lt;code&gt;dummy_iret_handler&lt;&#x2F;code&gt;（地址 &lt;code&gt;f000:ff53&lt;&#x2F;code&gt;），这个处理函数只执行 &lt;code&gt;iret&lt;&#x2F;code&gt; 直接返回，导致 CPU 在除法指令和中断处理之间无限循环。操作系统启动后会重写中断向量表，用自己的异常处理机制接管。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bian-liang-yu-han-shu-ming-ming&quot;&gt;变量与函数命名&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;chang-yong-dui-li-ming-ming&quot;&gt;常用对立命名&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;类型&lt;&#x2F;th&gt;&lt;th&gt;命名对&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;指针&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;prev&#x2F;next&lt;&#x2F;code&gt;, &lt;code&gt;front&#x2F;back&lt;&#x2F;code&gt;, &lt;code&gt;head&#x2F;tail&lt;&#x2F;code&gt;, &lt;code&gt;left&#x2F;right&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;valid&#x2F;invalid&lt;&#x2F;code&gt;, &lt;code&gt;empty&#x2F;full&lt;&#x2F;code&gt;, &lt;code&gt;free&#x2F;busy&lt;&#x2F;code&gt;, &lt;code&gt;dead&#x2F;alive&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;顺序&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;first&#x2F;second&#x2F;last&lt;&#x2F;code&gt;, &lt;code&gt;before&#x2F;after&lt;&#x2F;code&gt;, &lt;code&gt;begin&#x2F;end&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;速度&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;fast&#x2F;slow&lt;&#x2F;code&gt;, &lt;code&gt;early&#x2F;late&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;范围&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;low&#x2F;high&lt;&#x2F;code&gt;, &lt;code&gt;floor&#x2F;ceil&lt;&#x2F;code&gt;, &lt;code&gt;small&#x2F;big&lt;&#x2F;code&gt;, &lt;code&gt;above&#x2F;below&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;属性&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;odd&#x2F;even&lt;&#x2F;code&gt;, &lt;code&gt;positive&#x2F;negative&lt;&#x2F;code&gt;, &lt;code&gt;signed&#x2F;unsigned&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;操作&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;send&#x2F;receive&lt;&#x2F;code&gt;, &lt;code&gt;accept&#x2F;reject&lt;&#x2F;code&gt;, &lt;code&gt;push&#x2F;pop&lt;&#x2F;code&gt;, &lt;code&gt;add&#x2F;remove&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;架构&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;master&#x2F;slave&lt;&#x2F;code&gt;, &lt;code&gt;leader&#x2F;follower&lt;&#x2F;code&gt;, &lt;code&gt;client&#x2F;server&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;算法&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;dfs&#x2F;bfs&lt;&#x2F;code&gt;, &lt;code&gt;recursive&#x2F;iterative&lt;&#x2F;code&gt;, &lt;code&gt;linear&#x2F;binary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;chang-yong-suo-xie&quot;&gt;常用缩写&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;缩写&lt;&#x2F;th&gt;&lt;th&gt;全称&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;COW&lt;&#x2F;td&gt;&lt;td&gt;Copy on Write&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;CAS&lt;&#x2F;td&gt;&lt;td&gt;Compare and Swap&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SFINAE&lt;&#x2F;td&gt;&lt;td&gt;Substitution Failure Is Not an Error&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;RAII&lt;&#x2F;td&gt;&lt;td&gt;Resource Acquisition Is Initialization&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;RTTI&lt;&#x2F;td&gt;&lt;td&gt;Runtime Type Information&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;CRTP&lt;&#x2F;td&gt;&lt;td&gt;Curiously Recurring Template Pattern&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;PIMPL&lt;&#x2F;td&gt;&lt;td&gt;Pointer to Implementation&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SSO&lt;&#x2F;td&gt;&lt;td&gt;Small String Optimization&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;EBO&lt;&#x2F;td&gt;&lt;td&gt;Empty Base Optimization&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GOT&#x2F;PLT&lt;&#x2F;td&gt;&lt;td&gt;Global Offset Table &#x2F; Procedure Linkage Table&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;UAF&lt;&#x2F;td&gt;&lt;td&gt;Use After Free&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>GPG 使用指南</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2026-08-14T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/gpg/"/>
+        <id>https://moxuetianya.github.io/2025/07/gpg/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/gpg/">&lt;h1 id=&quot;gpg-shi-yong-zhi-nan&quot;&gt;GPG 使用指南&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ji-ben-cao-zuo&quot;&gt;基本操作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;sheng-cheng-mi-yao&quot;&gt;生成密钥&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --full-gen-key --expert
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;cha-kan-mi-yao&quot;&gt;查看密钥&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg -k          # 公钥
+gpg -K          # 私钥
+gpg --list-keys --with-keygrip
+gpg --fingerprint &amp;lt;key-id&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;dao-chu-dao-ru&quot;&gt;导出&#x2F;导入&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 导出公钥（文本格式）
+gpg --armor --export peter &amp;gt; public.asc
+
+# 导出私钥
+gpg --armor --export-secret-key peter &amp;gt; private.asc
+
+# 导入
+gpg --import key.asc
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;导出&#x2F;导入的单位是&quot;完整身份&quot;&lt;&#x2F;strong&gt;：&lt;code&gt;--export &amp;lt;任意id&amp;gt;&lt;&#x2F;code&gt;（主密钥 id、子密钥 id）输出&lt;strong&gt;完全相同&lt;&#x2F;strong&gt;的包（实测 md5 一致）——主密钥公钥 + uid + 全部子密钥公钥 + 各证书。子密钥不能脱离身份单独存在；&lt;code&gt;--export &amp;lt;主id&amp;gt;!&lt;&#x2F;code&gt;（带 &lt;code&gt;!&lt;&#x2F;code&gt;）可只导出主密钥+uid（不含子密钥），但接收方会因缺 &lt;code&gt;[E]&lt;&#x2F;code&gt; 子密钥&lt;strong&gt;无法加密&lt;&#x2F;strong&gt;（实测加密失败）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;gong-yao-fu-wu-qi-keyserver&quot;&gt;公钥服务器（Keyserver）&lt;&#x2F;h3&gt;
+&lt;p&gt;公钥服务器是&lt;strong&gt;公钥目录服务&lt;&#x2F;strong&gt;，只存公钥（绝无私钥），作用如&quot;电话簿&quot;：别人按邮箱&#x2F;指纹搜索下载你的公钥。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 搜索并下载公钥
+gpg --keyserver hkps:&amp;#x2F;&amp;#x2F;keys.openpgp.org --search-keys &amp;lt;UID或邮箱&amp;gt;
+# 已知密钥 ID 直接接收
+gpg --keyserver hkps:&amp;#x2F;&amp;#x2F;keys.openpgp.org --recv-keys &amp;lt;KEY_ID&amp;gt;
+# 上传自己的公钥(上传后需邮箱验证才被收录)
+gpg --keyserver hkps:&amp;#x2F;&amp;#x2F;keys.openpgp.org --send-keys &amp;lt;KEY_ID&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;SKS 池 vs 现代单服务器&lt;&#x2F;strong&gt;：SKS 池是去中心化多节点同步（可匿名上传、易被垃圾密钥污染、难删除）；keys.openpgp.org 等现代服务器是单中心（上传需邮件验证确认身份、支持删除、可靠性高）。现代实践不再依赖池。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;keys.openpgp.org 的特殊规则&lt;&#x2F;strong&gt;（官方文档）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;非身份信息&lt;&#x2F;strong&gt;（全部子密钥 + 元数据）→ 全部存储分发，只要通过完整性校验&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;身份信息&lt;&#x2F;strong&gt;（uid）→ 需邮箱验证同意后才发布（隐私保护）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以 &lt;code&gt;--send-keys &amp;lt;主id&amp;gt;&lt;&#x2F;code&gt; 上传时&lt;strong&gt;所有子密钥都会跟着上传&lt;&#x2F;strong&gt;——keyserver 不提供&quot;只保留指定子密钥&quot;的裁剪功能；gpg 本地也没有（&lt;code&gt;--export-filter drop-subkey&lt;&#x2F;code&gt; 只支持按数值字段过滤，不支持按 keyid）。想精简只能生成密钥时就规划好子密钥数量，或对废弃子密钥用 &lt;code&gt;--revoke&lt;&#x2F;code&gt; 吊销。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Keyserver 只解决&quot;找得到公钥&quot;，不解决&quot;公钥是真的&quot;&lt;&#x2F;strong&gt;：从服务器下载的公钥必须&lt;strong&gt;独立渠道核对指纹&lt;&#x2F;strong&gt;（当面&#x2F;电话&#x2F;IM）后再 &lt;code&gt;--sign-key&lt;&#x2F;code&gt; 信任，信任链（Web of Trust）只针对主密钥，子密钥随身份被验证而非被信任。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;qian-ming-cao-zuo&quot;&gt;签名操作&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --sign file.txt           # 签名后内嵌原文
+gpg --clearsign file.txt      # 签名后原文可读
+gpg --detach-sign file.txt    # 分离签名，生成 .sig 文件
+gpg --verify file.txt.asc     # 验证签名
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;jia-mi-jie-mi&quot;&gt;加密&#x2F;解密&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 发送方使用接收方公钥加密
+gpg -r &amp;lt;recipient&amp;gt; --encrypt file.txt
+
+# 接收方使用自己的私钥解密
+gpg --decrypt file.txt.asc &amp;gt; file.txt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;tong-shi-qian-ming-he-jia-mi&quot;&gt;同时签名和加密&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --local-user &amp;lt;sender&amp;gt; --recipient &amp;lt;receiver&amp;gt; --armor --sign --encrypt file.txt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;xin-ren-wang-luo&quot;&gt;信任网络&lt;&#x2F;h3&gt;
+&lt;p&gt;GPG 不依赖 PKI，而是通过&quot;信任网&quot;（Web of Trust）建立信任：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --sign-key &amp;lt;key-id&amp;gt;   # 用自己的密钥签名对方的公钥
+gpg --check-sigs          # 检查签名
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;zhu-mi-yao-ge-ren-gen-ca&quot;&gt;主密钥 ≈ 个人&quot;根 CA&quot;&lt;&#x2F;h4&gt;
+&lt;p&gt;主密钥的 &lt;code&gt;[C]&lt;&#x2F;code&gt; 认证能力（Certify）本质就是 CA 式的签名能力：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;OpenPGP 概念&lt;&#x2F;th&gt;&lt;th&gt;CA 类比&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主密钥 &lt;code&gt;[C]&lt;&#x2F;code&gt; 认证能力&lt;&#x2F;td&gt;&lt;td&gt;CA 的证书签名能力&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;对自身 UID 的签名（self-sig）&lt;&#x2F;td&gt;&lt;td&gt;CA 给自己签发证书&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;gpg --sign-key&lt;&#x2F;code&gt; 认证他人&lt;&#x2F;td&gt;&lt;td&gt;CA 签发被认证者的证书&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;子密钥（&lt;code&gt;[S]&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;[E]&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;[A]&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;CA 签发的&quot;用途受限&quot;证书&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;密钥过期 &#x2F; 吊销证书&lt;&#x2F;td&gt;&lt;td&gt;证书有效期 &#x2F; CRL 吊销&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;关键区别——信任模型&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;X.509&lt;&#x2F;strong&gt;：层级制，信任靠&quot;根 CA → 中间 CA → 叶子证书&quot;的&lt;strong&gt;信任链&lt;&#x2F;strong&gt;，单向、自上而下&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;OpenPGP&lt;&#x2F;strong&gt;：&lt;strong&gt;去中心化信任网&lt;&#x2F;strong&gt;，没有固定根；任何主密钥都能给别人签发认证，自己是自己的根、同时也能当别人的&quot;CA&quot;——信任不靠链条继承，而靠&quot;我认识的人签过他的钥匙&quot;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以每次 &lt;code&gt;gpg --sign-key&lt;&#x2F;code&gt; 都是在执行一次 CA 式的认证动作，只是没有全局权威——整个 GPG 生态是&quot;人人都是 CA&quot;的分布式体系。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;zi-mi-yao-guan-li&quot;&gt;子密钥管理&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --expert --edit-key peterxiao
+  gpg&amp;gt; addkey             # 添加子密钥
+  gpg&amp;gt; key 2              # 选择子密钥
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;最佳实践&lt;&#x2F;strong&gt;：生成主密钥后，导出备份到物理存储设备，然后从日常设备中删除主密钥仅保留子密钥：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg -a --export-secret-keys &amp;gt; master-secret-key.gpg
+gpg -a --export-secret-subkeys &amp;gt; sub-secret-keys.gpg
+gpg --delete-secret-key &amp;lt;key-id&amp;gt;
+gpg --import sub-secret-keys.gpg
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;此时 &lt;code&gt;gpg --list-secret-keys&lt;&#x2F;code&gt; 会显示 &lt;code&gt;sec#&lt;&#x2F;code&gt;（主密钥已删除）。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;mi-yao-jie-gou-ed25519-zhu-mi-yao-cv25519-jia-mi-zi-mi-yao&quot;&gt;密钥结构：ed25519 主密钥 + cv25519 加密子密钥&lt;&#x2F;h4&gt;
+&lt;p&gt;现代 GnuPG 新密钥默认组合是主密钥 ed25519 + 加密子密钥 cv25519。两者都基于 Curve25519，是同一条曲线的两种数学形态（Montgomery ↔ twisted Edwards 双有理等价），但算法和用途完全不同、密钥对相互独立：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;ed25519（主密钥）&lt;&#x2F;th&gt;&lt;th&gt;cv25519（加密子密钥）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;曲线形式&lt;&#x2F;td&gt;&lt;td&gt;twisted Edwards&lt;&#x2F;td&gt;&lt;td&gt;Montgomery（X25519）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;算法&lt;&#x2F;td&gt;&lt;td&gt;EdDSA 签名&lt;&#x2F;td&gt;&lt;td&gt;ECDH 密钥交换&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用途&lt;&#x2F;td&gt;&lt;td&gt;签名&#x2F;认证&#x2F;证书（usage &lt;code&gt;sc&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;加密（usage &lt;code&gt;e&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;能否加密&lt;&#x2F;td&gt;&lt;td&gt;❌ 签名算法无密钥协商能力&lt;&#x2F;td&gt;&lt;td&gt;✅ 协商会话密钥&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;能否签名&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;&quot;一条曲线，两种形态&quot;&lt;&#x2F;strong&gt;：Curve25519 最初以 Montgomery 形式（X25519）定义；Ed25519 签名所用的是它的 twisted Edwards 同构曲线，两者通过双有理变换互转，共享相同的基础群与安全参数。名字都带&quot;25519&quot;指的是同一条曲线，但一个在上面跑 EdDSA 签名、一个跑 ECDH 密钥交换——&lt;strong&gt;ed25519 与 cv25519 是两套完全独立的密钥对，之间没有任何数学关联&lt;&#x2F;strong&gt;（曲线相同 ≠ 密钥相同，公钥点不落在对方坐标系里，无法互推）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;为什么签名和加密必须分开&lt;&#x2F;strong&gt;：OpenPGP 规定同一密钥对的用途必须单一。若共用一对密钥，攻击者可诱导你&quot;签名&quot;任意密文（签名 = 解密的数学逆运算），等于借你的手解密。分离后主密钥 &lt;code&gt;[SC]&lt;&#x2F;code&gt; 只做签名&#x2F;认证&#x2F;证书，加密永远走独立子密钥；加密子密钥泄露可单独吊销，不影响身份签名与信任链。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;生成时的默认行为&lt;&#x2F;strong&gt;：&lt;code&gt;gpg --full-generate-key&lt;&#x2F;code&gt; 选 ECC 时默认组合即 ed25519 主密钥（usage &lt;code&gt;sc&lt;&#x2F;code&gt;）+ cv25519 加密子密钥（usage &lt;code&gt;e&lt;&#x2F;code&gt;）；想自定义算法&#x2F;能力用 &lt;code&gt;--expert&lt;&#x2F;code&gt;。老版本（GnuPG &amp;lt; 2.1，2016 年前）不支持 ECC，只能 RSA。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;查看密钥结构&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --list-keys --with-keygrip &amp;lt;key-id&amp;gt;
+#   pub   ed25519 2025-07-18 [SC]
+#       指纹：主密钥指纹
+#       keygrip：主密钥 keygrip
+#   sub   cv25519 2025-07-18 [E]
+#       指纹：子密钥指纹
+#       keygrip：子密钥 keygrip
+# 每个 sub 行是一组独立的公私钥对；加密时 gpg 自动选用第一个可用的 [E] 子密钥
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;安全强度对比&lt;&#x2F;strong&gt;：255-bit 椭圆曲线群 ≈ RSA 3072 的安全强度，但签名短（64 字节 vs RSA-3072 的 384 字节）、密钥生成快、CPU 占用低。代价是兼容性：ECC 公钥无法被不支持它的旧客户端使用（如部分 2016 年前的工具、老智能卡固件），而 RSA 是老牌通用选择。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gnome-keyring-ji-cheng&quot;&gt;Gnome Keyring 集成&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ssh-key-guan-li&quot;&gt;SSH key 管理&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install seahorse
+# 首次 SSH 连接时提示输入 passphrase，可勾选&amp;quot;自动解锁&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;git-ping-ju&quot;&gt;Git 凭据&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install libsecret
+git config --global credential.helper &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;git-core&amp;#x2F;git-credential-libsecret
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;gnupg-ji-cheng&quot;&gt;GnuPG 集成&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo &amp;#x27;pinentry-program &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;pinentry-gnome3&amp;#x27; &amp;gt;&amp;gt; ~&amp;#x2F;.gnupg&amp;#x2F;gpg-agent.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;shi-yong-gpg-mi-yao-jin-xing-ssh-ren-zheng&quot;&gt;使用 GPG 密钥进行 SSH 认证&lt;&#x2F;h2&gt;
+&lt;p&gt;gpg-agent 开启 &lt;code&gt;enable-ssh-support&lt;&#x2F;code&gt; 后可完全替代 ssh-agent：它在 &lt;code&gt;S.gpg-agent.ssh&lt;&#x2F;code&gt; socket 上讲标准 SSH agent 协议，ssh 客户端无感知，&lt;code&gt;ssh&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;scp&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;git&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ssh -A&lt;&#x2F;code&gt; 转发全部照常工作。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;&lt;code&gt;enable-ssh-support&lt;&#x2F;code&gt; 是两种方式共同的前提&lt;&#x2F;strong&gt;（不是方式 A 专属步骤）：它让 gpg-agent 创建 &lt;code&gt;S.gpg-agent.ssh&lt;&#x2F;code&gt; socket、对外讲 SSH agent 协议。没有它，方式 A 的 sshcontrol 密钥不会暴露给 ssh，方式 B 的 &lt;code&gt;ssh-add&lt;&#x2F;code&gt; 也根本连不上端点。方式 A &#x2F; B 的区别只在&lt;strong&gt;服务哪些密钥&lt;&#x2F;strong&gt;：sshcontrol 里登记的 GPG 密钥 vs ssh-add 导入的原生密钥副本，SSH 支持本身两者都需要。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;fang-shi-a-gpg-mi-yao-zhi-jie-yong-zuo-ssh-ren-zheng-sshcontrol&quot;&gt;方式 A：GPG 密钥直接用作 SSH 认证（sshcontrol）&lt;&#x2F;h3&gt;
+&lt;p&gt;用 GPG 密钥替代 SSH 密钥，减少需要管理的密钥文件。本地侧只需两步：登记 keygrip + 导出公钥上服务器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo enable-ssh-support &amp;gt;&amp;gt; ~&amp;#x2F;.gnupg&amp;#x2F;gpg-agent.conf
+
+# 在 .bashrc 中设置(顺序不能反:GPG_TTY 必须最先导出)
+export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+export GPG_TTY=&amp;quot;$(tty)&amp;quot;
+gpg-connect-agent updatestartuptty &amp;#x2F;bye &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+
+# 注意:updatestartuptty 依赖客户端发 OPTION ttyname(来自 GPG_TTY)。
+# 不导出 GPG_TTY 时它静默返回 OK 但 startup_tty 为空, 导致 ssh-add 导入密钥时
+# pinentry 起不来(报 Inappropriate ioctl &amp;#x2F; agent refused operation),
+# 而 pass&amp;#x2F;gpg 等 gpg 路径因客户端自带 ttyname 不受影响, 极具迷惑性。
+
+# 获取子密钥 keygrip
+gpg --list-keys --with-keygrip
+
+# 将 keygrip 添加到批准列表
+echo &amp;lt;keygrip&amp;gt; &amp;gt;&amp;gt; ~&amp;#x2F;.gnupg&amp;#x2F;sshcontrol
+
+# 查看已加载的 SSH 密钥
+ssh-add -l
+
+# 导出 SSH 公钥
+gpg --export-ssh-key &amp;lt;key-id&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;wan-zheng-mian-mi-deng-lu-liu-cheng-fu-wu-qi-ce&quot;&gt;完整免密登录流程（服务器侧）&lt;&#x2F;h4&gt;
+&lt;p&gt;本地登记 sshcontrol 后，服务器侧只需把公钥放进 &lt;code&gt;authorized_keys&lt;&#x2F;code&gt;（&lt;strong&gt;服务器不需要任何 GPG 组件&lt;&#x2F;strong&gt;），等价 &lt;code&gt;ssh-copy-id&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 方法一：导出公钥(authorized_keys 格式)并管道直传
+gpg --export-ssh-key &amp;lt;key-id&amp;gt; | ssh user@server \
+  &amp;#x27;mkdir -p ~&amp;#x2F;.ssh &amp;amp;&amp;amp; chmod 700 ~&amp;#x2F;.ssh &amp;amp;&amp;amp; cat &amp;gt;&amp;gt; ~&amp;#x2F;.ssh&amp;#x2F;authorized_keys &amp;amp;&amp;amp; chmod 600 ~&amp;#x2F;.ssh&amp;#x2F;authorized_keys&amp;#x27;
+
+# 方法二：先落文件再 ssh-copy-id
+gpg --export-ssh-key &amp;lt;key-id&amp;gt; &amp;gt; ~&amp;#x2F;.ssh&amp;#x2F;gpg-key.pub
+ssh-copy-id -i ~&amp;#x2F;.ssh&amp;#x2F;gpg-key.pub user@server
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;gpg --export-ssh-key &amp;lt;key-id&amp;gt;&lt;&#x2F;code&gt; 输出即 OpenSSH 公钥行；&lt;code&gt;&amp;lt;key-id&amp;gt;!&lt;&#x2F;code&gt; 加叹号可导出&lt;strong&gt;指定子密钥&lt;&#x2F;strong&gt;的公钥&lt;&#x2F;li&gt;
+&lt;li&gt;每台目标服务器都要装一次公钥&lt;&#x2F;li&gt;
+&lt;li&gt;认证流程：&lt;code&gt;ssh&lt;&#x2F;code&gt; → 本地 ssh-agent（即 gpg-agent）用 sshcontrol 登记的密钥签名 → 服务器按 &lt;code&gt;authorized_keys&lt;&#x2F;code&gt; 验签；首次弹 pinentry 解锁，缓存期内免密&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;shi-ce-zhu-mi-yao-sc-wu-a-neng-li-ye-neng-yong&quot;&gt;实测：主密钥 [SC] 无 [A] 能力也能用&lt;&#x2F;h4&gt;
+&lt;p&gt;gpg-agent 的 SSH 协议实现&lt;strong&gt;不校验密钥的 &lt;code&gt;[A]&lt;&#x2F;code&gt; 认证能力标记&lt;&#x2F;strong&gt;：把 &lt;code&gt;[SC]&lt;&#x2F;code&gt; 主密钥的 keygrip 写入 sshcontrol 后，&lt;code&gt;ssh-add -L&lt;&#x2F;code&gt; 立即出现对应身份、可正常签名。所以「必须有 [A] 子密钥」不是硬性要求。但规范做法仍是单独添加 &lt;code&gt;[A]&lt;&#x2F;code&gt; 认证子密钥，登记&#x2F;导出子密钥——主密钥长期持有且可签名，泄露面与风险都更大：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg --edit-key &amp;lt;key-id&amp;gt;
+# addkey → (8) Authenticate → 生成 ed25519 [A] 子密钥
+# 把子密钥 keygrip 写入 sshcontrol; 导出用 gpg --export-ssh-key &amp;lt;key-id&amp;gt;!
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;yu-fang-shi-b-de-kou-ling-mo-xing-chai-yi&quot;&gt;与方式 B 的口令模型差异&lt;&#x2F;h4&gt;
+&lt;p&gt;方式 A 的密钥属于 &lt;strong&gt;GPG 密钥库&lt;&#x2F;strong&gt;（&lt;code&gt;gpg --list-secret-keys&lt;&#x2F;code&gt; 可见），主密钥与全部子密钥&lt;strong&gt;共享同一个主密钥口令&lt;&#x2F;strong&gt;——解锁&#x2F;预设一次即可全部刷新；方式 B 导入的原生密钥&lt;strong&gt;每把保护口令独立&lt;&#x2F;strong&gt;。缓存刷新手段不同：GPG 密钥库可用 &lt;code&gt;gpg-preset-passphrase&lt;&#x2F;code&gt; 用主口令一次预设全部；原生密钥同样可以用 &lt;code&gt;gpg-preset-passphrase&lt;&#x2F;code&gt; 刷新，但必须&lt;strong&gt;逐把提供各自的保护口令&lt;&#x2F;strong&gt;（= 导入时设置的口令，可能 ≠ 文件口令），无法一次统一预设。&lt;strong&gt;注意：&lt;code&gt;ssh-add&lt;&#x2F;code&gt; 对 gpg-agent 已注册密钥无法刷新缓存&lt;&#x2F;strong&gt;——重加是 no-op、&lt;code&gt;ssh-add -d&lt;&#x2F;code&gt; 对 sshcontrol 密钥被 agent 忽略（卸载即重挂），详见「问答记录」。（详见「口令缓存机制」与「三种标识符」章节）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-shi-b-ba-yi-you-ssh-mi-yao-dao-ru-gpg-agent&quot;&gt;方式 B：把已有 SSH 密钥导入 gpg-agent&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;id_xxx&lt;&#x2F;code&gt; 原件不动，直接用 &lt;code&gt;ssh-add&lt;&#x2F;code&gt; 导入（RSA&#x2F;ECDSA&#x2F;Ed25519 均支持，gpg-agent 会转成内部 keygrip 格式）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh-add ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519    # 导入时若原密钥带口令，需输一次
+# 之后可用 ssh-add -l 查看
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;与 ssh-agent 的关键差异：导入是持久化的&lt;&#x2F;strong&gt;。ssh-agent 每次重启（注销&#x2F;重启）内存清空，所有密钥丢失，必须重新 &lt;code&gt;ssh-add&lt;&#x2F;code&gt;；gpg-agent 导入时把密钥加密落盘 &lt;code&gt;private-keys-v1.d&#x2F;&lt;&#x2F;code&gt; 并自动登记进 &lt;code&gt;sshcontrol&lt;&#x2F;code&gt;，&lt;strong&gt;重启后自动可用&lt;&#x2F;strong&gt;，不需要再添加。只有 &lt;code&gt;ssh-add -d&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;-D&lt;&#x2F;code&gt; 删除或手动从 sshcontrol 移除才会失效。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;导入时设置的是 keystore 保护口令，不是原密钥口令&lt;&#x2F;strong&gt;：ssh-add 导入会弹两次 pinentry——第一次是 ssh-add 读原密钥文件的原口令（&lt;code&gt;SSH_ASKPASS&lt;&#x2F;code&gt; 阶段），第二、三次是 gpg-agent 要求为 &lt;code&gt;private-keys-v1.d&#x2F;&lt;&#x2F;code&gt; 副本&lt;strong&gt;新设一个保护口令并重复确认&lt;&#x2F;strong&gt;（&lt;code&gt;SETDESC &quot;请输入一个密码，以便于在 gpg-agent 的密钥存储中保护接收到的私钥&quot;&lt;&#x2F;code&gt;）。之后每次使用该密钥，提供的是&lt;strong&gt;保护口令&lt;&#x2F;strong&gt;（原文件口令不再参与）。所以：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;gpg-agent &lt;strong&gt;没有自己的口令&lt;&#x2F;strong&gt;（无&quot;gpg-agent 口令&quot;概念），每把密钥的 &lt;code&gt;.key&lt;&#x2F;code&gt; 文件各自独立上锁&lt;&#x2F;li&gt;
+&lt;li&gt;不同密钥可设不同保护口令，TTL 缓存各自独立；实际建议全部统一为一个口令，体验等价&quot;一个口令管所有&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;导入无口令密钥时同样会要求设置保护口令（gpg-agent 不允许 keystore 副本明文）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;修改 keystore 保护口令（官方 PASSWD 命令）&lt;&#x2F;strong&gt;：gpg-agent 提供官方改口令命令（源码 agent&#x2F;command.c 的 &lt;code&gt;PASSWD&lt;&#x2F;code&gt;），&lt;strong&gt;必须验证旧口令&lt;&#x2F;strong&gt;才能设置新口令，比&quot;删除 .key 重新导入&quot;更安全规范：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 找到 keygrip(文件名即 keygrip)
+ls ~&amp;#x2F;.gnupg&amp;#x2F;private-keys-v1.d&amp;#x2F;
+
+# 2. 改口令(交互式, 弹 pinentry: 先输旧口令验证 → 再输新口令两次确认)
+gpg-connect-agent &amp;quot;PASSWD &amp;lt;keygrip&amp;gt;&amp;quot; &amp;#x2F;bye
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;全程按 keygrip 操作，不区分 GPG&#x2F;SSH 密钥，对 ssh 导入的密钥同样适用&lt;&#x2F;li&gt;
+&lt;li&gt;源码确认 &lt;code&gt;PASSWD&lt;&#x2F;code&gt; 用 &lt;code&gt;CACHE_MODE_IGNORE&lt;&#x2F;code&gt; &lt;strong&gt;强制询问旧口令&lt;&#x2F;strong&gt;（不受 TTL 缓存影响）；随后 &lt;code&gt;agent_protect_and_store&lt;&#x2F;code&gt; 用新口令重写 &lt;code&gt;.key&lt;&#x2F;code&gt; 文件&lt;&#x2F;li&gt;
+&lt;li&gt;可选参数：&lt;code&gt;--preset&lt;&#x2F;code&gt; 把新口令加入缓存；&lt;code&gt;--verify&lt;&#x2F;code&gt; 只验证口令不改&lt;&#x2F;li&gt;
+&lt;li&gt;不要用&quot;删 .key 文件再重新导入&quot;的方式改口令：不验证旧口令、有误删风险，且只删登记不删文件时 gpg-agent 会静默复用旧副本（不会弹新口令）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;查看 gpg-agent 管理了哪些密钥&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+ssh-add -l                    # SSH 密钥指纹; -L 显示公钥
+gpg --list-secret-keys --keyid-format long   # GPG 私钥(sec&amp;#x2F;ssb)
+ls ~&amp;#x2F;.gnupg&amp;#x2F;private-keys-v1.d&amp;#x2F;               # 实际私钥文件(keygrip.key), SSH&amp;#x2F;GPG 都在这里
+grep -v &amp;#x27;^#\|^$&amp;#x27; ~&amp;#x2F;.gnupg&amp;#x2F;sshcontrol         # 允许用作 SSH 的 keygrip
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;pinentry-program-bi-xu-shi-jue-dui-lu-jing&quot;&gt;pinentry-program 必须是绝对路径&lt;&#x2F;h3&gt;
+&lt;p&gt;实测：gpg-agent &lt;strong&gt;不做 PATH 搜索&lt;&#x2F;strong&gt;，&lt;code&gt;pinentry-program pinentry-curses&lt;&#x2F;code&gt;（纯名字）会报 &lt;code&gt;can&#x27;t exec &#x27;pinentry-curses&#x27;&lt;&#x2F;code&gt;；&lt;code&gt;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-curses&lt;&#x2F;code&gt;（绝对路径）正常。想放自定义同名程序靠 PATH 回退不可行，回退逻辑必须由 wrapper 脚本内部完成。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pinentry-ru-he-na-dao-display-tty-gpg-agent-yuan-ma-yan-zheng&quot;&gt;pinentry 如何拿到 DISPLAY &#x2F; tty（gpg-agent 源码验证）&lt;&#x2F;h3&gt;
+&lt;p&gt;pinentry 由 gpg-agent 后台进程启动，自身环境没有 DISPLAY&#x2F;tty，信息靠两条路传递（源码 &lt;code&gt;agent&#x2F;call-pinentry.c&lt;&#x2F;code&gt; 的 &lt;code&gt;start_pinentry()&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;DISPLAY&lt;&#x2F;strong&gt;：gpg 客户端连 agent 时通过 assuan 发 &lt;code&gt;OPTION display=...&lt;&#x2F;code&gt;（实测 &lt;code&gt;gpg --debug=all&lt;&#x2F;code&gt; 可见）；gpg-agent 收到后存进 session_env，启动 pinentry 时以 &lt;strong&gt;argv &lt;code&gt;--display &amp;lt;值&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; 传入（同时 atfork setenv DISPLAY，供 QT_QPA_PLATFORMTHEME 等工具用）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ttyname&lt;&#x2F;strong&gt;：gpg 客户端发 &lt;code&gt;OPTION ttyname=&#x2F;dev&#x2F;pts&#x2F;N&lt;&#x2F;code&gt;（或 &lt;code&gt;GPG_TTY&lt;&#x2F;code&gt; 环境），gpg-agent 转发为 assuan &lt;code&gt;OPTION ttyname=...&lt;&#x2F;code&gt; 给 pinentry&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;所以&quot;gpg-agent daemon 环境没有 DISPLAY&quot;不影响 pinentry-gnome3——显示信息走的是&lt;strong&gt;客户端 → agent → pinentry 参数链&lt;&#x2F;strong&gt;，与 agent 自身环境无关。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pinentry-gnome3-de-yi-lai-yu-hui-tui-gcr-prompter&quot;&gt;pinentry-gnome3 的依赖与回退（Gcr prompter）&lt;&#x2F;h3&gt;
+&lt;p&gt;实测 &lt;code&gt;ldd &#x2F;usr&#x2F;bin&#x2F;pinentry-gnome3&lt;&#x2F;code&gt;：&lt;strong&gt;不依赖 GTK&#x2F;Wayland&lt;&#x2F;strong&gt;，而是 &lt;code&gt;libgcr-base-3&lt;&#x2F;code&gt;（Gcr prompter）+ &lt;code&gt;libncursesw&lt;&#x2F;code&gt;。其 GUI 弹窗机制：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;pinentry-gnome3 → D-Bus → Gcr System Prompter(gnome-keyring 桌面服务) → 桌面弹窗
+                  └─ 无 prompter → fallback curses → 需要 tty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;桌面会话（GNOME 桌面 + gnome-keyring）：Gcr prompter 可用 → GUI 弹窗（X11&#x2F;Wayland 由桌面决定）&lt;&#x2F;li&gt;
+&lt;li&gt;SSH 会话 &#x2F; 无桌面：无 Gcr prompter（实测输出 &quot;No Gcr System Prompter available, falling back to curses&quot;）→ fallback curses&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;fallback 目标是 curses（tty 文本模式）&lt;&#x2F;strong&gt;，不是另一个 GUI；askpass 无 tty 时 fallback 后依然失败&lt;&#x2F;li&gt;
+&lt;li&gt;因此：桌面场景 &lt;code&gt;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-gnome3&lt;&#x2F;code&gt; 体验最好；SSH&#x2F;无头场景它自动等价于 curses；无 tty 无显示的 askpass 场景两者都失败，靠 sudo-askpass 层兜底提示（去终端手动 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 解锁）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;ssh-chang-jing-shi-ce-shi-xiao-wayland-display-wu-ran-rang-gnome3-wu-pan-you-gui-2026-08-09&quot;&gt;SSH 场景实测失效：WAYLAND_DISPLAY 污染让 gnome3 误判&quot;有 GUI&quot;（2026-08-09）&lt;&#x2F;h4&gt;
+&lt;p&gt;上面&quot;SSH 会话 → fallback curses&quot;的结论在&lt;strong&gt;实际 SSH 登录下并不可靠&lt;&#x2F;strong&gt;。前提&quot;SSH 会话无 Gcr prompter&quot;在本机不成立：SSH 会话与桌面会话&lt;strong&gt;共享同一 user session bus&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;run&#x2F;user&#x2F;&amp;lt;uid&amp;gt;&#x2F;bus&lt;&#x2F;code&gt;），&lt;code&gt;org.gnome.keyring.SystemPrompter&lt;&#x2F;code&gt; 在总线上是存在的——所以 gnome3 走 GUI 路径后，弹窗出现在&lt;strong&gt;本地桌面&lt;&#x2F;strong&gt;，远程用户看不见，干等超时。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;现象&lt;&#x2F;strong&gt;：&lt;code&gt;git pull&lt;&#x2F;code&gt; 报 &lt;code&gt;sign_and_send_pubkey ... agent refused operation&lt;&#x2F;code&gt;；gpg-agent 日志反复 &lt;code&gt;ssh sign request failed: 超时 &amp;lt;Pinentry&amp;gt;&lt;&#x2F;code&gt;；pinentry-gnome3 进程被拉起却没有任何提示。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;：pinentry-gnome3 只要看到&lt;strong&gt;非空 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt;（或 &lt;code&gt;DISPLAY&lt;&#x2F;code&gt;）就判定&quot;有 GUI&quot;&lt;&#x2F;strong&gt;，跳过 Gcr prompter 不可用时的 curses 回退。SSH 场景这个值有两个来源，&lt;strong&gt;永远非空&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;gpg-agent 继承 systemd user manager 环境&lt;&#x2F;strong&gt;：&lt;code&gt;systemctl --user show-environment&lt;&#x2F;code&gt; 里有真实桌面的 &lt;code&gt;WAYLAND_DISPLAY=wayland-0&lt;&#x2F;code&gt;、&lt;code&gt;DISPLAY=:0&lt;&#x2F;code&gt;、&lt;code&gt;XAUTHORITY=...mutter...&lt;&#x2F;code&gt;。注意 &lt;code&gt;systemctl --user show gpg-agent&lt;&#x2F;code&gt; 显示 &lt;code&gt;Environment=&lt;&#x2F;code&gt; 为空&lt;strong&gt;不代表没有&lt;&#x2F;strong&gt;——systemd 服务会&lt;strong&gt;继承&lt;&#x2F;strong&gt; manager 环境，只看 &lt;code&gt;show&lt;&#x2F;code&gt; 的显式设置会被误导。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;UPDATESTARTUPTTY 传客户端的 WAYLAND_DISPLAY&lt;&#x2F;strong&gt;：&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 每次 ssh 前跑 &lt;code&gt;gpg-connect-agent UPDATESTARTUPTTY &#x2F;bye&lt;&#x2F;code&gt;，会把&lt;strong&gt;发起 ssh 的客户端进程的 WAYLAND_DISPLAY 原样传给 gpg-agent&lt;&#x2F;strong&gt;。tmux server 启动时继承旧会话的孤儿 socket（如 &lt;code&gt;wayland-dPTUuQSK&lt;&#x2F;code&gt;），wlyank.sh 旧版兜底还会换成&quot;最新&quot;的死 socket（如 &lt;code&gt;wayland-XiKmbyg7&lt;&#x2F;code&gt;）——实测 pinentry 拿到过这个孤儿值。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;结果：连死 socket → 窗口永远创建不出来；拿 wayland-0 → 弹在本地桌面、远程看不见。&lt;strong&gt;从 SSH 视角都是&quot;没有正常弹窗&quot;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：SSH 场景别指望 pinentry-gnome3 自动回退 curses，&lt;strong&gt;固定 &lt;code&gt;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-curses&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（提示画在发起 ssh 的终端）。配套清理：&lt;code&gt;.my_zshrc&lt;&#x2F;code&gt; 在 tty 会话 unset WAYLAND_DISPLAY；wlyank.sh 兜底改为用 &lt;code&gt;.lock&lt;&#x2F;code&gt; 的 flock 检测合成器存活。若想保留 gnome3，需给 gpg-agent 加 systemd drop-in &lt;code&gt;UnsetEnvironment=WAYLAND_DISPLAY DISPLAY&lt;&#x2F;code&gt; 让回退恒生效（效果等同 curses）。gpg-agent 无&quot;按连接选 pinentry&quot;的能力，&lt;strong&gt;桌面 GUI 弹窗与 SSH 终端提示无法一套配置两全&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;huan-jing-bian-liang-pei-zhi-ssh-auth-sock&quot;&gt;环境变量配置（SSH_AUTH_SOCK）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;SSH_AUTH_SOCK&lt;&#x2F;code&gt; 是给 &lt;strong&gt;ssh 客户端进程&lt;&#x2F;strong&gt;看的（告诉它去哪找 agent socket），不是 agent 自己需要的——所以&lt;strong&gt;不是启动 agent 时配置&lt;&#x2F;strong&gt;，而是写进 shell 配置文件，每个新会话自动生效：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;# ~&amp;#x2F;.zshrc 或 ~&amp;#x2F;.bashrc（写一次）
+export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+gpg-connect-agent updatestartuptty &amp;#x2F;bye &amp;gt;&amp;#x2F;dev&amp;#x2F;null   # 告诉 agent 当前 tty，pinentry 弹对地方
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;gpg-agent 无需手动启动（systemd socket 激活，用到才拉起）；socket 路径固定（&lt;code&gt;&#x2F;run&#x2F;user&#x2F;&amp;lt;uid&amp;gt;&#x2F;gnupg&#x2F;S.gpg-agent.ssh&lt;&#x2F;code&gt;），可动态查询&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;只影响新会话&lt;&#x2F;strong&gt;：正在运行的终端不生效，重开终端或 &lt;code&gt;source&lt;&#x2F;code&gt; 后生效&lt;&#x2F;li&gt;
+&lt;li&gt;桌面（GNOME&#x2F;systemd）常自动启动 ssh-agent，切换后先确认 &lt;code&gt;echo $SSH_AUTH_SOCK&lt;&#x2F;code&gt; 指向 gpg-agent 的路径，否则 ssh 走错 agent&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;遗留的 ssh-agent 自动启动逻辑同样会劫持&lt;&#x2F;strong&gt;：迁移 gpg-agent 方案前写的老 rc 函数（如 &lt;code&gt;sshagent()&lt;&#x2F;code&gt; + &lt;code&gt;~&#x2F;.pid_ssh_agent&lt;&#x2F;code&gt; 持久化）可能在某次 &lt;code&gt;ssh-add -l&lt;&#x2F;code&gt; 失败时启动独立 ssh-agent 并 &lt;code&gt;export SSH_AUTH_SOCK&lt;&#x2F;code&gt;，此后&lt;strong&gt;所有新 shell 都 source 复用这个空 agent&lt;&#x2F;strong&gt;，gpg-agent 被彻底绕过，且 &lt;code&gt;keyinfo&lt;&#x2F;code&gt; 缓存一切正常极具迷惑性（详见问答 Q7）&lt;&#x2F;li&gt;
+&lt;li&gt;验证：&lt;code&gt;echo $SSH_AUTH_SOCK&lt;&#x2F;code&gt;（应含 &lt;code&gt;gnupg&#x2F;S.gpg-agent.ssh&lt;&#x2F;code&gt;）+ &lt;code&gt;ssh-add -l&lt;&#x2F;code&gt;（应列出密钥）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;yu-gnome-keyring-ubuntu-zhuo-mian-mo-ren-de-dui-bi&quot;&gt;与 GNOME Keyring（Ubuntu 桌面默认）的对比&lt;&#x2F;h3&gt;
+&lt;p&gt;Ubuntu + GNOME 桌面的&lt;strong&gt;默认 SSH agent 是 gnome-keyring 的 gcr-ssh-agent&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;run&#x2F;user&#x2F;&amp;lt;uid&amp;gt;&#x2F;keyring&#x2F;ssh&lt;&#x2F;code&gt;），不是 OpenSSH ssh-agent——ssh-agent 只在无桌面&#x2F;服务器环境才是默认。GNOME 通过 PAM（&lt;code&gt;pam_gnome_keyring.so&lt;&#x2F;code&gt;）在图形登录时拉起它并设置 &lt;code&gt;SSH_AUTH_SOCK&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;GNOME Keyring&lt;&#x2F;th&gt;&lt;th&gt;gpg-agent&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;存储&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;login.keyring&lt;&#x2F;code&gt; 加密文件&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;private-keys-v1.d&lt;&#x2F;code&gt; 加密文件&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;持久化&lt;&#x2F;td&gt;&lt;td&gt;✓ 重启不丢&lt;&#x2F;td&gt;&lt;td&gt;✓ 重启不丢&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;登记密钥&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;隐式&lt;&#x2F;strong&gt;：首次 ssh 自动弹 GUI 框，勾选&quot;自动解锁&quot;即登记&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;显式一次&lt;&#x2F;strong&gt;：&lt;code&gt;ssh-add&lt;&#x2F;code&gt; 或写 sshcontrol&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;解锁时机&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;仅 GUI 登录时&lt;&#x2F;strong&gt;（PAM 用登录密码）&lt;&#x2F;td&gt;&lt;td&gt;任意时刻，终端&#x2F;无头均可&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;解锁交互&lt;&#x2F;td&gt;&lt;td&gt;只能 GUI 对话框&lt;&#x2F;td&gt;&lt;td&gt;pinentry-curses 终端输入 &#x2F; pinentry-gnome3 弹框&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;解锁窗口&lt;&#x2F;td&gt;&lt;td&gt;整个 GUI 会话（登录→注销）&lt;&#x2F;td&gt;&lt;td&gt;TTL 可配（闲置 + 绝对上限）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;无 GUI 环境&lt;&#x2F;td&gt;&lt;td&gt;不可用（SSH 远程、无头全废）&lt;&#x2F;td&gt;&lt;td&gt;可用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;keyring 的解锁交互&lt;strong&gt;只能在 GUI 上发生&lt;&#x2F;strong&gt;：SSH 终端里输不了，无头远程时对话框挂死；gpg-agent 的 pinentry-curses 是终端输入，不受 GUI 限制&lt;&#x2F;li&gt;
+&lt;li&gt;gpg-agent 没有隐式登记机制：它只认 keystore 里的密钥（agent 根本看不到 &lt;code&gt;~&#x2F;.ssh&#x2F;id_xxx&lt;&#x2F;code&gt; 文件），登记必须显式一次；之后首次使用自动弹 pinentry 解锁，体验等同 keyring 的&quot;自动解锁&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;若想要 keyring 那种 GUI 弹框手感：gpg-agent.conf 改 &lt;code&gt;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-gnome3&lt;&#x2F;code&gt;（无 GUI 时可切回 curses）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;wei-shen-me-ssh-agent-qi-dong-shi-shu-chu-bian-liang-er-gpg-agent-shi-gu-ding-lu-jing&quot;&gt;为什么 ssh-agent 启动时输出变量，而 gpg-agent 是固定路径？&lt;&#x2F;h3&gt;
+&lt;p&gt;两种设计哲学，核心差异是&quot;安全性靠什么、谁能找到 agent&quot;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;ssh-agent&lt;&#x2F;th&gt;&lt;th&gt;gpg-agent&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;时代&lt;&#x2F;td&gt;&lt;td&gt;1995 年，无 systemd&#x2F;XDG 规范，共享 &#x2F;tmp&lt;&#x2F;td&gt;&lt;td&gt;2007 年（GnuPG 2.x），已有每用户 runtime 目录规范&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;发现机制&lt;&#x2F;td&gt;&lt;td&gt;环境变量传播（必须 shell 子进程）&lt;&#x2F;td&gt;&lt;td&gt;固定路径约定（任何同用户进程可发现）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;多实例&lt;&#x2F;td&gt;&lt;td&gt;支持（会话隔离是特性）&lt;&#x2F;td&gt;&lt;td&gt;单例（一个用户一个 daemon）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;安全&lt;&#x2F;td&gt;&lt;td&gt;路径不可猜 + 会话隔离&lt;&#x2F;td&gt;&lt;td&gt;文件权限（0700）+ 用户隔离&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;代价&lt;&#x2F;td&gt;&lt;td&gt;cron&#x2F;服务&#x2F;转发场景要特殊处理（agent forwarding 就是补丁）&lt;&#x2F;td&gt;&lt;td&gt;同用户进程都能连&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;ssh-agent 的随机路径（&lt;code&gt;&#x2F;tmp&#x2F;ssh-XXXX&#x2F;agent.PID&lt;&#x2F;code&gt;）是 90 年代共享目录下的生存策略：路径不可预测防猜解 + 每个会话独立实例，所以启动时必须用 &lt;code&gt;eval $(ssh-agent)&lt;&#x2F;code&gt; 把随机路径和 &lt;code&gt;SSH_AGENT_PID&lt;&#x2F;code&gt; 传回 shell。gpg-agent 是&quot;全家的钥匙柜固定放在老地方&quot;：路径固定意味着 systemd 能 socket 激活、cron&#x2F;服务等无 shell 环境的调用方也能靠约定找到它，安全靠目录权限而非路径隐藏。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yu-jing-dian-ssh-agent-de-chai-yi-mi-ma-ti-shi-zai-na-yi-ce-chang-jian-wu-qu&quot;&gt;与经典 ssh-agent 的差异：密码提示在哪一侧（常见误区）&lt;&#x2F;h3&gt;
+&lt;p&gt;误以为 gpg-agent 当 ssh-agent 时行为等同 ssh-agent，实际&lt;strong&gt;密码提示的归属完全不同&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;经典 ssh-agent&lt;&#x2F;th&gt;&lt;th&gt;gpg-agent&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;ssh-add 时&lt;&#x2F;td&gt;&lt;td&gt;ssh-add &lt;strong&gt;自己&lt;&#x2F;strong&gt;读密钥、在当前终端提示，把&lt;strong&gt;解密后的私钥&lt;&#x2F;strong&gt;交给 agent&lt;&#x2F;td&gt;&lt;td&gt;输完原口令后，gpg-agent 再拉 pinentry 为落盘副本设保护口令&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;密钥存放&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;只存内存&lt;&#x2F;strong&gt;，重启即失&lt;&#x2F;td&gt;&lt;td&gt;加密落盘 &lt;code&gt;~&#x2F;.gnupg&#x2F;private-keys-v1.d&#x2F;&lt;&#x2F;code&gt;，重启不丢&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ssh 认证时&lt;&#x2F;td&gt;&lt;td&gt;用内存解密密钥签名，&lt;strong&gt;永不提示&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;缓存过期后要解密落盘副本 → &lt;strong&gt;再次弹 pinentry&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;提示归属&lt;&#x2F;td&gt;&lt;td&gt;客户端（ssh-add 所在终端）&lt;&#x2F;td&gt;&lt;td&gt;agent 守护进程（要猜画到哪个终端）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;ssh-agent&lt;&#x2F;strong&gt;：提示永远发生在 &lt;code&gt;ssh-add&lt;&#x2F;code&gt; 的调用终端（客户端行为），agent 只签名不碰密码 → 天然没有&quot;弹窗错位&quot;，也不需要 &lt;code&gt;GPG_TTY&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 这套机制。代价：agent 重启（注销&#x2F;重启）密钥全丢，每次登录都要重新 &lt;code&gt;ssh-add&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;gpg-agent&lt;&#x2F;strong&gt;：持久化换来重启不丢密钥，但 SSH 协议不带 ttyname，agent 只能靠全局 startup_tty → 要密码的时机从 ssh-add 扩散到缓存过期后的&lt;strong&gt;任意 ssh 操作&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;多终端弹窗错位（pinentry-curses 特有，常见坑）&lt;&#x2F;strong&gt;：startup_tty = &quot;最后一次执行 &lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 的终端&quot;。每次开 shell 都跑一次，最后 source 的那个终端成为唯一目标：终端 A 跑命令、弹窗却画到终端 B。缓解：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;只在&lt;strong&gt;密钥未缓存&lt;&#x2F;strong&gt;时弹：&lt;code&gt;default-cache-ttl-ssh&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;max-cache-ttl-ssh&lt;&#x2F;code&gt; 配 12h 后 ssh 认证基本零弹窗；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;gpg&#x2F;pass 路径不受影响&lt;&#x2F;strong&gt;：gpg 客户端每次连接自带 ttyname，弹窗始终跟随执行命令的终端，&lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 永远不错位；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pinentry-gnome3 桌面场景不受影响&lt;&#x2F;strong&gt;：走 Gcr prompter GUI，与终端无关；&lt;&#x2F;li&gt;
+&lt;li&gt;想精确跟随：&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 加下面一行，让每次 ssh 前把 startup_tty 刷新为当前终端（前提：rc 已 &lt;code&gt;export GPG_TTY=$(tty)&lt;&#x2F;code&gt;）。&lt;strong&gt;run.sh 的 &lt;code&gt;install_gpg_agent&lt;&#x2F;code&gt; 已自动写入本配置&lt;&#x2F;strong&gt;：&lt;pre&gt;&lt;code&gt;Match host * exec &amp;quot;gpg-connect-agent UPDATESTARTUPTTY &amp;#x2F;bye&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;strong&gt;语法坑&lt;&#x2F;strong&gt;：&lt;code&gt;exec&lt;&#x2F;code&gt; 是 Match 的&lt;strong&gt;条件（criterion）&lt;&#x2F;strong&gt;，必须写在 &lt;code&gt;Match&lt;&#x2F;code&gt; 行内，不能缩进另起一行当块内指令——后者实测报 &lt;code&gt;Bad configuration option: exec&lt;&#x2F;code&gt;（OpenSSH 8.4+ 才有此关键字，验证用 &lt;code&gt;ssh -G -F &amp;lt;config&amp;gt; localhost&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;一句话&lt;&#x2F;strong&gt;：ssh-agent 靠&quot;内存解密密钥 + 提示留在客户端&quot;回避错位；gpg-agent 靠持久化换便利，代价是 &lt;code&gt;GPG_TTY&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 这套弹窗定位机制。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;kou-ling-huan-cun-ji-zhi-ttl-yi-cai-keng&quot;&gt;口令缓存机制（TTL，易踩坑）&lt;&#x2F;h3&gt;
+&lt;p&gt;gpg-agent 有&lt;strong&gt;两对&lt;&#x2F;strong&gt;独立计时器，只配一个会踩坑：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;计时器&lt;&#x2F;th&gt;&lt;th&gt;默认&lt;&#x2F;th&gt;&lt;th&gt;语义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;default-cache-ttl&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;600s&lt;&#x2F;td&gt;&lt;td&gt;闲置超时，每次使用重置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;7200s&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;绝对上限&lt;&#x2F;strong&gt;：从缓存创建起算，连续使用也照样过期&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;default-cache-ttl-ssh&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1800s&lt;&#x2F;td&gt;&lt;td&gt;SSH 密钥专属闲置超时&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;max-cache-ttl-ssh&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;7200s&lt;&#x2F;td&gt;&lt;td&gt;SSH 密钥专属绝对上限&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;ul&gt;
+&lt;li&gt;缓存寿命 = min(创建起 &lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt;，最后使用起 &lt;code&gt;default-cache-ttl&lt;&#x2F;code&gt;)。只配 &lt;code&gt;default-cache-ttl 86400&lt;&#x2F;code&gt; 时，&lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt; 默认 2 小时且&lt;strong&gt;从创建起算&lt;&#x2F;strong&gt;——无论闲置还是连续使用，&lt;strong&gt;最长 2 小时必然过期重输&lt;&#x2F;strong&gt;，那行配置基本形同虚设，必须同时调 &lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt;；且 SSH 用的是 &lt;code&gt;-ssh&lt;&#x2F;code&gt; 后缀那对（默认 30 分钟&#x2F;2 小时），配 &lt;code&gt;default-cache-ttl&lt;&#x2F;code&gt; 对 SSH &lt;strong&gt;完全不生效&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;想要&quot;一天一次&quot;必须四行全配：&lt;code&gt;default-cache-ttl&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;default-cache-ttl-ssh&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;max-cache-ttl-ssh&lt;&#x2F;code&gt; 各 86400&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt; &lt;strong&gt;没有 86400 硬上限&lt;&#x2F;strong&gt;：源码（gpg-agent.c）只把它当默认值，配置值无 clamp，设 604800（一周）也合法&lt;&#x2F;li&gt;
+&lt;li&gt;TTL 长短 = 安全权衡：密钥被盗后的&quot;冒充窗口&quot;长度&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;gpgconf --reload gpg-agent&lt;&#x2F;code&gt; 会清空全部口令缓存&lt;&#x2F;strong&gt;（实测：预设后缓存位 &lt;code&gt;1&lt;&#x2F;code&gt;，reload 后变 &lt;code&gt;-&lt;&#x2F;code&gt;）——配置未变更时不要 reload，否则未过期的缓存被白白清掉（gpg-manager.sh 已改为仅配置变更时才 reload）；&lt;code&gt;kill&lt;&#x2F;code&gt;+&lt;code&gt;launch&lt;&#x2F;code&gt; 重启同理清空缓存&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;gpg-preset-passphrase -c&lt;&#x2F;code&gt;（preset）不刷新 max-cache-ttl 计时&lt;&#x2F;strong&gt;：max-cache-ttl 锚定缓存条目的 &lt;code&gt;created&lt;&#x2F;code&gt;（首次创建时刻），preset 只更新 &lt;code&gt;last_stored&lt;&#x2F;code&gt;（即只重置 default-cache-ttl 的闲置计时器）。man page 原话：&quot;expired even if it has been accessed recently &lt;strong&gt;or has been set using gpg-preset-passphrase&lt;&#x2F;strong&gt;&quot;。想用定时 preset&quot;续命&quot;绕过 max-cache-ttl 是行不通的&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;唯一能重置 max-cache-ttl 的方式 = 删条目重建&lt;&#x2F;strong&gt;：&lt;code&gt;gpg-connect-agent &quot;CLEAR_PASSPHRASE &amp;lt;grip&amp;gt;&quot; &#x2F;bye&lt;&#x2F;code&gt;（等价 forget）后条目消失，再 preset 即创建全新条目（&lt;code&gt;created&lt;&#x2F;code&gt; 重置）→ 两个计时器都从零起算。注意本环境 &lt;code&gt;gpg-preset-passphrase -f&lt;&#x2F;code&gt;（forget）实测报 &lt;code&gt;IPC 无查询回调&lt;&#x2F;code&gt; bug，用上面的 agent 协议命令可靠&lt;&#x2F;li&gt;
+&lt;li&gt;当前本仓库实际配置（run.sh install_gpg_agent 模板）：default 6h（21600）+ max 16h（57600），GPG 与 SSH 各一对；改 TTL 必须同步 run.sh 模板，否则重跑 &lt;code&gt;bash run.sh default&lt;&#x2F;code&gt; 会被 sed 覆盖回旧值并 reload 清缓存&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;san-chong-biao-shi-fu-keyid-keygrip-sha256-zhi-wen&quot;&gt;三种标识符：keyid &#x2F; keygrip &#x2F; SHA256 指纹&lt;&#x2F;h3&gt;
+&lt;p&gt;同一把密钥在 GPG 生态里有三种视角，长度和用途都不同，容易混淆（gpg-agent-manager 输出里三种同时出现）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;标识符&lt;&#x2F;th&gt;&lt;th&gt;长度&#x2F;形式&lt;&#x2F;th&gt;&lt;th&gt;是什么&lt;&#x2F;th&gt;&lt;th&gt;出现位置&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;keyid&lt;&#x2F;td&gt;&lt;td&gt;16 hex，如 &lt;code&gt;9FCAF6A748F642BA&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;GPG 指纹（40 hex）的&lt;strong&gt;末尾 16 位&lt;&#x2F;strong&gt;（截断短 ID）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;gpg --list-secret-keys&lt;&#x2F;code&gt; 的 &lt;code&gt;sec&lt;&#x2F;code&gt; 行、&lt;code&gt;--keyid-format&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;keygrip&lt;&#x2F;td&gt;&lt;td&gt;40 hex，如 &lt;code&gt;D2BA4B39…B3803&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SHA-1(公钥)&lt;&#x2F;strong&gt; 的十六进制，gpg-agent 对密钥材料的唯一标识&lt;&#x2F;td&gt;&lt;td&gt;私钥文件名 &lt;code&gt;~&#x2F;.gnupg&#x2F;private-keys-v1.d&#x2F;&amp;lt;grip&amp;gt;.key&lt;&#x2F;code&gt;、&lt;code&gt;sshcontrol&lt;&#x2F;code&gt; 登记行、&lt;code&gt;gpg-preset-passphrase&lt;&#x2F;code&gt; 参数&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SHA256 指纹&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;SHA256:ghY5…&lt;&#x2F;code&gt;（base64 43 位）&lt;&#x2F;td&gt;&lt;td&gt;公钥的 SHA-256 哈希（base64 编码）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ssh-add -l&lt;&#x2F;code&gt;、&lt;code&gt;ssh-keygen -lf&lt;&#x2F;code&gt;、SSH 指纹校验&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;GPG 另有&lt;strong&gt;全指纹&lt;&#x2F;strong&gt;（40 hex，&lt;code&gt;gpg --fingerprint&lt;&#x2F;code&gt;），keyid 只是它的末尾截断（理论上可碰撞）&lt;&#x2F;li&gt;
+&lt;li&gt;keygrip 与指纹算法不同（SHA-1 vs SHA-256）、编码不同（hex vs base64），&lt;strong&gt;不能直接互转&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;keygrip 与 UID&#x2F;邮箱&#x2F;改名无关，故 gpg-agent 用做内部键：私钥文件命名、sshcontrol 登记、口令缓存键&lt;&#x2F;li&gt;
+&lt;li&gt;三处各用各的：给人看用 keyid，给 gpg-agent 用 keygrip，给 SSH 侧校验用 SHA256&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;keng-sshcontrol-xing-wei-de-ke-xuan-zi-duan&quot;&gt;坑：sshcontrol 行尾的可选字段&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;code&gt;sshcontrol&lt;&#x2F;code&gt; 登记行格式为 &lt;code&gt;&amp;lt;keygrip&amp;gt; [缓存TTL] [标志]&lt;&#x2F;code&gt;（如 &lt;code&gt;D2BA…B3803 0&lt;&#x2F;code&gt;，&lt;code&gt;0&lt;&#x2F;code&gt; 为 TTL 默认值）。脚本抓取若取整行再 &lt;code&gt;tr -d &#x27; &#x27;&lt;&#x2F;code&gt;，会把 &lt;code&gt;0&lt;&#x2F;code&gt; 粘到 keygrip 尾部（41 位脏键）——&lt;code&gt;gpg-preset-passphrase&lt;&#x2F;code&gt; 按脏键预设返回成功，但&lt;strong&gt;缓存落在不存在的键名下，真实密钥没被刷新&lt;&#x2F;strong&gt;（&lt;code&gt;gpg-connect-agent &#x27;keyinfo --list&#x27; &#x2F;bye&lt;&#x2F;code&gt; 可见真实键 cache 仍为空）。正确做法只取行首 40 位十六进制：&lt;code&gt;grep -oE &#x27;^[0-9A-Fa-f]{40}&#x27;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pinentry-chao-shi-fang-zhi-dan-chuang-gua-si&quot;&gt;pinentry 超时（防止弹窗挂死）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;pinentry-timeout&lt;&#x2F;code&gt; 控制 pinentry 弹窗在&lt;strong&gt;无用户输入多少秒后自动关闭&lt;&#x2F;strong&gt;（等效点击&quot;取消&quot;），避免无头&#x2F;askpass 场景下 pinentry 永久挂起：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;# ~&amp;#x2F;.gnupg&amp;#x2F;gpg-agent.conf
+pinentry-timeout 15
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;生效原理：gpg-agent 源码 &lt;code&gt;if (opt.pinentry_timeout)&lt;&#x2F;code&gt; 判断后，通过 assuan 发送 &lt;code&gt;SETTIMEOUT 15&lt;&#x2F;code&gt;，pinentry 收到后 15 秒无输入自动关闭并返回错误&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;超时起点&lt;&#x2F;strong&gt;：从弹窗出现后最后一次用户输入开始计时，一直打字会不断重置计时器，不会中途打断&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;已知 bug 仅影响 0&lt;&#x2F;strong&gt;：设 0 时 &lt;code&gt;opt.pinentry_timeout&lt;&#x2F;code&gt; 为假，gpg-agent &lt;strong&gt;不发送超时指令&lt;&#x2F;strong&gt;，pinentry 回退内部默认（通常 60 秒）；正数值（如 15）正常生效&lt;&#x2F;li&gt;
+&lt;li&gt;pinentry 兼容性：官方文档称 pinentry &quot;may or may not honor this request&quot;，但主流实现（curses&#x2F;gtk-2&#x2F;qt&#x2F;gnome3）都支持&lt;&#x2F;li&gt;
+&lt;li&gt;与 TTL 的区别：TTL 管&quot;缓存过期后重新询问&quot;，pinentry-timeout 管&quot;弹窗本身无响应时自动关&quot;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;agent-shang-xia-wen-gpg-tty-zhi-xiang-bu-cun-zai-lu-jing-rang-pinentry-kuai-su-shi-bai-2026-08-09-duan-dao-duan-shi-ce&quot;&gt;Agent 上下文：&lt;code&gt;GPG_TTY&lt;&#x2F;code&gt; 指向不存在路径让 pinentry 快速失败（2026-08-09 端到端实测）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;背景&lt;&#x2F;strong&gt;：opencode 等 agent 在终端里运行时，agent 触发的 ssh&#x2F;git&#x2F;pass 操作若口令已过 TTL，pinentry-curses 会把口令框画到 &lt;strong&gt;opencode 的 TUI&lt;&#x2F;strong&gt; 上打乱显示，或指向失效终端挂起。约定：agent 给&lt;strong&gt;每条&lt;&#x2F;strong&gt;可能触发口令的命令前缀 &lt;code&gt;GPG_TTY=&#x2F;dev&#x2F;nonexistent&lt;&#x2F;code&gt;（SSH 路径再靠 &lt;code&gt;Match exec updatestartuptty&lt;&#x2F;code&gt; 把该值带进 startup_tty），让 pinentry &lt;strong&gt;快速失败&lt;&#x2F;strong&gt;而非画框。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;端到端实测&lt;&#x2F;strong&gt;（&lt;code&gt;gpgconf --kill gpg-agent&lt;&#x2F;code&gt; 清空缓存后）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;GPG_TTY=&amp;#x2F;dev&amp;#x2F;nonexistent gpg-connect-agent updatestartuptty &amp;#x2F;bye
+GPG_TTY=&amp;#x2F;dev&amp;#x2F;nonexistent ssh -T git@gitee.com
+# 1 秒内失败: sign_and_send_pubkey ... agent refused operation, 不画框不挂起
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;踩坑：&lt;code&gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt; 反而挂满 15s&lt;&#x2F;strong&gt;。pinentry-curses 的 tty 来源不同，行为天差地别：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;传给 pinentry 的 tty&lt;&#x2F;th&gt;&lt;th&gt;行为&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPTION ttyname=&lt;&#x2F;code&gt;（空）&lt;&#x2F;td&gt;&lt;td&gt;立即失败 &lt;code&gt;Inappropriate ioctl&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPTION ttyname=&#x2F;dev&#x2F;null&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;挂满 &lt;code&gt;pinentry-timeout&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（&#x2F;dev&#x2F;null 是真实设备，open 成功卡在 termios 操作上）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;OPTION ttyname=&#x2F;dev&#x2F;nonexistent&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;立即失败 &lt;code&gt;No such file or directory&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;GPG_TTY=&#x2F;dev&#x2F;nonexistent&lt;&#x2F;code&gt;（env）&lt;&#x2F;td&gt;&lt;td&gt;立即失败&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;SSH 签名走 &lt;code&gt;OPTION ttyname&lt;&#x2F;code&gt; 路径，所以必须用&lt;strong&gt;不存在的路径&lt;&#x2F;strong&gt;，不能用 &lt;code&gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;两个必要条件&lt;&#x2F;strong&gt;（缺一无效）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;逐条命令前缀，不能只更新一次&lt;&#x2F;strong&gt;：ssh 的 &lt;code&gt;Match exec&lt;&#x2F;code&gt; 每次连接都会按&lt;strong&gt;那条命令进程的 GPG_TTY&lt;&#x2F;strong&gt; 重置 startup_tty，命令没带 &lt;code&gt;&#x2F;dev&#x2F;nonexistent&lt;&#x2F;code&gt; 会被重置回真实终端，照常画框。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;仅口令已过期时生效&lt;&#x2F;strong&gt;：缓存期（TTL）内无需 pinentry，命令照常成功。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;口令过期快速失败后，让用户&lt;strong&gt;在自己的终端&lt;&#x2F;strong&gt;用正确 &lt;code&gt;GPG_TTY=$(tty)&lt;&#x2F;code&gt; 解锁一次（如 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt;）刷新缓存，agent 重试即可。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;si-yao-cun-chu-yu-bao-hu&quot;&gt;私钥存储与保护&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;id_xxx&lt;&#x2F;code&gt; 是&lt;strong&gt;原件&lt;&#x2F;strong&gt;（OpenSSH 标准格式）；gpg-agent 持有的是&lt;strong&gt;工作副本&lt;&#x2F;strong&gt;，加密落盘在 &lt;code&gt;~&#x2F;.gnupg&#x2F;private-keys-v1.d&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;.key&lt;&#x2F;code&gt; 文件的加密是&lt;strong&gt;纯对称 s2k&lt;&#x2F;strong&gt;：口令 + 文件内 salt 迭代派生密钥（源码 protect.c 的 &lt;code&gt;hash_passphrase&lt;&#x2F;code&gt;），&lt;strong&gt;解密只需要 &lt;code&gt;.key&lt;&#x2F;code&gt; 文件 + 口令，不需要 GPG 公私钥对&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;格式与 gpg-agent 版本耦合，备份建议整个 &lt;code&gt;~&#x2F;.gnupg&#x2F;&lt;&#x2F;code&gt;；备份文件与口令要&lt;strong&gt;分开存放&lt;&#x2F;strong&gt;（防丢失两者都得保住，防盗两者不能同处）&lt;&#x2F;li&gt;
+&lt;li&gt;无头环境可用：&lt;code&gt;pinentry-program &#x2F;usr&#x2F;bin&#x2F;pinentry-curses&lt;&#x2F;code&gt;，不依赖桌面&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;私钥无口令 ≠ 数据明文&lt;&#x2F;strong&gt;：pass 里保存的 sudo 密码始终是&lt;strong&gt;公钥加密的密文&lt;&#x2F;strong&gt;（&lt;code&gt;sudo.gpg&lt;&#x2F;code&gt;），与私钥有没有口令无关。私钥无口令只是 &lt;code&gt;.key&lt;&#x2F;code&gt; 文件本身明文（仍在 &lt;code&gt;~&#x2F;.gnupg&lt;&#x2F;code&gt; 0700 权限保护下），少了最后一道防线：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;泄露组合&lt;&#x2F;th&gt;&lt;th&gt;私钥有口令&lt;&#x2F;th&gt;&lt;th&gt;私钥无口令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;仅 &lt;code&gt;sudo.gpg&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;解不开&lt;&#x2F;td&gt;&lt;td&gt;解不开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;sudo.gpg&lt;&#x2F;code&gt; + &lt;code&gt;.key&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;解不开（无口令）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;密码直接泄露&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;给 GPG 主密钥设口令（&lt;code&gt;gpg --change-passphrase&lt;&#x2F;code&gt; 设的即是 &lt;code&gt;.key&lt;&#x2F;code&gt; 文件保护口令，也是以后使用时要输的，&lt;strong&gt;只有一个口令&lt;&#x2F;strong&gt;）后由 gpg-agent 保管：加密落盘 + 解锁状态内存缓存。架构上 gpg 客户端不直接碰私钥，解密&#x2F;签名必须经 gpg-agent 中转，所以 gpg-agent 始终必需；有口令时它是&quot;守卫&quot;，无口令时只是&quot;透明通道&quot;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;an-quan-mo-xing&quot;&gt;安全模型&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;gpg-agent 是&lt;strong&gt;用户级单例&lt;&#x2F;strong&gt;：同一用户的所有会话（TTY&#x2F;GUI&#x2F;SSH）共享同一个缓存，一次解锁处处可用&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;缓存期内&lt;&#x2F;strong&gt;：任何同用户进程可免口令请求 agent 签名（可 ssh 到所有信任该密钥的机器）——这是&quot;冒充窗口&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;但无法提取密钥本体&lt;&#x2F;strong&gt;：agent 协议没有导出私钥的指令；&lt;code&gt;private-keys-v1.d&lt;&#x2F;code&gt; 是密文；同 UID 进程也无法 ptrace 读 agent 内存（Ubuntu 默认 yama ptrace_scope=1 只允许 tracee 的祖先进程，或持有 CAP_SYS_PTRACE 的进程）&lt;&#x2F;li&gt;
+&lt;li&gt;结论：删掉 &lt;code&gt;~&#x2F;.ssh&#x2F;id_xxx&lt;&#x2F;code&gt; 原件后，攻击者拿不到长期密钥、过期后也无法继续用，只有 TTL 窗口内的&quot;冒充使用权&quot;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;git-tag-qian-ming&quot;&gt;Git Tag 签名&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git config --global user.signingkey &amp;lt;key-id&amp;gt;
+git tag -s v1.0.0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;git-ping-ju-guan-li&quot;&gt;Git 凭据管理&lt;&#x2F;h2&gt;
+&lt;p&gt;安装 Git Credential Manager 后配置：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 使用 GPG 存储凭据
+export GCM_CREDENTIAL_STORE=gpg
+
+# 或使用内存缓存
+export GCM_CREDENTIAL_STORE=cache
+
+# 初始化密码存储
+pass init &amp;lt;gpg-key-id&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在 Emacs 中需设置环境变量：&lt;code&gt;(setenv &quot;GCM_CREDENTIAL_STORE&quot; &quot;cache&quot;)&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ti-dai-apt-key&quot;&gt;替代 apt-key&lt;&#x2F;h2&gt;
+&lt;p&gt;从 Ubuntu 22.04 起 apt-key 被弃用，改用 GPG：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 旧方式（弃用）
+wget -nc https:&amp;#x2F;&amp;#x2F;example.com&amp;#x2F;key.gpg
+sudo apt-key add key.gpg
+
+# 新方式
+wget -O- https:&amp;#x2F;&amp;#x2F;example.com&amp;#x2F;key.gpg | gpg --dearmor | \
+  sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;trusted.gpg.d&amp;#x2F;example.gpg &amp;gt; &amp;#x2F;dev&amp;#x2F;null
+
+# 更新 sources.list 添加 signed-by
+deb [arch=amd64 signed-by=&amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;trusted.gpg.d&amp;#x2F;example.gpg] https:&amp;#x2F;&amp;#x2F;example.com&amp;#x2F;debian stable main
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;迁移旧 apt-key 条目：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt-key list             # 查看所有旧 key
+sudo apt-key export &amp;lt;key-id&amp;gt; | sudo gpg --dearmor -o &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings&amp;#x2F;&amp;lt;name&amp;gt;.gpg
+sudo apt-key del &amp;lt;key-id&amp;gt;     # 删除旧条目
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;chang-jian-wen-ti&quot;&gt;常见问题&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;GPG 生成密钥时提示熵不够&lt;&#x2F;strong&gt;：SSH 远程服务器缺乏随机源，安装 &lt;code&gt;rng-tools&lt;&#x2F;code&gt; 或在 GUI 环境下操作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Emacs Magit 与 git credential 冲突&lt;&#x2F;strong&gt;：设置 &lt;code&gt;magit-process-connection-type&lt;&#x2F;code&gt; 为 t，配置 &lt;code&gt;GCM_CREDENTIAL_STORE=cache&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;脚本输入口令后挂死&lt;&#x2F;strong&gt;：终端残留 pinentry-curses 遗留的 &lt;strong&gt;raw 模式&lt;&#x2F;strong&gt;（&lt;code&gt;stty -a&lt;&#x2F;code&gt; 显示 &lt;code&gt;-icanon&lt;&#x2F;code&gt;）时，按 Enter 只发送 &lt;code&gt;\r&lt;&#x2F;code&gt;，而 bash &lt;code&gt;read&lt;&#x2F;code&gt; 等待 &lt;code&gt;\n&lt;&#x2F;code&gt; → 输入口令后永远等不到换行。恢复：&lt;code&gt;reset&lt;&#x2F;code&gt; 或 &lt;code&gt;stty sane&lt;&#x2F;code&gt;；脚本侧可在 read 前检测 &lt;code&gt;stty -a &amp;lt;&#x2F;dev&#x2F;tty | grep -oE &#x27;[+-]?icanon&#x27; | grep -q &#x27;^-&#x27;&lt;&#x2F;code&gt; 命中即自动 &lt;code&gt;stty sane&lt;&#x2F;code&gt; 自愈（gpg-manager.sh 已内置）。典型来源：pinentry-curses 弹错终端（GPG_TTY 未导出）或被 &lt;code&gt;killall pinentry-curses&lt;&#x2F;code&gt; 强杀后未恢复终端属性。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SSH 场景 pinentry 弹到别的终端&lt;&#x2F;strong&gt;：SSH 协议不携带 ttyname，pinentry-curses 只能画在 gpg-agent 全局 startup_tty（最后一次 &lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 的终端），多终端下最易弹错位置；&lt;code&gt;gpg&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;pass&lt;&#x2F;code&gt; 路径客户端自带 ttyname 不受影响。修复：shell rc 里 &lt;code&gt;export GPG_TTY=&quot;$(tty)&quot;&lt;&#x2F;code&gt;（有 tty 时）并 &lt;code&gt;gpg-connect-agent updatestartuptty &#x2F;bye&lt;&#x2F;code&gt;，详见「pinentry 如何拿到 DISPLAY &#x2F; tty」。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;wen-da-ji-lu&quot;&gt;问答记录&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;Q1: 脚本交互输入口令后卡死（输入了口令但无任何响应）？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;终端残留 pinentry-curses 遗留的 &lt;strong&gt;raw 模式&lt;&#x2F;strong&gt;（&lt;code&gt;stty -a&lt;&#x2F;code&gt; 显示 &lt;code&gt;-icanon&lt;&#x2F;code&gt;）导致：按 Enter 只发送 &lt;code&gt;\r&lt;&#x2F;code&gt;，而 bash &lt;code&gt;read&lt;&#x2F;code&gt; 等待 &lt;code&gt;\n&lt;&#x2F;code&gt; → 永远等不到换行。典型来源：pinentry-curses 弹错终端（GPG_TTY 未导出）或被 &lt;code&gt;killall pinentry-curses&lt;&#x2F;code&gt; 强杀后未恢复终端属性。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;手动恢复：&lt;code&gt;reset&lt;&#x2F;code&gt; 或 &lt;code&gt;stty sane&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;脚本侧修复（gpg-manager.sh 已内置）：read 前&lt;strong&gt;无条件&lt;&#x2F;strong&gt; &lt;code&gt;stty sane &amp;lt;&#x2F;dev&#x2F;tty&lt;&#x2F;code&gt;——实测先做&quot;检测到 &lt;code&gt;-icanon&lt;&#x2F;code&gt; 才恢复&quot;的方式在真实环境没兜住（检测路径未必覆盖所有遗留状态），无条件恢复等价 &lt;code&gt;reset&lt;&#x2F;code&gt; 且终端正常时无副作用，彻底杜绝该挂死类问题&lt;&#x2F;li&gt;
+&lt;li&gt;附带验证结论：仅 &lt;code&gt;-icrnl&lt;&#x2F;code&gt;（ICANON 开、CR 不转 NL）不会挂 bash read，真正挂死的是 &lt;code&gt;-icanon&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;Q2: gpg-preset-passphrase 支持从 stdin 读口令吗？为什么脚本还要先 &lt;code&gt;read&lt;&#x2F;code&gt; 一遍？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;支持，脚本正是在用它：&lt;code&gt;printf &#x27;%s\n&#x27; &quot;$passphrase&quot; | gpg-preset-passphrase -c &quot;$grip&quot;&lt;&#x2F;code&gt;。但 &lt;code&gt;read&lt;&#x2F;code&gt; 不能省：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;一次输入要复用多次&lt;&#x2F;strong&gt;：主密钥+子密钥 = 多次 preset 调用，每次调用消耗一份 stdin；直接交终端 stdin 给第一次调用，后续 grip 就没口令可读（阻塞）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;静默输入&lt;&#x2F;strong&gt;：preset 直接读终端 stdin 不回显屏蔽（仅 fread stdin），口令会明文显示；&lt;code&gt;read -s&lt;&#x2F;code&gt; 提供静默输入&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;分工：&lt;code&gt;read&lt;&#x2F;code&gt;（终端侧：静默收一次输入）→ shell 变量 → 循环内每次 preset 走 stdin（agent 侧）。变量存口令不构成泄露（非 export 不进 environ、不落 argv，&lt;code&gt;ps&lt;&#x2F;code&gt; 不可见，循环后 &lt;code&gt;unset&lt;&#x2F;code&gt;），详见上文「安全模型」。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q3: SSH 场景 pinentry 弹到别的终端？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;SSH 协议不携带 ttyname，pinentry-curses 只能画在 gpg-agent 全局 startup_tty（最后一次 &lt;code&gt;updatestartuptty&lt;&#x2F;code&gt; 的终端），多终端下最易弹错位置；&lt;code&gt;gpg&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;pass&lt;&#x2F;code&gt; 路径客户端自带 ttyname 不受影响。修复：shell rc 里 &lt;code&gt;export GPG_TTY=&quot;$(tty)&quot;&lt;&#x2F;code&gt;（有 tty 时）并 &lt;code&gt;gpg-connect-agent updatestartuptty &#x2F;bye&lt;&#x2F;code&gt;，详见「pinentry 如何拿到 DISPLAY &#x2F; tty」。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q4: GPG 生成密钥时提示熵不够？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;SSH 远程服务器缺乏随机源，安装 &lt;code&gt;rng-tools&lt;&#x2F;code&gt; 或在 GUI 环境下操作。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q5: Emacs Magit 与 git credential 冲突？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;设置 &lt;code&gt;magit-process-connection-type&lt;&#x2F;code&gt; 为 t，配置 &lt;code&gt;GCM_CREDENTIAL_STORE=cache&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q6: gpg-preset-passphrase 支持交互式输入口令吗？怎么验证？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;支持&lt;&#x2F;strong&gt;，且&lt;strong&gt;纯回车即可完成，不需要 Ctrl+D&lt;&#x2F;strong&gt;。实测（pty 模拟 + 真实 grip 的 keyinfo 缓存位验证）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;输入方式&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;口令 + 回车（无 EOF）&lt;&#x2F;td&gt;&lt;td&gt;exit 0，缓存位 &lt;code&gt;-&lt;&#x2F;code&gt;→&lt;code&gt;1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;口令 + Ctrl+D&lt;&#x2F;td&gt;&lt;td&gt;exit 0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;口令 + 回车 + Ctrl+D&lt;&#x2F;td&gt;&lt;td&gt;exit 0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;程序按&lt;strong&gt;行&lt;&#x2F;strong&gt;读取 stdin（非 fread 到 EOF），回车即结束输入；&lt;strong&gt;尾部 &lt;code&gt;\n&lt;&#x2F;code&gt; 会被剥离&lt;&#x2F;strong&gt;——反证：&lt;code&gt;printf &#x27;%s\n&#x27; &quot;$pass&quot; | gpg-preset-passphrase -c &amp;lt;grip&amp;gt;&lt;&#x2F;code&gt; 喂入后实际签名成功，说明缓存口令与真实口令一致、无混入换行。&lt;&#x2F;p&gt;
+&lt;p&gt;验证方法：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gpg-preset-passphrase -c &amp;lt;40位keygrip&amp;gt;        # 直接运行, 盲输口令, 回车
+gpg-connect-agent &amp;#x27;keyinfo --list&amp;#x27; &amp;#x2F;bye | grep &amp;lt;keygrip&amp;gt;   # 第7字段 1=已写缓存(格式: grip 类型 序列 缓存 公钥 设备 口令缓存 来源 过期)
+gpg-preset-passphrase -f &amp;lt;keygrip&amp;gt;            # 验证完清理
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;常见误区（均已被实测推翻）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;❌ &quot;必须 Ctrl+D 结束输入&quot;——回车即完成&lt;&#x2F;li&gt;
+&lt;li&gt;❌ &quot;回车会把 &lt;code&gt;\n&lt;&#x2F;code&gt; 作为密码的一部分导致失败&quot;——&lt;code&gt;\n&lt;&#x2F;code&gt; 被剥离&lt;&#x2F;li&gt;
+&lt;li&gt;❌ &quot;参数带 &lt;code&gt;SSH:&lt;&#x2F;code&gt; 前缀（如 &lt;code&gt;SSH:40位特征码&lt;&#x2F;code&gt;）&quot;——参数就是裸 40 位 hex keygrip（&lt;code&gt;--help&lt;&#x2F;code&gt;：&lt;code&gt;gpg-preset-passphrase [选项] KEYGRIP&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;✅ &lt;code&gt;read -s&lt;&#x2F;code&gt; 包装交互界面——正确做法，gpg-manager.sh 已实现&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;重要注意&lt;&#x2F;strong&gt;：preset &lt;strong&gt;不校验口令正确性&lt;&#x2F;strong&gt;——&quot;写入成功&quot;（exit 0）≠ &quot;口令正确&quot;。写入错误口令后，下次签名解密失败会触发 pinentry 重新录入（自愈），但会造成一次多余的弹窗。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q7: gpg-agent 缓存明明正常（keyinfo 显示 cached=P），为什么 git push 还是 Permission denied (publickey)？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;排查思路要分两层：&lt;strong&gt;密钥缓存（gpg-agent 侧）≠ 认证通路（SSH_AUTH_SOCK 指向）&lt;&#x2F;strong&gt;。实测案例：同一台机器 &lt;code&gt;git push&lt;&#x2F;code&gt;（gitee）成功、&lt;code&gt;git push&lt;&#x2F;code&gt;（github）失败，&lt;code&gt;gpg-connect-agent &#x27;keyinfo --list&#x27; &#x2F;bye&lt;&#x2F;code&gt; 显示密钥缓存正常（&lt;code&gt;P&lt;&#x2F;code&gt; = 口令已 preset），一度误判为&quot;缓存过期&quot;。&lt;&#x2F;p&gt;
+&lt;p&gt;真正原因：当前 shell 的 &lt;code&gt;SSH_AUTH_SOCK=&#x2F;tmp&#x2F;ssh-XXXX&#x2F;agent.PID&lt;&#x2F;code&gt; 指向一个&lt;strong&gt;残留的空 ssh-agent&lt;&#x2F;strong&gt;（&lt;code&gt;ssh-add -l&lt;&#x2F;code&gt; 报 no identities），gpg-agent 被完全绕过。来源是迁移 gpg-agent 方案前的老 rc 函数 &lt;code&gt;sshagent()&lt;&#x2F;code&gt;（&lt;code&gt;~&#x2F;.my_profile.net&lt;&#x2F;code&gt;）：某次 shell 启动时 &lt;code&gt;ssh-add -l&lt;&#x2F;code&gt; 失败（当时 gpg-agent 未就绪），它便启动独立 &lt;code&gt;ssh-agent -s&lt;&#x2F;code&gt; 并把 &lt;code&gt;SSH_AUTH_SOCK&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;SSH_AGENT_PID&lt;&#x2F;code&gt; 持久化到 &lt;code&gt;~&#x2F;.pid_ssh_agent&lt;&#x2F;code&gt;，&lt;strong&gt;此后的每个 shell 都 source 复用这个空 agent&lt;&#x2F;strong&gt;——这就是 &lt;code&gt;~&#x2F;.pid_ssh_agent&lt;&#x2F;code&gt; 和 &lt;code&gt;&#x2F;tmp&#x2F;ssh-*&#x2F;agent.*&lt;&#x2F;code&gt; 出现在 SSH_AUTH_SOCK 里的来源。&lt;&#x2F;p&gt;
+&lt;p&gt;为什么 gitee 能 push、github 不能：&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt; 配了 &lt;code&gt;ControlMaster auto + ControlPersist 1h&lt;&#x2F;code&gt;，gitee 已有复用的 master 连接（&lt;code&gt;~&#x2F;.ssh&#x2F;socket&#x2F;git@gitee.com-22&lt;&#x2F;code&gt;），复用通道&lt;strong&gt;不重新认证&lt;&#x2F;strong&gt;；github.com 无复用连接，每次 push 都要实时签名 → 空 agent → 拒绝。所以&quot;有的仓库能 push 有的不能&quot;正是这个病的典型症状。&lt;&#x2F;p&gt;
+&lt;p&gt;修复：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 清理残留 ssh-agent 与其持久化文件(进程号见 ~&amp;#x2F;.pid_ssh_agent 或 ps aux | grep ssh-agent)
+kill &amp;lt;SSH_AGENT_PID&amp;gt; &amp;amp;&amp;amp; rm -f ~&amp;#x2F;.pid_ssh_agent
+# 2. 当前 shell 指回 gpg-agent
+export SSH_AUTH_SOCK=&amp;quot;$(gpgconf --list-dirs agent-ssh-socket)&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;根治：老 &lt;code&gt;sshagent()&lt;&#x2F;code&gt; 开头先探测 gpg-agent socket（&lt;code&gt;gpgconf --list-dirs agent-ssh-socket&lt;&#x2F;code&gt; 存在且 &lt;code&gt;-S&lt;&#x2F;code&gt; 为 socket）则直接 &lt;code&gt;export SSH_AUTH_SOCK&lt;&#x2F;code&gt; 并跳过启动独立 agent；无 gpg-agent 的环境（如远程服务器）再走原逻辑。教训：&lt;code&gt;SSH_AUTH_SOCK&lt;&#x2F;code&gt; 是&lt;strong&gt;环境变量覆盖&lt;&#x2F;strong&gt;机制，任何会 export 它的旧逻辑都会静默劫持新方案；排查认证失败第一步永远先 &lt;code&gt;echo $SSH_AUTH_SOCK&lt;&#x2F;code&gt; 确认指向（应含 &lt;code&gt;gnupg&#x2F;S.gpg-agent.ssh&lt;&#x2F;code&gt;），&lt;code&gt;ssh -vvv&lt;&#x2F;code&gt; 的 &lt;code&gt;get_agent_identities&lt;&#x2F;code&gt; 行可直接看到 agent 里的身份数。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q8: 跑完 gpg-manager.sh，某把密钥的 keyinfo 缓存位还是 &lt;code&gt;-&lt;&#x2F;code&gt;（没被预设）？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;先看这把密钥&lt;strong&gt;有没有 &lt;code&gt;.pub&lt;&#x2F;code&gt; 文件&lt;&#x2F;strong&gt;：gpg-manager.sh 第 5 步 B 分支（原生 SSH 密钥缓存刷新）只从 &lt;code&gt;~&#x2F;.ssh&#x2F;*.pub&lt;&#x2F;code&gt; 构建「指纹 → 私钥文件」映射，&lt;strong&gt;无 &lt;code&gt;.pub&lt;&#x2F;code&gt; 的密钥（如 &lt;code&gt;id_rsa_199_jumper&lt;&#x2F;code&gt;，只有私钥和 &lt;code&gt;.bak&lt;&#x2F;code&gt;）找不到私钥文件，会被 &lt;code&gt;[!] 跳过: 未找到 keygrip ... 对应的私钥文件&lt;&#x2F;code&gt; 跳过，不执行预设&lt;&#x2F;strong&gt;——属预期行为，无 &lt;code&gt;.pub&lt;&#x2F;code&gt; 的密钥不纳入脚本管理。&lt;&#x2F;p&gt;
+&lt;p&gt;处理方式二选一：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 手动预设(不依赖 .pub, 在交互终端输入该密钥的保护口令)
+gpg-preset-passphrase -c &amp;lt;40位keygrip&amp;gt;      # 之后 keyinfo 缓存位 - → 1
+
+# 2. 补一份 .pub 后重跑 gpg-manager.sh(脚本会识别并纳入管理)
+ssh-keygen -y -f ~&amp;#x2F;.ssh&amp;#x2F;id_xxx &amp;gt; ~&amp;#x2F;.ssh&amp;#x2F;id_xxx.pub
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;要点：无 &lt;code&gt;.pub&lt;&#x2F;code&gt; &lt;strong&gt;不影响密钥本身使用&lt;&#x2F;strong&gt;（认证只读私钥），只是脱离 gpg-manager.sh 的管理（不参与缓存刷新）。另外 &lt;code&gt;.bak&lt;&#x2F;code&gt; 备份私钥本身就不该被管理——脚本的 &lt;code&gt;~&#x2F;.ssh&#x2F;id_*&lt;&#x2F;code&gt; 遍历已排除 &lt;code&gt;*.pub&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;*-cert&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;*.bak&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q9: 智能体（agent）里 git push 弹 pinentry 没法输入口令，怎么办？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;opencode 等智能体环境里，&lt;code&gt;git push&lt;&#x2F;code&gt; 走 SSH → gpg-agent（SSH_AUTH_SOCK）→ SSH 密钥口令缓存过期 → pinentry-curses 画在 agent 的 PTY 上，&lt;strong&gt;你根本没法输入&lt;&#x2F;strong&gt; → push 挂死&#x2F;失败。这是&quot;SSH 密钥口令缓存过期&quot;在 agent 场景的必然结果，不是 bug。&lt;&#x2F;p&gt;
+&lt;p&gt;解法（按优先级）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;拉长 TTL + 解锁一次管很久&lt;&#x2F;strong&gt;：&lt;code&gt;max-cache-ttl-ssh&lt;&#x2F;code&gt;（和 &lt;code&gt;max-cache-ttl&lt;&#x2F;code&gt;）调大（本仓库现为 57600 = 16h）。开机&#x2F;agent 重启后先在&lt;strong&gt;你自己的终端&lt;&#x2F;strong&gt;解锁一次（&lt;code&gt;ssh -T git@github.com&lt;&#x2F;code&gt; 走 SSH 密钥、&lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 走 GPG），之后 agent 里 push&#x2F;sudo 长时间不再弹。改 TTL 需同步 run.sh 模板，否则重跑会被覆盖&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;需要立刻重置计时时用 &lt;code&gt;gpg-manager.sh --forget&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：脚本先打印每把密钥当前缓存状态（&lt;code&gt;KEYINFO&lt;&#x2F;code&gt; 第 7 字段：&lt;code&gt;1&lt;&#x2F;code&gt;=已缓存，&lt;code&gt;-&lt;&#x2F;code&gt;=未缓存），&lt;strong&gt;所有 GPG&#x2F;SSH 密钥口令一致时只输入一次&lt;&#x2F;strong&gt;，逐把询问 &lt;code&gt;预设? [y&#x2F;N]&lt;&#x2F;code&gt;；带 &lt;code&gt;--forget&lt;&#x2F;code&gt; 时预设前先 &lt;code&gt;CLEAR_PASSPHRASE&lt;&#x2F;code&gt; 删条目，使 max-cache-ttl 重新计时&lt;&#x2F;li&gt;
+&lt;li&gt;也可在 agent 场景为命令前缀 &lt;code&gt;GPG_TTY=&#x2F;dev&#x2F;nonexistent&lt;&#x2F;code&gt; 让 pinentry 快速失败而非画框（见上文「Agent 上下文」节），但那是&quot;不弹&quot;不是&quot;能过&quot;，治标不治本&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;Q10: gpg-preset-passphrase 的 preset 与 forget 对 TTL 的影响？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;操作&lt;&#x2F;th&gt;&lt;th&gt;default-cache-ttl&lt;&#x2F;th&gt;&lt;th&gt;max-cache-ttl&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;preset（条目已存在）&lt;&#x2F;td&gt;&lt;td&gt;✅ 重置闲置计时器&lt;&#x2F;td&gt;&lt;td&gt;❌ 不刷新（created 锚定）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;forget → preset（条目重建）&lt;&#x2F;td&gt;&lt;td&gt;✅ 重新计时&lt;&#x2F;td&gt;&lt;td&gt;✅ 重新计时&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;code&gt;--forget&lt;&#x2F;code&gt;（&lt;code&gt;CLEAR_PASSPHRASE&lt;&#x2F;code&gt; 删除条目）后再 preset，gpg-agent 视为全新缓存条目，两个计时器都从零开始。注意本环境 &lt;code&gt;gpg-preset-passphrase -f&lt;&#x2F;code&gt; 实测报 &lt;code&gt;IPC 无查询回调&lt;&#x2F;code&gt;，用 &lt;code&gt;gpg-connect-agent &quot;CLEAR_PASSPHRASE &amp;lt;grip&amp;gt;&quot; &#x2F;bye&lt;&#x2F;code&gt; 更可靠。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>SSH 安全加固</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/ssh-security/"/>
+        <id>https://moxuetianya.github.io/2025/07/ssh-security/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/ssh-security/">&lt;h1 id=&quot;ssh-an-quan-jia-gu&quot;&gt;SSH 安全加固&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fu-wu-duan-pei-zhi&quot;&gt;服务端配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;etc-ssh-sshd-config&quot;&gt;&#x2F;etc&#x2F;ssh&#x2F;sshd_config&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Port 12345                                     # 修改默认端口
+Protocol 2                                     # 仅使用新协议
+PasswordAuthentication no                      # 禁用密码登录
+PermitEmptyPasswords no                        # 禁止空密码
+PermitRootLogin no                             # 禁止 root 登录
+PubkeyAuthentication yes                       # 启用密钥认证
+UseDNS no                                      # 禁用 DNS 解析（加速登录）
+MaxAuthTries 3                                 # 限制认证尝试次数
+X11Forwarding no                               # 禁用 X11 转发
+AllowTcpForwarding no                          # 禁用端口转发（按需）
+AllowAgentForwarding no                        # 禁用 agent 转发
+ClientAliveInterval 120                        # 心跳间隔
+ClientAliveCountMax 3                          # 心跳超时次数
+HostBasedAuthentication no                     # 禁用基于主机的认证
+IgnoreRhosts yes                               # 忽略 .rhosts
+PermitUserEnvironment no                       # 禁止用户环境变量
+LoginGraceTime 60                              # 登录超时
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;jia-mi-suan-fa-jia-gu&quot;&gt;加密算法加固&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Ciphers aes256-ctr,aes128-ctr,aes192-ctr,aes128-gcm@openssh.com,aes256-gcm@openssh.com
+KexAlgorithms curve25519-sha256,curve25519-sha256@libssh.org,diffie-hellman-group16-sha512,diffie-hellman-group18-sha512
+MACs umac-128-etm@openssh.com,hmac-sha2-256-etm@openssh.com,hmac-sha2-512-etm@openssh.com
+HostKey &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;ssh_host_ed25519_key
+HostKey &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;ssh_host_rsa_key
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;mi-yao-wen-jian-quan-xian&quot;&gt;密钥文件权限&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;chmod 0644 &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;*pub
+chmod 0600 &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;*key
+chown root:root &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;sshd_config
+chmod og-rwx &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;sshd_config
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;zhong-jian-moduli&quot;&gt;重建 Moduli&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh-keygen -G moduli-2048.candidates -b 2048
+ssh-keygen -T moduli-2048 -f moduli-2048.candidates
+cp moduli-2048 &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;moduli
+rm moduli-2048
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ke-hu-duan-pei-zhi&quot;&gt;客户端配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 生成 ed25519 密钥
+ssh-keygen -t ed25519
+
+# 上传公钥
+ssh-copy-id user@host
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Host short
+  HostName 192.168.1.x
+  Port 12345
+  User peter
+  IdentityFile ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fail2ban-fang-bao-li-po-jie&quot;&gt;Fail2Ban 防暴力破解&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install fail2ban
+cp &amp;#x2F;etc&amp;#x2F;fail2ban&amp;#x2F;jail.conf &amp;#x2F;etc&amp;#x2F;fail2ban&amp;#x2F;jail.local
+# 编辑 [sshd]: enabled = true
+systemctl restart fail2ban
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fang-huo-qiang&quot;&gt;防火墙&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ufw
+sudo ufw allow from &amp;lt;IP&amp;gt; to any port 22
+
+# iptables
+iptables -I INPUT -p tcp -s &amp;lt;IP&amp;gt; --dport 22 -j ACCEPT
+
+# firewalld
+firewall-cmd --permanent --add-rich-rule=&amp;#x27;rule family=&amp;quot;ipv4&amp;quot; source address=&amp;quot;&amp;lt;IP&amp;gt;&amp;quot; port protocol=&amp;quot;tcp&amp;quot; port=&amp;quot;22&amp;quot; accept&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ssh-audit-an-quan-shen-ji&quot;&gt;ssh-audit 安全审计&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pip3 install ssh-audit
+ssh-audit &amp;lt;remote.server&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;duan-kou-zhuan-fa&quot;&gt;端口转发&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ben-di-zhuan-fa&quot;&gt;本地转发&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh -L 本地IP:本地端口:目标IP:目标端口 user@ssh-server
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;DNS 解析发生在 SSH 服务器端（&lt;code&gt;internal_db.local&lt;&#x2F;code&gt; 由 &lt;code&gt;ssh.sshgateway.com&lt;&#x2F;code&gt; 解析）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;dong-tai-zhuan-fa-socks&quot;&gt;动态转发（SOCKS）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh -D 8800 user@host
+export https_proxy=socks5:&amp;#x2F;&amp;#x2F;127.0.0.1:8800
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：本地有 IPv6 但代理服务器只有 IPv4 时，对 IPv6 站点的访问会失败。临时解决：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl -w net.ipv6.conf.eth0.disable_ipv6=1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;tiao-ban-ji-jump-host&quot;&gt;跳板机（Jump Host）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh -J user@jump-host:port target@internal
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.ssh&#x2F;config&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Host internal
+  HostName 192.168.2.x
+  User peter
+  ProxyJump user@jump-host
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;跳板机用户可使用 &lt;code&gt;&#x2F;usr&#x2F;sbin&#x2F;nologin&lt;&#x2F;code&gt; 作为 shell，仅允许端口转发而不允许交互登录。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

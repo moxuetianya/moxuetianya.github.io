@@ -1,0 +1,892 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>tokio 运行时「睡死」诊断记录：message-queue-enhance 服务异常排查 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="一次 tokio + axum 服务&#x27;进程活着、端口在听、请求全无响应&#x27;的完整排查：从日志时间线、&#x2F;proc 线程状态、epoll 注册表到 gcore 手工帧展开，最终定性为运行时 liveness 丢失的整个过程与工具方法论；含根本原因（dashmap 自研锁多 writer 丢失唤醒）与 A&#x2F;B 修复落地及验证；含最小独立复现样本（按生产锁序的 tokio 版 dashmap-hang，3&#x2F;3 命中 lock_exclusive_slow）及其与 v7&#x2F;v8 冻结签名的逐字对齐。持续更新中。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/tokio-runtime-hang-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/tokio-runtime-hang-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/tokio-runtime-hang-diagnosis/" />
+  <meta property="og:description" content="一次 tokio + axum 服务&#x27;进程活着、端口在听、请求全无响应&#x27;的完整排查：从日志时间线、&#x2F;proc 线程状态、epoll 注册表到 gcore 手工帧展开，最终定性为运行时 liveness 丢失的整个过程与工具方法论；含根本原因（dashmap 自研锁多 writer 丢失唤醒）与 A&#x2F;B 修复落地及验证；含最小独立复现样本（按生产锁序的 tokio 版 dashmap-hang，3&#x2F;3 命中 lock_exclusive_slow）及其与 v7&#x2F;v8 冻结签名的逐字对齐。持续更新中。" />
+  <meta name="twitter:description" content="一次 tokio + axum 服务&#x27;进程活着、端口在听、请求全无响应&#x27;的完整排查：从日志时间线、&#x2F;proc 线程状态、epoll 注册表到 gcore 手工帧展开，最终定性为运行时 liveness 丢失的整个过程与工具方法论；含根本原因（dashmap 自研锁多 writer 丢失唤醒）与 A&#x2F;B 修复落地及验证；含最小独立复现样本（按生产锁序的 tokio 版 dashmap-hang，3&#x2F;3 命中 lock_exclusive_slow）及其与 v7&#x2F;v8 冻结签名的逐字对齐。持续更新中。" />
+  <meta property="og:title" content="tokio 运行时「睡死」诊断记录：message-queue-enhance 服务异常排查 | 墨雪天琊" />
+  <meta name="twitter:title" content="tokio 运行时「睡死」诊断记录：message-queue-enhance 服务异常排查 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/tokio-runtime-hang-diagnosis/">tokio 运行时「睡死」诊断记录：message-queue-enhance 服务异常排查</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 25, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/rust/">rust</a>, <a href="https://moxuetianya.github.io/categories/debugging/">debugging</a>] #<a href="https://moxuetianya.github.io/tags/tokio/">tokio</a>  #<a href="https://moxuetianya.github.io/tags/debugging/">debugging</a>  #<a href="https://moxuetianya.github.io/tags/rust/">rust</a>  #<a href="https://moxuetianya.github.io/tags/wchan/">wchan</a>  #<a href="https://moxuetianya.github.io/tags/gdb/">gdb</a>  #<a href="https://moxuetianya.github.io/tags/core-dump/">core-dump</a>  #<a href="https://moxuetianya.github.io/tags/procfs/">procfs</a>  #<a href="https://moxuetianya.github.io/tags/ws/">ws</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a> </span>
+
+    
+
+
+<h1 id="pai-cha-xue-xi-lu-jing">排查/学习路径</h1>
+<p><strong>一句话结论</strong>：一个 tokio+axum 服务在"双隧道并发注册 + 旧对存活"的重叠场景下，<code>registry.insert()</code> 撞上 <strong>dashmap 6.2.1 自研写锁的多 writer 丢失唤醒</strong>（<code>lock_exclusive_slow</code>），两个以上 worker 永久卡在锁上；恰逢其中一位正持有 <strong>tokio io/timer driver 的单 owner 令牌</strong> → epoll 无人轮询 → 其余 worker 无限空闲等唤醒永不满足 → <strong>全 runtime 静默死透</strong>（进程活着、端口监听、日志停写、请求无响应）。</p>
+<p><strong>学习路径建议</strong>（按本文结构，每段可独立跳到）：</p>
+<ol>
+<li><strong>会看症状</strong> → <code>现象</code> + <code>第一步/第二步</code>：TCP 能连 ≠ 服务能用；<code>ss</code>/<code>lsof</code> 谁在听；日志停止点=第一现场</li>
+<li><strong>学会"判定进程是否活着"（活死判定）</strong> → <code>第三步</code> wchan 全分布（<code>futex_wait_queue</code> vs <code>do_epoll_wait</code> vs <code>park_condvar</code> 的意义）+ <code>第五步</code> epoll fdinfo 注册表</li>
+<li><strong>学会取证</strong> → <code>第四步</code> gcore → 手工解栈（无 DWARF 时 <code>x/8gx $rsp</code> + nm 基址）→ <code>带 DWARF 的 debug 版</code>（本项目一键 build 出 <code>.debug</code>，gdb 免参数全栈）</li>
+<li><strong>会复现</strong>（可跑通）→ <code>复现成功</code> 章 + <code>脚本下载</code>（repro7/8 一键起）→ 三次独立命中；最小独立样本见 <code>最小独立复现样本</code>（按生产锁序的 tokio 版，3/3 命中 <code>lock_exclusive_slow</code>）</li>
+<li><strong>懂根因</strong> → <code>根因锁定</code>（dashmap 状态机 + 读锁跨 await 红线）→ <code>连锁反应</code>（driver 令牌断供）</li>
+<li><strong>懂怎么修</strong> → QA 的 <code>A/B 修复</code> + <code>修复落地与验证</code></li>
+</ol>
+<h1 id="bei-jing">背景</h1>
+<p><code>message-queue-enhance</code> 是我们一个 Rust 组合服务（单端口 8080）：</p>
+<ul>
+<li><code>/forward/ws</code> —— 反向隧道控制面（Reverse Forwarder 协议：公网端口 → Nginx 客户端 → 内网服务）</li>
+<li><code>/ws</code>、<code>/mq/ws</code> —— 消息中继（WebSocket 发布/订阅）</li>
+<li><code>/mq/status</code> —— 组合仪表盘（SSR HTML，5 秒自动刷新）</li>
+</ul>
+<p>部署后不久服务"异常"：<code>/mq/status</code> 无法访问，TCP 显示<strong>还在监听 8080 端口</strong>，但 <code>curl</code> 或 <code>websocat</code> 连接都没有任何反映。</p>
+<blockquote>
+<p>这篇文章是"调试工具与方法论"视角的完整记录：没有一次定位，没有灵光一闪，只有一步步用 <code>/proc</code>、日志、core dump 把"还活着"证明成"其实死透了"。文章会随深度排查持续更新。</p>
+</blockquote>
+<h1 id="xian-xiang">现象</h1>
+<pre><code>$ curl http:&#x2F;&#x2F;&lt;server&gt;:8080&#x2F;mq&#x2F;status      # 超时，0 字节应答
+$ curl http:&#x2F;&#x2F;&lt;server&gt;:10200&#x2F;mq&#x2F;status     # 超时（同服务经 caddy 代理）
+$ curl -k https:&#x2F;&#x2F;&lt;server&gt;:9000&#x2F;mq&#x2F;status  # HTTP 200 但 body 空！
+</code></pre>
+<p>端口探针/<code>ss</code> 显示 8080 仍在 LISTEN，进程还存在（容器 <code>docker ps</code> Up 状态），但一切请求都像被黑洞吞掉。</p>
+<p><strong>第一课：TCP 能连通 ≠ 服务可用。</strong> 内核层监听（backlog 队列）和用户态 accept/处理是完全两回事——<code>ss</code> 显示 LISTEN 只证明了内核 socket 还在。</p>
+<h1 id="pai-cha-guo-cheng">排查过程</h1>
+<h2 id="di-yi-bu-que-ren-shui-zai-ting-shui-zai-deng">第一步：确认"谁在听、谁在等"</h2>
+<p>先搞清楚 8080 上到底有什么 socket 坐着：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 容器 netns 内查看（宿主侧 lsof）
+sudo nsenter -t &lt;host_pid&gt; -n lsof -nP -iTCP:8080
+</code></pre>
+<p>结果（关键几行）：</p>
+<pre><code>caddy      &lt;pid&gt;  TCP 127.0.0.1:32768-&gt;127.0.0.1:8080 (ESTABLISHED)   # 反向代理一条连接挂死
+message-q  &lt;pid&gt;  TCP *:8080 (LISTEN)                                 # 主服务在听
+message-q  &lt;pid&gt;  TCP 127.0.0.1:8080-&gt;127.0.0.1:xxx (CLOSE_WAIT)      # 积压的半关闭连接（对端已 FIN，服务端从未 close）
+</code></pre>
+<p><strong>要点</strong>：</p>
+<ul>
+<li><code>CLOSE_WAIT</code>：对端已 FIN，<strong>服务端应用从未 close 这个 socket</strong> —— 应用早就"不干活"了，只是进程没退出。</li>
+<li><strong>真实客户端链路</strong>：agent 侧经 <strong>caddy 的 10200 端口反代</strong>（Caddyfile：<code>handle /forward/ws</code>、<code>handle_path /mq*</code> → <code>reverse_proxy {$MQ_WS}</code>，<code>MQ_WS=http://127.0.0.1:8080</code>）到达 message-queue-enhance 8080 —— <code>caddy</code> 到 8080 的那条 ESTABLISHED 挂死正是代理转发的请求等不到上游响应。</li>
+</ul>
+<h2 id="di-er-bu-ri-zhi-shi-jian-xian-liang-lun-yun-xing-wan-quan-tong-gou-de-jie-wei">第二步：日志时间线——两轮运行完全同构的结尾</h2>
+<p>日志文件 <code>message-queue-enhance.log</code> <strong>最后的写入时间</strong>是冻结时刻，之后 40 分钟没再增长（哪怕每 5s 自动刷新的 /mq/status 也没触发任何日志写入）。提取最后部分：</p>
+<pre><code>06:52:13.647  message-queue-enhance listening on 0.0.0.0:8080      # 服务启动
+06:52:40.924  request method: GET, uri: &#x2F;forward&#x2F;ws?remote_port=9171...   # 客户端对 A
+06:52:40.924  response status: 101 Switching Protocols                  # A 对成功注册
+06:58:37.406  request method: GET, uri: &#x2F;forward&#x2F;ws?remote_port=8172...  # 客户端对 B 来
+06:58:37.406  response status: 101 Switching Protocols                 # B 对第 1 条成功
+06:58:37.406  request method: GET, uri: &#x2F;forward&#x2F;ws?remote_port=9172...  # B 对第 2 条：请求已记录
+06:58:39.6    tunnel ...: listening on 0.0.0.0:8172 ...                # 但 9172 永无后续
+06:58:48.409  request method: GET, uri: &#x2F;forward&#x2F;ws?remote_port=9172...  # 恰 11.003s 后客户端重试
+06:58:48.409  &lt;没有 response 行&gt;                                       # 第二次也卡死
+（之后 40 分钟无任何日志）
+</code></pre>
+<p><strong>冻结模式</strong>（这是本次最重要的发现）：</p>
+<ol>
+<li>旧隧道对（A）仍存活时，新客户端对 B 注册 <code>/forward/ws</code></li>
+<li><strong>B 对的其中一条升级"卡死"</strong>：TraceLayer 已打印 <code>request method</code>，但<strong>永远没有 <code>response status: 101</code>、没有 <code>registered</code>、没有 <code>listening</code></strong></li>
+<li>恰好 <strong>11.003 s</strong> 后客户端重试同一端口——同样卡死</li>
+<li>随后整个 runtime 冻结：无日志、无响应</li>
+</ol>
+<p>再回看<strong>上一轮容器运行</strong>（前一天启动的那次），结尾完全同构：</p>
+<pre><code>03:42:26.515  request method &#x2F;forward&#x2F;ws?remote_port=8171   # 第 1 条卡死
+03:42:26.515  request method &#x2F;forward&#x2F;ws?remote_port=9171   # 第 2 条成功 101
+03:42:37.518  request method &#x2F;forward&#x2F;ws?remote_port=8171   # 11.003s 后重试也卡死
+（之后 3+ 小时无日志，直到人工重启）
+</code></pre>
+<blockquote>
+<p><strong>这不是偶发，是可复发的 bug 模式。</strong> 两轮运行、不同的挂起端口（这次 9172、上回 8171），模式一模一样的"11 秒重试→全灭"。</p>
+</blockquote>
+<h2 id="di-san-bu-jin-cheng-shi-fou-zhen-de-huo-zhao-proc-xian-cheng-zhuang-tai">第三步：进程是否真的活着？——/proc 线程状态</h2>
+<p><code>ps</code> 显示进程在、CPU 0、无 panic。到底每根线程在等什么？</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">for t in &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;task&#x2F;*&#x2F;; do
+  echo &quot;$(basename $t): $(cat $t&#x2F;wchan)&quot;
+done
+</code></pre>
+<p>结果：</p>
+<pre><code>16 × tokio-rt-worker : futex_wait_queue      # 全部 worker 处于 idle park
+1  × message-queue-e  : futex_wait_queue     # 主线程（block_on）
+</code></pre>
+<p><strong>对照健康实例</strong>（起一个同类服务对比）：</p>
+<pre><code>1 × tokio-rt-worker : do_epoll_wait          # ← 健康实例有且只有一个&quot;轮询者&quot;
+N × tokio-rt-worker : futex_wait_queue       # 其余 worker park
+</code></pre>
+<p><strong>冻结态：0 个线程处于 <code>do_epoll_wait</code>。</strong> 也就是说——tokio 的 io driver <strong>没有任何线程在轮询</strong>。所有 fd（含 8080 LISTEN）都在 epoll 里注册着，事件来就绪时却无人消费。</p>
+<blockquote>
+<p>这里我用了一个对照实验：直接在本机跑一个同样骨架的 tokio 服务，看它空闲时 wchan 的"分布样貌"。<strong>单看 wchan 值没有意义，看分布才有意义</strong>：<code>futex_wait_queue</code> 既可能是健康空闲、也可能是死锁——区别就看有没有人 <code>do_epoll_wait</code>。</p>
+</blockquote>
+<h2 id="di-si-bu-shi-bu-shi-suo-si-suo-core-dump-cai-jue">第四步：是不是"锁死锁"？——core dump 裁决</h2>
+<p><code>futex_wait_queue</code> 也可能是两个任务互相等一把共享锁。必须区分"锁死锁"还是"调度睡死"。手段：<strong>gcore 固化解冻态，再读每个线程的 futex 参数</strong>。</p>
+<h3 id="sheng-cheng-core">生成 core</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 服务器宿主侧（先确认 TracerPid=0，见下文的&quot;插曲&quot;）
+sudo gcore -o &#x2F;tmp&#x2F;mq-core 1552056
+# Saved corefile &#x2F;tmp&#x2F;mq-core.1552056   (36MB)
+</code></pre>
+<ul>
+<li>core 是<strong>手动生成一次</strong>的取证产物（与后文的 watchdog 自动 gcore 不同，watchdog 至今未触发）</li>
+<li>本地副本（排查用）：<code>scp smyl@192.168.7.165:/tmp/mq-core.1552056</code> 与生产二进制副本存入 <code>~/.tmp/opencode/mq-core/</code></li>
+<li>注意：core 内文件映射路径是容器内 <code>/message-queue-enhance</code>——gdb 会报"路径映射"警告（warning only，可完全忽略：gdb 以命令行提供的 exec 文件为准，分析照常）。真正的前置只有 <strong>exec 文件的 <code>.text</code> 布局与 core 匹配</strong>（同源构建=同布局；这就是"带 DWARF 的 debug 版"章节的意义）。"建同名路径/在容器内分析"只是消除该警告的手段，非必需。</li>
+</ul>
+<p>配套系统调用证据（strace 曾成功捕获一次，attach 后主线程进入等待的参数）：</p>
+<pre><code>futex(0x792cd09b81d8, FUTEX_WAIT_PRIVATE, 1, NULL)   # 无超时私有锁等待；该地址=主线程 park token
+</code></pre>
+<h3 id="warning-cha-qu-pai-cha-zi-ji-ye-bei-qia-zhu-tracerpid-yu-can-liu-strace">⚠️ 插曲：排查自己也被"卡住"——TracerPid 与残留 strace</h3>
+<p>排查途中想用 <code>strace -p</code> 观察，先 attach 成功（后台化时命令挂掉导致 strace 变孤儿进程还挂在目标上）；随后所有 gdb/strace 都报 <code>ptrace 不允许</code>，最后在 <code>/proc/&lt;pid&gt;/status</code> 发现：</p>
+<pre><code>State:  S (sleeping)
+TracerPid: 208     # ← 进程已被别的 tracer 占用！
+</code></pre>
+<p><code>kill</code> 掉残留 strace 后（内核自动 detach），<code>TracerPid</code> 回到 0，gcore 才可附加。<strong>教训：一个进程同时只能有一个 tracer；strace 不做后台化就死掉，会留下"附身"痕迹——排查工具本身也污染现场。</strong></p>
+<h3 id="jie-zhan-gdb-de-bt-wei-shen-me-duan-diao-ru-he-shou-gong-bu">解栈：gdb 的 bt 为什么断掉？如何手工补？</h3>
+<p>对 core 用 <code>gdb -batch -ex "thread apply all bt"</code>，结果<strong>几乎全是问号</strong>，栈在一个方向就断了：</p>
+<pre><code>#0  0x0000792ccfd468ee in syscall ()       # 断在 libc 裸汇编 syscall()
+#1  0x0000792c00000008 in ?? ()            # 之后全废
+#2  0x0000792ccdba2240 in ?? ()
+...
+</code></pre>
+<p>原因（这次学到的重要知识）：</p>
+<ol>
+<li>生产二进制是 <code>static-pie</code>、<strong>not stripped</strong>（有 <code>.symtab</code> 符号表）但 <strong>没有 DWARF</strong>（无 <code>.debug_*</code> 节）→ 没有行号/内联信息。</li>
+<li>glibc 的 <code>syscall()</code> 是<strong>裸汇编函数（无 .eh_frame）</strong>——即使有 <code>.eh_frame</code>，unwinder 到 frame0 也找不到"返回地址在哪儿"，直接放弃展开。</li>
+<li>Rust release 默认<strong>无 frame pointer</strong>，camera 依赖 CFI；CFI 断了就没法自动跳。</li>
+</ol>
+<p><strong>手工解栈方案</strong>（绕开 unwinder，一层层"读栈"）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 方式 A（推荐，一条 batch 命令批量完成）：
+# -ex 是顺序执行的子命令；thread apply all 对每条子命令都逐线程执行，
+# 因此 $rsp 自然跟随当前线程，无需手动抄地址
+gdb -batch \
+  -ex &quot;thread apply all p&#x2F;x \$rsp&quot; \
+  -ex &quot;thread apply all x&#x2F;16gx \$rsp&quot; \
+  .&#x2F;message-queue-enhance .&#x2F;frozen-core.1552056
+
+# 方式 B（真正&quot;交互式&quot;，gdb 交互 shell 内手动分步）：
+#   gdb .&#x2F;message-queue-enhance .&#x2F;frozen-core.1552056
+#   (gdb) thread apply all p&#x2F;x $rsp        ← 看输出抄下想关注的线程 rsp
+#   (gdb) thread 2
+#   (gdb) x&#x2F;8gx 0x&lt;上面抄来的地址&gt;
+#   (gdb) quit
+</code></pre>
+<p>比如线程 2 的原始栈：</p>
+<pre><code>0x792ccf9ff1e0:  0x0000792ccf9ff1d0  0x0000792c00000008
+0x792ccf9ff1f0:  0x0000792ccf9ff240  0x0000792ccf9ff200
+0x792ccf9ff200:  0x0000792cd09876b0  0x0000792ccf9ffad0
+0x792ccf9ff210:  0x0000000000000080  0x0000000000000001
+</code></pre>
+<p>其中 <code>0x792cd09876b0</code> 用 <code>info symbol</code> 解出是 <strong><code>tokio::runtime::task::waker::WAKER_VTABLE</code></strong>（tokio 内部<strong>静态全局对象</strong>，<code>.data.rel.ro</code>），而 <code>0x792ccf9ffad0</code> 是这个线程自己的 futex（park 令牌）。</p>
+<p><strong>WAKER_VTABLE 怎么用？</strong> —— 确定二进制"基址"，从而把核心地址全部换算成偏移给 addr2line：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">nm &lt;binary&gt; | grep waker_vtable            # 偏移 0x00f876b0
+# 基址 = 0x792cd09876b0 - 0xf876b0 = 0x792cc0000000
+addr2line -f -e &lt;binary&gt; &lt;pc_hdr - 基址&gt;
+</code></pre>
+<h3 id="mei-yi-gen-xian-cheng-shen-me-yang-zi">每一根线成什么样子？</h3>
+<ul>
+<li>每个 worker 的 futex 地址<strong>都在它自己的栈区内</strong>（间距 2MB 规律）——tokio 每线程 <code>CachedParkThread</code> 的 park 令牌，<strong>不是共享锁</strong>。</li>
+<li>栈帧里能看到 <code>WAKER_VTABLE</code> 指针 —— 线程正处于 waker 回调/park 路径。</li>
+<li>最终判读：<strong>全部线程 = tokio 标准 idle park；共享锁死锁被排除。</strong></li>
+</ul>
+<p><strong>结合 wchan + epoll 注册表，完整因果闭合</strong>：</p>
+<pre><code>fdinfo 显示 fd 仍在 epoll（结构完好）
+   + wchan 统计显示 0 线程在 epoll_wait（无人驱动）
+   = &quot;事件就绪但无人消费&quot;的调度级睡死
+</code></pre>
+<h2 id="di-wu-bu-epoll-zhu-ce-biao-fd-du-mei-diu">第五步：epoll 注册表——fd 都没丢</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ls -l &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;fd | grep eventpoll       # fd 3、5 都是 anon_inode:[eventpoll]
+cat &#x2F;proc&#x2F;&lt;pid&gt;&#x2F;fdinfo&#x2F;3                     # 内核 dump 的注册表
+</code></pre>
+<p>输出样例：</p>
+<pre><code>tfd:        9 events: 8000201d data: 792ccdda9a00   # 8080 LISTEN 仍在 epoll
+tfd:        4 events: 80002019 data: 0              # eventfd
+tfd:        8 events: 80002019 data: 1              # socketpair
+...
+</code></pre>
+<p><code>events: 0x8000201d</code> 逐位含义：<code>0x80000000</code> EPOLLET（边缘触发）| <code>0x2000</code> EPOLLRDHUP | <code>0x10</code> EPOLLHUP | <code>0x8</code> EPOLLERR | <code>0x2</code> EPOLLPRI | <code>0x1</code> EPOLLIN。</p>
+<p>结论：<strong>注册表完好——不是 io 注册丢了，是 io 驱动没人在跑。</strong></p>
+<h2 id="pai-chu-xiang">排除项</h2>
+<ul>
+<li>❌ OOM：<code>VmRSS ≈ 5MB</code>，不可能因内存问题</li>
+<li>❌ 崩溃/panic：日志无 panic 帧、线程数正常（17）</li>
+<li>❌ 进程退出/僵尸：容器 Up、LISTEN 在、TCP 可连</li>
+<li>❌ 端口冲突：<code>ss</code> 只有本进程监听 8080</li>
+<li>❌ 句柄耗尽：fd 只有 20 余个</li>
+</ul>
+<h1 id="jie-lun-di-yi-jie-duan-ding-xing">结论（第一阶段：定性）</h1>
+<p><strong>tokio multi-threaded runtime 的 liveness 丢失（调度级睡死）</strong>：</p>
+<ul>
+<li>进程"活着"但有 0 个线程在轮询 io driver（wchan 分布）</li>
+<li>所有任务/驱动都被丢进 idle park 且不再被唤醒（futex 在每线程 TLS park 槽、栈中有 waker 痕迹）</li>
+<li>内核侧 LISTEN/注册表完好、事件就绪无人消费（fdinfo 与 TCP 行为交叉验证）</li>
+<li><strong>强相关的触发序列</strong>：旧隧道活着 → 新客户端对注册 → 其中一个 WebSocketUpgrade 请求"已读入、永不完成"（无 101、无 registered）→ 11s 后同一端口重试也"已读入、永不完成" → 全灭</li>
+<li><strong>两轮运行完全同构</strong>（分别是 03:42 轮与 06:52 轮），可复发</li>
+</ul>
+<p>⚠️ 尚未钉死的部分：挂起的 <code>WebSocketUpgrade</code> 与 runtime 睡死之间的精确因果链（是 hyper 连接任务持有某事导致驱动饿死？还是升级路径上某处丢唤醒？）。已知链路：真实 agent 客户端经 caddy 10200 反代到达 8080，但<strong>升级请求挂起点与代理层（buffering/协议/超时）是否相关</strong>仍待查——本地复现未包含 caddy 一层，是主要缺口。</p>
+<h1 id="fu-xian-chang-shi-ban-ben-die-dai-lian-v1-v8">复现尝试：版本迭代链（v1 → v8）</h1>
+<p><strong>核心方法论</strong>：每一版只解决上一版暴露的<strong>一个</strong>最大缺口；"下一版改什么"完全来自"上一版为什么没冻结"的逐条排查。中间的无价值分支（脚本写法错误、命名跳号等）不纳入本文——只保留"每一步逼近真相"的部分。</p>
+<table><thead><tr><th>版本</th><th>脚本</th><th>新增/修正（相对上一版）</th><th>解决上版局限</th><th>结果</th></tr></thead><tbody>
+<tr><td>v1</td><td><code>repro.py</code></td><td>Python socket 手写 WS（半关 SHUT_WR / RST / 悬挂）+ 单隧道 abort 风暴</td><td>最小验证"半关升级是否卡死"</td><td>未冻结</td></tr>
+<tr><td>v2</td><td><code>repro2.py</code></td><td>+ MQ <code>/ws</code> 会话（web/client）· + 隧道注册并发 · + tunnel_id 重连（CAS 路径）· 状态页监控 10min</td><td>v1 无 MQ/重连路径、无真实协议语义</td><td>未冻结</td></tr>
+<tr><td>v3</td><td><code>repro3.sh</code></td><td><strong>换真实 <code>reverse-forwarder-client</code></strong>（协议/重试节奏与生产一致）+ <code>/dev/tcp</code> 数据面 churn + 周期 kill/restart（8min/354 流）</td><td>v2 的 python 客户端"太理想"</td><td>未冻结 → 暴露缺口：<strong>无重叠态</strong>、<strong>无 caddy 层嫌疑</strong></td></tr>
+<tr><td>v4</td><td><code>repro4.sh</code></td><td>A 对存活时 B 对加入（双对并存、新端口）+ 脚本内"请求已读入但无 101"卡死检测</td><td>v3 的"kill 再起"非生产形态</td><td>未冻结（B 只加入一次→无高频注册）</td></tr>
+<tr><td>v5</td><td><code>repro5.sh</code></td><td>全要素长跑 15min（状态页轮询 + MQ 会话 + 多对交叠 + churn）</td><td>v4 单次加入、无混合负载</td><td>未冻结（周期 60-90s 太慢→<strong>重叠窗口窄</strong>）</td></tr>
+<tr><td>v6</td><td><code>repro6.sh</code></td><td><strong>7.1 实验机</strong> + caddy:10200 同构反代 + 双探针 + 30 轮 kill 后重启</td><td>v3-v5 直连 8080、机器条件不齐</td><td>未冻结 → <strong>否定实验：caddy 层非触发因素</strong></td></tr>
+<tr><td>v7</td><td><code>repro7.sh</code></td><td><strong>不 kill 旧对</strong>：每轮直接叠加新对（8250+i/9250+i），7-12s/轮，30 轮</td><td>v3-v6 都是"杀旧再起"，<strong>无真重叠</strong></td><td><strong>冻结命中（第 ~5 轮，8254）</strong></td></tr>
+<tr><td>v8</td><td><code>repro8.sh</code></td><td><strong>终版</strong>：彻底无 caddy（环境无 caddy、探针只 8080、<code>trap cleanup</code> 清理残留客户端）</td><td>排除 caddy 影响、脚本纪律，收尾闭环</td><td><strong>冻结命中（第 6 轮，8253）</strong>（v7 的插曲还自动冻过一次，三次独立命中）</td></tr>
+</tbody></table>
+<p><strong>三条最终原则</strong>（1-6 缺一不可，v7 起全部具备）：</p>
+<ol>
+<li><del>caddy 反代层</del> —— <strong>排除</strong>：v6 带 caddy 30 轮不冻结；v7/v8 有无 caddy 均命中（v8 期间残留客户端还在无 caddy 环境自动冻过一次）。caddy 只是"生产链路事实"，与触发无关</li>
+<li><strong>"旧对存活 + 新对注册"的真重叠</strong>（kill 后再起不算；v7 起"不杀旧对"即命中）</li>
+<li><strong>DashMap 默认 4 分片下，两端口 hash 同分片的并发写者碰撞</strong>（同轮 port 对 ≈1/4 概率命中同分片；30 轮内命中即源于此）</li>
+</ol>
+<p><strong>脚本下载</strong>（全部最新命名；v7/v8 全文见下"复现成功"节，verify-fix 用法见文末"修复落地与验证"）：</p>
+<ul>
+<li><a href="/tokio-runtime-hang-repro/repro.py">v1 <code>repro.py</code></a> · <a href="/tokio-runtime-hang-repro/repro2.py">v2 <code>repro2.py</code></a> · <a href="/tokio-runtime-hang-repro/repro3.sh">v3 <code>repro3.sh</code></a> · <a href="/tokio-runtime-hang-repro/repro4.sh">v4 <code>repro4.sh</code></a> · <a href="/tokio-runtime-hang-repro/repro5.sh">v5 <code>repro5.sh</code></a> · <a href="/tokio-runtime-hang-repro/repro6.sh">v6 <code>repro6.sh</code></a> · <a href="/tokio-runtime-hang-repro/repro7.sh">v7 <code>repro7.sh</code></a> · <a href="/tokio-runtime-hang-repro/repro8.sh">v8 <code>repro8.sh</code></a> · <a href="/tokio-runtime-hang-repro/verify-fix.sh">验证版 <code>verify-fix.sh</code></a> · <a href="/tokio-runtime-hang-repro/dashmap-hang/">最小样本 <code>dashmap-hang/</code></a></li>
+</ul>
+<h1 id="fu-xian-cheng-gong-7-1-shi-yan-huan-jing-zhong-die-dui-mo-shi">复现成功（7.1 实验环境 + 重叠对模式）</h1>
+<h2 id="huan-jing-da-jian-zhong-ban-tuo-bu-zhi-yao-mq-8080-wu-xu-caddy">环境搭建（终版拓扑：只要 mq:8080，无需 caddy）</h2>
+<p>在一台干净机器（Ubuntu/Debian 系、免密 sudo）上搭建：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 1) 上传插桩版二进制（本仓库构建产物 2.1.30-debug-hang 包中解出）
+scp bin&#x2F;message-queue-enhance smyl@&lt;test-host&gt;:&#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;
+
+# 2) 启动 mq（RUST_LOG=info！本二进制不设 RUST_LOG 完全静音）
+ssh &lt;test-host&gt; &#x27;RUST_LOG=info nohup &#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;message-queue-enhance \
+    --listen 8080 &gt;&gt; &#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;mq.log 2&gt;&amp;1 &amp;&#x27;
+</code></pre>
+<blockquote>
+<p>说明：<strong>复现不需要 caddy</strong>（v6 否定实验 + v7/v8 有无 caddy 均命中已证明）。早期版本按生产拓扑额外搭了 caddy:10200 → 8080（<code>handle /forward/ws</code>、<code>handle_path /mq*</code> 与生产 Caddyfile 同构），那是"贴近生产链路"的第一版环境；终版直接连 8080 更干净。</p>
+</blockquote>
+<h2 id="fu-xian-jiao-ben-v8-zhong-ban-repro8-sh-quan-wen">复现脚本（v8 终版 repro8.sh 全文）</h2>
+<p>核心设计（两个要素缺一不可）：</p>
+<ul>
+<li><strong>重叠注册</strong>：旧隧道对不杀，每轮直接叠加注册新对（8250+i / 9250+i）——命中生产"旧对存活时新对注册"</li>
+<li><strong>探针只打 8080 直连</strong>（无 caddy 干扰）；<code>trap cleanup</code> 保证残留客户端进程被清理（v7 时代就吃过"残留客户端自动重放"的亏——虽然那次反而提供了自动命中证据）</li>
+</ul>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">#!&#x2F;bin&#x2F;bash
+# repro8.sh (v8 终版)：重叠对注册 + 直连 8080（无 caddy 环境）
+set -u
+CLIENT=&#x2F;home&#x2F;peter&#x2F;project&#x2F;agent-code&#x2F;wfuzz-utils&#x2F;target&#x2F;release&#x2F;reverse-forwarder-client
+SRV=192.168.7.1            # 实验机
+BASE1=8250                  # agent 端口基线
+BASE2=9250                  # vscode 端口基线
+D=&#x2F;home&#x2F;peter&#x2F;.tmp&#x2F;opencode&#x2F;mq-core&#x2F;repro8
+mkdir -p &quot;$D&quot;
+LOG=$D&#x2F;driver.log; MON=$D&#x2F;mon.log; ALERT=$D&#x2F;alert.txt
+: &gt; &quot;$LOG&quot;; : &gt; &quot;$MON&quot;; rm -f &quot;$ALERT&quot;; : &gt; &quot;$D&#x2F;pids&quot;; : &gt; &quot;$D&#x2F;ports.txt&quot;
+log(){ echo &quot;[$(date +%H:%M:%S)] $*&quot; &gt;&gt; &quot;$LOG&quot;; }
+
+freezebegin(){               # 冻结判定：8080 直连连续 3 次非 200
+  local f=0
+  while true; do
+    C1=$(curl -s -m 4 -o &#x2F;dev&#x2F;null -w &quot;%{http_code}&quot; http:&#x2F;&#x2F;$SRV:8080&#x2F;mq&#x2F;status 2&gt;&#x2F;dev&#x2F;null)
+    echo &quot;$(date +%H:%M:%S) probe8080=$C1&quot; &gt;&gt; &quot;$MON&quot;
+    if [ &quot;$C1&quot; = &quot;200&quot; ]; then f=0; else f=$((f+1)); fi
+    if [ &quot;$f&quot; -ge 3 ]; then
+      echo &quot;FROZEN $(date +%H:%M:%S) direct8080=$C1&quot; &gt; &quot;$ALERT&quot;
+      log &quot;!!! FROZEN at $(date +%H:%M:%S)&quot;
+      return 1
+    fi
+    sleep 2
+  done
+}
+pair(){                      # 启动新对（不杀旧对）
+  &quot;$CLIENT&quot; --server &quot;ws:&#x2F;&#x2F;$SRV:8080&#x2F;forward&#x2F;ws&quot; --reverse-port &quot;$1&quot; --local-addr &quot;127.0.0.1:1&quot; &gt;&gt; &quot;$D&#x2F;cl-$3.log&quot; 2&gt;&amp;1 &amp;
+  echo $! &gt;&gt; &quot;$D&#x2F;pids&quot;
+  &quot;$CLIENT&quot; --server &quot;ws:&#x2F;&#x2F;$SRV:8080&#x2F;forward&#x2F;ws&quot; --reverse-port &quot;$2&quot; --local-addr &quot;127.0.0.1:1&quot; &gt;&gt; &quot;$D&#x2F;cl-$3.log&quot; 2&gt;&amp;1 &amp;
+  echo $! &gt;&gt; &quot;$D&#x2F;pids&quot;
+  echo &quot;$1 $2&quot; &gt;&gt; &quot;$D&#x2F;ports.txt&quot;
+}
+cleanup(){                   # 脚本纪律：结束必清理客户端残留
+  cat &quot;$D&#x2F;pids&quot; 2&gt;&#x2F;dev&#x2F;null | xargs -r kill 2&gt;&#x2F;dev&#x2F;null
+  pkill -f &quot;reverse-forwarder-client&quot; 2&gt;&#x2F;dev&#x2F;null
+  : &gt; &quot;$D&#x2F;pids&quot;
+}
+trap cleanup EXIT
+
+log &quot;=== repro8 start ($(date +%H:%M:%S)) NO-CADDY overlap-pair mode ===&quot;
+freezebegin &amp; MONPID=$!
+i=0
+while [ $i -lt 30 ]; do
+  A=$((BASE1+i)); B=$((BASE2+i))
+  pair &quot;$A&quot; &quot;$B&quot; &quot;pair$i&quot;
+  sleep $((RANDOM%6+7))       # 每轮 7-12s（模仿生产双对注册节奏）
+  i=$((i+1))
+  [ -f &quot;$ALERT&quot; ] &amp;&amp; { log &quot;abort: frozen&quot;; break; }
+done
+log &quot;=== repro8 finished ($(date +%H:%M:%S)), pairs: $i ===&quot;
+kill $MONPID 2&gt;&#x2F;dev&#x2F;null
+exit 0
+</code></pre>
+<h2 id="hong-fa-guo-cheng-yu-dong-jie-qian-ming-liang-ci-zheng-shi-ming-zhong-yi-ci-zi-dong-zhong-fang">触发过程与冻结签名（两次正式命中 + 一次自动重放）</h2>
+<h3 id="v7-repro7-sh-jing-caddy-ceng-di-5-lun-ming-zhong-duan-kou-8254">v7（repro7.sh：经 caddy 层）—— 第 ~5 轮命中，端口 8254</h3>
+<p>触发点日志最后三行（此后全日志静默）：</p>
+<pre><code>14:19:43.639621  request method GET &#x2F;forward&#x2F;ws?remote_port=8254
+14:19:43.639691  [DEBUG-a4f2] &#x2F;forward&#x2F;ws handler entry remote_port=8254 tunnel_id=None
+14:19:43.639719  [DEBUG-a4f2] new tunnel 18cf123223537a3d: inserting 8254   ← 永无后续（无 101、无 registered）
+</code></pre>
+<p>冻结状态（gcore + wchan）：</p>
+<ul>
+<li><code>wchan</code> 全部 <code>futex_do_wait</code>（9 线程）；其中 <strong>2 个 worker</strong> 栈 = <code>dashmap::lock::RawRwLock::lock_exclusive_slow</code> → <code>parking_lot_core::ThreadParker::futex_wait</code></li>
+<li>其余 worker <code>park_condvar</code> idle；main 线程 <code>block_on(serve)</code> 空闲等——<strong>注意：没有任何线程在运行</strong></li>
+<li><strong>livetick 停止打印</strong>（14:19:42 后）——timer 驱动也停</li>
+</ul>
+<h3 id="v8-repro8-sh-che-di-wu-caddy-di-6-lun-ming-zhong-duan-kou-8253">v8（repro8.sh：彻底无 caddy）—— 第 6 轮命中，端口 8253</h3>
+<ul>
+<li>环境更严格：杀掉 caddy（10200 确认关闭）、探针只打 8080、客户端只连 8080</li>
+<li><strong>依然命中</strong>（23:40:56）→ caddy 层与触发<strong>彻底无关</strong></li>
+<li>附带证据：v7 轮次遗留下来未清理的客户端，在重启后的 mq 上<strong>自动重放注册/重连并再次触发冻结</strong>（8253 断点、caddy 已停）——侧面印证：<strong>只要"重叠注册"在跑，触发极容易</strong>（不需要任何人为干预）</li>
+</ul>
+<blockquote>
+<p>两次正式命中 + 一次自动重放，断点签名完全一致：都是"<code>inserting &lt;port&gt;</code> 之后全静默"；命中端口 8254/8253（同区间、同 DashMap 分片——默认 4 分片，相邻端口 hash 落同分片）；三份 core 的 gdb 签名一致（dashmap <code>lock_exclusive_slow</code>）。</p>
+</blockquote>
+<h2 id="kuai-su-fu-xian-shou-ce-cong-ling-dao-ming-zhong-yue-15-fen-zhong">快速复现手册（从零到命中，约 15 分钟）</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 0) 准备：本仓库构建产物 + 一台可跑二进制的主机（记作 &lt;H&gt;）
+# 1) 上传并启动 mq（RUST_LOG=info 是必须的——本二进制不设 RUST_LOG 则日志完全静音）
+scp bin&#x2F;message-queue-enhance smyl@&lt;H&gt;:&#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;
+ssh smyl@&lt;H&gt; &#x27;RUST_LOG=info nohup &#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;message-queue-enhance \
+    --listen 8080 &gt;&gt; &#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;mq.log 2&gt;&amp;1 &amp;&#x27;
+# 2) 验证可用
+ssh smyl@&lt;H&gt; &#x27;curl -s -m 3 -o &#x2F;dev&#x2F;null -w &quot;%{http_code}\n&quot; http:&#x2F;&#x2F;127.0.0.1:8080&#x2F;mq&#x2F;status&#x27;   # → 200
+# 3) 本地跑复现驱动（重叠对：旧对不杀、每轮叠加新对、7-12s&#x2F;轮、最多 30 轮）
+bash &#x2F;tmp&#x2F;repro8.sh     # 终版：冻结自动判定(3 连失败→alert.txt) + trap 清理客户端
+# 4) 等待命中（观察 &lt;H&gt;:~&#x2F;mq-repro&#x2F;mq.log 尾部出现 &quot;inserting xxx&quot; 后全静默 + 本地 alert.txt）
+# 5) 取证（冻结瞬间，立刻做，进程必须还在）：
+ssh smyl@&lt;H&gt; &#x27;MP=$(pgrep -f &quot;mq-repro&#x2F;message-queue-enhance&quot; | head -1); \
+    sudo gcore -o &#x2F;home&#x2F;smyl&#x2F;mq-repro&#x2F;frozen-core $MP&#x27;
+# 6) 分析（bin 与 .debug 同目录，gdb 免参数自动关联）：
+ssh smyl@&lt;H&gt; &#x27;cd &#x2F;home&#x2F;smyl&#x2F;mq-repro &amp;&amp; gdb -batch -ex &quot;set debuginfod enabled off&quot; \
+    -ex &quot;thread apply all bt 12&quot; .&#x2F;message-queue-enhance .&#x2F;frozen-core.$MP&#x27;
+# 期望：至少 2 个线程 bt 停在 dashmap::lock::RawRwLock::lock_exclusive_slow
+# 7) 复制取证脚本；重启 mq 再刷命中率：重复 2-6
+</code></pre>
+<p>要点提醒：命中概率≈ 每轮两端口同分片(≈1/4) × 并发的时序窗口——30 轮一般会命中（我们是第 5/6 轮命中）；不要用单一轮次判断"没复现"；多轮循环 + alert 自动判定是必须的。</p>
+<h2 id="qu-zheng-xi-jie-di-yi-ci-shi-zhan-quan-zhan-hui-su">取证细节（第一次实战全栈回溯）</h2>
+<ul>
+<li><code>sudo gcore -o ... &lt;pid&gt;</code>：把冻结态全线程内存+寄存器+映射固化为 ELF core（前提：<code>/proc/&lt;pid&gt;/status</code> 的 <code>TracerPid=0</code>——一个进程只能有一个 tracer，排查时自己的 strace 残留都会卡住它）</li>
+<li>用同目录 <code>.debug</code> + <code>gdb &lt;bin&gt; &lt;core&gt;</code>：<code>.gnu_debuglink</code> 机制让 gdb 自动加载 DWARF → <code>thread apply all bt</code> <strong>一次出全栈+行号</strong>（对比无 DWARF 时代手工解栈——<code>syscall()</code> 裸汇编无 CFI 时 bt 断 frame0）</li>
+</ul>
+<h2 id="gen-yin-suo-ding-dwarf-quan-zhan-yuan-ma-shuang-zheng">根因锁定（DWARF 全栈 + 源码双证）</h2>
+<ol>
+<li><strong>dashmap 6.2.1 自研 RawRwLock 的多 writer 丢失唤醒</strong>（<code>dashmap/src/lock.rs</code> 手写状态机：<code>WRITERS_PARKED/READERS_PARKED/ONE_WRITER</code>；<code>unlock_exclusive_slow</code> 在"读写者同时 parked"中间态 + 新读者/写者并发 CAS 的窗口下，<code>parking_lot_core::park/unpark</code> 协议可丢失唤醒）——<strong>不是用错版本，是这个版本该锁在重度并发下的真实弱点</strong></li>
+<li><strong>我们代码独立红线</strong>：<code>status.rs::collect_tunnel_rows</code> 的 DashMap <code>Ref</code> guard 跨 <code>.await</code>（<code>let t = registry.get(...); t.state.read().await</code> 期间 <code>t</code> 未 drop——dashmap 文档明令禁止），读锁跨 await 与并发 insert 的写者交织会大幅放大上面的死锁窗口</li>
+</ol>
+<h2 id="lian-suo-fan-ying-wei-shen-me-liang-ge-worker-si-suo-quan-runtime-gua">连锁反应：为什么两个 worker 死锁 = 全 runtime 挂</h2>
+<p>（见文末 QA——这是排查期间最容易绕晕的部分。）</p>
+<h1 id="zui-xiao-du-li-fu-xian-yang-ben-dashmap-hang-dui-qi-sheng-chan-zhen-shi-suo-xu">最小独立复现样本（dashmap-hang：对齐生产真实锁序）</h1>
+<p>重写本节之前先说清迭代史：<strong>第一版"纯 DashMap 泛化压测"（std 线程 + 任意读写风暴）8 组 × 60-120s 全部未冻结</strong>，一度得出"库层窗口概率太小钓不到"的结论。后来回到修复前源码把每个锁序细节核对一遍，发现<strong>那版压测缺了生产的三个结构事实</strong>（见下），补齐后<strong>同一台 22 核本机、最小样本 3/3 命中</strong>——每次都捕获与 v7/v8 gcore 完全一致的签名：<strong>2 个 tokio worker 永久 park 在 <code>dashmap::lock::RawRwLock::lock_exclusive_slow</code></strong>。</p>
+<h2 id="xian-dui-qi-xiu-fu-qian-de-zhen-shi-suo-xu-san-ge-que-yi-bu-ke-de-jie-gou-shi-shi">先对齐：修复前的真实锁序（三个缺一不可的结构事实）</h2>
+<pre><code>① 会话期永久持有 Ref            ws_handler::handle_new 的 let t = registry.get(&amp;p)
+                                （Ref=分片读锁）在 session::handle_session(&amp;t, ...)
+                                整个隧道会话存活期内被跨 await 持有 —— 直到会话结束，
+                                不会像状态页读那样 100µs 就释放。
+② 同分片双写者并发 insert       B 对（agent + vscode 两条隧道）同毫秒注册同一分片成对端口；
+                                每个写者先 get(p)（读）再 insert(p)（写）。
+③ 状态页 iter + get 锁序        collect_tunnel_rows 原样：registry.iter()（分片读锁遍历）
+                                后逐个 *registry.get(&amp;p).unwrap().state.read().await
+                                —— 临时 Ref 跨 await 存活（原表达式如此）。
+</code></pre>
+<p><strong>另一个事实修正（对前文"默认 4 分片"的补充）</strong>：<code>DashMap::new()</code> 默认分片数是
+<code>(可用核数×4).next_power_of_two()</code>（dashmap 6.2.1 <code>lib.rs::default_shard_amount</code>）——
+本机 22 核 = <strong>128 分片</strong>；只有 1 核环境才是 4。7.1 复现机实测命中≈1/4 与 4 分片吻合。
+复现样本里显式 <code>with_shard_amount(4)</code> 把同分片概率顶到 100%。</p>
+<h2 id="yang-ben-jie-gou-dashmap-hang-xiang-mu-4-ge-mo-kuai">样本结构（dashmap-hang 项目，4 个模块）</h2>
+<p><strong>源码下载：<a href="/tokio-runtime-hang-repro/dashmap-hang/"><code>dashmap-hang/</code></a></strong>（含 wchan/gdb 取证与 exit 42 判定，可直接入 CI）：</p>
+<pre><code>dashmap-hang&#x2F;
+├── Cargo.toml
+└── src&#x2F;
+    ├── main.rs       # 入口：启动 server → client → watchdog
+    ├── server.rs     # server：Registry + Tunnel + 状态页 + session 任务
+    ├── client.rs     # client：A 对存活 + B 对并发注册
+    └── watchdog.rs   # watchdog：进度监控 + wchan&#x2F;gdb 取证 + exit 42
+</code></pre>
+<p>每个模块严格对应生产中的一个组件：</p>
+<table><thead><tr><th>模块</th><th>生产对应</th><th>锁序</th></tr></thead><tbody>
+<tr><td><code>server::spawn_session</code></td><td><code>session::handle_session(&amp;t, ...)</code></td><td>Ref 在整个会话期持有（跨 await，永不释放）</td></tr>
+<tr><td><code>server::spawn_status_page</code></td><td><code>status::collect_tunnel_rows</code></td><td>iter() + get(&amp;p).state.read().await（临时 Ref 跨 await）</td></tr>
+<tr><td><code>client::spawn_registration_burst</code></td><td><code>ws_handler::handler_with_state</code></td><td>两个并发任务 get → drop → insert（Barrier 同时性）</td></tr>
+<tr><td><code>watchdog::run</code></td><td>排查过程的 wchan/gcore/gdb</td><td>进度监控 + wchan 分布 + gdb 全栈 + exit 42</td></tr>
+</tbody></table>
+<h2 id="guan-jian-dai-ma-pian-duan">关键代码片段</h2>
+<h3 id="server-rs-a-dui-hui-hua-ref-kua-zheng-ge-hui-hua-qi-chi-you">server.rs — A 对会话（Ref 跨整个会话期持有）</h3>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F;&#x2F; A 对会话任务: handle_session(&amp;t, ...) 原样锁序
+&#x2F;&#x2F;&#x2F;   registry.get(&amp;port) (Ref = 分片读锁) 在整个会话期持有 (跨 await，永不释放)
+&#x2F;&#x2F;&#x2F;   期间偶发 state.write().await (teardown 路径: shard-读 跨 inner-写)
+pub fn spawn_session(state: &amp;AppState, port: u16, tunnel_id: &amp;str) {
+    let s = state.registry.clone();
+    let stop = state.stop.clone();
+    let ep = state.epoch_inner.clone();
+    let tid = tunnel_id.to_string();
+    tokio::spawn(async move {
+        &#x2F;&#x2F; 注册隧道
+        s.insert(port, Arc::new(Tunnel {
+            state: tokio::sync::RwLock::new(TunnelState::Active),
+            tunnel_id: tid,
+        }));
+        &#x2F;&#x2F; handle_new: let t = registry.get(&amp;port)
+        let Some(t) = s.get(&amp;port) else { return };
+        &#x2F;&#x2F; handle_session(&amp;t, ...): t (Ref) 持有至会话结束 — 永不 drop
+        while !stop.load(Ordering::Relaxed) {
+            &#x2F;&#x2F; session.rs:87: *tunnel.state.write().await = Disconnected
+            &#x2F;&#x2F; (teardown 路径: shard-读锁仍持有，跨 inner-写锁 await)
+            {
+                let mut st = t.state.write().await;
+                *st = if *st == TunnelState::Active {
+                    TunnelState::Disconnected
+                } else {
+                    TunnelState::Active
+                };
+            }
+            ep.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(Duration::from_millis(2 + (port as u64) % 5)).await;
+        }
+    });
+}
+</code></pre>
+<h3 id="client-rs-b-dui-bing-fa-zhu-ce-barrier-tong-shi-xing">client.rs — B 对并发注册（Barrier 同时性）</h3>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F;&#x2F; B 对注册: 每轮两个并发任务 get → drop → insert (ws_handler 原样)
+&#x2F;&#x2F;&#x2F;   Barrier 保证两个写者同时开始 (模拟生产&quot;两个 WS 连接同毫秒到达&quot;)
+pub fn spawn_registration_burst(
+    registry: Arc&lt;DashMap&lt;u16, Arc&lt;Tunnel&gt;&gt;&gt;,
+    ports: Vec&lt;u16&gt;,
+    rounds: u64,
+    stop: Arc&lt;AtomicBool&gt;,
+    epoch_writer: Arc&lt;AtomicU64&gt;,
+) {
+    tokio::spawn(async move {
+        for round_n in 0..rounds {
+            let p1 = ports[(round_n as usize + 2) % ports.len()];
+            let p2 = ports[(round_n as usize + 3) % ports.len()];
+            let barrier = Arc::new(tokio::sync::Barrier::new(2));
+
+            &#x2F;&#x2F; 两个写者任务同时开始 (模拟 agent + vscode 两条隧道同毫秒注册)
+            let w1 = tokio::spawn({
+                let (s, ep, b) = (registry.clone(), epoch_writer.clone(), barrier.clone());
+                async move {
+                    b.wait().await;
+                    let _e = s.get(&amp;p1);
+                    drop(_e);
+                    s.insert(p1, Arc::new(Tunnel { &#x2F;* ... *&#x2F; }));
+                    ep.fetch_add(1, Ordering::Relaxed);
+                }
+            });
+            let w2 = tokio::spawn({ &#x2F;* 同上 *&#x2F; });
+            let _ = (w1.await, w2.await);
+            tokio::time::sleep(Duration::from_millis(rand_ms())).await; &#x2F;&#x2F; 7-12s
+        }
+    });
+}
+</code></pre>
+<h3 id="watchdog-rs-dong-jie-jian-ce-wchan-gdb-qu-zheng">watchdog.rs — 冻结检测 + wchan/gdb 取证</h3>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F;&#x2F; 监控 3 路进度, 写者 5s 无进展 → HANG (insert 永久卡死)
+pub async fn run(&amp;self, max_secs: u64) {
+    let mut last = (0, 0, 0);
+    for i in 0..max_secs {
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        let cur = (
+            self.epoch_status.load(Ordering::Relaxed),
+            self.epoch_writer.load(Ordering::Relaxed),
+            self.epoch_inner.load(Ordering::Relaxed),
+        );
+        &#x2F;&#x2F; 冻结判定: 全停 或 写者卡死 (writer=0 持续 5s)
+        if (i &gt;= 2 &amp;&amp; cur == last) || (i &gt;= 5 &amp;&amp; cur.1 == 0 &amp;&amp; last.1 == 0) {
+            println!(&quot;HANG: insert() 永久卡死, writer=0 (status={} inner={} 仍活)&quot;, cur.0, cur.2);
+            dump_threads();  &#x2F;&#x2F; &#x2F;proc&#x2F;self&#x2F;task&#x2F;*&#x2F;wchan 分布
+            try_gdb();       &#x2F;&#x2F; gdb -p &lt;pid&gt; -batch -ex &#x27;thread apply all bt 10&#x27;
+            std::process::exit(42);
+        }
+        last = cur;
+    }
+}
+</code></pre>
+<h2 id="gou-jian-yu-yun-xing-20s-nei-ming-zhong">构建与运行（20s 内命中）</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 下载完整项目
+curl -sL https:&#x2F;&#x2F;blog.example.com&#x2F;tokio-runtime-hang-repro&#x2F;dashmap-hang&#x2F; -o dashmap-hang.zip
+# 或直接从 static 目录复制
+cp -r static&#x2F;tokio-runtime-hang-repro&#x2F;dashmap-hang&#x2F; . &amp;&amp; cd dashmap-hang&#x2F;
+
+# 构建
+cargo build --release
+
+# 运行 (默认 12 轮, 状态页 250ms, ~10s 内命中)
+.&#x2F;target&#x2F;release&#x2F;dashmap-hang
+
+# 自定义参数
+.&#x2F;target&#x2F;release&#x2F;dashmap-hang 24 500   # 24 轮, 状态页 500ms
+</code></pre>
+<h2 id="shi-ce-jie-guo-22-he-ben-ji-3-3-ming-zhong">实测结果（22 核本机，3/3 命中）</h2>
+<pre><code>[5s] status=24 writer=0 inner=1948
+HANG: B 对注册 insert() 永久卡死, writer=0 (status=24 inner=1958 仍活)
+--- wchan 分布 ---
+1 × dashmap-hang2: 0
+15 × tokio-rt-worker: futex_wait_queue        ← 含 2 个卡在 dashmap 写锁的 worker
+1 × tokio-rt-worker: do_epoll_wait
+--- gdb ---
+Thread 6 ...: #1 0x... in dashmap::lock::RawRwLock::lock_exclusive_slow ()
+               #2 in dashmap::DashMap&lt;K,V,S&gt;::insert ()
+               #3 in dashmap_hang2::main::{{closure}}::{{closure}} ()   ← B 对注册任务
+Thread 3 ...: 同上 (第二个 B 对注册任务)
+</code></pre>
+<p><strong>与 v7/v8 冻结核心逐字对齐</strong>（"2 个 worker 栈 = <code>dashmap::lock::RawRwLock::lock_exclusive_slow</code> → futex 等待"）。差异只在扩散层：样本里 status/inner 任务仍被其余 14 个 worker 驱动（锁层死，runtime 未全冻）；生产里这 2 个 worker 之一恰好持有 io/timer driver 令牌 → 连锁反应（见 QA Q3）→ 全 runtime 冻结。</p>
+<h2 id="wei-shen-me-xian-qian-chun-ku-ya-ce-diao-bu-chu-lai-bei-e-si-vs-zhen-de-si-suo">为什么先前"纯库压测"钓不出来（被饿死 vs 真的死锁）</h2>
+<p>第一版（std 线程、任意读写风暴、8 组 × 60-120s）未冻结，只复现"写者 1 op/120s 的饿死"。现在回看：那版缺的正是上面 ①②③：</p>
+<ul>
+<li><strong>① 缺会话期永久 Ref</strong>：读者最长持锁 2-5ms（sleep 版）→ 锁总是快速在读者/写者间流转，坏状态 1ms 内被下一个读者修复；生产里 A 对会话的 Ref <strong>跨整个会话持有</strong>（秒~分钟级），把"读写者同时 parked"中间态的寿命拉到 B 对 insert 必然撞上的尺度；</li>
+<li><strong>② 缺同分片双写者突发</strong>：泛化压力里写者是"打地鼠"，读多写少，两个写者同毫秒对称对垒的形态不出现；</li>
+<li><strong>③ 缺 tokio 任务调度</strong>：Barrier 同时性 + 16 worker 轮流被任务 park 阻塞的 runtime 语义（纯 std 线程是亲自动作，任务模型里插队/抢占全由 scheduler 决定）。</li>
+</ul>
+<p>顺带收获：<code>DashMap::new()</code> 默认分片 <code>(核数×4).next_power_of_two()</code>（22 核=128），泛化压测用 <code>with_capacity_and_shard_amount(4)</code> 但读者 32-Ref 时<strong>分片内重入计数与 ONE_WRITER 同空间</strong>的风险也有别的坑——不多展开，直接以"固定 4 分片 + 生产锁序"为正确路径。</p>
+<h1 id="gong-ju-yu-fang-fa-lun-ben-wen-ke-fu-yong-de-bu-fen">工具与方法论（本文可复用的部分）</h1>
+<h2 id="wchan-kan-xian-cheng-zai-deng-shen-me-dan-yi-ding-kan-fen-bu">wchan：看"线程在等什么"，但一定看分布</h2>
+<table><thead><tr><th>wchan</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>do_epoll_wait</code></td><td>阻塞在 epoll_wait（事件循环驱动者在轮询）</td></tr>
+<tr><td><code>do_sys_poll</code></td><td>阻塞在 poll（tmux 等普通事件循环）</td></tr>
+<tr><td><code>futex_wait_queue</code></td><td>私有 futex 等待（tokio idle park <strong>或</strong> 死锁等待者——不能单独定性！）</td></tr>
+<tr><td><code>0</code></td><td>内核未解析出函数名（<strong>勿与上面的函数名混入判断列表</strong>）</td></tr>
+<tr><td><code>ptrace_stop</code></td><td>被 tracer 停住</td></tr>
+</tbody></table>
+<p>三原则：</p>
+<ol>
+<li>看<strong>全线程分布</strong>，不看单值；</li>
+<li>单值 <code>futex_wait_queue</code> 无法区分空闲与死锁 → 用 core 读 <code>rdi</code>（futex 地址）：每线程栈区内各自独立的地址 = park 令牌；多个线程挤同一共享锁地址 = 死锁；</li>
+<li>一次 <code>cat /proc/X/task/*/wchan</code> 会把多个文件无分隔拼接——用 <code>for</code> 循环逐线程打印。</li>
+</ol>
+<h2 id="fd-biao-fdinfo-liang-ge-ceng-ci-kan-epoll">fd 表 + fdinfo：两个层次看 epoll</h2>
+<table><thead><tr><th>想知道</th><th>看哪</th></tr></thead><tbody>
+<tr><td>这个进程是不是 epoll 事件循环</td><td><code>ls -l /proc/&lt;pid&gt;/fd</code> 里有没有 <code>anon_inode:[eventpoll]</code>（tokio/nginx/redis/libuv 有；tmux/poll 类没有）</td></tr>
+<tr><td>epoll 里注册了哪些 fd / 什么事件</td><td><code>cat /proc/&lt;pid&gt;/fdinfo/&lt;epollfd&gt;</code>（<code>events: 8000201d</code> 逐位解码；注意 <code>8000_0000</code> = EPOLLET）</td></tr>
+<tr><td>有没有线程在驱动它</td><td>wchan 统计 <code>do_epoll_wait</code> 数量（0=无人轮询，1=健康）</td></tr>
+<tr><td>socket 是谁 / 状态</td><td><code>ss -tlnp</code> 或 <code>nsenter -n lsof -i</code>（fd 表只看类型）</td></tr>
+</tbody></table>
+<h2 id="strace-gcore-gdb-de-bian-jie">strace / gcore / gdb 的边界</h2>
+<ul>
+<li><strong>一个进程同时只能有一个 tracer</strong>：<code>/proc/&lt;pid&gt;/status</code> 的 <code>TracerPid</code> 非 0 时，任何新 attach 都会失败（<code>ptrace 不允许</code>）。排查中自己就跑出过孤儿 strace 卡住进程——工具也要清理现场。</li>
+<li><strong>容器进程通常没有 CAP_SYS_PTRACE</strong>（docker 默认能力集），<code>strace -p</code>/<code>gdb -p</code> 直 attach 会 EPERM；<code>sudo</code> 在具备 CAP_SYS_PTRACE 的 ns 下可行。</li>
+<li><strong>core 的文件路径映射</strong>：core 记录的是生成时的绝对路径（容器内如 <code>/message-queue-enhance</code>）。在另一台机器分析时 gdb 会报路径警告——要么在相同路径环境分析，要么以命令行 exec 文件为准（警告可忽略）。</li>
+<li><strong>没 DWARF + 裸汇编 syscall() 无 CFI → <code>bt</code> 断 frame0</strong>：改用 <code>x/8gx $rsp</code> 读栈、<code>info symbol</code>/<code>nm</code> 手动符号化；先找一个已知符号（如 WAKER_VTABLE）运行时地址反推 static-pie 基址，把一切地址转偏移。</li>
+</ul>
+<h2 id="dai-dwarf-de-debug-ban-yong-yu-fen-xi-sheng-chan-core-gou-jian-lian-lu-yu-you-hua">带 DWARF 的 debug 版用于分析生产 core（构建链路与优化）</h2>
+<p>生产二进制 not stripped 但无 DWARF，<code>nm</code>/<code>addr2line</code> 可用但退化（只有函数名，无行号）。解法：<strong>源码重编 debug 版</strong>。但"源码一样"不是充分条件：</p>
+<ul>
+<li>决定 <code>.text</code> 布局的是：源码 + <code>Cargo.lock</code> + <strong>rustc 版本</strong> + profile（opt-level/codegen-units/lto/panic 等）</li>
+<li><code>CARGO_PROFILE_RELEASE_DEBUG=N</code> 只增删 <code>.debug_*</code> 节，<strong>不移动函数布局</strong>（同 rustc/同 profile 前提下）；build-id 会变，但 gdb 只用命令行指定的 exec，警告不碍事</li>
+</ul>
+<h3 id="debug-1-vs-debug-2-chang-yong-na-ge">debug=1 vs debug=2：常用哪个</h3>
+<table><thead><tr><th></th><th>debug=1（默认推荐）</th><th>debug=2（局部深挖）</th></tr></thead><tbody>
+<tr><td>内容</td><td>行号表 + 函数边界（栈回溯足够）</td><td>+ 局部变量/类型/内联树（可看变量值）</td></tr>
+<tr><td>编译耗时</td><td>少量增加（约 5-15%）</td><td>明显增加（约 20-40%+）；<strong>且改 profile 值会令整个 release 构建缓存失效全量重编</strong></td></tr>
+<tr><td>产物 <code>.debug</code></td><td>41MB（实测 musl+debug=1）</td><td>≥100MB 量级</td></tr>
+<tr><td>适用</td><td>任何 core 分析：<code>bt</code> 全栈 + 行号</td><td>想 dump 局部变量值（如冻结时 Tunnel 字段）</td></tr>
+</tbody></table>
+<p><strong>限制（两种级别都救不回的部分）</strong>：release <code>opt-level=3</code> 下被完全优化/寄存器化的局部变量，gdb 会显示 <code>&lt;optimized out&gt;</code>——是优化问题不是 debug 级别问题；要看全变量需本地 <code>--debug</code> 复现。</p>
+<h3 id="gou-jian-lian-lu-yi-you-hua-ben-cang-ku-build-sh-docker-build-sh">构建链路已优化（本仓库 build.sh / docker-build.sh）</h3>
+<ul>
+<li>release 构建默认 <code>CARGO_PROFILE_RELEASE_DEBUG=1</code>，产物为 <code>bin/&lt;bin&gt;</code> 独立 <code>.debug</code>（<code>objcopy --only-keep-debug</code> 后 <code>--strip-debug --add-gnu-debuglink</code> 关联）；调试只需 <code>gdb bin/&lt;bin&gt; &lt;core&gt;</code>（gdb 依 <code>.gnu_debuglink</code> 同目录自动关联 <code>.debug</code>），<strong>免参数出全栈</strong></li>
+<li>建议策略：<strong><code>bin</code> 与 <code>.debug</code> 分文件、随包同目录发布</strong>——线上动态加载的二进制不背 DWARF（体积/信息暴露与现状持平，实测 18MB vs 57MB 含 DWARF 版），core 分析时 gdb 就地关联</li>
+<li>编 debug=2 全量版：<code>CARGO_PROFILE_RELEASE_DEBUG=2 bash docker-build.sh bash build.sh</code>（docker-build.sh 已做环境变量透传）；<strong>必须走容器/同工具链构建，保证 rustc 版本与生产一致</strong></li>
+<li>容器镜像已含 binutils（build-essential 依赖），<code>objcopy</code> 可直接用，无需改 Dockerfile</li>
+</ul>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 交叉构建注意：与本项目一致，构建目标是 x86_64-unknown-linux-musl
+CARGO_PROFILE_RELEASE_DEBUG=2 bash docker-build.sh bash build.sh
+
+# 布局校验（严格版——比对（地址,名称）对序列；只比名称集不是充分条件）
+nm -C &lt;debug2-bin&gt; | awk &#x27;NF==3{print $1, $3}&#x27; | sort | md5sum
+nm -C &lt;生产bin&gt;    | awk &#x27;NF==3{print $1, $3}&#x27; | sort | md5sum
+
+# 一致 → gdb &lt;debug2-bin&gt; &lt;core&gt;：bt 全栈 + frame N + info locals（变量值，尽优化保留量）
+# 不一致 → 符号桥接：生产地址→(生产nm)→符号名→(debug版nm)→地址（帧级别可用，变量读取受限）
+</code></pre>
+<p><strong>执行环境注意</strong>：本机缺 gdb/lldb 本体（rust-gdb 需系统 gdb）；core 用 <code>docker cp</code> 进容器（如 <code>/tmp/core</code>）配合容器内 <code>apt install gdb</code>（Ubuntu 20.04 基线）分析；生产卷挂载的 <code>/message-queue-enhance</code> 不要覆盖，debug 版从 <code>/tmp/mq-debug</code> 路径给 gdb。</p>
+<p><strong>另外两个小坑</strong>：</p>
+<ul>
+<li><code>pkill -f</code> 会匹配到<strong>执行它的命令行自己</strong>（模式串出现在 shell 命令里）→ 会话自杀；用精确 PID（<code>ps -ef | awk</code> 取号）</li>
+<li><code>nsenter -t &lt;pid&gt; -n lsof</code> 只进网络命名空间时，PID 显示仍是宿主号（不能当成容器 pid 用）</li>
+</ul>
+<p><strong>排查工具建议清单</strong>（本次缺失、下轮优先补齐）：</p>
+<ul>
+<li>tokio-console（tokio_unstable + console_subscriber）：运行时任务/IO 驱动观测</li>
+<li>bpftrace/perf（futex 地址→锁归属）：服务器 <code>perf_event_paranoid=4</code>、需 CAP_PERFMON，谨慎另议</li>
+<li>容器 loopback tcpdump（<code>tcpdump -i lo port 8080</code>）+ caddy 侧日志：比对"完成 101 / 卡死请求"在 caddy:10200→8080 链路的时序</li>
+<li>排查纪律：procfs/debug 类结果与命令全量留存（wchan 分布、fdinfo、core 路径、TracerPid），避免二次查证</li>
+</ul>
+<h1 id="fu-lu-gai-nian-su-cha-biao-shen-du-xue-xi-yong-ge-tiao-mu-zhan-kai-ji-ben-zhang-xiang-guan-xiao-jie">附录：概念速查表（深度学习用，各条目展开即本章相关小节）</h1>
+<table><thead><tr><th>术语</th><th>是什么</th><th>在本案中的角色</th><th>展开看</th></tr></thead><tbody>
+<tr><td><strong>driver 令牌（单 owner）</strong></td><td>tokio multi-thread runtime 中，同一时刻只有一个 worker 有资格 poll io/timer driver（防惊群）</td><td>被卡死在锁里的 worker 占走 → 无人轮询 epoll/timer → 全 runtime 断供唤醒源</td><td>QA Q2/Q3、<code>连锁反应</code></td></tr>
+<tr><td><strong>park_condvar / wait_until</strong></td><td>worker 空闲时的"条件变量等待"；timeout 来自最近 timer（无 timer 时无限等）</td><td>其余 worker 的常态；"醒了也没资格干活"的所在地</td><td>QA Q2</td></tr>
+<tr><td><strong>parking_lot_core park/unpark</strong></td><td>用户态 futex park + 令牌唤醒原语（parking_lot 生态的底层）</td><td>dashmap 自研锁依赖它实现等待队列</td><td><code>根因锁定</code>、dashmap <code>lock.rs</code> 源码片段</td></tr>
+<tr><td><strong>DashMap 自研 RawRwLock</strong></td><td>dashmap 6.x 私有读写锁（状态位：<code>ONE_WRITER/WRITERS_PARKED/READERS_PARKED</code>；非 parking_lot 原生 RwLock）</td><td><strong>死锁发生地</strong>：多 writer 竞争下丢失唤醒/饥饿</td><td><code>根因锁定</code>、QA Q1</td></tr>
+<tr><td><strong>DashMap Ref 跨 await</strong></td><td>分片读锁 guard 在 <code>.await</code> 间未 drop（dashmap 文档红线），dashmap 6 的 Ref 为 Send 故编译能过</td><td>我们的独立代码红线，放大库死锁窗口（位置：<code>status.rs::collect_tunnel_rows</code>）</td><td>QA Q1、<code>根因锁定</code></td></tr>
+<tr><td><strong>wchan / futex_do_wait</strong></td><td>内核视角每个线程的等待点；<code>futex_do_wait</code> 对 tokio/dashmap 都是"等 futex"</td><td>判别"活死"的快速路：全分布里是否有 <code>do_epoll_wait</code></td><td><code>第三步</code>、附录 wchan 表</td></tr>
+<tr><td><strong>gcore + .gnu_debuglink</strong></td><td>冻结态全线程 core dump；<code>.debug</code> 分离 DWARF 用 debuglink 关联，gdb 免参数加载</td><td>全栈回溯（本案例第一次闭环）</td><td><code>带 DWARF 的 debug 版</code></td></tr>
+<tr><td><strong>livetick 探针</strong></td><td><code>main.rs</code> 的 5s interval 日志：冻结后是否还在打 = timer 驱动是否活着</td><td>冻结瞬间证明 timer 停摆（生产与复现一致记录）</td><td><code>触发过程与冻结签名</code></td></tr>
+<tr><td><strong>重叠对注册</strong></td><td>旧隧道对存活时新对并发注册（agent+ vscode 两条隧道同一毫秒级到达）</td><td>触发冻结的最小用户操作序列（生产=唤醒会话；复现=repro7/8）</td><td><code>复现成功</code></td></tr>
+</tbody></table>
+<h1 id="fu-lu-qa-ji-lu-pai-cha-zhong-de-gao-pin-yi-wen">附录：QA 记录（排查中的高频疑问）</h1>
+<h2 id="q1-dashmap-wei-shen-me-insert-hui-si-suo-shi-ban-ben-bu-dui-huan-shi-dai-ma-wen-ti">Q1：dashmap 为什么 insert 会死锁？是版本不对还是代码问题？</h2>
+<p><strong>都不是"版本用错"，但两者都有贡献——双因叠加</strong>：</p>
+<ol>
+<li><strong>dashmap 6.2.1 的锁本身有真实薄弱点</strong>：它的 <code>RawRwLock</code>（<code>dashmap/src/lock.rs</code>）不是 parking_lot 原生锁，而是<strong>用 <code>parking_lot_core::park/unpark</code> 手写的状态机锁</strong>（<code>WRITERS_PARKED</code>/<code>READERS_PARKED</code>/<code>ONE_WRITER</code> 位运算）。<code>unlock_exclusive_slow()</code> 在"读+写都有人 parked"时先把状态 <code>store(WRITERS_PARKED)</code>（此时 owner 位清零），再由两条路径分别 <code>unpark</code>——这个<strong>中间态 + 并发新读者（只查 ONE_WRITER、不查 WRITERS_PARKED）或新写者（CAS(0)）<strong>的窗口，可以造成</strong>写者唤醒丢失/饥饿</strong>（core 里"两个 writer 全部 park、无 owner"正是这个形态）。这是 dashmap 6.x 在重度读写并发下的已知类问题（后续版本/换实现多次修过）。</li>
+<li><strong>我们代码踩了 DashMap 文档红线</strong>：<code>status.rs</code> 的 <code>let t = registry.get(&amp;port)</code> 返回的 <code>Ref</code>（分片读锁 guard）<strong>跨过了 <code>.await</code> 才 drop</strong>（<code>t.state.read().await</code> 期间 <code>t</code> 仍存活；dashmap 6 的 Ref 是 Send，所以编译能过）。读锁跨 await 与并发 <code>insert</code> 交织，会大幅放大 1 的死锁窗口。</li>
+</ol>
+<blockquote>
+<p>结论：<strong>库的固有弱点 × 我们的跨 await 用法 = 平时不炸、只在"唤醒/状态页并发"场景炸</strong>。两个都要修（一个换锁、一个守纪律）。</p>
+</blockquote>
+<h2 id="q2-park-condvar-bu-shi-dai-timeout-de-condvar-deng-dai-ma-wei-shen-me-timeout-huan-xing-bu-jiu-chang">Q2：<code>park_condvar</code> 不是带 timeout 的 condvar 等待吗？为什么 timeout 唤醒不救场？</h2>
+<p>要点：<strong>timeout 到点唤醒 ≠ 能干活的资格</strong>。tokio worker 空闲 park 的 timeout 只取自"是否存在待处理的 timer"（无 timer 时是无限等）；即使醒来的 worker：</p>
+<pre><code>醒来 → ① 本地&#x2F;全局队列没任务
+     → ② 尝试 poll driver（epoll&#x2F;timer）
+     → ③ 发现 driver owner 令牌被死锁线程持有 → 没有资格轮询 → 继续睡回去
+</code></pre>
+<p>tokio 的 io/timer driver 是<strong>单 owner 防惊群</strong>设计：只有一个 worker 真正在 <code>epoll_wait</code>。驱动令牌被卡在 dashmap 锁里的 worker 占死 → 其他 worker 每醒一次都在 ③ 被挡回——<strong>timers（livetick 5s）与 socket 事件永远没人轮询</strong>，这就是冻结期间 livetick 停打印、连接无人 accept 的机制。</p>
+<h2 id="q3-zhi-shi-liang-ge-worker-si-suo-zai-suo-shang-wei-shen-me-zheng-ge-runtime-du-hang">Q3：只是两个 worker 死锁在锁上，为什么整个 runtime 都 hang？</h2>
+<p>不只看"锁住 2 个"——真正的扩散机制：</p>
+<pre><code>1 个 handler 卡死（dashmap 写锁，无人持有者却无人归还该锁）
+└─ 该 worker 恰正持有 io&#x2F;timer driver 令牌
+   └─ epoll 无人轮询 → 新连接与 timer 永不就绪
+      └─ 其余 worker 无限 idle-park 等唤醒，永远等不到（唤醒信号源断供）
+         └─ 全 runtime 静默死透（不是全部锁死，是&quot;唤醒源断供&quot;）
+</code></pre>
+<p>核心结论：<strong>tokio 里"一个 task 长时间阻塞"与"全 runtime 挂"之间，隔着"driver 令牌"这一环</strong>——修复重点不是多留几个 worker，而是<strong>绝不让 worker 在持驱动令牌状态下长时间阻塞</strong>（handler 路径消除共享锁长阻塞、加超时兜底）。</p>
+<hr />
+<h1 id="xiu-fu-luo-di-yu-yan-zheng-2026-08-26">修复落地与验证（2026-08-26）</h1>
+<h2 id="luo-di-gai-dong-yuan-ma-cang-ku-wfuzz-utils">落地改动（源码仓库 <code>wfuzz-utils</code>）</h2>
+<p><strong>（换锁，根因）</strong>：隧道注册表从 <code>Arc&lt;dashmap::DashMap&lt;u16, Tunnel&gt;&gt;</code> 换成 <code>Arc&lt;tokio::sync::RwLock&lt;HashMap&lt;u16, Arc&lt;Tunnel&gt;&gt;&gt;&gt;</code>（<code>reverse-forwarder-server/src/lib.rs</code> 的 <code>Registry</code>/<code>TunnelHandle</code> 别名）。dashmap 自研 <code>RawRwLock</code> 的多 writer 丢失唤醒窗口整个消失。</p>
+<p>对比修复前：同一驱动形态下第 5-6 轮即冻结（v7/v8 三次独立命中）——两轮 30 轮全程 <code>probe=200</code>、无 alert，证明「重叠注册 + 并发写者」场景不再出现唤醒丢失。</p>
+<h2 id="yan-zheng-jiao-ben-verify-fix-sh-ke-fu-yong-ben-ji-yuan-cheng-jun-ke">验证脚本 verify-fix.sh（可复用，本机/远程均可）</h2>
+<p>与 <code>repro8.sh</code> 同形态（旧对不杀、每轮叠加、7-12s/轮），差异：参数化（<code>SRV/PORT/BASE1/BASE2/ROUNDS/CLIENT</code>）、探针自动判冻结（3 连非 200 → <code>alert.txt</code>）、结束清理客户端残留：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">RUST_LOG=info nohup .&#x2F;target&#x2F;debug&#x2F;message-queue-enhance \
+    --host 127.0.0.1 --listen 18080 &gt;&gt; &#x2F;tmp&#x2F;verify-fix&#x2F;server.log 2&gt;&amp;1 &amp;
+SRV=127.0.0.1 PORT=18080 CLIENT=.&#x2F;target&#x2F;debug&#x2F;reverse-forwarder-client \
+    bash verify-fix.sh   # 通过标准：pairs=30、全程 probe=200、无 alert
+</code></pre>
+<hr />
+<p><em>本文首发记录排查结论；后续随根因钉死、修复落地持续更新。</em>（2026-08-25 首发；2026-08-26 修复落地与验证）</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/">&#8249; sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/"> 多模态大模型（LMM）工程原理深度解析：从架构到推理 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#pai-cha-xue-xi-lu-jing">排查&#x2F;学习路径</a>
+        </div>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-guo-cheng">排查过程</a>
+        </div>
+        <div class="hpad">
+          <a href="#di-yi-bu-que-ren-shui-zai-ting-shui-zai-deng"><small>- 第一步：确认&quot;谁在听、谁在等&quot;</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-er-bu-ri-zhi-shi-jian-xian-liang-lun-yun-xing-wan-quan-tong-gou-de-jie-wei"><small>- 第二步：日志时间线——两轮运行完全同构的结尾</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-san-bu-jin-cheng-shi-fou-zhen-de-huo-zhao-proc-xian-cheng-zhuang-tai"><small>- 第三步：进程是否真的活着？——&#x2F;proc 线程状态</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-si-bu-shi-bu-shi-suo-si-suo-core-dump-cai-jue"><small>- 第四步：是不是&quot;锁死锁&quot;？——core dump 裁决</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sheng-cheng-core"><small>· 生成 core</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#warning-cha-qu-pai-cha-zi-ji-ye-bei-qia-zhu-tracerpid-yu-can-liu-strace"><small>· ⚠️ 插曲：排查自己也被&quot;卡住&quot;——TracerPid 与残留 strace</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#jie-zhan-gdb-de-bt-wei-shen-me-duan-diao-ru-he-shou-gong-bu"><small>· 解栈：gdb 的 bt 为什么断掉？如何手工补？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#mei-yi-gen-xian-cheng-shen-me-yang-zi"><small>· 每一根线成什么样子？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-wu-bu-epoll-zhu-ce-biao-fd-du-mei-diu"><small>- 第五步：epoll 注册表——fd 都没丢</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-chu-xiang"><small>- 排除项</small></a>
+        </div>
+        <div>
+          <a href="#jie-lun-di-yi-jie-duan-ding-xing">结论（第一阶段：定性）</a>
+        </div>
+        <div>
+          <a href="#fu-xian-chang-shi-ban-ben-die-dai-lian-v1-v8">复现尝试：版本迭代链（v1 → v8）</a>
+        </div>
+        <div>
+          <a href="#fu-xian-cheng-gong-7-1-shi-yan-huan-jing-zhong-die-dui-mo-shi">复现成功（7.1 实验环境 + 重叠对模式）</a>
+        </div>
+        <div class="hpad">
+          <a href="#huan-jing-da-jian-zhong-ban-tuo-bu-zhi-yao-mq-8080-wu-xu-caddy"><small>- 环境搭建（终版拓扑：只要 mq:8080，无需 caddy）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu-xian-jiao-ben-v8-zhong-ban-repro8-sh-quan-wen"><small>- 复现脚本（v8 终版 repro8.sh 全文）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#hong-fa-guo-cheng-yu-dong-jie-qian-ming-liang-ci-zheng-shi-ming-zhong-yi-ci-zi-dong-zhong-fang"><small>- 触发过程与冻结签名（两次正式命中 + 一次自动重放）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#v7-repro7-sh-jing-caddy-ceng-di-5-lun-ming-zhong-duan-kou-8254"><small>· v7（repro7.sh：经 caddy 层）—— 第 ~5 轮命中，端口 8254</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#v8-repro8-sh-che-di-wu-caddy-di-6-lun-ming-zhong-duan-kou-8253"><small>· v8（repro8.sh：彻底无 caddy）—— 第 6 轮命中，端口 8253</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#kuai-su-fu-xian-shou-ce-cong-ling-dao-ming-zhong-yue-15-fen-zhong"><small>- 快速复现手册（从零到命中，约 15 分钟）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qu-zheng-xi-jie-di-yi-ci-shi-zhan-quan-zhan-hui-su"><small>- 取证细节（第一次实战全栈回溯）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-suo-ding-dwarf-quan-zhan-yuan-ma-shuang-zheng"><small>- 根因锁定（DWARF 全栈 + 源码双证）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lian-suo-fan-ying-wei-shen-me-liang-ge-worker-si-suo-quan-runtime-gua"><small>- 连锁反应：为什么两个 worker 死锁 = 全 runtime 挂</small></a>
+        </div>
+        <div>
+          <a href="#zui-xiao-du-li-fu-xian-yang-ben-dashmap-hang-dui-qi-sheng-chan-zhen-shi-suo-xu">最小独立复现样本（dashmap-hang：对齐生产真实锁序）</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-dui-qi-xiu-fu-qian-de-zhen-shi-suo-xu-san-ge-que-yi-bu-ke-de-jie-gou-shi-shi"><small>- 先对齐：修复前的真实锁序（三个缺一不可的结构事实）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yang-ben-jie-gou-dashmap-hang-xiang-mu-4-ge-mo-kuai"><small>- 样本结构（dashmap-hang 项目，4 个模块）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-dai-ma-pian-duan"><small>- 关键代码片段</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#server-rs-a-dui-hui-hua-ref-kua-zheng-ge-hui-hua-qi-chi-you"><small>· server.rs — A 对会话（Ref 跨整个会话期持有）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#client-rs-b-dui-bing-fa-zhu-ce-barrier-tong-shi-xing"><small>· client.rs — B 对并发注册（Barrier 同时性）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#watchdog-rs-dong-jie-jian-ce-wchan-gdb-qu-zheng"><small>· watchdog.rs — 冻结检测 + wchan&#x2F;gdb 取证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gou-jian-yu-yun-xing-20s-nei-ming-zhong"><small>- 构建与运行（20s 内命中）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-ce-jie-guo-22-he-ben-ji-3-3-ming-zhong"><small>- 实测结果（22 核本机，3&#x2F;3 命中）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-xian-qian-chun-ku-ya-ce-diao-bu-chu-lai-bei-e-si-vs-zhen-de-si-suo"><small>- 为什么先前&quot;纯库压测&quot;钓不出来（被饿死 vs 真的死锁）</small></a>
+        </div>
+        <div>
+          <a href="#gong-ju-yu-fang-fa-lun-ben-wen-ke-fu-yong-de-bu-fen">工具与方法论（本文可复用的部分）</a>
+        </div>
+        <div class="hpad">
+          <a href="#wchan-kan-xian-cheng-zai-deng-shen-me-dan-yi-ding-kan-fen-bu"><small>- wchan：看&quot;线程在等什么&quot;，但一定看分布</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fd-biao-fdinfo-liang-ge-ceng-ci-kan-epoll"><small>- fd 表 + fdinfo：两个层次看 epoll</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#strace-gcore-gdb-de-bian-jie"><small>- strace &#x2F; gcore &#x2F; gdb 的边界</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dai-dwarf-de-debug-ban-yong-yu-fen-xi-sheng-chan-core-gou-jian-lian-lu-yu-you-hua"><small>- 带 DWARF 的 debug 版用于分析生产 core（构建链路与优化）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#debug-1-vs-debug-2-chang-yong-na-ge"><small>· debug=1 vs debug=2：常用哪个</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gou-jian-lian-lu-yi-you-hua-ben-cang-ku-build-sh-docker-build-sh"><small>· 构建链路已优化（本仓库 build.sh &#x2F; docker-build.sh）</small></a>
+        </div>
+        <div>
+          <a href="#fu-lu-gai-nian-su-cha-biao-shen-du-xue-xi-yong-ge-tiao-mu-zhan-kai-ji-ben-zhang-xiang-guan-xiao-jie">附录：概念速查表（深度学习用，各条目展开即本章相关小节）</a>
+        </div>
+        <div>
+          <a href="#fu-lu-qa-ji-lu-pai-cha-zhong-de-gao-pin-yi-wen">附录：QA 记录（排查中的高频疑问）</a>
+        </div>
+        <div class="hpad">
+          <a href="#q1-dashmap-wei-shen-me-insert-hui-si-suo-shi-ban-ben-bu-dui-huan-shi-dai-ma-wen-ti"><small>- Q1：dashmap 为什么 insert 会死锁？是版本不对还是代码问题？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#q2-park-condvar-bu-shi-dai-timeout-de-condvar-deng-dai-ma-wei-shen-me-timeout-huan-xing-bu-jiu-chang"><small>- Q2：park_condvar 不是带 timeout 的 condvar 等待吗？为什么 timeout 唤醒不救场？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#q3-zhi-shi-liang-ge-worker-si-suo-zai-suo-shang-wei-shen-me-zheng-ge-runtime-du-hang"><small>- Q3：只是两个 worker 死锁在锁上，为什么整个 runtime 都 hang？</small></a>
+        </div>
+        <div>
+          <a href="#xiu-fu-luo-di-yu-yan-zheng-2026-08-26">修复落地与验证（2026-08-26）</a>
+        </div>
+        <div class="hpad">
+          <a href="#luo-di-gai-dong-yuan-ma-cang-ku-wfuzz-utils"><small>- 落地改动（源码仓库 wfuzz-utils）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng-jiao-ben-verify-fix-sh-ke-fu-yong-ben-ji-yuan-cheng-jun-ke"><small>- 验证脚本 verify-fix.sh（可复用，本机&#x2F;远程均可）</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

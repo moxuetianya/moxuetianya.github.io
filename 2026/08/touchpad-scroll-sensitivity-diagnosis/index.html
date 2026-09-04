@@ -1,0 +1,305 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="外接无线触摸板在终端里「随便一动就半页」，浏览器却「凑合」。逐层排查 libinput → mutter → VTE → TUI 应用的事件链，最终定位到 opencode TUI 的滚轮步长配置，并给出修复方案。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/" />
+  <meta property="og:description" content="外接无线触摸板在终端里「随便一动就半页」，浏览器却「凑合」。逐层排查 libinput → mutter → VTE → TUI 应用的事件链，最终定位到 opencode TUI 的滚轮步长配置，并给出修复方案。" />
+  <meta name="twitter:description" content="外接无线触摸板在终端里「随便一动就半页」，浏览器却「凑合」。逐层排查 libinput → mutter → VTE → TUI 应用的事件链，最终定位到 opencode TUI 的滚轮步长配置，并给出修复方案。" />
+  <meta property="og:title" content="触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链 | 墨雪天琊" />
+  <meta name="twitter:title" content="触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-15" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/">触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 15, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/zhuo-mian/">桌面</a>] #<a href="https://moxuetianya.github.io/tags/touchpad/">touchpad</a>  #<a href="https://moxuetianya.github.io/tags/scroll/">scroll</a>  #<a href="https://moxuetianya.github.io/tags/opencode/">opencode</a>  #<a href="https://moxuetianya.github.io/tags/libinput/">libinput</a>  #<a href="https://moxuetianya.github.io/tags/tmux/">tmux</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>外接 2.4G 无线键鼠套装（HS-LP88 - PTP-01-23-1F，VID 1c4f:0086）自带的触摸板（102×51mm 精度触控板），在终端里两指轻轻一动就滚掉半页；浏览器里"还凑合"；普通终端（Ptyxis）里则感觉正常。</p>
+<h2 id="pai-cha-guo-cheng">排查过程</h2>
+<h3 id="di-yi-ceng-huai-yi-tmux-gun-lun-bu-chang">第一层怀疑：tmux 滚轮步长</h3>
+<p>环境是 GNOME Wayland + Ptyxis + tmux（<code>set -g mouse on</code>）。tmux 默认每格滚轮 = 5 行（<code>send-keys -X -N 5 scroll-up</code>），44 行的 pane 里一个轻扫就 20+ 行，确实像"半页"。</p>
+<p>修改 <code>~/.tmux.conf</code> 把步长降到 2 行、1 行：</p>
+<pre data-lang="conf" class="language-conf "><code class="language-conf" data-lang="conf">bind-key -T copy-mode-vi WheelUpPane   select-pane \; send-keys -X -N 1 scroll-up
+bind-key -T copy-mode-vi WheelDownPane select-pane \; send-keys -X -N 1 scroll-down
+</code></pre>
+<p>但用户反馈"没什么变化"——说明问题不只在 tmux。</p>
+<h3 id="di-er-ceng-shi-ce-shi-jian-liu-pai-chu-libinput-mutter">第二层：实测事件流，排除 libinput / mutter</h3>
+<p>用工具逐层测量（<code>libinput-tools</code>、<code>evtest</code>、<code>wev</code>）：</p>
+<ul>
+<li><code>evtest</code> 看内核原始坐标：轴分辨率 14 units/mm，坐标流平滑，无异常</li>
+<li><code>libinput debug-events</code> 看 libinput 输出：滑动时<strong>每帧产生 0.38 格</strong>滚轮（设备事件率本就偏高，无线设备报告率低、位置跳变被放大）</li>
+<li><code>wev</code> 看应用实际收到的 Wayland axis 事件：慢速 2cm 手势 ≈ 60px，快速轻扫 ≈ 260px——<strong>mutter 已经做了正常化</strong>，应用层像素量正常</li>
+</ul>
+<p>结论：libinput 和 mutter 都不是主要问题（全局 quirk 调 <code>ScrollDistance</code> 会影响所有应用，先排除）。</p>
+<h3 id="di-san-ceng-vte-de-sgr-shi-jian-fang-da">第三层：VTE 的 SGR 事件放大</h3>
+<p>tmux 里用启用鼠标模式的程序统计实际收到的滚轮事件数：一次快速轻扫 ≈ <strong>31 个 SGR 滚轮事件</strong>（260px ÷ 31 ≈ 8px/事件 ≈ 半个行高）。</p>
+<p>原来 VTE 把平滑滚动<strong>每累计 0.5 行就发一个 SGR 滚轮事件</strong>给全屏应用（正常鼠标滚轮是 1 格/3 行，差了 6 倍）。所以：</p>
+<pre><code>触控板 → libinput(hi-res 事件) → mutter(Wayland px, 已正常化)
+       → VTE(每 0.5 行发一个 SGR 事件, 放大 ~6 倍)
+       → 全屏 TUI(每事件滚 N 行)
+</code></pre>
+<h3 id="di-si-ceng-zhen-zheng-de-yuan-xiong-opencode-tui">第四层：真正的元凶——opencode TUI</h3>
+<p>用户实际感觉"太灵敏"的终端是 <strong>opencode TUI</strong>。查源码 <code>packages/tui/src/util/scroll.ts</code>：</p>
+<pre data-lang="ts" class="language-ts "><code class="language-ts" data-lang="ts">export function getScrollAcceleration(tuiConfig?: ScrollConfig): ScrollAcceleration {
+  if (tuiConfig?.scroll_acceleration?.enabled) {
+    return new MacOSScrollAccel()
+  }
+  if (tuiConfig?.scroll_speed !== undefined) {
+    return new CustomSpeedScroll(tuiConfig.scroll_speed)
+  }
+  return new CustomSpeedScroll(3)   &#x2F;&#x2F; ← 默认每次滚轮事件滚 3 行
+}
+</code></pre>
+<p><strong>默认每次滚轮事件 = 3 行</strong>，且不区分慢速/快速。一个快速轻扫 = 31 个事件 × 3 行 = 93 行 ≈ 2 页多，所以"随便一动就半页"。</p>
+<p>浏览器"凑合"是因为浏览器使用 Wayland 平滑滚动 + 惯性动画（kinetic），对高频小 delta 有缓冲；而 TUI 是逐事件跳行。</p>
+<h2 id="pai-cha-wan-lu-yu-cuo-wu-ji-lu">排查弯路与错误记录</h2>
+<p>整个排查过程中犯过的错、被推翻的假设，都值得记下来防止重蹈覆辙：</p>
+<table><thead><tr><th>#</th><th>错误假设 / 失误</th><th>为什么错</th><th>如何纠正</th></tr></thead><tbody>
+<tr><td>1</td><td>一开始就锁定 tmux，投入大量时间调 <code>-N 5→2→1</code></td><td>用户实际滚动的是 <strong>opencode TUI</strong>，tmux 配置根本不参与那条滚动路径</td><td>先确认"你说的终端到底是哪个程序"再排查；事后发现 tmux 改动只影响 copy-mode，用户场景里无感</td></tr>
+<tr><td>2</td><td>怀疑触摸板设备本身有问题（<code>libinput debug-events</code> 显示每帧 0.38 格、VTE 每 0.5 行发一个 SGR 事件，一度以为要写 libinput quirk）</td><td>原始坐标流（<code>evtest</code>）是平滑的；<code>wev</code> 证明 mutter 已把应用层像素量正常化（慢速 60px / 快速 260px），设备不是主因</td><td>逐层测量事件流（evtest → libinput → wev），把"全局 quirk"方案压到最后一档，避免影响所有应用</td></tr>
+<tr><td>3</td><td>测量 tmux 滚动行数时用 <code>capture-pane</code> 对比</td><td><strong>capture-pane 抓不到 copy-mode 的滚动视图</strong>，连续两次测出 0 行，误以为用户没滚</td><td>改用 tmux 内部 <code>copy_cursor_line</code> 做差分测量，才拿到真实滚动量</td></tr>
+<tr><td>4</td><td>让用户做受控手势时没有先输出指令、等确认就开始倒计时</td><td>用户看到消息时测量窗口已过，测试数据无效</td><td>改为"我输出指令 → 用户确认 → 开始测量"的节奏</td></tr>
+<tr><td>5</td><td>没意识到 Wayland 滚轮事件发给<strong>指针所在窗口</strong>而非活动窗口</td><td>用户把指针放在别的窗口上做手势，测试窗口 0 滚动</td><td>明确要求"把鼠标指针移到测试窗口中间"再测</td></tr>
+<tr><td>6</td><td>一度以为 tmux 配置改动"没作用"是配置没生效</td><td>配置曾被还原回 <code>-N 5</code>；且就算生效，作用域也只是 tmux copy-mode</td><td>每次改动后 `tmux list-keys -T copy-mode-vi</td></tr>
+</tbody></table>
+<h2 id="pai-cha-yong-dao-de-ming-ling-qing-dan">排查用到的命令清单</h2>
+<p>按事件链各层整理，附用途和关键输出，方便下次直接复用。</p>
+<h3 id="she-bei-shi-bie">设备识别</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 找出所有被识别为触摸板的设备节点（NAME 为设备名）
+for f in &#x2F;dev&#x2F;input&#x2F;event*; do
+  name=$(udevadm info -q property -n &quot;$f&quot; 2&gt;&#x2F;dev&#x2F;null | grep &#x27;^NAME=&#x27; | sed &#x27;s&#x2F;NAME=&#x2F;&#x2F;&#x27;)
+  tp=$(udevadm info -q property -n &quot;$f&quot; 2&gt;&#x2F;dev&#x2F;null | grep -c &#x27;ID_INPUT_TOUCHPAD=1&#x27;)
+  [ &quot;$tp&quot; = &quot;1&quot; ] &amp;&amp; echo &quot;$f  $name&quot;
+done
+
+# 查看设备的完整属性（vendor&#x2F;model、尺寸、usb 路径）
+udevadm info -q property -n &#x2F;dev&#x2F;input&#x2F;event8 | sort
+
+# 查看设备在 &#x2F;proc&#x2F;bus&#x2F;input&#x2F;devices 中的注册信息（轴位图、handlers）
+awk &#x27;&#x2F;Name=&quot;HS-LP88 -PTP-01-23-1F USB KeyBoard Touchpad&quot;&#x2F;{found=1} found{print} found&amp;&amp;&#x2F;^$&#x2F;{exit}&#x27; &#x2F;proc&#x2F;bus&#x2F;input&#x2F;devices
+</code></pre>
+<h3 id="xi-tong-she-zhi-yu-quirk">系统设置与 quirk</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># GNOME 触摸板设置（speed 0.0 默认、natural-scroll、two-finger-scrolling）
+gsettings get org.gnome.desktop.peripherals.touchpad speed
+gsettings get org.gnome.desktop.peripherals.touchpad natural-scroll
+
+# 查看设备当前生效的 libinput quirks（无输出 = 无 quirk）
+libinput quirks list &#x2F;dev&#x2F;input&#x2F;event8
+</code></pre>
+<h3 id="zhu-ceng-ce-liang-shi-jian-liu">逐层测量事件流</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># ① 内核原始事件 + 轴分辨率（evtest 输出含 Min&#x2F;Max&#x2F;Resolution）
+sudo evtest &#x2F;dev&#x2F;input&#x2F;event8
+#   → ABS_X Max 1433 Resolution 14   （14 units&#x2F;mm，102×51mm）
+
+# ② libinput 处理后的滚动事件（POINTER_SCROLL_FINGER，1.0 = 一格滚轮）
+sudo libinput debug-events --device &#x2F;dev&#x2F;input&#x2F;event8
+
+# ③ Wayland 应用层实际收到的 axis 事件（数值即像素，mutter 正常化后的真实输入）
+timeout 15 wev
+
+# 统计 wev 中每个手势的像素总量：
+python3 - &lt;&lt;&#x27;EOF&#x27;
+import re
+times, vals = [], []
+for line in open(&#x27;&#x2F;tmp&#x2F;wev.txt&#x27;):
+    m = re.search(r&#x27;axis: time: (\d+); axis: 0 \(vertical\), value: ([\d.]+)&#x27;, line)
+    if m: times.append(int(m.group(1))); vals.append(float(m.group(2)))
+g, acc, prev = 0, 0, None
+for t, v in zip(times, vals):
+    if prev and t - prev &gt; 300: print(f&quot;gesture {g}: {acc:.1f}px&quot;); g += 1; acc = 0
+    acc += v; prev = t
+print(f&quot;gesture {g}: {acc:.1f}px&quot;)
+EOF
+</code></pre>
+<h3 id="tmux-ceng">tmux 层</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 查看当前滚轮绑定（确认 -N 步长是否生效，改完配置必查）
+tmux list-keys -T copy-mode-vi | grep Wheel
+
+# 统计一个手势产生多少个 SGR 滚轮事件（在 tmux 窗格里运行，鼠标模式由程序自己开启）
+tmux new-window -d -n wc &quot;python3 -c &#x27;
+import sys, time
+sys.stdout.write(chr(27)+chr(91)+chr(63)+chr(49)+chr(48)+chr(48)+chr(48)+chr(104))
+sys.stdout.flush()
+n=0; start=time.time()
+while time.time()-start&lt;20:
+    d=sys.stdin.buffer.read(1)
+    if not d: continue
+    if d==b\&quot;\\x1b\&quot;:
+        rest=sys.stdin.buffer.read(3)
+        if rest.startswith(b\&quot;[M\&quot;): n+=1
+print(); print(\&quot;SGR events:\&quot;, n)
+&#x27;&quot;
+
+# 测真实滚动行数：copy_cursor_line 差分（capture-pane 抓不到 copy-mode 视图，别用那个）
+tmux display-message -p -t &lt;pane&gt; &#x27;copy_cursor_line=#{copy_cursor_line}&#x27;   # 手势前
+tmux display-message -p -t &lt;pane&gt; &#x27;copy_cursor_line=#{copy_cursor_line}&#x27;   # 手势后，差值即行数
+</code></pre>
+<h3 id="opencode-pei-zhi">opencode 配置</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 配置文件位置（启动时加载，改后需重启 opencode）
+cat ~&#x2F;.config&#x2F;opencode&#x2F;tui.json
+# {&quot;$schema&quot;: &quot;https:&#x2F;&#x2F;opencode.ai&#x2F;tui.json&quot;, &quot;scroll_speed&quot;: 1}
+
+# 源码中的默认值定位（packages&#x2F;tui&#x2F;src&#x2F;util&#x2F;scroll.ts）
+#   getScrollAcceleration(): scroll_speed 未配置时默认 CustomSpeedScroll(3)
+</code></pre>
+<h2 id="xiu-fu">修复</h2>
+<p>opencode 的 TUI 配置在 <code>~/.config/opencode/tui.json</code>（schema: <code>https://opencode.ai/tui.json</code>），写入：</p>
+<pre data-lang="json" class="language-json "><code class="language-json" data-lang="json">{
+  &quot;$schema&quot;: &quot;https:&#x2F;&#x2F;opencode.ai&#x2F;tui.json&quot;,
+  &quot;scroll_speed&quot;: 1
+}
+</code></pre>
+<p>配置启动时加载，重启 opencode 生效。想要浏览器式惯性平滑手感可加：</p>
+<pre data-lang="json" class="language-json "><code class="language-json" data-lang="json">{
+  &quot;scroll_speed&quot;: 1,
+  &quot;scroll_acceleration&quot;: { &quot;enabled&quot;: true }
+}
+</code></pre>
+<p><code>scroll_speed</code> 范围 ≥0.001，越大越快。</p>
+<h2 id="zong-jie">总结</h2>
+<ol>
+<li>同一个滚动灵敏度问题，事件链上每一层都有各自的"每事件行数"乘数：libinput（每 mm 格数）→ mutter（px）→ VTE（SGR 事件率）→ TUI（每事件行数）。<strong>感知上的速度 = 各层乘数之积</strong>，改任何一层都有效，但要注意影响面：
+<ul>
+<li>libinput <code>ScrollDistance</code> quirk：全局，所有应用一起变</li>
+<li>tmux <code>-N</code>：只影响 tmux copy-mode 滚动</li>
+<li>opencode <code>scroll_speed</code>：只影响 opencode TUI（本项目最终采用）</li>
+</ul>
+</li>
+<li>排查工具清单：<code>evtest</code>（内核原始事件）、<code>libinput debug-events</code>（libinput 输出）、<code>wev</code>（Wayland 应用层事件）、tmux <code>copy_cursor_line</code> 差分（测实际滚动行数）。</li>
+<li>教训：先确认"你说的终端到底是哪个程序"，再开始排查——本问题在 tmux 层投入了大量时间，实际元凶是 opencode。</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/">&#8249; TUN / TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/"> 自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-guo-cheng">排查过程</a>
+        </div>
+        <div class="hpad">
+          <a href="#di-yi-ceng-huai-yi-tmux-gun-lun-bu-chang"><small>- 第一层怀疑：tmux 滚轮步长</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-er-ceng-shi-ce-shi-jian-liu-pai-chu-libinput-mutter"><small>- 第二层：实测事件流，排除 libinput &#x2F; mutter</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-san-ceng-vte-de-sgr-shi-jian-fang-da"><small>- 第三层：VTE 的 SGR 事件放大</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-si-ceng-zhen-zheng-de-yuan-xiong-opencode-tui"><small>- 第四层：真正的元凶——opencode TUI</small></a>
+        </div>
+        <div>
+          <a href="#pai-cha-wan-lu-yu-cuo-wu-ji-lu">排查弯路与错误记录</a>
+        </div>
+        <div>
+          <a href="#pai-cha-yong-dao-de-ming-ling-qing-dan">排查用到的命令清单</a>
+        </div>
+        <div class="hpad">
+          <a href="#she-bei-shi-bie"><small>- 设备识别</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xi-tong-she-zhi-yu-quirk"><small>- 系统设置与 quirk</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zhu-ceng-ce-liang-shi-jian-liu"><small>- 逐层测量事件流</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tmux-ceng"><small>- tmux 层</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#opencode-pei-zhi"><small>- opencode 配置</small></a>
+        </div>
+        <div>
+          <a href="#xiu-fu">修复</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

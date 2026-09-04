@@ -1,0 +1,203 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>一个容器内进程的 cwd 诊断记录 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="进程 &#x2F;proc&#x2F;PID&#x2F;cwd 指向根目录但根目录里没有 jar 文件？通过父进程识别 Docker 容器、理解容器文件系统与 overlay 的关系，一步步定位问题。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/" />
+  <meta property="og:description" content="进程 &#x2F;proc&#x2F;PID&#x2F;cwd 指向根目录但根目录里没有 jar 文件？通过父进程识别 Docker 容器、理解容器文件系统与 overlay 的关系，一步步定位问题。" />
+  <meta name="twitter:description" content="进程 &#x2F;proc&#x2F;PID&#x2F;cwd 指向根目录但根目录里没有 jar 文件？通过父进程识别 Docker 容器、理解容器文件系统与 overlay 的关系，一步步定位问题。" />
+  <meta property="og:title" content="一个容器内进程的 cwd 诊断记录 | 墨雪天琊" />
+  <meta name="twitter:title" content="一个容器内进程的 cwd 诊断记录 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-05" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/">一个容器内进程的 cwd 诊断记录</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 05, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/docker/">docker</a>] #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/docker/">docker</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a>  #<a href="https://moxuetianya.github.io/tags/troubleshooting/">troubleshooting</a> </span>
+
+    
+
+
+<h1 id="yi-ge-rong-qi-nei-jin-cheng-de-cwd-zhen-duan-ji-lu">一个容器内进程的 cwd 诊断记录</h1>
+<h2 id="wen-ti-xian-xiang">问题现象</h2>
+<p>在一台远程服务器上排查一个 Java 服务（portal.jar），执行：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ssh smyl@192.168.7.16 &quot;ps -ef | grep portal.jar&quot;
+</code></pre>
+<p>得到进程 PID 后，查看它的启动目录：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo ls -l &#x2F;proc&#x2F;2333607&#x2F;cwd
+</code></pre>
+<p>结果显示 symlink 指向 <code>/</code>（根目录）。但是 <code>ls /</code> 里根本没有 <code>portal.jar</code>，文件去哪了？</p>
+<h2 id="pai-cha-guo-cheng">排查过程</h2>
+<h3 id="1-xian-kan-wan-zheng-de-qi-dong-ming-ling-xing">1. 先看完整的启动命令行</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cat &#x2F;proc&#x2F;2333607&#x2F;cmdline | tr &#x27;\0&#x27; &#x27; &#x27;
+</code></pre>
+<p>输出：</p>
+<pre><code>java -agentlib:jdwp=... -jar portal.jar --spring.datasource.url=...
+</code></pre>
+<p>注意这里用的是<strong>相对路径</strong> <code>-jar portal.jar</code>，没有带目录。也就是说，jar 的路径在启动命令行里，和 cwd 是两回事——<code>/proc/PID/cwd</code> 只是进程的 OS 层工作目录（chdir 状态），不等于 jar 文件所在位置。</p>
+<h3 id="2-kan-fu-jin-cheng-zhe-shi-guan-jian-yi-bu">2. 看父进程，这是关键一步</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ps -fp 2333588   # 父进程
+</code></pre>
+<p>输出：</p>
+<pre><code>root 2333588 1 ... &#x2F;usr&#x2F;bin&#x2F;containerd-shim-runc-v2 -namespace moby \
+  -id b1361c5698864840338b2753403884cff27c8189a6c7bc4a88fabb83f1706805 \
+  -address &#x2F;var&#x2F;run&#x2F;docker&#x2F;containerd&#x2F;containerd.sock
+</code></pre>
+<p>看到父进程是 <code>containerd-shim-runc-v2</code> 就基本可以断定：<strong>这个进程跑在 Docker 容器里</strong>。</p>
+<p>几个识别特征：</p>
+<ul>
+<li><code>containerd-shim-runc-v2</code>：Docker 为每个容器创建的 shim 进程，是容器内 PID 1 的宿主侧父进程</li>
+<li><code>-namespace moby</code>：Docker 的 containerd 命名空间</li>
+<li><code>-address /var/run/docker/containerd/containerd.sock</code>：Docker 的 containerd socket</li>
+<li><code>-id &lt;64位hex&gt;</code>：就是容器 ID</li>
+</ul>
+<h3 id="3-docker-inspect-jiao-cha-yan-zheng">3. docker inspect 交叉验证</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">docker inspect b1361c56... --format &#x27;{{json .Config.WorkingDir}} {{json .Path}} {{json .Args}}&#x27;
+</code></pre>
+<p>输出：</p>
+<pre><code>&quot;&#x2F;&quot; &quot;java&quot; [&quot;...&quot;,&quot;-jar&quot;,&quot;portal.jar&quot;,&quot;--spring.datasource.url=...&quot;]
+</code></pre>
+<p>容器 <code>Config.WorkingDir</code> 是 <code>/</code>，命令是 <code>java ... -jar portal.jar</code>，与 cmdline 完全吻合。同时拿到容器名 <code>xfuzz-saas-test-server-1</code>、镜像 <code>wfuzz-web:v1.12.27.1</code>。</p>
+<h3 id="4-jin-rong-qi-que-ren">4. 进容器确认</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">docker exec &lt;容器ID&gt; ls -l &#x2F;portal.jar
+</code></pre>
+<p>容器里 <code>/portal.jar</code> <strong>确实存在</strong>（396MB）；而宿主机 <code>ls /</code> 里没有。真相大白：</p>
+<p><strong>cwd 显示的 <code>/</code> 是容器内的根目录（overlay 文件系统），不是宿主机的根目录。</strong> 两者是两个不同的文件系统，我在宿主机的 <code>/</code> 里找容器里的文件，当然找不到。</p>
+<h2 id="yuan-li-xiao-jie">原理小结</h2>
+<ul>
+<li><code>/proc/PID/cwd</code>：进程的工作目录，是 OS 层 chdir 状态，<strong>和可执行文件/jar 在哪没有必然关系</strong>；jar 的真实路径要看 <code>/proc/PID/cmdline</code> 里的启动参数（可能有相对路径 + 其他情况）</li>
+<li>容器进程的文件系统：Docker 容器根目录是 overlay2 挂载的镜像层，与宿主根目录隔离。宿主上 <code>ls -l /proc/PID/cwd</code> 显示的路径是容器命名空间内的路径</li>
+<li>容器进程判定：<code>ps -ef</code> 时看 PPID，父进程是 <code>containerd-shim-runc-v2</code>（Docker）或 <code>containerd-shim</code>（containerd）即为容器内进程；容器内根目录还有 <code>.dockerenv</code> 标记文件</li>
+</ul>
+<h2 id="hou-xu-xia-zai-wen-jian-de-pai-cha">后续：下载文件的排查</h2>
+<p>这个服务还提供 wfuzz 程序下载功能，最初也没找到 wfuzz 文件。排查结果：</p>
+<ol>
+<li>可下载的文件不在 <code>portal.jar</code> 里。jar 内搜到的 <code>wfuzz</code> 全是 Java 包名/类名（<code>com.wfuzz.saas.portal.*</code>），不是二进制</li>
+<li>下载源在容器磁盘上：配置文件 <code>application-platform.yml</code> 里写了 <code>repo: /dist/repo</code>、<code>install: /dist/install</code>、<code>assetDir: /repo/dist/asset</code></li>
+<li>实际文件在 <code>/repo/dist/out/wfuzz-Linux-x86_64</code>、<code>/repo/dist/repo/wfuzz-2.4.20-Linux-x86_64.tar.xz</code> 等</li>
+</ol>
+<p>找不到的另一个原因是<strong>文件名带了架构后缀</strong>：<code>wfuzz-Linux-x86_64</code>、<code>wfuzz-2.4.20-Linux-x86_64.tar.xz</code>，用 <code>ls</code> 或 <code>find -name "wfuzz"</code> 精确匹配会漏掉，要写成：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">find &#x2F; -iname &quot;*wfuzz*&quot;
+</code></pre>
+<h2 id="jing-yan-zong-jie">经验总结</h2>
+<ol>
+<li>排查进程问题先看三件套：<code>cmdline</code>（启动参数）、<code>cwd</code>、<code>exe</code>，再看 <strong>PPID</strong>（父进程是谁往往直接给出答案）</li>
+<li>看到 <code>containerd-shim-runc-v2</code> 立刻意识到是容器场景，接下来一切都要到容器内文件系统里找</li>
+<li>cwd 指向的 <code>/</code> 不等于可执行文件所在目录；文件位置看 cmdline，文件系统边界看父进程</li>
+<li>文件搜索用通配符（<code>*wfuzz*</code>），别被带后缀的文件名骗了</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/ubuntu-gnome-rdp-mstsc-troubleshooting/">&#8249; 两台机器的 GNOME RDP 排查：xrdp 占端口 / 0x907 证书 / 白屏闪退 / 凭证丢失</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/sudo-askpass-pass-and-gpg-agent/"> 让 agent 执行 sudo 时弹窗授权：sudo -A + pass + gpg-agent 免费方案 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-ge-rong-qi-nei-jin-cheng-de-cwd-zhen-duan-ji-lu">一个容器内进程的 cwd 诊断记录</a>
+        </div>
+        <div class="hpad">
+          <a href="#wen-ti-xian-xiang"><small>- 问题现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-guo-cheng"><small>- 排查过程</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-xian-kan-wan-zheng-de-qi-dong-ming-ling-xing"><small>· 1. 先看完整的启动命令行</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-kan-fu-jin-cheng-zhe-shi-guan-jian-yi-bu"><small>· 2. 看父进程，这是关键一步</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-docker-inspect-jiao-cha-yan-zheng"><small>· 3. docker inspect 交叉验证</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-jin-rong-qi-que-ren"><small>· 4. 进容器确认</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-li-xiao-jie"><small>- 原理小结</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#hou-xu-xia-zai-wen-jian-de-pai-cha"><small>- 后续：下载文件的排查</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jing-yan-zong-jie"><small>- 经验总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

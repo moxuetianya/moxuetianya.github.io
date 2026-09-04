@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - network</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/network/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-31T19:02:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/network/atom.xml</id>
+    <entry xml:lang="en">
+        <title>libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险</title>
+        <published>2026-08-31T19:02:16+08:00</published>
+        <updated>2026-08-31T19:02:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/"/>
+        <id>https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/">&lt;h1 id=&quot;libvirt-macvlan-vsock-ju-yu-wang-zhi-lian-xu-ni-ji-su-zhu-ling-duan-wang-feng-xian&quot;&gt;libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;给一台 aarch64 宿主（192.168.6.8，KVM）上的新虚拟机做&lt;strong&gt;局域网直连&lt;&#x2F;strong&gt;（局域网其他机器能直接访问 VM），但有两个顾虑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;不想在宿主&lt;strong&gt;在用的网卡&lt;&#x2F;strong&gt;（enp2s0f0）上配 Linux bridge —— 万一配置出错会断 SSH，风险不可控&lt;&#x2F;li&gt;
+&lt;li&gt;其他空闲网卡（enp2s0f1&#x2F;2&#x2F;3）&lt;strong&gt;都没插网线&lt;&#x2F;strong&gt;，bridge 建上去是孤岛网络，局域网够不着&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;最终方案是组合拳：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;libvirt macvlan&lt;&#x2F;strong&gt;（macvtap，&lt;code&gt;type=direct&lt;&#x2F;code&gt; bridge 模式）直接挂 &lt;code&gt;enp2s0f0&lt;&#x2F;code&gt; —— 完全不动宿主网卡配置，零断网风险，LAN 可达 VM&lt;&#x2F;li&gt;
+&lt;li&gt;macvlan 的代价：&lt;strong&gt;宿主机 ↔ VM 互不可达&lt;&#x2F;strong&gt;（物理网卡不接收 guest MAC 的帧）&lt;&#x2F;li&gt;
+&lt;li&gt;用 &lt;strong&gt;VSOCK&lt;&#x2F;strong&gt;（virtio-vsock，cid=3）补上宿主机 → VM 的专属 SSH 通道&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;guan-jian-ren-zhi-xian-gao-dong-zai-dong-shou&quot;&gt;关键认知（先搞懂再动手）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;事实&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;macvtap bridge 模式&lt;&#x2F;td&gt;&lt;td&gt;guest 帧直接进出物理网卡，&lt;strong&gt;LAN 可达 guest&lt;&#x2F;strong&gt;；但宿主 NIC 不收 guest MAC 帧 → &lt;strong&gt;宿主↔guest 不通&lt;&#x2F;strong&gt;，这是硬限制，不是配置错误&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;sshd 不监听 AF_VSOCK&lt;&#x2F;td&gt;&lt;td&gt;sshd 只绑 TCP :22；VSOCK 是独立地址族，需要 guest 内 &lt;strong&gt;socat 桥接&lt;&#x2F;strong&gt; &lt;code&gt;VSOCK-LISTEN:22 → 127.0.0.1:22&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&#x2F;dev&#x2F;vsock 要模块&lt;&#x2F;td&gt;&lt;td&gt;宿主需 &lt;code&gt;vsock&lt;&#x2F;code&gt; + &lt;code&gt;vmw_vsock_virtio_transport&lt;&#x2F;code&gt;（&lt;code&gt;&#x2F;dev&#x2F;vsock&lt;&#x2F;code&gt; 才会出现）；QEMU aarch64 的 vhost-vsock-pci 可用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用系统 libvirtd&lt;&#x2F;td&gt;&lt;td&gt;session 模式（&lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;session&lt;&#x2F;code&gt;）用户进程没 CAP_NET_ADMIN，&lt;strong&gt;建不了 macvtap&lt;&#x2F;strong&gt;；用 &lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;system&lt;&#x2F;code&gt;（root libvirtd）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;镜像架构&lt;&#x2F;td&gt;&lt;td&gt;aarch64 宿主只能跑 arm64 guest，amd64 ISO 装上也是全模拟、慢到没法用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;macvlan 网络定义 ≠ 连接定义&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;&amp;lt;forward mode=&#x27;bridge&#x27;&amp;gt;&amp;lt;interface dev=&#x27;...&#x27;&#x2F;&amp;gt;&amp;lt;&#x2F;forward&amp;gt;&lt;&#x2F;code&gt; 只是声明&quot;哪些物理网卡可用于 macvtap 直连&quot;的资源池，net-start 不创建任何设备、不加 iptables&#x2F;DHCP&#x2F;DNS；type=&#x27;direct&#x27; 网卡上的 dev&#x2F;mode 才是真正创建 macvtap 的参数（macvtap 的 bridge&#x2F;vepa&#x2F;private&#x2F;passthrough 模式是每条网卡自己的属性），所以两处都要写&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;NoCloud seed&lt;&#x2F;td&gt;&lt;td&gt;cloud-init 首次启动自动挂载卷标 &lt;code&gt;cidata&lt;&#x2F;code&gt; 的 CDROM（seed.iso），读 &lt;code&gt;user-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;meta-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;network-config&lt;&#x2F;code&gt; 完成无人值守初始化（建用户&#x2F;注入密钥&#x2F;主机名&#x2F;runcmd），相当于安装应答文件，初始化完即可弹出&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;bu-zou&quot;&gt;步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;0-an-zhuang-yi-lai-su-zhu-ji&quot;&gt;0. 安装依赖（宿主机）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install -y cloud-image-utils virtinst qemu-utils socat whois
+# cloud-localds（cloud-image-utils）&amp;#x2F; virt-install &amp;#x2F; qemu-img &amp;#x2F; ssh ProxyCommand 的 socat &amp;#x2F; mkpasswd（whois）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;1-ding-yi-macvlan-wang-luo-macvtap-zhi-lian&quot;&gt;1. 定义 macvlan 网络（macvtap 直连）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- macvlan0.xml --&amp;gt;
+&amp;lt;network&amp;gt;
+  &amp;lt;name&amp;gt;macvlan0&amp;lt;&amp;#x2F;name&amp;gt;
+  &amp;lt;forward mode=&amp;quot;bridge&amp;quot;&amp;gt;
+    &amp;lt;interface dev=&amp;quot;enp2s0f0&amp;quot;&amp;#x2F;&amp;gt;
+  &amp;lt;&amp;#x2F;forward&amp;gt;
+&amp;lt;&amp;#x2F;network&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh net-define macvlan0.xml &amp;amp;&amp;amp; virsh net-start macvlan0 &amp;amp;&amp;amp; virsh net-autostart macvlan0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 网卡最终是 &lt;code&gt;type=&#x27;direct&#x27;&lt;&#x2F;code&gt; + &lt;code&gt;mode=&#x27;bridge&#x27;&lt;&#x2F;code&gt;，直接挂物理网卡：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;interface type=&amp;#x27;direct&amp;#x27;&amp;gt;
+  &amp;lt;source network=&amp;#x27;macvlan0&amp;#x27; dev=&amp;#x27;enp2s0f0&amp;#x27; mode=&amp;#x27;bridge&amp;#x27;&amp;#x2F;&amp;gt;
+  &amp;lt;model type=&amp;#x27;virtio&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;interface&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;为什么网络里已声明 &lt;code&gt;dev=&#x27;enp2s0f0&#x27;&lt;&#x2F;code&gt;，网卡上还要再写一遍 dev&#x2F;mode？网络 XML 只是&quot;可用物理网卡池&quot;（net-start 不创建设备），macvtap 模式是每条网卡自己的属性，type=&#x27;direct&#x27; 网卡是自包含的连接定义，libvirt 不会从网络定义里替你填参数。想省事可改用 &lt;code&gt;&amp;lt;interface type=&#x27;network&#x27;&amp;gt;&amp;lt;source network=&#x27;macvlan0&#x27;&#x2F;&amp;gt;&amp;lt;&#x2F;interface&amp;gt;&lt;&#x2F;code&gt; 让 libvirt 自动从池里选网卡并默认 bridge 模式，但单网卡时两者等价。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;2-jing-xiang-yu-seed&quot;&gt;2. 镜像与 seed&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;seed.iso 的作用&lt;&#x2F;strong&gt;：Ubuntu cloud 镜像出厂不带用户&#x2F;密码，首次启动时 cloud-init 自动查找卷标 &lt;code&gt;cidata&lt;&#x2F;code&gt; 的可挂载卷（即 seed.iso），读里面的 &lt;code&gt;user-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;meta-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;network-config&lt;&#x2F;code&gt; 完成无人值守初始化——建用户、注入 SSH 公钥、设密码、主机名、执行 runcmd。相当于&quot;安装应答文件&quot;，初始化完成后即可弹出。&lt;code&gt;cloud-localds&lt;&#x2F;code&gt; 只是把 YAML 打包成 ISO 的工具（来自 cloud-image-utils 包），seed.iso 不需要下载。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# arm64 cloud 镜像（~590MB）
+wget -O &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;noble-server-cloudimg-arm64.img \
+  https:&amp;#x2F;&amp;#x2F;cloud-images.ubuntu.com&amp;#x2F;noble&amp;#x2F;current&amp;#x2F;noble-server-cloudimg-arm64.img
+qemu-img convert -f qcow2 -O qcow2 noble-server-cloudimg-arm64.img u24.qcow2
+qemu-img resize u24.qcow2 50G
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;seed 由 1 个必建文件 + 2 个可选文件组成，全部放在 &#x2F;data&#x2F;vm 下：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;seed.yaml（必建）&lt;&#x2F;strong&gt;：用户&#x2F;密钥&#x2F;开机动作（DHCP 默认，无需 network 配置）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;#cloud-config
+hostname: u24
+users:
+  - name: smyl
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: &amp;#x2F;bin&amp;#x2F;bash
+    lock_passwd: false
+    passwd: &amp;lt;mkpasswd -m sha-512 生成的密码哈希&amp;gt;
+    ssh_authorized_keys:
+      - &amp;lt;宿主公钥，cat ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519.pub 的内容&amp;gt;
+ssh_pwauth: true
+runcmd:
+  - modprobe vsock_virtio || true
+  - apt-get update -qq &amp;amp;&amp;amp; apt-get install -y -qq qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;meta-data（可选，不建则 cloud-localds 自动生成）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;instance-id: u24-001
+local-hostname: u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;network-config.yaml（可选，DHCP 场景不需要）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;version: 2
+ethernets:
+  all:
+    match:
+      name: &amp;quot;en*&amp;quot;
+    dhcp4: true
+    dhcp6: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成 ISO 并验证（注意 passwd 必须是 sha-512 哈希，不能写明文）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;data&amp;#x2F;vm
+cloud-localds &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso seed.yaml
+# 完整三件套：cloud-localds -v --network-config network-config.yaml seed.iso seed.yaml meta-data
+isoinfo -f -i &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso   # 验证：应列出 &amp;#x2F;user-data &amp;#x2F;meta-data（&amp;#x2F;network-config 可选）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-jian-vm&quot;&gt;3. 建 VM&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virt-install --connect qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system \
+  --name u24 --memory 4096 --vcpus 4 \
+  --disk path=&amp;#x2F;data&amp;#x2F;vm&amp;#x2F;u24.qcow2,format=qcow2,bus=virtio \
+  --disk path=&amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso,device=cdrom \
+  --network network=macvlan0,model=virtio \
+  --os-variant ubuntu22.04 --import --graphics none --noautoconsole
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-gua-vsock-she-bei-cid-3&quot;&gt;4. 挂 VSOCK 设备（cid=3）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- vsock.xml --&amp;gt;
+&amp;lt;vsock&amp;gt;
+  &amp;lt;cid auto=&amp;quot;no&amp;quot; address=&amp;quot;3&amp;quot;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;vsock&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh attach-device --config u24 vsock.xml   # 注意 --config 只写配置，需重启 VM 才生效
+virsh start u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;cid 是什么&lt;&#x2F;strong&gt;：Context Identifier，AF_VSOCK 地址族里的节点地址，作用相当于 IP——VSOCK 通信用 &lt;code&gt;(cid, port)&lt;&#x2F;code&gt; 二元组寻址（类比 TCP 的 &lt;code&gt;(IP, 端口)&lt;&#x2F;code&gt;），cid 在整台宿主机上全局唯一（所有 VM 共享一个 VSOCK 地址空间）。保留值（&lt;code&gt;linux&#x2F;vm_sockets.h&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;cid&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;0xFFFFFFFF&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_ANY&lt;&#x2F;code&gt;（通配）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;0&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_HYPERVISOR&lt;&#x2F;code&gt;（虚拟化层）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_LOCAL&lt;&#x2F;code&gt;（本机进程间）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_HOST&lt;&#x2F;code&gt;（宿主机，固定不变）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;≥3&lt;&#x2F;td&gt;&lt;td&gt;各 guest 自行分配&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;cid=3 没有特殊语义&lt;&#x2F;strong&gt;——QEMU 规定 guest cid 最小为 3（2 及以下全被保留），所以 3 是合法的最小值，第一个 VM 惯例上就用它（libvirt &lt;code&gt;&amp;lt;cid auto=&#x27;yes&#x27;&amp;gt;&lt;&#x2F;code&gt; 自动分配时也从 3 开始），之后每个 VM 换个不重复的数字（4、5…）。对应到本文：宿主连 &lt;code&gt;VSOCK-CONNECT:3:22&lt;&#x2F;code&gt; 就是&quot;连 u24 这台机器&quot;；反过来 guest 要连宿主机则固定用 cid=2。&lt;&#x2F;p&gt;
+&lt;p&gt;guest-agent channel 不需要手动挂，virt-install 自动加了 &lt;code&gt;org.qemu.guest_agent.0&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-guest-nei-zuo-vsock-tcp-qiao-jie&quot;&gt;5. guest 内做 VSOCK → TCP 桥接&lt;&#x2F;h3&gt;
+&lt;p&gt;sshd 不监听 AF_VSOCK，需要 socat 转发（VM 内）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install -y socat
+cat &amp;gt; &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;vsock-sshd.service &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+[Unit]
+Description=VSOCK to TCP sshd bridge
+After=network.target
+
+[Service]
+ExecStart=&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload &amp;amp;&amp;amp; systemctl enable --now vsock-sshd.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-su-zhu-ce-ssh-bie-ming&quot;&gt;6. 宿主侧 ssh 别名&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ~&amp;#x2F;.ssh&amp;#x2F;config
+Host u24
+    HostName localhost
+    ProxyCommand socat - VSOCK-CONNECT:3:22
+    User smyl
+    HostKeyAlias u24
+    ServerAliveInterval 30
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首次连接需 &lt;code&gt;ssh -o StrictHostKeyChecking=accept-new u24&lt;&#x2F;code&gt; 记录 host key（HostKeyAlias 保证存到 &lt;code&gt;u24&lt;&#x2F;code&gt; 名下，hostname 无所谓）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;7-chi-jiu-hua-su-zhu-zhong-qi-hou-zi-dong-hui-fu&quot;&gt;7. 持久化（宿主重启后自动恢复）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo -e &amp;quot;vsock\nvmw_vsock_virtio_transport&amp;quot; | sudo tee &amp;#x2F;etc&amp;#x2F;modules-load.d&amp;#x2F;vsock.conf
+virsh net-autostart macvlan0   # 网络自启
+virsh autostart u24            # VM 自启
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# LAN 直连（其他机器也能这样访问 VM）
+ssh smyl@192.168.5.193        # DHCP 分配的 IP
+
+# 宿主机走 VSOCK（不依赖网络，网卡挂了也能连）
+ssh u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 DHCP IP 通过 guest-agent 查询（macvtap 下宿主 ARP 表看不到 guest，&lt;code&gt;domifaddr --source arp&lt;&#x2F;code&gt; 不灵）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh qemu-agent-command u24 &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-network-get-interfaces&amp;quot;}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cai-guo-de-keng&quot;&gt;踩过的坑&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;amd64 ISO 装不上 aarch64&lt;&#x2F;strong&gt;：qemu-system-aarch64 只能跑 arm64 guest，x86 镜像要么换 emulator 要么全模拟慢到没法用&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;virsh qemu-agent-command&lt;&#x2F;code&gt; 不支持 &lt;code&gt;--file&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：JSON 只能内联传参，命令长时用 base64 传递避免转义地狱&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;ssh u24&lt;&#x2F;code&gt; 报 Host key verification failed&lt;&#x2F;strong&gt;：之前用临时 &lt;code&gt;UserKnownHostsFile&lt;&#x2F;code&gt; 连接过，默认 known_hosts 里没有，&lt;code&gt;accept-new&lt;&#x2F;code&gt; 一次即可&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;macvtap 下 &lt;code&gt;domifaddr --source arp&lt;&#x2F;code&gt; 拿不到 IP&lt;&#x2F;strong&gt;：宿主与 guest 不通，ARP 表里没有 guest；靠 guest-agent 或 vsock 查&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;局域网直连优先考虑 macvlan&#x2F;macvtap：&lt;strong&gt;不动宿主网卡、零断网风险&lt;&#x2F;strong&gt;，代价是宿主↔guest 不通&lt;&#x2F;li&gt;
+&lt;li&gt;VSOCK 是补这个坑的干净通道：guest 内一条 socat systemd 服务即可，SSH 完全复用，不依赖 IP&lt;&#x2F;li&gt;
+&lt;li&gt;aarch64 宿主记得核对 guest 镜像架构，cloud 镜像 + cloud-init seed 可以全自动落地&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>linux 网络不通网卡缺陷排查记录</title>
+        <published>2026-03-20T01:56:07+00:00</published>
+        <updated>2026-03-20T01:56:07+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/"/>
+        <id>https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/03/linux 网络不通网卡缺陷排查记录/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;查看&lt;code&gt;ip route&lt;&#x2F;code&gt; &lt;code&gt;ip link&lt;&#x2F;code&gt; &lt;code&gt;ip -4 addr&lt;&#x2F;code&gt; &lt;code&gt;bridge show&lt;&#x2F;code&gt; 等多个命令，没有发现明显问题
+怀疑是linux网桥导致的问题，后面发现是物理网卡hung了&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cha-kan-dmesg&quot;&gt;查看dmesg&lt;&#x2F;h1&gt;
+&lt;p&gt;sudo dmesg -w&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;txt&quot; class=&quot;language-txt &quot;&gt;&lt;code class=&quot;language-txt&quot; data-lang=&quot;txt&quot;&gt;[318451.739250] e1000e 0000:00:1f.6 enp0s31f6: Detected Hardware Unit Hang:
+                  TDH                  &amp;lt;ed&amp;gt;
+                  TDT                  &amp;lt;10&amp;gt;
+                  next_to_use          &amp;lt;10&amp;gt;
+                  next_to_clean        &amp;lt;ec&amp;gt;
+                buffer_info[next_to_clean]:
+                  time_stamp           &amp;lt;110b9fd62&amp;gt;
+                  next_to_watch        &amp;lt;ed&amp;gt;
+                  jiffies              &amp;lt;112f6a400&amp;gt;
+                  next_to_watch.status &amp;lt;0&amp;gt;
+                MAC Status             &amp;lt;40080083&amp;gt;
+                PHY Status             &amp;lt;796d&amp;gt;
+                PHY 1000BASE-T Status  &amp;lt;3800&amp;gt;
+                PHY Extended Status    &amp;lt;3000&amp;gt;
+                PCI Status             &amp;lt;10&amp;gt;
+
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;zhen-duan-jie-guo-he-xin-zhen-duan&quot;&gt;诊断结果 核心诊断&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;硬件型号：Intel I219-LM (rev 11)。这是 Dell OptiPlex 7090 等商用机常见的板载网卡。&lt;&#x2F;li&gt;
+&lt;li&gt;内核版本：6.17.0-19-generic。这是一个非常新的内核（Ubuntu 24.04 的 HWE 边缘或开发版内核）。&lt;&#x2F;li&gt;
+&lt;li&gt;故障原因：新版内核中的 e1000e 驱动与 I219-LM (rev 11) 存在兼容性问题。&lt;&#x2F;li&gt;
+&lt;li&gt;Intel I219 系列网卡在 Linux 下以“挑剔”著称，经常在新内核中出现 Hardware Unit Hang。&lt;&#x2F;li&gt;
+&lt;li&gt;错误日志显示驱动检测到发送&#x2F;接收队列死锁，这通常是因为新内核的电源管理策略（ASPM）或中断处理逻辑与该特定修订版（rev 11）的硬件不匹配导致的。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;lin-shi-ce-shi-wu-xu-zhong-qi-yun-xing-yi-xia-ming-ling-guan-bi-gai-wang-qia-de-aspm-zhu-dong-zhuang-tai-dian-yuan-guan-li&quot;&gt;临时测试（无需重启）： 运行以下命令关闭该网卡的 ASPM（主动状态电源管理）：&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 注意：需要 root 权限
+sudo setpci -s 00:1f.6 0x50.B=0x00
+# 如果命令提示找不到 setpci，请先安装：
+sudo apt install pciutils
+执行完上述命令后，重置网卡：
+``` bash
+sudo ip link set enp0s31f6 down
+sudo ip link set enp0s31f6 up
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yong-jiu-sheng-xiao-xiu-gai-grub&quot;&gt;永久生效（修改 GRUB）：&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;如果临时测试有效，需要修改启动参数永久生效：&lt;&#x2F;li&gt;
+&lt;li&gt;sudo nano &#x2F;etc&#x2F;default&#x2F;grub&lt;&#x2F;li&gt;
+&lt;li&gt;找到 GRUB_CMDLINE_LINUX_DEFAULT 这一行，在引号内添加 pcie_aspm=off。&lt;&#x2F;li&gt;
+&lt;li&gt;GRUB_CMDLINE_LINUX_DEFAULT=&quot;quiet splash pcie_aspm=off&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;保存退出后，更新 GRUB 并重启：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo update-grub
+sudo reboot
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jin-yong-te-ding-de-wang-qia-jie-neng-gong-neng&quot;&gt;禁用特定的网卡节能功能&lt;&#x2F;h2&gt;
+&lt;p&gt;如果方案一无效，尝试通过 ethtool 禁用网卡内部的节能选项。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install ethtool
+sudo ethtool enp0s31f6 | grep -E &amp;quot;Wake-on|Energy&amp;quot;
+# 关闭 Wake-on-LAN
+sudo ethtool -s enp0s31f6 wol d
+
+# 关闭 Energy Efficient Ethernet (EEE) - 这对 I219 很重要
+sudo ethtool --set-eee enp0s31f6 eee off
+# 注：如果 --set-eee 提示不支持，可以忽略该行。
+# 为了让这些设置在重启后依然有效，你可以创建一个 systemd 服务或将其放入 &amp;#x2F;etc&amp;#x2F;network&amp;#x2F;interfaces (如果是旧版 networking) 或 Netplan 的配置中。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;快速临时测试脚本：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip link set enp0s31f6 down
+sudo ethtool -s enp0s31f6 wol d
+sudo ethtool --set-eee enp0s31f6 eee off 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo ip link set enp0s31f6 up
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>常用网络工具</title>
+        <published>2025-11-25T18:52:43+08:00</published>
+        <updated>2025-11-25T18:52:43+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/常用网络工具/"/>
+        <id>https://moxuetianya.github.io/2025/11/常用网络工具/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/常用网络工具/">&lt;h1 id=&quot;chang-yong-wang-luo-gong-ju&quot;&gt;常用网络工具&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;ping&lt;&#x2F;li&gt;
+&lt;li&gt;curl&lt;&#x2F;li&gt;
+&lt;li&gt;httpie&lt;&#x2F;li&gt;
+&lt;li&gt;wget&lt;&#x2F;li&gt;
+&lt;li&gt;tc&lt;&#x2F;li&gt;
+&lt;li&gt;dig&#x2F;nslookup&lt;&#x2F;li&gt;
+&lt;li&gt;whois&lt;&#x2F;li&gt;
+&lt;li&gt;ssh&#x2F;scp&#x2F;rsync&lt;&#x2F;li&gt;
+&lt;li&gt;ngrep 抓包grep命令的网络版&lt;&#x2F;li&gt;
+&lt;li&gt;tcpdump&#x2F;wireshark&#x2F;tshark&lt;&#x2F;li&gt;
+&lt;li&gt;tcpflow 捕获和重组TCP连接中的数据流&lt;&#x2F;li&gt;
+&lt;li&gt;ifconfig&#x2F;route&lt;&#x2F;li&gt;
+&lt;li&gt;ip&#x2F;arp&lt;&#x2F;li&gt;
+&lt;li&gt;mitmproxy 中间人代理工具拦截修改观察流量&lt;&#x2F;li&gt;
+&lt;li&gt;nmap 网络探测和安全审核工具&lt;&#x2F;li&gt;
+&lt;li&gt;zenmap 图形界面管理和执行网络扫描任务&lt;&#x2F;li&gt;
+&lt;li&gt;p0f 被动操作系统指纹识别网络流量分析工具&lt;&#x2F;li&gt;
+&lt;li&gt;openvpn&#x2F;wiregaurd&lt;&#x2F;li&gt;
+&lt;li&gt;nc&#x2F;socat&#x2F;telnet 数据传输和处理&lt;&#x2F;li&gt;
+&lt;li&gt;ftp&#x2F;sftp&lt;&#x2F;li&gt;
+&lt;li&gt;nestat&#x2F;ss&#x2F;lsof&lt;&#x2F;li&gt;
+&lt;li&gt;iptables&#x2F;nftables&lt;&#x2F;li&gt;
+&lt;li&gt;hping3 生成解析TCP&#x2F;IP协议 数据包 也是安全审计、防火墙测试工具&lt;&#x2F;li&gt;
+&lt;li&gt;traceroute&#x2F;mtr&lt;&#x2F;li&gt;
+&lt;li&gt;tcptraceroute 使用tcp协议进行路径跟踪&lt;&#x2F;li&gt;
+&lt;li&gt;ethtool 查看和修改网络设备的驱动参数和硬件设置&lt;&#x2F;li&gt;
+&lt;li&gt;iw&#x2F;iwconfig 配置和管理无线网络接口&lt;&#x2F;li&gt;
+&lt;li&gt;sysctl 运行时配置内核参数&lt;&#x2F;li&gt;
+&lt;li&gt;openssl&lt;&#x2F;li&gt;
+&lt;li&gt;stunnel 开源跨平台进行通信加密&lt;&#x2F;li&gt;
+&lt;li&gt;iptraf&#x2F;nethogs&#x2F;iftop&#x2F;ntop 网络流量监控&lt;&#x2F;li&gt;
+&lt;li&gt;ab&#x2F;nload&#x2F;iperf3 网络性能测试和监控&lt;&#x2F;li&gt;
+&lt;li&gt;python3 -m http.server&lt;&#x2F;li&gt;
+&lt;li&gt;ipcalc 简单的ip地址计算&lt;&#x2F;li&gt;
+&lt;li&gt;nsenter 进入指定进程命令空间下运行执行程序&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>systemd-networkd-wait-online阻塞问题解决方案</title>
+        <published>2025-11-23T00:18:35+08:00</published>
+        <updated>2025-11-23T00:18:35+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/"/>
+        <id>https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/systemd-networkd-wait-online阻塞问题解决方案/">&lt;h1 id=&quot;pei-zhi-chao-shi-shi-jian-he-zhi-ding-deng-dai-jie-kou&quot;&gt;配置超时时间 和 指定等待接口&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# sudo systemctl disable systemd-networkd-wait-online.service --now
+sudo systemctl edit systemd-networkd-wait-online.service
+[Service]
+TimeoutStartSec=5
+# 删除原来的 ExecStart 行
+ExecStart=
+# 添加新的 ExecStart 行，使用 --interface 明确指定等待的接口
+ExecStart=&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;systemd-networkd-wait-online --interface=eth0 --interface=eth1
+# 排除名为 vpn0 的接口
+# ExecStart=&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;systemd-networkd-wait-online --exclude=vpn0
+
+# 全局超时配置
+sudo vim &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system.conf
+DefaultTimeoutStartSec=10
+DefaultTimeoutStopSec=10
+ShutdownWatchdogSec=30
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;zhen-duan-wen-ti-gen-yuan&quot;&gt;诊断问题根源&lt;&#x2F;h1&gt;
+&lt;p&gt;如果问题是由于网络配置本身的错误导致接口无法上线，仅仅禁用等待服务只会隐藏问题。&lt;&#x2F;p&gt;
+&lt;p&gt;检查网络状态： 查看 systemd-networkd 对接口的看法：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;networkctl status
+# 查找接口的 State 是否一直处于 configuring 或 degraded 状态。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>远程唤醒 Wake-on-LAN</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/wake-on-lan/"/>
+        <id>https://moxuetianya.github.io/2025/07/wake-on-lan/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/wake-on-lan/">&lt;h1 id=&quot;yuan-cheng-huan-xing-wake-on-lan&quot;&gt;远程唤醒 Wake-on-LAN&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;yuan-li&quot;&gt;原理&lt;&#x2F;h2&gt;
+&lt;p&gt;WOL 通过发送 &lt;strong&gt;Magic Packet&lt;&#x2F;strong&gt; 唤醒目标计算机。Magic Packet 是一个广播帧，由以下组成：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;6 字节的 &lt;code&gt;0xFF&lt;&#x2F;code&gt;（全 1）&lt;&#x2F;li&gt;
+&lt;li&gt;目标 MAC 地址重复 16 次&lt;&#x2F;li&gt;
+&lt;li&gt;共 102 字节&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过 UDP 端口 7 或 9（默认）发送，也可以是二层帧（EtherType &lt;code&gt;0x0842&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;p&gt;关机状态下网卡（NIC）保持低功耗待机，监听 Magic Packet，收到后触发开机。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;linux-bei-huan-xing-duan-pei-zhi&quot;&gt;Linux 被唤醒端配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看是否支持 WOL
+ethtool eth0 | grep -C 3 -i wake
+# Supports Wake-on: pumbg  表示支持
+# Wake-on: d               d=禁用, g=已开启
+
+# 开启 WOL
+ethtool -s eth0 wol g
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;WOL 选项含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;d&lt;&#x2F;td&gt;&lt;td&gt;禁用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;p&lt;&#x2F;td&gt;&lt;td&gt;物理活动唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;u&lt;&#x2F;td&gt;&lt;td&gt;单播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;m&lt;&#x2F;td&gt;&lt;td&gt;多播（组播）消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;b&lt;&#x2F;td&gt;&lt;td&gt;广播消息唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;a&lt;&#x2F;td&gt;&lt;td&gt;ARP 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;g&lt;&#x2F;td&gt;&lt;td&gt;Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;s&lt;&#x2F;td&gt;&lt;td&gt;带密码的 Magic Packet 唤醒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;g&lt;&#x2F;code&gt;（Magic Packet），避免路由器广播误唤醒。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;que-bao-zhong-qi-hou-zi-dong-kai-qi&quot;&gt;确保重启后自动开启&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;方法一&lt;&#x2F;strong&gt;：添加到 &lt;code&gt;&#x2F;etc&#x2F;rc.local&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;&amp;#x2F;sbin&amp;#x2F;ethtool -s eth0 wol g
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;方法二&lt;&#x2F;strong&gt;：创建 systemd 服务：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Unit]
+Description=Enable Wake On Lan
+
+[Service]
+Type=oneshot
+ExecStart=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;ethtool --change enp3s0 wol g
+
+[Install]
+WantedBy=basic.target
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fa-song-magic-packet&quot;&gt;发送 Magic Packet&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# wakeonlan（UDP，无需 root）
+apt install wakeonlan
+wakeonlan &amp;lt;MAC-address&amp;gt;
+wakeonlan -i 192.168.1.255 &amp;lt;MAC&amp;gt;      # 指定广播地址
+wakeonlan -i 192.168.1.255 -p 4242 &amp;lt;MAC&amp;gt;  # 指定端口
+
+# etherwake（二层帧，需 root）
+apt install etherwake
+sudo etherwake &amp;lt;MAC-address&amp;gt;
+sudo etherwake -i eno1 &amp;lt;MAC-address&amp;gt;   # 指定接口
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zhua-bao-yan-zheng&quot;&gt;抓包验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 监听 Magic Packet（UDP 端口 9）
+sudo tcpdump -vvnn -i eno1 &amp;#x27;ether dst host ff:ff:ff:ff:ff:ff and udp port 9&amp;#x27;
+
+# 监听二层帧 WOL
+sudo tcpdump -vvnn -i eno1 &amp;#x27;ether[12:2] == 0x0842&amp;#x27;
+
+# Wireshark 过滤
+udp.port == 9 or udp.port == 7 or eth.type == 0x0842
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;wol-bao-wen-lei-xing-zong-jie&quot;&gt;WOL 报文类型总结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;以太网地址&lt;&#x2F;th&gt;&lt;th&gt;IP 层地址&lt;&#x2F;th&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;wakeonlan&lt;&#x2F;td&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;网段广播&#x2F;255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;etherwake&lt;&#x2F;td&gt;&lt;td&gt;单播&#x2F;广播&lt;&#x2F;td&gt;&lt;td&gt;无（纯二层）&lt;&#x2F;td&gt;&lt;td&gt;EtherType 0x0842&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Windows WOL App&lt;&#x2F;td&gt;&lt;td&gt;广播&lt;&#x2F;td&gt;&lt;td&gt;网段广播 + 255.255.255.255&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;gong-wang-huan-xing&quot;&gt;公网唤醒&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;bi-yao-tiao-jian&quot;&gt;必要条件&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;公网 IP&lt;&#x2F;strong&gt; 或 &lt;strong&gt;DDNS&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;路由器端口转发&lt;&#x2F;strong&gt;：将外网端口映射到目标机器的 IP:9（UDP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ARP 绑定&lt;&#x2F;strong&gt;：路由器中绑定目标机器的 MAC-IP，防止关机后 ARP 表丢失&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;chang-jian-shi-bai-yuan-yin&quot;&gt;常见失败原因&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;路由器端口转发不支持映射为广播地址（如华为路由只支持已获取 IP 的设备）&lt;&#x2F;li&gt;
+&lt;li&gt;路由器在设备关机后检测到 MAC 下线，ARP 绑定失效，丢包&lt;&#x2F;li&gt;
+&lt;li&gt;源地址经 DNAT（端口转发）后变为公网 IP，某些网卡&#x2F;NIC 对单播 Magic Packet 的处理不一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;rao-xing-fang-an&quot;&gt;绕行方案&lt;&#x2F;h3&gt;
+&lt;p&gt;通过内网一台始终在线的机器（如 NAS）作为跳板，由 NAS 发送 wakeonlan 命令唤醒目标机器。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wol-bao-wen-fa-song-fang-shi-dui-bi&quot;&gt;WOL 报文发送方式对比&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;优点&lt;&#x2F;th&gt;&lt;th&gt;缺点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;单播&lt;&#x2F;td&gt;&lt;td&gt;安全、低带宽&lt;&#x2F;td&gt;&lt;td&gt;IP 变化后失效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;子网广播&lt;&#x2F;td&gt;&lt;td&gt;兼容性好、成功率高&lt;&#x2F;td&gt;&lt;td&gt;需要路由器支持；仅 IPv4；安全性低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;qi-ta-yuan-cheng-kai-ji-fang-an&quot;&gt;其他远程开机方案&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;智能插座&lt;&#x2F;strong&gt; + BIOS &quot;通电自动开机&quot;：最简单，适用于任何机器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;PCI-E 开机卡&lt;&#x2F;strong&gt;：通过 WiFi 发送开机信号，需 PCIE 插槽带电&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;短接 POWER SW 跳线&lt;&#x2F;strong&gt;：通过外部设备短接主板的电源跳线&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-li-python-jiao-ben&quot;&gt;示例 Python 脚本&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;import socket
+
+def wol(mac: bytes):
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    magic = b&amp;#x27;\xff&amp;#x27; * 6 + mac * 16
+    s.sendto(magic, (&amp;#x27;&amp;lt;broadcast&amp;gt;&amp;#x27;, 7))
+
+wol(b&amp;#x27;\x00\x15\xB2\xAA\x5B\x00&amp;#x27;)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - driver</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/driver/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-07-18T12:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/driver/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Linux 内核笔记</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/linux-kernel/"/>
+        <id>https://moxuetianya.github.io/2025/07/linux-kernel/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/linux-kernel/">&lt;h1 id=&quot;linux-nei-he-bi-ji&quot;&gt;Linux 内核笔记&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wu-li-nei-cun-bu-ju&quot;&gt;物理内存布局&lt;&#x2F;h2&gt;
+&lt;p&gt;在典型 RISC-V&#x2F;ARM 主板中，物理地址空间分配如下：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;0x0000_0000&lt;&#x2F;code&gt; — 保留&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;0x0200_0000&lt;&#x2F;code&gt; — CLINT（中断控制器）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;0x1000_0000&lt;&#x2F;code&gt; — Boot ROM&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;0x1009_0000&lt;&#x2F;code&gt; — 以太网控制器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;0x8000_0000&lt;&#x2F;code&gt; — DRAM 起始地址&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;高于 &lt;code&gt;0x8000_0000&lt;&#x2F;code&gt; 的地址访问 DRAM，低于的地址访问 MMIO（内存映射 I&#x2F;O）设备。主板设计者决定物理地址的路由规则。&lt;&#x2F;p&gt;
+&lt;p&gt;可通过 &lt;code&gt;cat &#x2F;proc&#x2F;iomem&lt;&#x2F;code&gt; 查看物理内存分布，&lt;code&gt;System RAM&lt;&#x2F;code&gt; 项代表系统可用内存。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yu-liu-xi-tong-nei-cun&quot;&gt;预留系统内存&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-fa-yi-nei-he-qi-dong-can-shu&quot;&gt;方法一：内核启动参数&lt;&#x2F;h3&gt;
+&lt;p&gt;在 grub 启动参数中添加：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;memmap=4m\$0x10DBFFFFF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;表示从 &lt;code&gt;0x10DBFFFFF&lt;&#x2F;code&gt; 起预留 4MB。重启后通过 &lt;code&gt;cat &#x2F;proc&#x2F;iomem&lt;&#x2F;code&gt; 验证是否标记为 &lt;code&gt;reserved&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-fa-er-memblock&quot;&gt;方法二：memblock&lt;&#x2F;h3&gt;
+&lt;p&gt;在 &lt;code&gt;setup_arch()&lt;&#x2F;code&gt; 中调用 &lt;code&gt;memblock_reserve()&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;memblock_reserve(0x100000000, 0x2000000);  &amp;#x2F;&amp;#x2F; 预留 32MB
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;预留内存可通过 &lt;code&gt;memremap()&lt;&#x2F;code&gt; 或 &lt;code&gt;phy_to_vir&lt;&#x2F;code&gt;（仅限 normal 区）映射访问。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-fa-san-xian-zhi-zong-nei-cun-mem&quot;&gt;方法三：限制总内存 &lt;code&gt;mem=&lt;&#x2F;code&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;在 grub 中添加 &lt;code&gt;mem=2G&lt;&#x2F;code&gt; 限制可用内存，超出部分即被隐藏。隐藏内存只能通过 &lt;code&gt;memremap()&lt;&#x2F;code&gt; 访问，&lt;code&gt;phy_to_vir&lt;&#x2F;code&gt; 不可用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-fa-si-cma&quot;&gt;方法四：CMA&lt;&#x2F;h3&gt;
+&lt;p&gt;CMA（Contiguous Memory Allocation）动态分配大块连续物理内存，可用于 DMA 等场景，需修改内核配置或设备树。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-wen-yu-liu-nei-cun&quot;&gt;访问预留内存&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;&amp;#x2F;&amp;#x2F; 申请资源
+request_mem_region(0x40000000, 0x20000000, &amp;quot;reserve test&amp;quot;);
+
+&amp;#x2F;&amp;#x2F; 映射内存
+void* addr = memremap(0x40000000, 0x20000000, MEMREMAP_WB);
+
+&amp;#x2F;&amp;#x2F; 使用完后释放
+iounmap(addr);
+release_mem_region(0x40000000, 0x20000000);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;earlyoom&quot;&gt;earlyoom&lt;&#x2F;h2&gt;
+&lt;p&gt;当系统内存不足时，earlyoom 在 OOM Killer 之前主动杀掉高内存消耗进程，避免系统卡顿。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install earlyoom
+systemctl enable --now earlyoom
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;默认行为：内存和 swap 同时低于 10% 时杀 &lt;code&gt;oom_score&lt;&#x2F;code&gt; 最高的进程；低于 5% 时发 SIGKILL。&lt;&#x2F;p&gt;
+&lt;p&gt;配置 &lt;code&gt;&#x2F;etc&#x2F;default&#x2F;earlyoom&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;EARLYOOM_ARGS=&amp;quot;-r 60 -m 1 -s 5 --avoid &amp;#x27;(^|&amp;#x2F;)(init|X|sshd)$&amp;#x27;&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;-r 60&lt;&#x2F;code&gt;：每 60 秒打印一次统计&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-m 1&lt;&#x2F;code&gt;：物理内存保留 1%&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-s 5&lt;&#x2F;code&gt;：swap 保留 5%&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;--avoid&lt;&#x2F;code&gt;：永不杀匹配正则的进程&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;--prefer&lt;&#x2F;code&gt;：优先杀匹配正则的进程&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;查看历史记录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;journalctl -u earlyoom | grep -iE &amp;quot;(sending|killing)&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-he-nei-cun-xie-lou-pai-cha&quot;&gt;内核内存泄漏排查&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;思路&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;监控用户进程 PSS（&lt;code&gt;pmap &amp;lt;pid&amp;gt;&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;监控 &lt;code&gt;&#x2F;proc&#x2F;meminfo&lt;&#x2F;code&gt;，重点关注 Slab 使用量&lt;&#x2F;li&gt;
+&lt;li&gt;使用 &lt;code&gt;slabtop&lt;&#x2F;code&gt; 查看 slab 分配，关注持续增长的 size 类别&lt;&#x2F;li&gt;
+&lt;li&gt;使用 &lt;code&gt;trace-cmd&lt;&#x2F;code&gt; 跟踪 &lt;code&gt;kmalloc&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;kfree&lt;&#x2F;code&gt;：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;trace-cmd record -e kmalloc -f &amp;#x27;bytes_alloc==4096&amp;#x27; -e kfree -T
+trace-cmd report
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;对比 kmalloc 和 kfree 的 ptr 地址，匹配不上的即为泄漏。&lt;&#x2F;p&gt;
+&lt;ol start=&quot;5&quot;&gt;
+&lt;li&gt;手动触发 vmcore 用 crash 工具分析：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo c &amp;gt; &amp;#x2F;proc&amp;#x2F;sysrq-trigger
+crash .&amp;#x2F;vmcore .&amp;#x2F;vmlinux.debug
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;linux-zong-xian-qu-dong-mo-xing&quot;&gt;Linux 总线驱动模型&lt;&#x2F;h2&gt;
+&lt;p&gt;Linux 设备驱动模型以**总线（bus）&lt;strong&gt;为核心，管理&lt;&#x2F;strong&gt;设备（device）&lt;strong&gt;和&lt;&#x2F;strong&gt;驱动（driver）**的匹配。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;zong-xian-zhu-ce&quot;&gt;总线注册&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;static struct bus_type xbus = {
+    .name = &amp;quot;xbus&amp;quot;,
+    .match = xbus_match,  &amp;#x2F;&amp;#x2F; 设备和驱动匹配回调
+};
+
+&amp;#x2F;&amp;#x2F; 模块加载时注册
+bus_register(&amp;amp;xbus);
+&amp;#x2F;&amp;#x2F; 导出属性文件到 &amp;#x2F;sys
+bus_create_file(&amp;amp;xbus, &amp;amp;bus_attr_xbus_test);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;she-bei-zhu-ce&quot;&gt;设备注册&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;static struct device xdev = {
+    .init_name = &amp;quot;xdev&amp;quot;,
+    .bus = &amp;amp;xbus,
+    .release = xdev_release,
+};
+
+device_register(&amp;amp;xdev);
+&amp;#x2F;&amp;#x2F; 导出设备属性
+DEVICE_ATTR(xdev_id, S_IRUSR|S_IWUSR, xdev_id_show, xdev_id_store);
+device_create_file(&amp;amp;xdev, &amp;amp;dev_attr_xdev_id);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;qu-dong-zhu-ce&quot;&gt;驱动注册&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;static struct device_driver xdrv = {
+    .name = &amp;quot;xdev&amp;quot;,      &amp;#x2F;&amp;#x2F; 与设备名一致才能匹配
+    .bus = &amp;amp;xbus,
+    .probe = xdrv_probe,
+    .remove = xdrv_remove,
+};
+
+driver_register(&amp;amp;xdrv);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;匹配成功后自动调用驱动的 &lt;code&gt;probe&lt;&#x2F;code&gt; 函数。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;shu-xing-wen-jian-dao-chu-hong&quot;&gt;属性文件导出宏&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;宏&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;BUS_ATTR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;总线级别属性&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;DEVICE_ATTR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;设备级别属性&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;DRIVER_ATTR_RO&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;DRIVER_ATTR_WO&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;DRIVER_ATTR_RW&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;驱动级别属性&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;属性文件出现在 &lt;code&gt;&#x2F;sys&#x2F;bus&#x2F;&amp;lt;bus_name&amp;gt;&#x2F;&lt;&#x2F;code&gt; 对应目录下，用户可通过 &lt;code&gt;cat&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;echo&lt;&#x2F;code&gt; 读写。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

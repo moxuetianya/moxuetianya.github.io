@@ -1,0 +1,1298 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - cloudflare</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/cloudflare/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-31T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/cloudflare/atom.xml</id>
+    <entry xml:lang="en">
+        <title>sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证</title>
+        <published>2026-08-26T22:37:16+08:00</published>
+        <updated>2026-08-31T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/"/>
+        <id>https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;自己 VPS（机房 IP）上跑 sing-box 代理，访问 ChatGPT 时经常弹出 Cloudflare 的&quot;确认你是真人&quot;验证页（Turnstile）。换不同节点偶有缓解，但始终频繁。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h1&gt;
+&lt;p&gt;ChatGPT 背后是 Cloudflare 的 WAF + DDoS 防护。Cloudflare 会对每个访问 IP 评估信誉度，而 VPS 的机房 IP（ASN 类型为 Hosting&#x2F;Data Center）天然处于低信誉档：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;机房 IP 连坐&lt;&#x2F;strong&gt;：大量爬虫、自动化脚本都从机房 IP 发出，同一个 IP 段里的&quot;坏邻居&quot;会拉低整个段的信誉；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;地理行为突变&lt;&#x2F;strong&gt;：账号短时间内跨多个国家 IP 登录，会触发风控。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以对 Cloudflare 来说，机房 IP 访问 ChatGPT ≈ 疑似机器人 → 弹验证。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;si-lu-rang-chatgpt-liu-liang-zou-warp-chu-kou&quot;&gt;思路：让 ChatGPT 流量走 WARP 出口&lt;&#x2F;h1&gt;
+&lt;p&gt;与其反复换 VPS 的 IP（不一定干净，还可能收费），不如用 Cloudflare 官方的 &lt;strong&gt;WARP&lt;&#x2F;strong&gt; 作为 ChatGPT 流量的出口。&lt;&#x2F;p&gt;
+&lt;p&gt;WARP 是 Cloudflare 官方出品的网络客户端（本质是基于 WireGuard 协议的隧道），它的出口 IP 由 Cloudflare 管理，信誉度远高于普通机房 IP。社区普遍反馈：WARP 出口访问 ChatGPT 基本不弹验证。&lt;&#x2F;p&gt;
+&lt;p&gt;关键决策：&lt;strong&gt;不要把整个 VPS 全局走 WARP&lt;&#x2F;strong&gt;（会连带 SSH、更新、其他服务全部改出口，还容易踩路由循环），而是把 WARP 注册成 sing-box 的一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound，只让 OpenAI 相关域名走它。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;客户端 → sing-box(VPS)
+          ├── direct ─────────→ VPS 原生 IP（其余流量）
+          └── wireguard:warp ─→ Cloudflare WARP → ChatGPT（openai.com 等）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cheng-qing-bu-shi-cloudflared-ye-bu-shi-warp-cli-quan-ju&quot;&gt;澄清：不是 cloudflared，也不是 warp-cli 全局&lt;&#x2F;h1&gt;
+&lt;p&gt;先区分三个容易混淆的东西：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;程序&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;cloudflared&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;入站&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare Tunnel，把外部请求带进你的服务器（反向代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;warp-cli&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;出站全局&lt;&#x2F;td&gt;&lt;td&gt;系统级客户端，默认把整台机器的流量都走 WARP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WARP WireGuard 参数&lt;&#x2F;td&gt;&lt;td&gt;出站按需&lt;&#x2F;td&gt;&lt;td&gt;直接把 WARP 当作一个 WireGuard 端点，由 sing-box 按规则选用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;前两种都不适合&quot;只让 ChatGPT 流量走 WARP&quot;这个目标。我们只需要拿到 WARP 的 WireGuard 连接参数，交给 sing-box 即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-yong-wgcf-zhu-ce-na-dao-wireguard-can-shu&quot;&gt;第一步：用 wgcf 注册，拿到 WireGuard 参数&lt;&#x2F;h1&gt;
+&lt;p&gt;WARP 底层就是 WireGuard，但参数不能随便编：&lt;code&gt;private_key&lt;&#x2F;code&gt;、&lt;code&gt;local_address&lt;&#x2F;code&gt;（WARP 分配的 172.16.x.x &#x2F; fd01:5ca1:ab1e 段）、&lt;code&gt;peer_public_key&lt;&#x2F;code&gt;（WARP 服务端公钥）、&lt;code&gt;reserved&lt;&#x2F;code&gt;（WARP 特有字段）都来自 Cloudflare 的注册流程。&lt;&#x2F;p&gt;
+&lt;p&gt;社区标准做法是用 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ViRb3&#x2F;wgcf&quot;&gt;wgcf&lt;&#x2F;a&gt; 模拟注册，在 VPS 上执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -L -o wgcf https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;ViRb3&amp;#x2F;wgcf&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.2.22&amp;#x2F;wgcf_2.2.22_linux_amd64
+chmod +x wgcf
+.&amp;#x2F;wgcf register --accept-tos   # 生成 wgcf-account.toml
+.&amp;#x2F;wgcf generate                # 生成 wgcf-profile.conf
+cat wgcf-profile.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成的 &lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 类似：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Interface]
+PrivateKey = &amp;lt;WARP_PRIVATE_KEY&amp;gt;
+Address = 172.16.0.2&amp;#x2F;32, fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128
+DNS = 1.1.1.1, 2606:4700:4700::1111
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0&amp;#x2F;0, ::&amp;#x2F;0
+Endpoint = 162.159.192.1:2408
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 里没有 &lt;code&gt;reserved&lt;&#x2F;code&gt;，但 WARP 的握手必须带 reserved 字段。sing-box 支持配置，生成方法见下文。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-bu-sing-box-pei-zhi-warp-outbound&quot;&gt;第二步：sing-box 配置 WARP outbound&lt;&#x2F;h1&gt;
+&lt;p&gt;把上面的参数填进 sing-box 的 &lt;code&gt;outbounds&lt;&#x2F;code&gt;（&lt;code&gt;config.json&lt;&#x2F;code&gt; 里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;wireguard&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;warp&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;162.159.192.1&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 2408,
+      &amp;quot;local_address&amp;quot;: [
+        &amp;quot;172.16.0.2&amp;#x2F;32&amp;quot;,
+        &amp;quot;fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128&amp;quot;
+      ],
+      &amp;quot;private_key&amp;quot;: &amp;quot;WARP_PRIVATE_KEY&amp;quot;,
+      &amp;quot;peer_public_key&amp;quot;: &amp;quot;bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=&amp;quot;,
+      &amp;quot;reserved&amp;quot;: [0, 0, 0],
+      &amp;quot;mtu&amp;quot;: 1280
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;peer_public_key&lt;&#x2F;code&gt; 是 WARP 的固定公钥 &lt;code&gt;bmXOC+F1FxEMF9dyiK2H5&#x2F;1SUtzH0JuVo51h2wPfgyo=&lt;&#x2F;code&gt;，人人相同；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;reserved&lt;&#x2F;code&gt; 是 WARP 三字节保留位，wgcf 生成配置后可用 &lt;code&gt;.&#x2F;wgcf generate --profile &amp;lt;(cat wgcf-account.toml) --reserved&lt;&#x2F;code&gt; 打印实际值，或直接尝试 &lt;code&gt;[0, 0, 0]&lt;&#x2F;code&gt;（多数情况下可用）；&lt;&#x2F;li&gt;
+&lt;li&gt;免费版 WARP 注册即可用，无需 license key（WARP+ 才需要）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-san-bu-lu-you-gui-ze-zhi-rang-openai-yu-ming-zou-warp&quot;&gt;第三步：路由规则，只让 OpenAI 域名走 WARP&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;domain_suffix&amp;quot;: [
+          &amp;quot;chatgpt.com&amp;quot;,
+          &amp;quot;openai.com&amp;quot;,
+          &amp;quot;oaistatic.com&amp;quot;,
+          &amp;quot;oaiusercontent.com&amp;quot;,
+          &amp;quot;auth0.com&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;warp&amp;quot;
+      }
+    ]
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;ChatGPT 实际涉及的域名不止 &lt;code&gt;chatgpt.com&lt;&#x2F;code&gt;：登录走 &lt;code&gt;auth.openai.com&lt;&#x2F;code&gt;（auth0），静态资源走 &lt;code&gt;oaistatic.com&lt;&#x2F;code&gt;，图片走 &lt;code&gt;oaiusercontent.com&lt;&#x2F;code&gt;。上面的列表覆盖了主要部分。&lt;&#x2F;p&gt;
+&lt;p&gt;改完 &lt;code&gt;config.json&lt;&#x2F;code&gt; 重启 sing-box：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl restart sing-box
+journalctl -u sing-box -f   # 看有没有报错
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口确认&lt;&#x2F;strong&gt;：让 sing-box 的 DNS&#x2F;测试流量走 warp 后，检查出口：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 在客户端通过代理访问
+curl https:&amp;#x2F;&amp;#x2F;www.cloudflare.com&amp;#x2F;cdn-cgi&amp;#x2F;trace
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出里 &lt;code&gt;warp=on&lt;&#x2F;code&gt; 说明确实从 WARP 出口出去：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ip=&amp;lt;WARP出口IP&amp;gt;
+warp=on
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;对比验证频率&lt;&#x2F;strong&gt;：分别用 direct 出口和 warp 出口访问 ChatGPT，观察验证页出现频率。多刷新几次、退出登录状态再试，才更接近真实风控场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;其余流量不受影响&lt;&#x2F;strong&gt;：&lt;code&gt;curl ifconfig.me&lt;&#x2F;code&gt; 看到的应该是 VPS 原生 IP，说明只有 OpenAI 域名走了 WARP。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zhu-yi-shi-xiang&quot;&gt;注意事项&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;WARP 不是保证&lt;&#x2F;strong&gt;：WARP 出口 IP 同样可能被大量用户共享，只是信誉比机房 IP 好得多，能大幅减少但未必 100% 消除验证；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口 IP ≠ Cloudflare CDN IP&lt;&#x2F;strong&gt;：Cloudflare 不公开 WARP 出口地址池，它和 Worker 禁止 &lt;code&gt;connect()&lt;&#x2F;code&gt; 的 CDN IP ranges 是两回事。WARP 用户访问套了 Cloudflare CDN 的网站是官方支持的正常路径，不会&quot;循环丢弃&quot;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别全局开 warp-cli&lt;&#x2F;strong&gt;：系统级全局 WARP 会改变 VPS 上所有出站流量的出口（SSH 回程、apt 更新、Docker 等都可能受影响），排查问题更难。sing-box outbound 方式完全不动系统路由，SSH 和其余服务照旧；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;免费 WARP 出口不固定&lt;&#x2F;strong&gt;：免费版出口 IP 可能变化；WARP+（付费）有固定 IP 支持，一般没必要。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shi-ce-geng-xin-2026-08-28-warp-chu-kou-duan-bei-openai-feng-jin-de-qing-kuang&quot;&gt;实测更新（2026-08-28）：WARP 出口段被 OpenAI 封禁的情况&lt;&#x2F;h1&gt;
+&lt;p&gt;用官方 &lt;code&gt;cloudflare-warp&lt;&#x2F;code&gt; 客户端（warp-svc + &lt;code&gt;warp-cli mode proxy&lt;&#x2F;code&gt;，SOCKS5 &lt;code&gt;127.0.0.1:40000&lt;&#x2F;code&gt;）在 VPS 上部署后，把 sing-box 的 OpenAI 域名分流指向它。路由规则确认生效（服务端日志 &lt;code&gt;inbound&#x2F;vless → outbound&#x2F;socks[warp]&lt;&#x2F;code&gt;），但实测结果是&lt;strong&gt;完全打不开&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;chatgpt.com        → 403 Unable to load site [IP:104.28.215.69 | Ray ID:...]
+openai.com         → 403
+auth.openai.com    → 403
+platform.openai.com→ 403
+api.openai.com     → 403
+google.com（对照）   → 200（隧道本身健康）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查过程摘要：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;原生 VPS IP（UCloud 香港机房）、WARP IPv4 出口（&lt;code&gt;104.28.215.69&lt;&#x2F;code&gt;）、WARP IPv6 出口（&lt;code&gt;2a09:bac1::&lt;&#x2F;code&gt; &#x2F; 重连换段后 &lt;code&gt;2a09:bac5::&lt;&#x2F;code&gt;）&lt;strong&gt;全部 403&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;强制 IPv4&#x2F;IPv6 目标、带浏览器 UA、重连换出口段，均无效；&lt;&#x2F;li&gt;
+&lt;li&gt;错误页是 Cloudflare WAF 的&lt;strong&gt;自定义错误页&lt;&#x2F;strong&gt;（&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; + Ray ID），不是本文主场景的 Turnstile 真人验证页。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：这属于 &lt;strong&gt;OpenAI WAF 对 WARP 出口段（&lt;code&gt;104.28.x.x&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;2a09:bacx::&lt;&#x2F;code&gt;）的 IP 级封禁&lt;&#x2F;strong&gt;（社区已知现象，WARP 用户访问 ChatGPT 普遍报此错误），与本文&quot;机房低信誉→弹验证&quot;是两个不同的失败模式：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;失败模式&lt;&#x2F;th&gt;&lt;th&gt;页面表现&lt;&#x2F;th&gt;&lt;th&gt;WARP 是否有效&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;IP 信誉低（机房段）&lt;&#x2F;td&gt;&lt;td&gt;频繁弹 Turnstile 真人验证&lt;&#x2F;td&gt;&lt;td&gt;有效，大幅减少验证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;IP 被拉黑（WARP 出口段）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; 自定义错误页&lt;&#x2F;td&gt;&lt;td&gt;无效，换段也没用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;经验&lt;&#x2F;strong&gt;：部署前先确认目标站点在候选出口上的可用性（&lt;code&gt;curl --socks5-hostname &amp;lt;出口&amp;gt; https:&#x2F;&#x2F;chatgpt.com&lt;&#x2F;code&gt; 看是验证页还是错误页），避免白部署；若 WARP 出口被封，只能换 VPS 商家&#x2F;机场节点碰运气拿干净 IP，或家庭宽带直连。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;机房 IP 访问 ChatGPT 频繁弹 Cloudflare 验证，根因是 IP 信誉，不是账号或浏览器问题。用 wgcf 把 WARP 注册成 WireGuard 参数、在 sing-box 里加一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound、按域名分流 OpenAI 流量——改动小、不动系统路由，是当前成本最低且有效的方案。如果 WARP 后仍频繁验证，再考虑换原生 IP（ISP 类型）的 VPS 商家，但这是最后一步。注意 2026-08-28 实测补充：WARP 出口段本身可能已被 OpenAI 封禁，部署前务必先验证出口可用性。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>Cloudflare 代理(橙云)下 Caddy 能否自动签发 TLS 证书?tls-alpn 失败后的 http-01 回退实测</title>
+        <published>2026-08-21T15:30:00+08:00</published>
+        <updated>2026-08-21T15:30:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/"/>
+        <id>https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/caddy-cloudflare-proxy-acme-challenge/">&lt;h1 id=&quot;xian-xiang-yu-bei-jing&quot;&gt;现象与背景&lt;&#x2F;h1&gt;
+&lt;p&gt;VPS 上用 233boy 脚本部署了代理栈,Caddy 负责 80&#x2F;443 的自动 TLS(站点配置在 &lt;code&gt;&#x2F;etc&#x2F;caddy&#x2F;sites&#x2F;*.conf&lt;&#x2F;code&gt; 下批量管理)。域名托管在 Cloudflare:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;灰云(仅 DNS)&lt;&#x2F;strong&gt;:首次签发成功&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;橙云(开启代理)&lt;&#x2F;strong&gt;:之后似乎也能自动续期&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;网上流传的说法是&quot;Cloudflare 橙色代理会拦截 ACME 验证请求,导致证书签发失败&quot;,甚至需要为 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 单独配置 Bypass 策略。但直觉存疑:Caddy 支持多挑战类型,为什么回退到 http-01 后会失败?&lt;&#x2F;p&gt;
+&lt;p&gt;本文用真实日志证据 + 一个全新子域的主动实验,完整回答:&lt;strong&gt;橙云下 Caddy 能不能自动签发&#x2F;续期,走的是什么路径,以及&quot;回退&quot;到底是怎么发生的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-zhi-du-qu-zheng-li-shi-xu-qi-dao-di-zou-de-na-tiao-lu&quot;&gt;第一步:只读取证——历史续期到底走的哪条路&lt;&#x2F;h1&gt;
+&lt;p&gt;先不新建任何配置,翻 VPS 上已有的证据(caddy 证书存储 + &lt;code&gt;journalctl -u caddy&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-1-zheng-shu-de-qian-fa-xu-qi-shi-jian-xian&quot;&gt;证据 1:证书的签发&#x2F;续期时间线&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;web1: notBefore=Jun 27 | notAfter=Sep 25   (文件 mtime: Jun 27)
+web2: notBefore=Jun 27 | notAfter=Sep 25
+relay0: notBefore=Jun 27 | notAfter=Sep 25
+relay1: notBefore=Jun 26 | notAfter=Sep 23
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;再配合日志里的 &lt;code&gt;replaced certificate in cache&lt;&#x2F;code&gt; 事件,还原出完整续期史:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;时间&lt;&#x2F;th&gt;&lt;th&gt;事件&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;2-27&lt;&#x2F;td&gt;&lt;td&gt;首次签发(灰云,5 个域名含 web0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;4-28&lt;&#x2F;td&gt;&lt;td&gt;全员续期成功(含 web0)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;6-26&#x2F;27&lt;&#x2F;td&gt;&lt;td&gt;4 个域名续期成功(web0 掉队——DNS 已被指到另一台机器)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;7-13 后&lt;&#x2F;td&gt;&lt;td&gt;tls-alpn 直连验证骤停(每天 4 次 -&amp;gt; 总共 4 次)——开启橙云的时间点&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;zheng-ju-2-shui-zai-lian-yuan-zhan-zuo-tls-alpn-yan-zheng&quot;&gt;证据 2:谁在连源站做 tls-alpn 验证?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;journalctl&lt;&#x2F;code&gt; 里 &quot;tls-alpn challenge&quot; 事件 483 次,来源 IP 98% 是 LE 官方验证服务器。&lt;strong&gt;LE 验证服务器能直连源站 443 协商 acme-tls&#x2F;1,只可能在灰云下发生&lt;&#x2F;strong&gt;(橙云下 CF 边缘会终结 TLS)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-3-221-ci-shi-bai-quan-bu-lai-zi-yi-ge-yu-ming&quot;&gt;证据 3:221 次失败全部来自一个域名&lt;&#x2F;h2&gt;
+&lt;p&gt;&quot;could not get certificate from issuer&quot; 共 221 次,&lt;strong&gt;按域名拆分 100% 是 web0&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;web0: n=221  first=Jun 27  last=Aug 10  error: 2.3.4.5: remote error: tls: internal error
+web1&amp;#x2F;web2&amp;#x2F;relay0&amp;#x2F;relay1: n=0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;web0 的 DNS 记录被指到了另一台 VPS(2.3.4.5),LE 验证连接打到那台没有 ACME 服务的机器上,必然失败。它成了天然对照组:证书 7-27 过期,每天制造 4 次失败 + 216 条 &quot;queuing for renewal&quot; 日志噪音。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zheng-ju-4-http-01-cong-wei-bei-shi-ji-shi-yong-guo&quot;&gt;证据 4:http-01 从未被实际使用过&lt;&#x2F;h2&gt;
+&lt;p&gt;&quot;served key authorization&quot;(Caddy 服务 http-01 token 的事件)全日志 &lt;strong&gt;0 次&lt;&#x2F;strong&gt;。而 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 的请求日志有 496 条,全是 &quot;no information found&quot;(无活动挑战时的空请求)——但&lt;strong&gt;这些请求能到达源站,恰好证明 http-01 经 CF 转发的路径本身是通的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-yi-bu-jie-lun&quot;&gt;第一步结论&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;过去所有成功续期(4-28、6-26&#x2F;27)&lt;strong&gt;都发生在灰云下,走 tls-alpn-01 直连&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;橙云下的续期一次都还没发生过&lt;&#x2F;strong&gt;——&quot;开启代理后仍能续期&quot;目前只是未验证的信念&lt;&#x2F;li&gt;
+&lt;li&gt;流传的&quot;第一次失败是 80 端口没放行&quot;不成立(安全组一直放行 22&#x2F;80&#x2F;443)&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;di-er-bu-zhu-dong-shi-yan-quan-xin-zi-yu-cheng-yun-kai-ju&quot;&gt;第二步:主动实验——全新子域橙云开局&lt;&#x2F;h1&gt;
+&lt;p&gt;理论上的预期(来自 ACME 机制):橙云下 tls-alpn-01 必然失败(LE 连到 CF 边缘,协商不了 acme-tls&#x2F;1);Caddy 会&quot;回退&quot;到 http-01;CF 把 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 转发到源站 80&#x2F;443,Caddy 服务 token,签发成功。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cao-zuo&quot;&gt;操作&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;CF 面板新建 &lt;code&gt;cftest&lt;&#x2F;code&gt; 子域 A 记录 -&amp;gt; VPS IP,&lt;strong&gt;代理状态直接选橙云&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;等 &lt;code&gt;dig&lt;&#x2F;code&gt; 解析到 CF IP(104.21.x&#x2F;172.67.x)确认橙云生效&lt;&#x2F;li&gt;
+&lt;li&gt;VPS 写最小测试站点并重启 caddy:&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;# &amp;#x2F;etc&amp;#x2F;caddy&amp;#x2F;sites&amp;#x2F;cftest.conf
+cftest.demo.com {
+    respond &amp;quot;ok&amp;quot;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意:233boy 的 Caddyfile 全局块有 &lt;code&gt;admin off&lt;&#x2F;code&gt;,&lt;code&gt;systemctl reload&lt;&#x2F;code&gt; 走 admin API(:2019)会被拒,只能 &lt;code&gt;systemctl restart&lt;&#x2F;code&gt;(秒级中断,不影响其它入口)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ri-zhi-shi-lu-jie-xuan&quot;&gt;日志实录(节选)&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;12:46:12  trying to solve challenge  identifier=cftest.demo.com  challenge_type=tls-alpn-01
+12:46:13  challenge failed  challenge_type=tls-alpn-01
+          detail: Cannot negotiate ALPN protocol &amp;quot;acme-tls&amp;#x2F;1&amp;quot; for tls-alpn-01 challenge
+          (attempt:1, max_attempts:3)
+          ...同 order 内再重试 2 次,全部失败...
+          [跨 order 切换]
+          trying to solve challenge  challenge_type=http-01
+          served key authentication × 4~5
+          (LE 多视角验证,从不同网络位置各取一次 token,全部经 CF 转发到达源站)
+12:47 左右  certificate obtained successfully
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wai-bu-yan-zheng&quot;&gt;外部验证&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;经 CF 访问 &lt;code&gt;https:&#x2F;&#x2F;cftest.demo.com&#x2F;&lt;&#x2F;code&gt; -&amp;gt; 返回 &lt;code&gt;ok&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;源站证书:&lt;code&gt;CN = cftest.demo.com&lt;&#x2F;code&gt;,Let&#x27;s Encrypt 签发,有效期 8-21 -&amp;gt; 11-19(90 天)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;实验全链路通过,耗时约 1~2 分钟,全程无需人工干预。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ji-zhi-jie-shi&quot;&gt;机制解释&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-wei-shen-me-tls-alpn-01-zai-cheng-yun-xia-bi-shi-bai&quot;&gt;1. 为什么 tls-alpn-01 在橙云下必失败&lt;&#x2F;h2&gt;
+&lt;p&gt;ACME 的 tls-alpn-01 要求 LE 验证服务器与&lt;strong&gt;源站&lt;&#x2F;strong&gt; 443 端口协商 &lt;code&gt;acme-tls&#x2F;1&lt;&#x2F;code&gt; ALPN 协议。橙云下域名解析到 CF 边缘,CF 终结 TLS,LE 的握手根本到不了源站,报 &lt;code&gt;Cannot negotiate ALPN protocol &quot;acme-tls&#x2F;1&quot;&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-hui-tui-shi-kua-order-shi-xian-de-bu-shi-yi-ci-ding-dan-nei-xian-a-hou-b&quot;&gt;2. &quot;回退&quot;是跨 order 实现的,不是一次订单内先 A 后 B&lt;&#x2F;h2&gt;
+&lt;p&gt;ACME 流程里&quot;order&quot;是一次证书订单:客户端提交域名列表 -&amp;gt; CA 返回待完成的挑战 -&amp;gt; 全部验证通过才签发。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;同一 order 内&lt;&#x2F;strong&gt;:挑战验证失败但订单未作废,可重试(&lt;code&gt;max_attempts:3&lt;&#x2F;code&gt; = 这单最多试 3 次)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;跨 order&lt;&#x2F;strong&gt;:3 次全失败 -&amp;gt; 订单废弃 -&amp;gt; Caddy 新开一单,禁用刚失败的挑战类型,换 http-01&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以&quot;回退&quot;发生在&lt;strong&gt;订单级别&lt;&#x2F;strong&gt;,中间有重试退避延迟。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-wei-shen-me-http-01-neng-chuan-guo-cf&quot;&gt;3. 为什么 http-01 能穿过 CF&lt;&#x2F;h2&gt;
+&lt;p&gt;http-01 走的是 &lt;code&gt;http:&#x2F;&#x2F;域名&#x2F;.well-known&#x2F;acme-challenge&#x2F;&amp;lt;token&amp;gt;&lt;&#x2F;code&gt;。CF 代理对 80 端口的请求是&lt;strong&gt;普通转发&lt;&#x2F;strong&gt;(不涉及 TLS 终止),&lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 原样转发到源站 80;Caddy 在 80&#x2F;443 上都注册了挑战处理器,服务 token,LE 多视角验证从多个位置各取一次,全部成功。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-hong-fa-shi-ji-yu-ke-hu-duan-fang-wen-wan-quan-wu-guan&quot;&gt;4. 触发时机:与客户端访问完全无关&lt;&#x2F;h2&gt;
+&lt;p&gt;签发&#x2F;续期由 Caddy &lt;strong&gt;主动自动&lt;&#x2F;strong&gt;执行:新域名进配置 -&amp;gt; 加载时自动签发;续期按 LE 的 ARI(ACME Renewal Information)窗口自动进行。普通 https 访问只是&quot;消费&quot;证书,既不能触发也不能阻止。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gua-yong-bian-jie-yu-zhu-yi-shi-xiang&quot;&gt;适用边界与注意事项&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;前提是源站 80 可达&lt;&#x2F;strong&gt;(或 443 可达且无死锁)。安全组&#x2F;防火墙必须放行 80,否则 http-01 转发到了也取不到 token&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;潜在死锁场景&lt;&#x2F;strong&gt;:CF 开启 &quot;Always Use HTTPS&quot; + SSL 模式为 &lt;strong&gt;Full (strict)&lt;&#x2F;strong&gt; 时,http-01 请求被边缘 301 到 https 再回源,Full (strict) 要求源站证书&lt;strong&gt;当前有效&lt;&#x2F;strong&gt;——对首次签发(源站还没有证书)是死锁。本次实验的 CF 配置下没有这个死锁,直接成功&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DNS-01 仍是最稳方案&lt;&#x2F;strong&gt;:需要 CF API token,优点是完全不依赖端口&#x2F;代理状态,适合 Full (strict)+Always Use HTTPS 这类配置,或 80 端口被运营商封禁的场景&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别让 DNS 记录指错机器&lt;&#x2F;strong&gt;:web0 的教训——DNS 指到没有 ACME 服务的机器后,证书过期、续期永远失败,每天产生大量噪音日志。清理配置后噪音消失&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;说法&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&quot;CF 橙云会拦截 ACME 验证&quot;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;不准确&lt;&#x2F;strong&gt;。拦截的只是 tls-alpn-01;http-01 经 CF 的 80 端口转发正常工作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;必须 DNS-01 或临时关代理&quot;&lt;&#x2F;td&gt;&lt;td&gt;对 Caddy 不必须。tls-alpn 失败后自动跨 order 回退 http-01,1~2 分钟完成签发&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;续期失败是因为 80 端口没开&quot;&lt;&#x2F;td&gt;&lt;td&gt;对这台 VPS 不成立(80 一直放行)。真正的失败源是 DNS 指错机器的 web0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;橙云下续期也能正常&quot;&lt;&#x2F;td&gt;&lt;td&gt;实验证实:能。tls-alpn 失败 -&amp;gt; http-01 成功,全程自动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;验证方法论&lt;&#x2F;strong&gt;:先翻证书存储的签发时间 + journal 日志的 ACME 事件还原历史(0 风险),再建全新子域橙云开局做主动实验(可随时清理),比争论理论高效得多。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;chang-jian-yi-wen-faq&quot;&gt;常见疑问(FAQ)&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;q1-tiao-zhan-de-fa-qi-fang-shi-shui-token-shi-shui-sheng-cheng-de&quot;&gt;Q1:挑战的发起方是谁?token 是谁生成的?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;发起方永远是 Caddy(客户端)&lt;&#x2F;strong&gt;,token 是 CA 在响应里生成的。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;步骤&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;内容&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;①&lt;&#x2F;td&gt;&lt;td&gt;Caddy → CA&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;newOrder&lt;&#x2F;code&gt;(我要给 cftest.demo.com 签证书)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;②&lt;&#x2F;td&gt;&lt;td&gt;Caddy → CA&lt;&#x2F;td&gt;&lt;td&gt;获取 authorization&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;③&lt;&#x2F;td&gt;&lt;td&gt;CA → Caddy(&lt;strong&gt;响应&lt;&#x2F;strong&gt;)&lt;&#x2F;td&gt;&lt;td&gt;challenge 对象,内含 &lt;strong&gt;token——CA 侧现场生成的 128 位随机数&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;token 必须由 CA 生成:key authorization = &lt;code&gt;token + &quot;.&quot; + 账户公钥指纹&lt;&#x2F;code&gt;,CA 手里握着 token 的权威副本,验证时才比对得上。Caddy 只是把它挂到挑战路径&#x2F;证书扩展里展示。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q2-http-01-ruo-bei-zhong-ding-xiang-dao-443-yuan-zhan-huan-mei-you-zheng-shu-neng-qu-dao-nei-rong-ma&quot;&gt;Q2:http-01 若被重定向到 443,源站还没有证书能取到内容吗?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;默认根本不会重定向&lt;&#x2F;strong&gt;。Caddy 对 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 不执行 HTTP→HTTPS 自动重定向(挑战处理器优先级最高),VA 直接走 80 明文取 token。&lt;&#x2F;p&gt;
+&lt;p&gt;只有 CF 开启 &quot;Always Use HTTPS&quot; 时才会 301 到 443,此时:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;TLS 握手由 &lt;strong&gt;CF 边缘自己的 Universal SSL 证书&lt;&#x2F;strong&gt;完成——与源站证书毫无关系&lt;&#x2F;li&gt;
+&lt;li&gt;CF 回源按 SSL 模式:
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Flexible&lt;&#x2F;strong&gt; → CF 以明文连源站 &lt;strong&gt;80&lt;&#x2F;strong&gt;,照样取到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Full&lt;&#x2F;strong&gt; → CF 连源站 443,Caddy 在证书签发期间用&lt;strong&gt;临时自签证书&lt;&#x2F;strong&gt;完成握手;RFC 8555 §8.3 明确验证时不校验证书链,照样取到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Full (strict)&lt;&#x2F;strong&gt; → 临时证书校验失败 → 526 → 挑战失败(唯一死锁场景)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;结论:&lt;strong&gt;无论哪条路径,token 最终都是经 80 端口取到的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q3-tls-alpn-01-shi-tls-qing-qiu-huan-shi-http-qing-qiu&quot;&gt;Q3:tls-alpn-01 是 TLS 请求还是 HTTP 请求?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;纯 TLS 层,没有任何 HTTP 消息&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;VA → 域名:443(TCP)
+  ClientHello:  ALPN 扩展 = acme-tls&amp;#x2F;1
+域名 → VA
+  ServerHello:  ALPN = acme-tls&amp;#x2F;1
+  Certificate:  特殊证书(id-pe-acmeIdentifier 扩展含 key authorization)
+VA 校验扩展内容 → 断开连接
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;没有路径、没有 GET、没有 HTTP 层数据。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q4-http-01-quan-shi-ming-wen-hen-rong-yi-bei-wei-zao-ma&quot;&gt;Q4:http-01 全是明文,很容易被伪造吗?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;不是漏洞,因为它验证的不是保密性而是控制权&lt;&#x2F;strong&gt;——&quot;谁能响应这个随机路径,谁就控制该域名的 80 服务&quot;,这本身就是 CA 要证明的东西。防伪靠三层:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;token 即时生成 + 128 位随机(2^128 可能)&lt;&#x2F;strong&gt;:挑战发起时才掷骰子,无法预置、无法枚举&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;token 分发走加密通道&lt;&#x2F;strong&gt;:CA → Caddy 通过 TLS 加密 + JWS 签名的 ACME API(LE 的 443 端口)传输,劫持 80 端口的人看不到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;多视角验证 + 短时效&lt;&#x2F;strong&gt;:从多个网络位置独立验证,单点路径被劫持时其他视角失败&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;伪造者要成功,必须实时劫持 VA → 源站的网络路径——那等于控制域名解析&#x2F;网络,&lt;strong&gt;本来就配拿到这张证书&lt;&#x2F;strong&gt;。对比 dns-01:它的 TXT 记录同样是公开明文,靠&quot;只有域名控制者能写记录&quot;防伪。三者都是&quot;证明控制权&quot;模型,没有一个依赖保密。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q5-token-tong-guo-443-fen-fa-caddy-zi-ji-huan-mei-you-zheng-shu-a&quot;&gt;Q5:token 通过 443 分发?Caddy 自己还没有证书啊?&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;这个 443 是 Let&#x27;s Encrypt API 服务器的 443,不是源站的 443&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;TLS 只需要&lt;strong&gt;服务器端&lt;&#x2F;strong&gt;有证书:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Caddy(TLS 客户端,无需任何证书)
+   │  主动连接
+   ▼
+acme-v02.api.letsencrypt.org:443(TLS 服务器)
+   │  出示 LE 自己的服务器证书(公网权威 CA 签发)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Caddy 验证 LE 的服务器证书(像浏览器验证任何 https 网站),与&quot;为 cftest.demo.com 申请证书&quot;是&lt;strong&gt;两件独立的事&lt;&#x2F;strong&gt;。Caddy 的 443 只在 tls-alpn-01 验证时被 VA 连接,那时用的是临时证书,也不需要正式证书。整条链路不存在&quot;先有鸡还是先有蛋&quot;问题。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板</title>
+        <published>2026-08-14T18:14:52+08:00</published>
+        <updated>2026-08-21T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/"/>
+        <id>https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/">&lt;h1 id=&quot;xu-qiu&quot;&gt;需求&lt;&#x2F;h1&gt;
+&lt;p&gt;打通&lt;strong&gt;公司工作机&lt;&#x2F;strong&gt;(Ubuntu 24.04,位于公司 NAT 后)与&lt;strong&gt;家庭机器&lt;&#x2F;strong&gt;(Debian 13,位于家宽 NAT 后)的加密互联。已有&lt;strong&gt;一台阿里云北京 VPS&lt;&#x2F;strong&gt; 可作协商&#x2F;中继节点。用途:SSH 运维、访问公司内部 GitLab&#x2F;Jenkins&#x2F;Wiki、RDP 桌面。&lt;&#x2F;p&gt;
+&lt;p&gt;约束条件:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;VPS 为大陆节点,80&#x2F;443 端口提供服务需 &lt;strong&gt;ICP 备案&lt;&#x2F;strong&gt;,不能走常规端口;&lt;&#x2F;li&gt;
+&lt;li&gt;尽量&lt;strong&gt;不依赖家庭路由器配置&lt;&#x2F;strong&gt;(不强制端口转发);&lt;&#x2F;li&gt;
+&lt;li&gt;数据面优先点对点,&lt;strong&gt;流量不过第三方&lt;&#x2F;strong&gt;;&lt;&#x2F;li&gt;
+&lt;li&gt;维护简单、逻辑清晰。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;fang-an-xuan-xing&quot;&gt;方案选型&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;P2P 直连&lt;&#x2F;th&gt;&lt;th&gt;VPS 角色&lt;&#x2F;th&gt;&lt;th&gt;维护难度&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;headscale&lt;&#x2F;strong&gt;(自托管 Tailscale 控制面)&lt;&#x2F;td&gt;&lt;td&gt;✅ 自动打洞,失败走 DERP&lt;&#x2F;td&gt;&lt;td&gt;控制面 + 中继兜底&lt;&#x2F;td&gt;&lt;td&gt;低&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;选用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;纯 WireGuard 星型&lt;&#x2F;td&gt;&lt;td&gt;❌ 全走 VPS&lt;&#x2F;td&gt;&lt;td&gt;数据中继&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;td&gt;带宽被 VPS 卡死&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WG 手动直连 + VPS 兜底&lt;&#x2F;td&gt;&lt;td&gt;⚠️ 部分&lt;&#x2F;td&gt;&lt;td&gt;中继&lt;&#x2F;td&gt;&lt;td&gt;高&lt;&#x2F;td&gt;&lt;td&gt;NAT 变化要手动改&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;OpenVPN&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;中继&lt;&#x2F;td&gt;&lt;td&gt;高(PKI)&lt;&#x2F;td&gt;&lt;td&gt;无 P2P、性能差&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;tinc &#x2F; n2n &#x2F; zerotier&lt;&#x2F;td&gt;&lt;td&gt;⚠️ 部分&lt;&#x2F;td&gt;&lt;td&gt;协商&#x2F;中继&lt;&#x2F;td&gt;&lt;td&gt;中高&lt;&#x2F;td&gt;&lt;td&gt;维护弱&#x2F;控制面在海外&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;选 headscale 的理由&lt;&#x2F;strong&gt;:真 P2P(打洞成功流量不经 VPS,带宽无瓶颈)、DERP 中继兜底(打洞失败仍可用)、控制面一个 Go 二进制 + 官方客户端,维护最清晰。客户端用 Tailscale 官方客户端(Apache 2.0 开源),控制面完全自建,数据不出自己的节点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jia-gou-yu-yuan-li&quot;&gt;架构与原理&lt;&#x2F;h1&gt;
+&lt;pre&gt;&lt;code&gt;公司机 (Ubuntu 24.04)          VPS (阿里云北京)                 home 机 (Debian 13)
+┌─────────────────┐   ①元数据  ┌──────────────────────┐   ①元数据  ┌─────────────────┐
+│ tailscale       │◀──8443──▶  │ headscale 控制面(8443)│◀──8443──▶  │ tailscale       │
+│                 │            │ DERP 中继(同 8443)     │            │                 │
+│                 │            │ STUN (3478&amp;#x2F;udp)       │            │                 │
+└──────┬──────────┘            └──────────────────────┘            └────────┬────────┘
+       │  ② 直连 UDP(打洞成功,不经 VPS)                                    │
+       └────────────────────────────────────────────────────────────────────┘
+       │  ③ DERP 中继 TCP 8443(打洞失败兜底,仍端到端加密)                  │
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;三种流量路径:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;控制面&lt;&#x2F;strong&gt;(headscale):只交换元数据——公钥、双方公网 IP:端口、NAT 类型、节点列表。不承载业务流量。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;P2P 直连&lt;&#x2F;strong&gt;(打洞成功):两端 UDP 直连,WireGuard 加密,流量完全不经 VPS。&lt;code&gt;tailscale status&lt;&#x2F;code&gt; 显示 &lt;code&gt;direct&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DERP 中继&lt;&#x2F;strong&gt;(打洞失败):走 VPS 上的中继,但只转发端到端加密密文,&lt;strong&gt;中继无法解密内容&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;nat-da-dong-wei-shen-me-you-shi-shi-bai&quot;&gt;NAT 打洞为什么有时失败&lt;&#x2F;h2&gt;
+&lt;p&gt;打洞依赖双方 NAT 的&quot;入站宽容度&quot;,&lt;strong&gt;成功率取决于最严格的那一端,不是最宽松的&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;NAT 类型&lt;&#x2F;th&gt;&lt;th&gt;入站行为&lt;&#x2F;th&gt;&lt;th&gt;打洞结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Full cone&lt;&#x2F;td&gt;&lt;td&gt;任何人发到映射端口都能进&lt;&#x2F;td&gt;&lt;td&gt;几乎必成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Restricted&#x2F;Port-restricted cone(家用路由器)&lt;&#x2F;td&gt;&lt;td&gt;只收&quot;映射记录的源&quot;&lt;&#x2F;td&gt;&lt;td&gt;双端同时发包可成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;Symmetric&lt;&#x2F;strong&gt;(企业防火墙&#x2F;CGNAT)&lt;&#x2F;td&gt;&lt;td&gt;只收&quot;源地址精确匹配&quot;,且每次出站换端口&lt;&#x2F;td&gt;&lt;td&gt;大概率失败 → 走 DERP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;典型死局:home 是 cone(能收到公司的包),公司是 symmetric(收不到 home 的回包,因为每次出站端口都变)→ 单向通,打洞失败,自动降级 DERP。本部署实测:公司 NAT 友好,打洞成功,ping 21ms 直连。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;derp-yu-stun-de-gui-shu&quot;&gt;DERP 与 STUN 的归属&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;STUN(UDP 3478)由 DERP 服务器内置提供&lt;&#x2F;strong&gt;(headscale 内置 DERP 自带),客户端靠它探测自己的公网 IP:端口;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DERP 中继复用 headscale 的 HTTPS 端口 8443&lt;&#x2F;strong&gt;(内置 DERP 与主服务共用 TLS 监听),无独立端口;&lt;&#x2F;li&gt;
+&lt;li&gt;headscale 内置 DERP &lt;strong&gt;默认 &lt;code&gt;verify_clients: true&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——只允许本 tailnet 节点中继,外部客户端直接拒绝(防滥用,零配置)。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;bu-shu-zhun-bei&quot;&gt;部署准备&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;duan-kou-yu-an-quan-zu-bei-an-yue-shu&quot;&gt;端口与安全组(备案约束)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 为大陆节点,80&#x2F;443 需备案,故全部走自定义端口:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;端口&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;TCP 8443&lt;&#x2F;td&gt;&lt;td&gt;headscale 控制面 + 内置 DERP 中继(共用)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;UDP 3478&lt;&#x2F;td&gt;&lt;td&gt;STUN 打洞辅助&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;TCP 22&lt;&#x2F;td&gt;&lt;td&gt;SSH(保留)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;阿里云安全组放行 &lt;code&gt;8443&#x2F;tcp 3478&#x2F;udp&lt;&#x2F;code&gt;。部署前实测:VPS 安全组原只放行 22,其余端口全被拦——这是最容易忽略的坑。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yu-ming-yu-zheng-shu-cloudflare-dns-acme-sh&quot;&gt;域名与证书(Cloudflare DNS + acme.sh)&lt;&#x2F;h2&gt;
+&lt;p&gt;域名托管在 Cloudflare,用 acme.sh 的 &lt;strong&gt;&lt;code&gt;dns_cf&lt;&#x2F;code&gt; 插件做 DNS-01 验证&lt;&#x2F;strong&gt;(不依赖 80 端口,正好绕开备案):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Cloudflare 控制台 → My Profile → API Tokens → Create Token
+# 模板 &amp;quot;Edit zone DNS&amp;quot; → Zone 限定你的域名 → 得到 CF_Token &amp;#x2F; CF_Account_ID
+
+curl https:&amp;#x2F;&amp;#x2F;gitee.com&amp;#x2F;neilpang&amp;#x2F;acme.sh&amp;#x2F;raw&amp;#x2F;master&amp;#x2F;install.sh | sh   # GitHub 可能不通,用 gitee
+export CF_Token=&amp;quot;xxx&amp;quot; CF_Account_ID=&amp;quot;xxx&amp;quot;
+~&amp;#x2F;.acme.sh&amp;#x2F;acme.sh --issue --dns dns_cf -d headscale.demo.com
+
+~&amp;#x2F;.acme.sh&amp;#x2F;acme.sh --install-cert -d headscale.demo.com \
+  --key-file ~&amp;#x2F;p2p&amp;#x2F;certs&amp;#x2F;key.pem --fullchain-file ~&amp;#x2F;p2p&amp;#x2F;certs&amp;#x2F;cert.pem \
+  --reloadcmd &amp;quot;docker restart headscale&amp;quot;    # 续期后自动重载容器
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;自动续期由 acme.sh 安装时写入的 cron 负责(每天检查),&lt;code&gt;--reloadcmd&lt;&#x2F;code&gt; 让续期后自动加载新证书,全链路无人值守。&lt;&#x2F;p&gt;
+&lt;p&gt;⚠️ 记录必须 &lt;strong&gt;DNS-only(灰云)&lt;&#x2F;strong&gt;:不要开 Cloudflare 橙色代理,否则 8443 等非标准端口无法穿透。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jing-xiang-zhun-bei-guo-nei-vps-la-bu-dong-docker-hub&quot;&gt;镜像准备(国内 VPS 拉不动 Docker Hub)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 实测连 Docker Hub 超时(DNS 被污染),但 &lt;strong&gt;ghcr.io 可直拉&lt;&#x2F;strong&gt;(headplane 镜像就是 VPS 直拉的)。headscale 镜像走本地中转:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地(公司机,有代理):
+podman pull docker.io&amp;#x2F;headscale&amp;#x2F;headscale:0.29.3
+podman save docker.io&amp;#x2F;headscale&amp;#x2F;headscale:0.29.3 -o headscale.tar
+scp headscale.tar vps:&amp;#x2F;tmp&amp;#x2F;
+# VPS:
+docker load -i &amp;#x2F;tmp&amp;#x2F;headscale.tar
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;vps-bu-shu-headscale-headplane&quot;&gt;VPS 部署(headscale + headplane)&lt;&#x2F;h1&gt;
+&lt;p&gt;部署目录 &lt;code&gt;~&#x2F;p2p&#x2F;&lt;&#x2F;code&gt;(用户有 docker 组权限,全程无需 root)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;docker-compose-yml&quot;&gt;docker-compose.yml&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;services:
+  headscale:
+    image: headscale&amp;#x2F;headscale:0.29.3
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - .&amp;#x2F;config:&amp;#x2F;etc&amp;#x2F;headscale
+      - .&amp;#x2F;data:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale
+      - .&amp;#x2F;certs:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs:ro
+    ports:
+      - &amp;quot;8443:8443&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;3478:3478&amp;#x2F;udp&amp;quot;
+
+  headplane:
+    image: ghcr.io&amp;#x2F;tale&amp;#x2F;headplane:latest
+    container_name: headplane
+    restart: unless-stopped
+    depends_on: [headscale]
+    volumes:
+      - .&amp;#x2F;headplane.yaml:&amp;#x2F;etc&amp;#x2F;headplane&amp;#x2F;config.yaml:ro
+      - .&amp;#x2F;data&amp;#x2F;headplane:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headplane
+      - .&amp;#x2F;config:&amp;#x2F;etc&amp;#x2F;headscale:ro
+    ports:
+      - &amp;quot;127.0.0.1:3000:3000&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;100.64.0.100:3000:3000&amp;#x2F;tcp&amp;quot;   # 更新(2026-08-15):VPS 管理节点加入后双绑定,tailnet 内访问
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;100.64.0.100&lt;&#x2F;code&gt; 是 VPS 节点的&lt;strong&gt;固定&lt;&#x2F;strong&gt; tailnet IP(headscale 无 CLI 指定 IP,直接改 sqlite &lt;code&gt;nodes.ipv4&lt;&#x2F;code&gt; 实现,详见下节)。若节点重新注册导致 IP 变化,需同步改此绑定与 headplane.yaml 的 &lt;code&gt;base_url&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;config-yaml-guan-jian-xiang&quot;&gt;config.yaml 关键项&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;server_url: https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443
+listen_addr: 0.0.0.0:8443
+metrics_listen_addr: 0.0.0.0:9090
+prefixes:
+  v4: 100.64.0.0&amp;#x2F;10                # tailnet 虚拟网段,与家&amp;#x2F;公司网段无冲突
+derp:
+  urls: []                          # ★ 清空官方 DERP 地图,否则客户端会绕海外
+  server:
+    enabled: true
+    region_code: &amp;quot;ali&amp;quot;
+    region_name: &amp;quot;Aliyun Beijing&amp;quot;
+    ipv4: &amp;lt;VPS公网IP&amp;gt;
+    stun_listen_addr: &amp;quot;0.0.0.0:3478&amp;quot;
+    # verify_clients 默认 true:仅本 tailnet 节点可中继
+database:
+  type: sqlite
+tls_cert_path: &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs&amp;#x2F;cert.pem
+tls_key_path: &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;headscale&amp;#x2F;certs&amp;#x2F;key.pem
+dns:
+  magic_dns: false
+  override_local_dns: false          # 关掉 MagicDNS,避免干扰公司 DNS
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;两个必踩的坑&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;derp.urls&lt;&#x2F;code&gt; 若留默认(指向 controlplane.tailscale.com),客户端会优先尝试官方海外 DERP——必须清空,只留内置;&lt;&#x2F;li&gt;
+&lt;li&gt;headscale 0.29 要求 &lt;code&gt;dns.override_local_dns: true&lt;&#x2F;code&gt; 时必须有 &lt;code&gt;dns.nameservers.global&lt;&#x2F;code&gt;——不用 MagicDNS 就直接两个都关。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;启动验证:&lt;code&gt;curl -k https:&#x2F;&#x2F;headscale.demo.com:8443&#x2F;health&lt;&#x2F;code&gt; 返回 &lt;code&gt;{&quot;status&quot;:&quot;pass&quot;}&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ke-hu-duan-jie-ru-gong-si-ji-home-ji-vps-guan-li-jie-dian&quot;&gt;客户端接入(公司机 + home 机 + VPS 管理节点)&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-15)&lt;&#x2F;strong&gt;:新增 VPS 作为 tailnet 第 3 节点(管理入口),headplane 面板经 tailnet 访问。本节点也按下面流程加入,只是 headplane 部署在本机上。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-15)&lt;&#x2F;strong&gt;:新增 home 局域网 Proxmox 宿主(&lt;code&gt;peter.xiao.com&lt;&#x2F;code&gt;,192.168.2.100,Debian 13)为 tailnet 第 4 节点,headplane 面板中重命名为 &lt;code&gt;peter-xiao100&lt;&#x2F;code&gt;(100.64.0.3)。同时把全部节点在 headplane 面板统一重命名:&lt;code&gt;xiao&lt;&#x2F;code&gt; → &lt;code&gt;xiao200&lt;&#x2F;code&gt;、VPS &lt;code&gt;iz2zehkipqcroqwfrvhwj7z&lt;&#x2F;code&gt; → &lt;code&gt;ali&lt;&#x2F;code&gt;。节点重命名完全可以在 headplane 面板(Machines)操作,无需 CLI。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更新(2026-08-16)&lt;&#x2F;strong&gt;:新增 tailnet 第 5、6 节点并上线公司侧双路由器 HA——公司局域网 &lt;code&gt;xiao99&lt;&#x2F;code&gt;(192.168.7.99,100.64.0.5)通告 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt;,与 &lt;code&gt;peter-optiplex-7090&lt;&#x2F;code&gt; 双通告双审批(客户端按连接分配、故障自动切换);home 局域网 &lt;code&gt;peter-megabook-14&lt;&#x2F;code&gt;(192.168.2.147,100.64.0.6)作为普通节点加入。同日踩坑:&lt;strong&gt;子网路由器 accept 自吸&lt;&#x2F;strong&gt;(xiao99 开 &lt;code&gt;--accept-routes&lt;&#x2F;code&gt; 后 LAN 内主机 ping 不通它、tailnet 直连却正常,回包被 table 52 吸进 tailscale0),详见「子网路由原理」一节。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;an-zhuang-guan-fang-apt-yuan-guo-nei-zhi-lian-ke-yong&quot;&gt;安装(官方 apt 源,国内直连可用)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Ubuntu 用 ubuntu&amp;#x2F;noble,Debian 用 debian&amp;#x2F;trixie
+sudo mkdir -p --mode=0755 &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;&amp;lt;发行版&amp;gt;.noarmor.gpg | sudo tee &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings&amp;#x2F;tailscale-archive-keyring.gpg &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;&amp;lt;发行版&amp;gt;.tailscale-keyring.list | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;tailscale.list &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo apt-get update &amp;amp;&amp;amp; sudo apt-get install -y tailscale
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;deng-lu-preauthkey-mian-liu-lan-qi&quot;&gt;登录(preauthkey 免浏览器)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# VPS 创建用户 + key(headscale 0.29 的 --user 参数是数字 ID!)
+docker-compose exec headscale headscale users create peter
+docker-compose exec headscale headscale users list            # 拿 ID
+docker-compose exec headscale headscale preauthkeys create --user &amp;lt;ID&amp;gt; --expiration 24h
+
+# 客户端:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --authkey=&amp;lt;key&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tailscale status
+# 100.64.0.1  company  peter  linux  -
+# 100.64.0.2  home     peter  linux  active; direct &amp;lt;home公网IP&amp;gt;:&amp;lt;端口&amp;gt;, tx 5716 rx 4540
+
+sudo tailscale ping --c 3 100.64.0.2
+# pong from home via &amp;lt;home公网IP&amp;gt;:61761 in 21ms   ← direct,不经 VPS
+
+sudo tailscale netcheck   # 确认 Nearest DERP 是自建节点,无海外
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实测结果:打洞成功(21ms 直连),DERP 地图只有自建节点。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;vps-guan-li-jie-dian-di-3-jie-dian-2026-08-15-jia-ru&quot;&gt;VPS 管理节点(第 3 节点,2026-08-15 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;VPS 也加入 tailnet,作为 headplane 面板所在的管理节点——headscale 控制面容器与 tailscaled 客户端共存无冲突(8443&#x2F;3478 与客户端数据面 UDP 41641 不撞端口):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装(Ubuntu noble 官方源,需 sudo)
+sudo mkdir -p --mode=0755 &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;ubuntu&amp;#x2F;noble.noarmor.gpg | sudo tee &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;keyrings&amp;#x2F;tailscale-archive-keyring.gpg &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+curl -fsSL https:&amp;#x2F;&amp;#x2F;pkgs.tailscale.com&amp;#x2F;stable&amp;#x2F;ubuntu&amp;#x2F;noble.tailscale-keyring.list | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;tailscale.list &amp;gt;&amp;#x2F;dev&amp;#x2F;null
+sudo apt-get update &amp;amp;&amp;amp; sudo apt-get install -y tailscale
+
+# 登录(--operator=peter 让普通用户免 sudo 执行 tailscale 命令)
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --authkey=&amp;lt;key&amp;gt; --operator=peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;tailnet IP &lt;strong&gt;固定为 &lt;code&gt;100.64.0.100&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;(刻意选的易记地址)。headscale 0.29 没有 CLI 指定 IP,固定方式是直接改 sqlite 的 &lt;code&gt;nodes.ipv4&lt;&#x2F;code&gt;(&lt;code&gt;headscale nodes list -o json&lt;&#x2F;code&gt; 确认节点 ID → &lt;code&gt;docker stop headscale&lt;&#x2F;code&gt; → 备份 → 改库 → &lt;code&gt;docker start&lt;&#x2F;code&gt;);若节点重新注册 IP 会变,需同步改 compose 绑定、headplane.yaml 的 &lt;code&gt;base_url&lt;&#x2F;code&gt; 和 @reboot cron 的 grep 模式。headplane 绑定该 IP 供其他节点访问(见下节)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;部署时遇到的 DNS 坑&lt;&#x2F;strong&gt;:VPS 的阿里云 VPC DNS(100.100.2.136&#x2F;138)曾整体不可达,导致 tailscaled 登录控制面失败(DoH 兜底又被大陆屏蔽)。已通过 &lt;code&gt;&#x2F;etc&#x2F;hosts&lt;&#x2F;code&gt; 硬编码 &lt;code&gt;headscale.demo.com&lt;&#x2F;code&gt; + systemd-resolved 改用公共 DNS(223.5.5.5&#x2F;119.29.29.29)修复。&lt;strong&gt;更正(2026-08-21)&lt;&#x2F;strong&gt;:当时判断为&quot;DNS 污染&#x2F;不可达&quot;不完整——真因是 ts-input 防欺骗规则丢 100.x 回包(CGNAT 网段冲突,与下文备份失败同根因),绕过有效但掩盖了根因。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;开机顺序坑&lt;&#x2F;strong&gt;:重启后 docker 先于 tailscaled 启动,headplane 绑定的 &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt; 会绑定失败导致容器起不来。兜底:peter 的 @reboot cron 等待 &lt;code&gt;ts0&lt;&#x2F;code&gt; 出现 tailnet IP 后 &lt;code&gt;docker restart headplane&lt;&#x2F;code&gt;;未生效时手动重启容器即可。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;home-proxmox-su-zhu-di-4-jie-dian-2026-08-15-jia-ru&quot;&gt;home Proxmox 宿主(第 4 节点,2026-08-15 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;tailnet 第 4 节点为 home 局域网内的 Proxmox 宿主(&lt;code&gt;peter.xiao.com&lt;&#x2F;code&gt;,192.168.2.100,Debian 13),与 home 机 xiao200(192.168.2.200)同网段。加入方式与 VPS 节点完全相同:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装(debian&amp;#x2F;trixie 官方源)后登录,同样 --operator=peter 免 sudo
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.juzhong.xyz:8443 --authkey=&amp;lt;key&amp;gt; --operator=peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键点:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;节点重命名走面板&lt;&#x2F;strong&gt;:headscale 0.29 的 CLI 是 &lt;code&gt;headscale nodes rename -i &amp;lt;id&amp;gt; &amp;lt;新名&amp;gt;&lt;&#x2F;code&gt;(需在 VPS 上 exec),但完全可以在 headplane 面板 Machines 里直接改——本次 4 个节点全部在面板统一重命名(&lt;code&gt;peter-optiplex-7090&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;xiao200&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;ali&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;peter-xiao100&lt;&#x2F;code&gt;)。CLI 与面板等效,均即时下发,无需重启服务端或客户端(客户端下次同步 netmap 即生效)。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;实测延迟&lt;&#x2F;strong&gt;:同网段 xiao200 直连 ~5ms(局域网内部,不出网);VPS 直连 ~4ms;公司机打洞直连 ~25-36ms(首包经 DERP(ali) 后切 direct)。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;策略路由表&lt;&#x2F;strong&gt;:tailnet 路由在 Linux 上不占用主路由表,&lt;code&gt;ip route&lt;&#x2F;code&gt; 看不到 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt; 属正常——路由在独立 &lt;code&gt;table 52&lt;&#x2F;code&gt;,由 &lt;code&gt;ip rule&lt;&#x2F;code&gt; 的 &lt;code&gt;5270: from all lookup 52&lt;&#x2F;code&gt; 策略路由承接(优先级低于 fwmark 自保护规则、高于主表),&lt;code&gt;ip route show table 52&lt;&#x2F;code&gt; 才能看到。tailscaled 自身流量(连控制面&#x2F;STUN)打 fwmark &lt;code&gt;0x80000&lt;&#x2F;code&gt;,先查 main&#x2F;default 表,避免走 tailnet 递归。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;preauth key 与节点有效期无关&lt;&#x2F;strong&gt;:&lt;code&gt;--expiration 24h&lt;&#x2F;code&gt; 只限制 key 的注册窗口,节点注册成功后永久有效(nodes list 的 Expiration 为 N&#x2F;A),除非手动 expire&#x2F;delete。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;gong-si-ce-zi-wang-lu-you-qi-xiao99-di-5-jie-dian-2026-08-16-jia-ru-shuang-lu-you-qi-ha&quot;&gt;公司侧子网路由器 xiao99(第 5 节点,2026-08-16 加入,双路由器 HA)&lt;&#x2F;h2&gt;
+&lt;p&gt;公司局域网内 Debian 13 主机(192.168.7.99,100.64.0.5)。此前已入网,本次补通告 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt;,与 peter-optiplex-7090 组成&lt;strong&gt;双路由器 HA&lt;&#x2F;strong&gt;(同一网段双通告双审批,headscale 0.29 &lt;code&gt;node.routes.ha&lt;&#x2F;code&gt; 默认开启,客户端按连接哈希分发、一台挂掉自动切换):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 补通告(已是节点、--operator=peter,免 sudo;tailscale up 需列出全部非默认 flag,含 --login-server)
+tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.juzhong.xyz:8443 --advertise-routes=192.168.4.0&amp;#x2F;22
+
+# ② VPS 审批(ip_forward Debian 13 默认已是 1)
+docker-compose exec headscale headscale nodes approve-routes -i 6 -r 192.168.4.0&amp;#x2F;22
+docker-compose exec headscale headscale nodes list-routes   # 两个节点同一网段均为 Approved+Available
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;查看路由偏好:&lt;code&gt;tailscale status&lt;&#x2F;code&gt; &lt;strong&gt;不显示&lt;&#x2F;strong&gt; advertise&#x2F;accept,要用 &lt;code&gt;tailscale debug prefs&lt;&#x2F;code&gt;(AdvertiseRoutes&#x2F;AcceptRoutes 字段)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;home-ji-peter-megabook-14-di-6-jie-dian-2026-08-16-jia-ru&quot;&gt;home 机 peter-megabook-14(第 6 节点,2026-08-16 加入)&lt;&#x2F;h2&gt;
+&lt;p&gt;home 局域网内 Ubuntu 26.04 笔记本(192.168.2.147,100.64.0.6),普通节点,无子网路由角色。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;注册踩坑&lt;&#x2F;strong&gt;:首次接入时没带 &lt;code&gt;--login-server&lt;&#x2F;code&gt;,误注册到了&lt;strong&gt;官方控制面&lt;&#x2F;strong&gt;(login.tailscale.com,登录链接形如 &lt;code&gt;https:&#x2F;&#x2F;login.tailscale.com&#x2F;a&#x2F;xxx&lt;&#x2F;code&gt;)——与自建 headscale 是两个完全不同的控制面,节点列表互不可见。修复:先杀掉等待官方认证的 &lt;code&gt;tailscale up&lt;&#x2F;code&gt; 进程,再用 preauthkey 指向自建控制面重新注册即可,&lt;code&gt;tailscale status&lt;&#x2F;code&gt; 立刻显示 tailnet 全部节点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;an-quan-she-ji-zi-wang-fang-wen-mo-ren-guan-bi-xian-shi-kai-guan&quot;&gt;安全设计:子网访问默认关闭,显式开关&lt;&#x2F;h1&gt;
+&lt;p&gt;默认仅 tailnet 节点互通(虚拟网段内),&lt;strong&gt;任何一侧局域网互访默认关闭&lt;&#x2F;strong&gt;,按需开启:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 开启「公司侧局域网可被 home 访问」三步:
+# ① 公司机宣告路由:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --advertise-routes=192.168.4.0&amp;#x2F;22
+# ② home 机接受路由:
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --accept-routes
+# ③ VPS 审批(0.29.3 语法):
+docker-compose exec headscale headscale nodes list-routes
+docker-compose exec headscale headscale nodes approve-routes -i &amp;lt;node_id&amp;gt; -r 192.168.4.0&amp;#x2F;22
+
+# 关闭(任一侧,恢复仅节点互通):
+sudo tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;home 侧对称操作(宣告 192.168.2.0&#x2F;24)。&lt;code&gt;tailscale up&lt;&#x2F;code&gt; 重复执行只更新偏好,不会掉线。公司网段需注意与 home 网段、tailnet CGNAT 段(100.64.0.0&#x2F;10)无冲突。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zi-wang-lu-you-yuan-li-xuan-gao-jie-shou-ip-forward-snat-yu-hui-cheng-2026-08-15-shi-ce-zheng-li&quot;&gt;子网路由原理:宣告&#x2F;接受、ip_forward、SNAT 与回程(2026-08-15 实测整理)&lt;&#x2F;h2&gt;
+&lt;p&gt;子网访问能通依赖三件套,缺一不可:&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;① 宣告 vs 接受(方向配对)&lt;&#x2F;strong&gt;:&lt;code&gt;--advertise-routes&lt;&#x2F;code&gt; = 宣告方(我所在的局域网可被 tailnet 访问,需 headscale &lt;code&gt;nodes approve-routes&lt;&#x2F;code&gt; 审批才生效);&lt;code&gt;--accept-routes&lt;&#x2F;code&gt; = 接受方(把对端宣告的子网注入本机路由表)。&lt;strong&gt;⚠️ 子网路由器不要 accept&lt;&#x2F;strong&gt;(见下方「accept 自吸」),本方案 &lt;code&gt;scripts&#x2F;*-routes-on.sh&lt;&#x2F;code&gt; 已改为只通告,需要接受对端网段时单独跑 &lt;code&gt;*-accept.sh&lt;&#x2F;code&gt;——同一台机器不要同时跑两个脚本。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;② IP 转发(最容易漏)&lt;&#x2F;strong&gt;:子网路由器必须 &lt;code&gt;net.ipv4.ip_forward = 1&lt;&#x2F;code&gt;,&lt;strong&gt;tailscale 不会自动设置&lt;&#x2F;strong&gt;(Linux 上;macOS 才自动)。Ubuntu 工作站默认是 0——实测本方案中 home 侧 Proxmox 宿主天然为 1(PVE 桥接需要),但公司机极可能为 0,子网流量会静默不通。已在 &lt;code&gt;scripts&#x2F;*-routes-on.sh&lt;&#x2F;code&gt; 里加入启动时自动检查并开启(&lt;code&gt;sysctl -w&lt;&#x2F;code&gt; 仅本次生效,持久化需写 &lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-tailscale.conf&lt;&#x2F;code&gt;)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;③ SNAT(默认开启,零配置)&lt;&#x2F;strong&gt;:&lt;code&gt;--snat-subnet-routes&lt;&#x2F;code&gt; 默认 true,tailscale 自动对子网转发流量做 masquerade。效果:子网内主机看到的源 IP 是&lt;strong&gt;子网路由器的局域网 IP&lt;&#x2F;strong&gt;(不是 tailnet 的 100.64.0.x),回包只需发给默认网关(即子网路由器),conntrack 对称恢复后送回隧道——&lt;strong&gt;子网内主机完全不需要知道 tailnet 路由,回程天然通畅&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;home(100.64.0.2) → tailscale0 → 子网路由器解密 → 内核转发 eth0
+    ↑                                 │ 并发包 SNAT:源 100.64.0.2 → 路由器 LAN IP
+    └── conntrack 恢复源地址 ← 子网内主机回包给默认网关(路由器)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;何时需要手动回程路由&lt;&#x2F;strong&gt;:只有关闭 SNAT(&lt;code&gt;--snat-subnet-routes=false&lt;&#x2F;code&gt;,需保留真实源 IP 做日志审计时)才有此需求——此时子网内主机收到源为 &lt;code&gt;100.64.0.x&lt;&#x2F;code&gt; 的包,必须给它加 &lt;code&gt;100.64.0.0&#x2F;10 → 子网路由器 LAN IP&lt;&#x2F;code&gt; 的静态路由(DHCP&#x2F;VPC 下发),否则回程丢包。默认 SNAT 开启时无此坑。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;排障顺序&lt;&#x2F;strong&gt;:① 两端 accept&#x2F;advertise 是否配对(&lt;code&gt;tailscale debug prefs&lt;&#x2F;code&gt; 查 AdvertiseRoutes&#x2F;AcceptRoutes);② headscale &lt;code&gt;nodes list-routes&lt;&#x2F;code&gt; 的 Approved 列是否包含该网段;③ 子网路由器 &lt;code&gt;sysctl net.ipv4.ip_forward&lt;&#x2F;code&gt; 是否为 1;④ 目标机防火墙;⑤ 子网路由器是否误开 accept(见下条)。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;accept-routes 自吸(2026-08-16 实测 xiao99,全网段断连 20 分钟的元凶)&lt;&#x2F;strong&gt;:机器&lt;strong&gt;自己就在通告的网段内&lt;&#x2F;strong&gt;时开 &lt;code&gt;--accept-routes&lt;&#x2F;code&gt;,tailscale 会把本网段路由也装进 table 52(策略路由 &lt;code&gt;5270 lookup 52&lt;&#x2F;code&gt; 优先于 &lt;code&gt;32766 lookup main&lt;&#x2F;code&gt;),于是——&lt;strong&gt;本机发往局域网的包(含对 LAN 主机的回包)全部被吸进 tailscale0&lt;&#x2F;strong&gt;,tailscaled 视其为不可达丢弃。症状极具迷惑性:&lt;strong&gt;局域网内主机 ping 这台机器 100% 丢包,但 tailnet 直连(&lt;code&gt;tailscale ping 100.64.0.x&lt;&#x2F;code&gt;)完全正常&lt;&#x2F;strong&gt;——先怀疑隧道&#x2F;打洞坏了,实际是回包自吸。抓包特征:回包从 &lt;code&gt;tailscale0 Out&lt;&#x2F;code&gt; 出去(&lt;code&gt;ICMP ... udp port xxx unreachable&lt;&#x2F;code&gt;),br0 上只有入包没有回包。修复:&lt;code&gt;tailscale set --accept-routes=false&lt;&#x2F;code&gt; 秒恢复。tailscale 官方文档对 HA 双路由器场景同样警告:&quot;standby 会接受 primary 宣告的同一路由,导致本可直接连接的子网绕道 primary&quot;——&lt;strong&gt;双通告的路由器应该只用 &lt;code&gt;--advertise-routes&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;双路由器 HA(2026-08-16 实测)&lt;&#x2F;strong&gt;:同一网段 &lt;code&gt;192.168.4.0&#x2F;22&lt;&#x2F;code&gt; 由 peter-optiplex-7090 与 xiao99 双通告并逐个审批后,headscale &lt;code&gt;node.routes.ha&lt;&#x2F;code&gt;(默认开启)使客户端同时拿到两条候选路由,按连接(五元组哈希)分发、单台掉线自动切换;&lt;code&gt;headscale nodes list-routes&lt;&#x2F;code&gt; 两个节点均显示 Approved+Available。局限:无法配置优先级(主备),负载近似均分;两台都别开 accept。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;与 OpenVPN 路由共存(2026-08-16 实测 peter-xiao100)&lt;&#x2F;strong&gt;:home 本机已有 OpenVPN 路由 &lt;code&gt;192.168.4.0&#x2F;22 via 10.8.0.5 dev tun0&lt;&#x2F;code&gt;(main 表),与 tailnet 宣告的公司网段&lt;strong&gt;完全重叠&lt;&#x2F;strong&gt;。实测结论:&lt;strong&gt;不冲突,但 tailscale 会接管&lt;&#x2F;strong&gt;——tailnet 子网路由进独立 table 52,策略路由优先级 &lt;code&gt;5270 lookup 52&lt;&#x2F;code&gt; &amp;lt; &lt;code&gt;32766 lookup main&lt;&#x2F;code&gt;,accept 后访问 192.168.4.x 全部走 tailscale 隧道(公司机作子网路由器 + SNAT),OpenVPN 那条路由休眠但保留。两条隧道本质是&quot;到同一网段的两个入口&quot;,谁的路由表优先级高谁生效。想继续走 OpenVPN(如 443 穿透公司严格 NAT)就&lt;strong&gt;不要&lt;&#x2F;strong&gt;执行 accept;接管情况用 &lt;code&gt;ip route show table 52&lt;&#x2F;code&gt; 确认。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;guan-li-mian-ban-headplane-fang-wen&quot;&gt;管理面板(headplane)访问&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;更正(2026-08-15)&lt;&#x2F;strong&gt;:本文初稿的&quot;headplane 公网访问&quot;方案(CF Tunnel &#x2F; Zero Trust)当时并未实际启用——&lt;code&gt;panel.juzhong.xyz&lt;&#x2F;code&gt; 未建 DNS 记录、cloudflared 也未配对应 ingress。实际落地改为&lt;strong&gt;经 tailnet 内访问&lt;&#x2F;strong&gt;(headplane 不监听公网,只绑 &lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; 与 tailnet IP &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt;)。原方案对比保留,作为未来公网访问的备选资料。为何不用 &lt;code&gt;tailscale serve&lt;&#x2F;code&gt; 暴露见文末&quot;踩坑记录&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;headplane 绑定:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;# docker-compose.yml
+    ports:
+      - &amp;quot;127.0.0.1:3000:3000&amp;#x2F;tcp&amp;quot;
+      - &amp;quot;100.64.0.100:3000:3000&amp;#x2F;tcp&amp;quot;
+
+# headplane.yaml
+  base_url: &amp;quot;http:&amp;#x2F;&amp;#x2F;100.64.0.100:3000&amp;quot;   # tailnet IP,须与绑定一致
+  cookie_secure: false                  # tailnet 内走 HTTP;WireGuard 已加密,无需 secure cookie
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;访问:任意 tailnet 节点浏览器开 &lt;code&gt;http:&#x2F;&#x2F;100.64.0.100:3000&#x2F;admin&lt;&#x2F;code&gt;,用 headscale API key 登录。安全模型:公网安全组不放行 3000 + 容器不监听 0.0.0.0 + WireGuard 端到端加密 + API key 认证,四层无公网暴露面。&lt;&#x2F;p&gt;
+&lt;p&gt;运维速查(常用命令):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p
+docker-compose exec headscale headscale users list                # 用户及 ID
+docker-compose exec headscale headscale users create &amp;lt;名称&amp;gt;        # 新增用户
+docker-compose exec headscale headscale nodes list                # 节点与状态
+docker-compose exec headscale headscale nodes expire -i &amp;lt;id&amp;gt;      # 踢下线
+docker-compose exec headscale headscale preauthkeys create --user &amp;lt;id&amp;gt; --expiration 24h   # 新设备入网 key
+docker-compose exec headscale headscale apikeys create            # headplane 登录 key(只显示一次)
+docker-compose exec headscale headscale nodes list-routes                # 子网路由审批(0.29.3 语法;旧 routes list&amp;#x2F;enable 已移除)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;固定节点 IP(headscale 无 CLI,直接改库;先备份,改完重启 headscale 和客户端):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker exec headscale headscale nodes list -o json | grep -i given_name   # 确认节点 ID
+docker stop headscale
+cp &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p&amp;#x2F;data&amp;#x2F;db.sqlite* &amp;#x2F;tmp&amp;#x2F;
+python3 -c &amp;quot;import sqlite3; d=sqlite3.connect(&amp;#x27;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;p2p&amp;#x2F;data&amp;#x2F;db.sqlite&amp;#x27;); d.execute(\&amp;quot;UPDATE nodes SET ipv4=&amp;#x27;100.64.0.100&amp;#x27; WHERE id=3\&amp;quot;); d.commit()&amp;quot;
+docker start headscale
+tailscale up --login-server=https:&amp;#x2F;&amp;#x2F;headscale.demo.com:8443 --operator=peter   # 重新拉取地图
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gong-wang-fang-wen-bei-xuan-fang-an-yi-chun-cloudflare-tunnel-wei-qi-yong-bei-xuan&quot;&gt;公网访问备选方案一:纯 Cloudflare Tunnel(未启用,备选)&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;关键认知:Tunnel(通道)不需要 Zero Trust 组织、不需要信用卡;Access(认证门)才需要&lt;&#x2F;strong&gt;。纯 CLI 路线全程只碰 CF 基础 DNS + 隧道:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cloudflared tunnel login                      # 浏览器授权
+cloudflared tunnel create caddy-tunnel        # 建隧道
+cloudflared tunnel route dns caddy-tunnel panel.demo.com   # 加 CNAME
+# &amp;#x2F;etc&amp;#x2F;cloudflared&amp;#x2F;config.yml 在 404 兜底前插入:
+#   - hostname: panel.demo.com
+#     service: http:&amp;#x2F;&amp;#x2F;localhost:3000
+sudo systemctl restart cloudflared
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;headplane 侧同步改配置并重启(启用公网方案时,与 tailnet 内访问二选一或共存):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;server:
+  base_url: &amp;quot;https:&amp;#x2F;&amp;#x2F;panel.demo.com&amp;quot;   # 必须改,否则登录后跳转回 localhost
+  cookie_secure: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;访问 &lt;code&gt;https:&#x2F;&#x2F;panel.demo.com&#x2F;admin&lt;&#x2F;code&gt;,用 headscale API key 登录。安全模型:无端口暴露 + TLS + API key 单层认证。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-wang-fang-wen-bei-xuan-fang-an-er-zero-trust-access-wei-qi-yong-bei-xuan-bang-qia-bian-yuan-shuang-yin-zi&quot;&gt;公网访问备选方案二:Zero Trust + Access(未启用,备选,绑卡边缘双因子)&lt;&#x2F;h2&gt;
+&lt;p&gt;创建 Zero Trust 组织时 CF 要求添加付款方式(风控,Free 计划 50 用户不扣费)。之后:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;Tunnel → Public Hostname 添加 &lt;code&gt;panel.demo.com&lt;&#x2F;code&gt; → HTTP → &lt;code&gt;localhost:3000&lt;&#x2F;code&gt;;&lt;&#x2F;li&gt;
+&lt;li&gt;Access → Applications → Self-hosted → 配置 Email OTP(或 Google)策略。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;访问流程:浏览器 → CF 边缘邮箱验证码(未认证请求到不了 VPS)→ 隧道 → headplane API key。双因子 + 边缘审计,代价是绑卡一次 + 依赖 CF 零信任产品线(国内 VPS↔CF 边缘稳定性需实测)。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;维度&lt;&#x2F;th&gt;&lt;th&gt;方案一 纯隧道&lt;&#x2F;th&gt;&lt;th&gt;方案二 Zero Trust + Access&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;成本&lt;&#x2F;td&gt;&lt;td&gt;0 元,无卡&lt;&#x2F;td&gt;&lt;td&gt;0 元(Free),绑卡验证一次&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;认证&lt;&#x2F;td&gt;&lt;td&gt;headplane API key 单层&lt;&#x2F;td&gt;&lt;td&gt;CF 双因子 + API key 两层&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;攻击面&lt;&#x2F;td&gt;&lt;td&gt;无端口,有认证入口&lt;&#x2F;td&gt;&lt;td&gt;认证在边缘,请求到不了 VPS&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;审计&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;CF 登录审计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;个人场景方案一已够用;两方案可随时切换,隧道配置完全复用。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fei-qi-wg-easy&quot;&gt;废弃 wg-easy&lt;&#x2F;h1&gt;
+&lt;p&gt;VPS 上原有 wg-easy(WireGuard 管理面板)与新方案并存无冲突,确认废弃后清理:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker-compose rm -sf wg-easy          # 停并删容器
+docker volume rm wg-easy_etc_wireguard # 删数据卷(已空)
+# 从 docker-compose.yaml 移除服务块(先备份)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;残留:旧配置目录(root 属主,需 sudo 删)、安全组 51820&#x2F;udp 放行(无害可留)。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;a-li-yun-nei-wang-fu-wu-bei-tailnet-cgnat-wang-duan-chong-tu-zu-duan-2026-08-21-shi-ce&quot;&gt;阿里云内网服务被 tailnet CGNAT 网段冲突阻断(2026-08-21 实测)&lt;&#x2F;h1&gt;
+&lt;p&gt;2026-08-21,VPS 上阿里云自动备份(hbrclient)持续失败,排查后定位为 &lt;strong&gt;tailnet CGNAT 网段与阿里云 VPC 内网服务网段重叠&lt;&#x2F;strong&gt;,入向回包被 tailscale 防火墙丢弃。这也是 8-14 部署时&quot;VPC DNS 不可达&quot;坑的真身(见本节末尾关联)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;hbrclient.service&lt;&#x2F;code&gt;(Alibaba Cloud Backup Service)反复重启,日志反复报 &lt;code&gt;NoAvailableEndpoint&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ss -tn&lt;&#x2F;code&gt; 可见发往 &lt;code&gt;100.100.105.60:443&lt;&#x2F;code&gt; 的连接永远卡在 &lt;code&gt;SYN-SENT&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;VPC 内网 DNS(100.100.2.136)解析一度超时&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;gen-yin-liang-ge-100-wang-duan-zhuang-che&quot;&gt;根因:两个&quot;100 网段&quot;撞车&lt;&#x2F;h2&gt;
+&lt;p&gt;headscale 默认给 tailnet 分配 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt;(config &lt;code&gt;prefixes.v4&lt;&#x2F;code&gt;)。Tailscale 客户端为防 IP 欺骗,在 &lt;code&gt;ts-input&lt;&#x2F;code&gt; 链装了丢弃规则:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;-A ts-input -s 100.64.0.0&amp;#x2F;10 ! -i tailscale0 -j DROP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;而阿里云 VPC 内网服务恰好也落在 &lt;code&gt;100.64.0.0&#x2F;10&lt;&#x2F;code&gt; 内:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;地址&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;稳定性&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;100.100.2.136&#x2F;138&lt;&#x2F;td&gt;&lt;td&gt;VPC 内网 DNS&lt;&#x2F;td&gt;&lt;td&gt;固定(DHCP 同步推送路由)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;100.100.100.200&lt;&#x2F;td&gt;&lt;td&gt;ECS metadata(实例身份)&lt;&#x2F;td&gt;&lt;td&gt;固定&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;100.100.105.60&lt;&#x2F;td&gt;&lt;td&gt;HBR 备份 MQTT 通道(&lt;code&gt;post-cn-xxx-internal.mqtt.aliyuncs.com&lt;&#x2F;code&gt; 解析)&lt;&#x2F;td&gt;&lt;td&gt;域名稳定,IP 可能轮换&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;机制:&lt;strong&gt;出站请求正常&lt;&#x2F;strong&gt;(路由走 eth0,table 52 无覆盖路由),但&lt;strong&gt;回包&lt;&#x2F;strong&gt;源地址落在 CGNAT 段且非来自 tailscale0 → 命中 DROP → TCP 永远建不起连接。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-yao-dian-shi-ce-ming-ling&quot;&gt;排查要点(实测命令)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip rule show                       # 5270: from all lookup 52(优先级高于主表 32766)
+ip route show table 52             # 只有 tailnet peer IP,无 100.100.x 覆盖路由 → 路由没问题
+ip route get 100.100.2.136         # via &amp;lt;VPC网关&amp;gt; dev eth0 → 出站正常
+ss -tn | grep 100\.                # SYN-SENT 100.100.105.60:443 ← 实锤
+sudo iptables -S ts-input          # 看到 -s 100.64.0.0&amp;#x2F;10 ! -i tailscale0 -j DROP
+tail -30 &amp;#x2F;opt&amp;#x2F;alibabacloud&amp;#x2F;hbrclient&amp;#x2F;logs&amp;#x2F;hbrclient.log
+# &amp;quot;Cannot connect to wss:&amp;#x2F;&amp;#x2F;post-cn-xxx-internal.mqtt.aliyuncs.com:443 ... i&amp;#x2F;o timeout&amp;quot;
+# &amp;quot;Failed to get ECS metadata ... 100.100.100.200:80 i&amp;#x2F;o timeout&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一句话定位:&lt;strong&gt;路由没坏,坏在防火墙对&quot;内网回包&quot;的防欺骗丢弃&lt;&#x2F;strong&gt;(先查 &lt;code&gt;ip route get&lt;&#x2F;code&gt; 排除路由,再看 &lt;code&gt;ss&lt;&#x2F;code&gt; 抓 SYN-SENT 定位目标 IP,最后 iptables 确认 DROP 规则)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xiu-fu-fang-xing-a-li-yun-nei-wang-fu-wu-duan&quot;&gt;修复:放行阿里云内网服务段&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo iptables -I ts-input 1 -s 100.100.0.0&amp;#x2F;16 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;100.100.0.0&#x2F;16&lt;&#x2F;code&gt; 是阿里云内网服务固定段,一条覆盖 DNS&#x2F;metadata&#x2F;MQTT 及后续新增内网 endpoint,换 IP 无需维护。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chi-jiu-hua-bi-cai-de-keng&quot;&gt;持久化(必踩的坑)&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;tailscaled 每次启动会重建 ts-* 链并冲掉自定义规则&lt;&#x2F;strong&gt;;&lt;code&gt;iptables-persistent&lt;&#x2F;code&gt; 恢复时机在 tailscaled 之前,同样会被清。需 systemd oneshot(&lt;code&gt;After=tailscaled.service&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;ts-input-aliyun-allow.service
+[Unit]
+Description=Allow Aliyun internal 100.100.0.0&amp;#x2F;16 in ts-input
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;iptables -C ts-input -s 100.100.0.0&amp;#x2F;16 -j ACCEPT 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null || &amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;iptables -I ts-input 1 -s 100.100.0.0&amp;#x2F;16 -j ACCEPT
+
+[Install]
+WantedBy=multi-user.target
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yan-zheng-1&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;timeout 3 bash -c &amp;#x27;&amp;lt;&amp;#x2F;dev&amp;#x2F;tcp&amp;#x2F;100.100.105.60&amp;#x2F;443&amp;#x27; &amp;amp;&amp;amp; echo OK   # 之前 SYN-SENT 卡死,现在应连通
+curl -m 3 -s http:&amp;#x2F;&amp;#x2F;100.100.100.200&amp;#x2F;latest&amp;#x2F;meta-data&amp;#x2F;instance-id   # metadata 恢复
+grep -i NoAvailableEndpoint &amp;#x2F;opt&amp;#x2F;alibabacloud&amp;#x2F;hbrclient&amp;#x2F;logs&amp;#x2F;hbrclient.log | tail   # 不再新增
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;实测结果(2026-08-21 15:31 起)&lt;&#x2F;strong&gt;:加规则后 TCP 建连立即 OK、metadata 返回 instance-id、&lt;code&gt;ss&lt;&#x2F;code&gt; 从 SYN-SENT 变 ESTAB;hbrclient 重启后日志不再报 &lt;code&gt;Cannot connect&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;NoAvailableEndpoint&lt;&#x2F;code&gt;,MQ 注册成功、任务轮询正常,备份链路恢复。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;bei-xuan-fang-an-ji-lu-bei-cha&quot;&gt;备选方案(记录备查)&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;安全性&lt;&#x2F;th&gt;&lt;th&gt;维护量&lt;&#x2F;th&gt;&lt;th&gt;静默失败风险&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;精确 IP 白名单(按日志逐个加)&lt;&#x2F;td&gt;&lt;td&gt;最高&lt;&#x2F;td&gt;&lt;td&gt;低,但要盯日志&lt;&#x2F;td&gt;&lt;td&gt;高(阿里云换 IP 即挂)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;ipset + 内网域名定时刷新&lt;&#x2F;strong&gt;(折中)&lt;&#x2F;td&gt;&lt;td&gt;高&lt;&#x2F;td&gt;&lt;td&gt;中&lt;&#x2F;td&gt;&lt;td&gt;低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;放行 100.100.0.0&#x2F;16(当前采用)&lt;&#x2F;td&gt;&lt;td&gt;中(有意放宽)&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;ipset 方案:i 一条 iptables 规则引用 ipset 集合,cron 按&lt;strong&gt;内网 DNS&lt;&#x2F;strong&gt;(&lt;code&gt;dig @100.100.2.136&lt;&#x2F;code&gt;)解析 &lt;code&gt;*-internal.aliyuncs.com&lt;&#x2F;code&gt; 域名刷新集合——必须用内网 DNS 解析,公网 DNS 拿到的是公网 IP,白名单失效;域名清单需随 agent 演进手动增补;ipset 与规则同样需要重启后恢复。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;an-quan-shuo-ming&quot;&gt;安全说明&lt;&#x2F;h2&gt;
+&lt;p&gt;放行 &#x2F;16 使 ts-input 防欺骗对该段失效(tailnet 成员可伪造该段源 IP 直达本机服务)。实际风险低:tailnet 全为自有设备、外部攻击者受阿里云安全组 + vSwitch 源地址校验限制、本机服务无按源 IP 做信任判断者。若未来 tailnet 加入不可信节点,应收窄回精确 IP&#x2F;ipset 方案。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;guan-lian-8-14-bu-shu-shi-de-dns-keng-jiu-shi-ta&quot;&gt;关联:8-14 部署时的 DNS 坑就是它&lt;&#x2F;h2&gt;
+&lt;p&gt;部署时&quot;VPC DNS 不可达&quot;当时用 &lt;code&gt;&#x2F;etc&#x2F;hosts&lt;&#x2F;code&gt; 硬编码 + 公共 DNS 绕过,判断为&quot;DNS 污染&#x2F;不可达&quot;。现在看,那次&quot;不可达&quot;正是 ts-input 丢回包(当时 VPS 节点刚加入 tailnet),绕过方案有效但掩盖了根因;本次备份失败把真凶暴露出来,一次解决了两类症状。教训:&lt;strong&gt;加入 tailnet 后阿里云内网服务异常,优先怀疑 CGNAT 网段冲突,而不是 DNS 污染&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;方案&lt;&#x2F;strong&gt;:headscale 控制面 + Tailscale 官方客户端,打洞直连优先、DERP 中继兜底,数据面完全自主可控;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;坑&lt;&#x2F;strong&gt;:备案约束 → 自定义端口;官方 DERP 地图不清空会绕海外;0.29 的 preauthkey 用数字用户 ID;国内 VPS 拉 Docker Hub 需本地中转;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;安全&lt;&#x2F;strong&gt;:默认仅节点互通 + 子网显式开关;DERP 默认 verify_clients;面板经 tailnet 内访问(无公网暴露,四层防护);&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;实测&lt;&#x2F;strong&gt;:打洞成功 21ms 直连,DERP 只走自建节点,证书续期全自动。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;cai-keng-ji-lu-tailscale-serve-zai-ben-tuo-bu-xia-bu-ke-yong-2026-08-15&quot;&gt;踩坑记录:tailscale serve 在本拓扑下不可用(2026-08-15)&lt;&#x2F;h1&gt;
+&lt;p&gt;曾尝试用 &lt;code&gt;tailscale serve --bg --http 3000 3000&lt;&#x2F;code&gt; 把 headplane 暴露到 tailnet,实测失败,两个原因:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;代理端口与 docker-proxy 冲突&lt;&#x2F;strong&gt;:serve 的代理监听端口与 headplane 容器已占用的 &lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; 冲突(headplane 容器先于 tailscaled 启动),请求全部返回 &lt;code&gt;404 page not found&lt;&#x2F;code&gt;(Go 默认 404,19 字节);&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;挂载按主机名匹配 Host&lt;&#x2F;strong&gt;:serve 挂载 key 是 tailnet 主机名 &lt;code&gt;iz2zehkipqcroqwfrvhwj7z:3000&lt;&#x2F;code&gt;,而本 tailnet &lt;code&gt;magic_dns: false&lt;&#x2F;code&gt;,其他节点无法解析该主机名、只能用 IP 访问 → Host 匹配失败同样 404。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;:改用 docker 双绑定(&lt;code&gt;127.0.0.1:3000&lt;&#x2F;code&gt; + &lt;code&gt;100.64.0.100:3000&lt;&#x2F;code&gt;)直连,无 serve 的匹配与端口冲突问题;若要恢复 MagicDNS 才能发挥 serve 价值,而 MagicDNS 会干扰公司 DNS(见 config 注释),故弃用 serve。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>deploy blog to github cloudflare vercel</title>
+        <published>2026-06-13T00:17:10+08:00</published>
+        <updated>2026-08-21T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/deploy-blog-to-github-cloudflare-vercel/"/>
+        <id>https://moxuetianya.github.io/2026/06/deploy-blog-to-github-cloudflare-vercel/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/deploy-blog-to-github-cloudflare-vercel/">&lt;h1 id=&quot;zhun-bei-gong-zuo&quot;&gt;准备工作&lt;&#x2F;h1&gt;
+&lt;p&gt;先构建站点，确认 &lt;code&gt;public&#x2F;&lt;&#x2F;code&gt; 目录正常生成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;zola build
+ls public&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;github-pages&quot;&gt;GitHub Pages&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;chuang-jian-cang-ku&quot;&gt;创建仓库&lt;&#x2F;h2&gt;
+&lt;p&gt;创建 &lt;code&gt;github.com&#x2F;&amp;lt;你的用户名&amp;gt;&#x2F;&amp;lt;你的用户名&amp;gt;.github.io&lt;&#x2F;code&gt; 仓库，这是 GitHub 的 user site，域名固定为 &lt;code&gt;https:&#x2F;&#x2F;&amp;lt;用户名&amp;gt;.github.io&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git init
+git remote add origin git@github.com:&amp;lt;用户名&amp;gt;&amp;#x2F;&amp;lt;用户名&amp;gt;.github.io.git
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;github-actions-zi-dong-bu-shu&quot;&gt;GitHub Actions 自动部署&lt;&#x2F;h2&gt;
+&lt;p&gt;创建 &lt;code&gt;.github&#x2F;workflows&#x2F;deploy.yml&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;name: Deploy Zola Blog
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions&amp;#x2F;checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Zola
+        run: |
+          ZOLA_VERSION=$(curl -s https:&amp;#x2F;&amp;#x2F;api.github.com&amp;#x2F;repos&amp;#x2F;getzola&amp;#x2F;zola&amp;#x2F;releases&amp;#x2F;latest | grep tag_name | cut -d &amp;#x27;&amp;quot;&amp;#x27; -f4)
+          curl -sL &amp;quot;https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;getzola&amp;#x2F;zola&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;${ZOLA_VERSION}&amp;#x2F;zola-${ZOLA_VERSION}-x86_64-unknown-linux-gnu.tar.gz&amp;quot; | tar xz
+          sudo mv zola &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;
+
+      - name: Build
+        run: zola build
+
+      - name: Deploy
+        uses: peaceiris&amp;#x2F;actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .&amp;#x2F;public
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;推送后 GitHub Actions 自动构建并部署到 &lt;code&gt;gh-pages&lt;&#x2F;code&gt; 分支。在仓库 Settings → Pages 中选择 &lt;code&gt;gh-pages&lt;&#x2F;code&gt; 分支作为部署源。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;keng-shalzz-action-bi-xu-pin-ban-ben-tag-bu-neng-gen-master&quot;&gt;坑：shalzz action 必须 pin 版本 tag，不能跟 master&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;uses: shalzz&#x2F;zola-deploy-action@master&lt;&#x2F;code&gt; 的 Dockerfile &lt;strong&gt;硬编码了 zola 版本&lt;&#x2F;strong&gt;（2026-08 时为 0.23.1），&lt;code&gt;ZOLA_VERSION&lt;&#x2F;code&gt; env 变量在新版&lt;strong&gt;完全被忽略&lt;&#x2F;strong&gt;（传了也不生效）。当 action 更新内置 zola 后，旧主题（abridge）模板语法不兼容新版直接构建失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ERROR error: Found `:` but expected }}.
+  --&amp;gt; abridge&amp;#x2F;templates&amp;#x2F;categories&amp;#x2F;single.html:17:17
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;修复&lt;&#x2F;strong&gt;：pin 到与本地一致的版本 tag（action 的 tag 按 zola 版本命名）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;uses: shalzz&amp;#x2F;zola-deploy-action@v0.19.2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查技巧：&lt;code&gt;gh run view &amp;lt;run-id&amp;gt; --log-failed&lt;&#x2F;code&gt; 看日志里的 &lt;code&gt;Using zola x.y.z&lt;&#x2F;code&gt; 行，与本地 &lt;code&gt;zola --version&lt;&#x2F;code&gt; 对比即可发现版本漂移。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cloudflare-pages&quot;&gt;Cloudflare Pages&lt;&#x2F;h1&gt;
+&lt;p&gt;Cloudflare Pages 直接托管静态站点，支持自定义域名 &lt;code&gt;juzhong.xyz&lt;&#x2F;code&gt; 或子域名如 &lt;code&gt;blog.juzhong.xyz&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lian-jie-github-cang-ku&quot;&gt;连接 GitHub 仓库&lt;&#x2F;h2&gt;
+&lt;p&gt;在 Cloudflare Dashboard → Workers &amp;amp; Pages → Pages → 创建项目，连接 GitHub 仓库。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;构建配置：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;构建命令&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;zola build&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;输出目录&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;public&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;环境变量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ZOLA_VERSION=0.19.2&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;Cloudflare Pages 内置了 Zola 支持，会自动下载对应版本。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zi-ding-yi-yu-ming&quot;&gt;自定义域名&lt;&#x2F;h2&gt;
+&lt;p&gt;Pages 项目 → 自定义域 → 添加 &lt;code&gt;blog.juzhong.xyz&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;需要在 &lt;code&gt;juzhong.xyz&lt;&#x2F;code&gt; 的 DNS 中添加 CNAME 记录：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;blog.juzhong.xyz  CNAME  &amp;lt;项目名&amp;gt;.pages.dev
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Cloudflare 代理（橙色云朵）开启后自动提供 HTTPS。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;a-li-yun-vps-cloudflare-tunnel&quot;&gt;阿里云 VPS + Cloudflare Tunnel&lt;&#x2F;h1&gt;
+&lt;p&gt;适用场景：域名&lt;strong&gt;未备案&lt;&#x2F;strong&gt;（国内服务器直连 80&#x2F;443 会被要求备案）、想自己掌控服务器。Cloudflare Tunnel 让 VPS &lt;strong&gt;主动连接&lt;&#x2F;strong&gt; Cloudflare 边缘，用户访问走 Cloudflare 的 HTTPS，源站端口无需对外开放，未备案域名也能正常访问。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jia-gou&quot;&gt;架构&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;用户 --HTTPS--&amp;gt; Cloudflare 边缘 --Tunnel--&amp;gt; VPS localhost:2083 --Caddy file_server--&amp;gt; 静态文件
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;1-an-zhuang-cloudflared&quot;&gt;1. 安装 cloudflared&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -L https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;cloudflare&amp;#x2F;cloudflared&amp;#x2F;releases&amp;#x2F;latest&amp;#x2F;download&amp;#x2F;cloudflared-linux-amd64 -o cloudflared
+sudo install -m 755 cloudflared &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;cloudflared
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-deng-lu-bing-chuang-jian-tunnel&quot;&gt;2. 登录并创建 Tunnel&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cloudflared tunnel login              # 浏览器授权
+cloudflared tunnel create blog-tunnel
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;3-pei-zhi-tunnel&quot;&gt;3. 配置 Tunnel&lt;&#x2F;h2&gt;
+&lt;p&gt;编辑 &lt;code&gt;&#x2F;etc&#x2F;cloudflared&#x2F;config.yml&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;tunnel: &amp;lt;tunnel-id&amp;gt;
+credentials-file: &amp;#x2F;home&amp;#x2F;&amp;lt;user&amp;gt;&amp;#x2F;.cloudflared&amp;#x2F;&amp;lt;tunnel-id&amp;gt;.json
+
+ingress:
+  - hostname: blog.juzhong.xyz
+    service: http:&amp;#x2F;&amp;#x2F;localhost:2083
+  - service: http_status:404
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;4-bang-ding-dns&quot;&gt;4. 绑定 DNS&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cloudflared tunnel route dns &amp;lt;tunnel-id&amp;gt; blog.juzhong.xyz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;等价于手动在 Cloudflare DNS 加 CNAME：&lt;code&gt;blog.juzhong.xyz → &amp;lt;tunnel-id&amp;gt;.cfargotunnel.com&lt;&#x2F;code&gt;（保持橙色云朵代理）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-gou-jian-zhan-dian-guan-jian-u-bi-xu-pi-pei-shi-ji-yu-ming&quot;&gt;5. 构建站点（关键：&lt;code&gt;-u&lt;&#x2F;code&gt; 必须匹配实际域名）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;zola build -u https:&amp;#x2F;&amp;#x2F;blog.juzhong.xyz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;为什么 &lt;code&gt;-u&lt;&#x2F;code&gt; 这么重要？&lt;&#x2F;strong&gt; Zola 的搜索索引 &lt;code&gt;search_index.*.js&lt;&#x2F;code&gt; 里存的是&lt;strong&gt;绝对 URL&lt;&#x2F;strong&gt;，按 &lt;code&gt;base_url&lt;&#x2F;code&gt;（即 &lt;code&gt;--base-url&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;-u&lt;&#x2F;code&gt; 参数）生成。如果构建时的域名和用户实际访问的域名不一致（比如用 &lt;code&gt;https:&#x2F;&#x2F;ali.juzhong.xyz&lt;&#x2F;code&gt; 构建、用户却从 &lt;code&gt;blog.juzhong.xyz&lt;&#x2F;code&gt; 访问），搜索能搜出结果，但&lt;strong&gt;点击结果会跳到错误域名 → 404&lt;&#x2F;strong&gt;。每个部署目标都要用对应的域名构建：本站用 &lt;code&gt;-u https:&#x2F;&#x2F;blog.juzhong.xyz&lt;&#x2F;code&gt;，Vercel 用 &lt;code&gt;--base-url https:&#x2F;&#x2F;vercel.juzhong.xyz&lt;&#x2F;code&gt;（见下文）。换域名部署时必须同步重新构建。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;6-shang-chuan-dao-vps&quot;&gt;6. 上传到 VPS&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;rsync -av --delete public&amp;#x2F; alivps:&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;caddy-dns&amp;#x2F;blog&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;7-caddy-jing-tai-bu-shu&quot;&gt;7. Caddy 静态部署&lt;&#x2F;h2&gt;
+&lt;p&gt;服务器上 &lt;code&gt;docker-compose.yaml&lt;&#x2F;code&gt;（caddy 镜像需含 Cloudflare DNS 插件，如 &lt;code&gt;slothcroissant&#x2F;caddy-cloudflaredns&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;services:
+  caddy:
+    image: slothcroissant&amp;#x2F;caddy-cloudflaredns:2.11.4
+    restart: unless-stopped
+    ports:
+      - &amp;quot;2083:2083&amp;quot;
+    volumes:
+      - .&amp;#x2F;Caddyfile:&amp;#x2F;etc&amp;#x2F;caddy&amp;#x2F;Caddyfile
+      - .&amp;#x2F;blog:&amp;#x2F;var&amp;#x2F;www&amp;#x2F;blog:ro
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Caddyfile&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;http:&amp;#x2F;&amp;#x2F;blog.juzhong.xyz:2083 {
+    root * &amp;#x2F;var&amp;#x2F;www&amp;#x2F;blog
+    file_server
+    encode gzip
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker compose up -d
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;如果 VPS 上还要托管别的站点（如 wg-easy 管理界面），Caddy 里加一个 &lt;code&gt;reverse_proxy&lt;&#x2F;code&gt; 站点块共用 2083 入口即可。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;vercel&quot;&gt;Vercel&lt;&#x2F;h1&gt;
+&lt;p&gt;Vercel 也支持 Zola 静态站点，但默认构建环境没有 Zola 版本太低，需要自定义构建命令。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lian-jie-cang-ku-yu-gou-jian-pei-zhi&quot;&gt;连接仓库与构建配置&lt;&#x2F;h2&gt;
+&lt;p&gt;访问 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;vercel.com&#x2F;new&quot;&gt;vercel.com&#x2F;new&lt;&#x2F;a&gt; 导入 GitHub 仓库。&lt;&#x2F;p&gt;
+&lt;p&gt;Vercel 可能无法自动识别 Zola 项目，手动配置构建参数：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Framework&lt;&#x2F;td&gt;&lt;td&gt;Other&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Build Command&lt;&#x2F;td&gt;&lt;td&gt;&lt;em&gt;见下方自定义命令&lt;&#x2F;em&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Output Directory&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;public&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;自定义构建命令&lt;&#x2F;strong&gt;（下载指定版本 Zola 并构建）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -sL https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;getzola&amp;#x2F;zola&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v0.19.2&amp;#x2F;zola-v0.19.2-x86_64-unknown-linux-gnu.tar.gz | tar -xzf - &amp;amp;&amp;amp; .&amp;#x2F;zola build --base-url https:&amp;#x2F;&amp;#x2F;vercel.juzhong.xyz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;拆解说明：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;curl -sL ... | tar -xzf -&lt;&#x2F;code&gt; —— 下载 Zola v0.19.2 二进制包并解压到当前目录&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;.&#x2F;zola build --base-url https:&#x2F;&#x2F;vercel.juzhong.xyz&lt;&#x2F;code&gt; —— 用本地 Zola 构建，&lt;code&gt;--base-url&lt;&#x2F;code&gt; 指定站点根 URL，确保绝对路径（如 RSS、sitemap）正确&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：将 &lt;code&gt;vercel.juzhong.xyz&lt;&#x2F;code&gt; 替换为你的实际域名；如果没有自定义域名，使用 Vercel 分配的 &lt;code&gt;xxx.vercel.app&lt;&#x2F;code&gt; 域名。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;zi-ding-yi-yu-ming-pei-zhi-yi-cloudflare-wei-li&quot;&gt;自定义域名配置（以 Cloudflare 为例）&lt;&#x2F;h2&gt;
+&lt;p&gt;下面以子域名 &lt;code&gt;vercel.juzhong.xyz&lt;&#x2F;code&gt; 为例，DNS 解析由 Cloudflare 管理。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-yi-jie-duan-vercel-ping-tai-cao-zuo&quot;&gt;第一阶段：Vercel 平台操作&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;进入项目仪表板，点击顶部 &lt;strong&gt;Settings&lt;&#x2F;strong&gt; → 左侧菜单 &lt;strong&gt;Domains&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;输入完整域名（例如 &lt;code&gt;vercel.juzhong.xyz&lt;&#x2F;code&gt;），点击 &lt;strong&gt;Add&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;页面会提示 &lt;em&gt;Invalid Configuration&lt;&#x2F;em&gt;（正常），点击域名旁边的 &lt;strong&gt;View&lt;&#x2F;strong&gt; 查看需要的 DNS 记录&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;Vercel 通常建议添加以下记录：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;A 记录&lt;&#x2F;strong&gt;：将根域名指向 &lt;code&gt;76.76.21.21&lt;&#x2F;code&gt;（Vercel 的 IP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;CNAME 记录&lt;&#x2F;strong&gt;：将子域名指向 &lt;code&gt;cname.vercel-dns.com&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;cname.vercel-dns.com — 全球通用&lt;&#x2F;li&gt;
+&lt;li&gt;cname-china.vercel-dns.com — 国内专用节点，中国大陆访问速度更快、更稳定&lt;&#x2F;li&gt;
+&lt;li&gt;由于你在国内使用，强烈推荐使用 cname-china.vercel-dns.com。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;本项目使用子域名，只需 CNAME 记录即可。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;di-er-jie-duan-cloudflare-dns-cao-zuo&quot;&gt;第二阶段：Cloudflare DNS 操作&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;登录 Cloudflare 仪表板 → 选择域名 &lt;code&gt;juzhong.xyz&lt;&#x2F;code&gt; → &lt;strong&gt;DNS&lt;&#x2F;strong&gt; → &lt;strong&gt;记录&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;点击 &lt;strong&gt;添加记录&lt;&#x2F;strong&gt;，配置如下：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;类型&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;CNAME&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;名称&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;vercel&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;目标&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;cname.vercel-dns.com&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;代理状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;仅 DNS&lt;&#x2F;strong&gt;（灰色云朵 ☁️）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;关键&lt;&#x2F;strong&gt;：代理状态务必选择灰色云朵（仅 DNS），不要开启橙色云朵（代理）。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;为什么？&lt;&#x2F;strong&gt; Vercel 使用 Let&#x27;s Encrypt 自动签发 SSL 证书，需要通过 ACME 协议验证域名所有权。Cloudflare 橙色代理会拦截 ACME 验证请求，导致证书签发失败、域名始终显示 &lt;em&gt;Invalid Configuration&lt;&#x2F;em&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;2026-08 更正（针对自建 Caddy）&lt;&#x2F;strong&gt;：上面的说法对 Vercel 平台成立，但&lt;strong&gt;不能泛化&lt;&#x2F;strong&gt;——&quot;CF 橙云拦截 ACME 验证&quot;只拦截 &lt;code&gt;tls-alpn-01&lt;&#x2F;code&gt; 挑战（CF 边缘终结 TLS，LE 协商不了 acme-tls&#x2F;1），而 &lt;code&gt;http-01&lt;&#x2F;code&gt; 挑战走 80 端口普通转发，不受代理影响。自建 Caddy 在橙云下会 tls-alpn 失败后&lt;strong&gt;自动跨 order 回退 http-01 并签发成功&lt;&#x2F;strong&gt;（实测 1~2 分钟完成，全程自动）。唯一死锁场景：CF 开启 &quot;Always Use HTTPS&quot; + SSL 模式 Full (strict) 且源站还没有有效证书。详见 &lt;a href=&quot;&#x2F;2026&#x2F;08&#x2F;caddy-cloudflare-proxy-acme-challenge&#x2F;&quot;&gt;Caddy 在 CF 橙云下的 ACME 挑战实测&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;特殊情况：根域名配置&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;DNS 标准不允许根域名（&lt;code&gt;@&lt;&#x2F;code&gt;）使用 CNAME 记录。Cloudflare 通过 &lt;strong&gt;CNAME Flattening&lt;&#x2F;strong&gt; 技术自动将根域名的 CNAME 转换为 A 记录，你只需正常添加 CNAME 记录，名称写 &lt;code&gt;@&lt;&#x2F;code&gt; 即可。&lt;&#x2F;p&gt;
+&lt;p&gt;如果 Vercel 提示根域名需要 A 记录，则改为：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;类型&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;A&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;名称&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;@&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;IPv4 地址&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;76.76.21.21&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;di-san-jie-duan-yan-zheng-yu-sheng-xiao&quot;&gt;第三阶段：验证与生效&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;DNS 记录全球生效通常需要几分钟到几十分钟&lt;&#x2F;li&gt;
+&lt;li&gt;回到 Vercel 项目 &lt;strong&gt;Domains&lt;&#x2F;strong&gt; 页面，状态从红色 &lt;em&gt;Invalid Configuration&lt;&#x2F;em&gt; 变为绿色 &lt;em&gt;Valid Configuration&lt;&#x2F;em&gt; 即表示成功&lt;&#x2F;li&gt;
+&lt;li&gt;SSL 证书自动签发，通常 1-3 分钟内完成&lt;&#x2F;li&gt;
+&lt;li&gt;访问 &lt;code&gt;https:&#x2F;&#x2F;vercel.juzhong.xyz&lt;&#x2F;code&gt; 确认站点正常&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;e-wai-pei-zhi-url-zhong-ding-xiang-ke-xuan&quot;&gt;额外配置：URL 重定向（可选）&lt;&#x2F;h3&gt;
+&lt;p&gt;在 Vercel 的 Domains 页面，点击域名旁边的 &lt;strong&gt;Edit&lt;&#x2F;strong&gt;，可设置：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;将 &lt;code&gt;www.vercel.juzhong.xyz&lt;&#x2F;code&gt; 重定向到 &lt;code&gt;vercel.juzhong.xyz&lt;&#x2F;code&gt;（或反之）&lt;&#x2F;li&gt;
+&lt;li&gt;如需同时使用 www 子域名，需在 Cloudflare 再添加一条名称 &lt;code&gt;www.vercel&lt;&#x2F;code&gt; 的 CNAME 记录，并同样加入 Vercel 项目&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;chang-jian-wen-ti-pai-cha&quot;&gt;常见问题排查&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;问题&lt;&#x2F;th&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;th&gt;解决&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;状态一直 &lt;em&gt;Invalid&lt;&#x2F;em&gt;&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare 代理未关闭（橙色云朵）&lt;&#x2F;td&gt;&lt;td&gt;将 DNS 记录的代理状态改为灰色（仅 DNS）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;DNS 记录冲突&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare 中存在旧 A&#x2F;AAAA 记录与 CNAME 冲突&lt;&#x2F;td&gt;&lt;td&gt;删除无关的解析记录，只保留 Vercel 所需的&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;www 子域名无法访问&lt;&#x2F;td&gt;&lt;td&gt;Vercel 不会自动添加 www 子域名&lt;&#x2F;td&gt;&lt;td&gt;手动在 Vercel 中添加 &lt;code&gt;www.vercel.juzhong.xyz&lt;&#x2F;code&gt;，并添加对应的 Cloudflare DNS 记录&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;SSL 证书续期失败&lt;&#x2F;td&gt;&lt;td&gt;后续开启了 Cloudflare 代理（橙色云朵），拦截了 ACME 验证&lt;&#x2F;td&gt;&lt;td&gt;在 Cloudflare Zero Trust 中为路径 &lt;code&gt;&#x2F;.well-known&#x2F;acme-challenge&#x2F;*&lt;&#x2F;code&gt; 设置 Bypass 策略；或在证书续期期间临时关闭代理（自建 Caddy 场景无需此操作，会自动回退 http-01，见上方更正说明）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;si-ping-tai-dui-bi&quot;&gt;四平台对比&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;GitHub Pages&lt;&#x2F;th&gt;&lt;th&gt;Cloudflare Pages&lt;&#x2F;th&gt;&lt;th&gt;Vercel&lt;&#x2F;th&gt;&lt;th&gt;阿里云 VPS + Tunnel&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;免费额度&lt;&#x2F;td&gt;&lt;td&gt;无限&lt;&#x2F;td&gt;&lt;td&gt;无限&lt;&#x2F;td&gt;&lt;td&gt;100GB&#x2F;月带宽&lt;&#x2F;td&gt;&lt;td&gt;取决于 VPS&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;自定义域名&lt;&#x2F;td&gt;&lt;td&gt;支持&lt;&#x2F;td&gt;&lt;td&gt;支持&lt;&#x2F;td&gt;&lt;td&gt;支持&lt;&#x2F;td&gt;&lt;td&gt;支持&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;HTTPS&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;自动（Cloudflare）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;构建时间&lt;&#x2F;td&gt;&lt;td&gt;10min&#x2F;次&lt;&#x2F;td&gt;&lt;td&gt;500次&#x2F;月&lt;&#x2F;td&gt;&lt;td&gt;6000min&#x2F;月&lt;&#x2F;td&gt;&lt;td&gt;无限制&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;域名&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xxx.github.io&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xxx.pages.dev&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xxx.vercel.app&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;自备域名&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;适用场景&lt;&#x2F;td&gt;&lt;td&gt;简单托管&lt;&#x2F;td&gt;&lt;td&gt;自定义域名 + CDN&lt;&#x2F;td&gt;&lt;td&gt;开发预览&lt;&#x2F;td&gt;&lt;td&gt;未备案域名 &#x2F; 自己掌控服务器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;推荐方案&lt;&#x2F;strong&gt;：源码放 GitHub，用 Cloudflare Pages 部署到 &lt;code&gt;blog.juzhong.xyz&lt;&#x2F;code&gt;。GitHub 负责版本管理，Cloudflare 提供全球 CDN 和免费 HTTPS。域名未备案或想用国内 VPS 时，改用「阿里云 VPS + Cloudflare Tunnel」方案。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;无论哪种方案，部署&#x2F;构建时 &lt;code&gt;--base-url&lt;&#x2F;code&gt;（或 &lt;code&gt;serve -u&lt;&#x2F;code&gt;）必须填实际访问域名，否则站内搜索不可用。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>cloudflare 地址和端口范围</title>
+        <published>2025-11-14T00:45:38+08:00</published>
+        <updated>2025-11-14T00:45:38+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/cloudflare 地址和端口范围/"/>
+        <id>https://moxuetianya.github.io/2025/11/cloudflare 地址和端口范围/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/cloudflare 地址和端口范围/">&lt;p&gt;cloudflare常用端口&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;http-ports-supported-by-cloudflare&quot;&gt;HTTP ports supported by Cloudflare&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;80 8080 8880 2052 2082 2086 2095&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;https-ports-supported-by-cloudflare&quot;&gt;HTTPS ports supported by Cloudflare&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;443 2053 2083 2087 2096 8443&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ports-supported-by-cloudflare-but-with-caching-disabled&quot;&gt;Ports supported by Cloudflare, but with caching disabled&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;2052 2053 2082 2083 2086 2087 2095 2096 8880 8443&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;fundamentals&#x2F;reference&#x2F;network-ports&#x2F;&lt;&#x2F;p&gt;
+&lt;p&gt;https:&#x2F;&#x2F;www.cloudflare-cn.com&#x2F;ips&#x2F;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>cloudflare代理的常用网站</title>
+        <published>2025-10-08T16:49:27+08:00</published>
+        <updated>2025-11-14T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/cloudflare代理的常用网站/"/>
+        <id>https://moxuetianya.github.io/2025/10/cloudflare代理的常用网站/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/cloudflare代理的常用网站/">&lt;h1 id=&quot;chang-yong-wang-zhan&quot;&gt;常用网站&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;alejandracaiccedo.com
+cdn.anycast.eu.org
+download.yunzhongzhuan.com
+fbi.gov
+gur.gov.ua
+icook.hk
+icook.tw
+iplocation.io
+ip.sb
+japan.com
+log.bpminecraft.com
+malaysia.com
+russia.com
+shopify.com
+singapore.com
+skk.moe
+time.cloudflare.com
+time.is
+whatismyipaddress.com
+www.4chan.org
+www.csgo.com
+www.d-555.com
+www.digitalocean.com
+www.gco.gov.qa
+www.glassdoor.com
+www.gov.se
+www.gov.ua
+www.hugedomains.com
+www.iakeys.com
+www.ipaddress.my
+www.ipchicken.com
+www.ipget.net
+www.iplocation.net
+www.okcupid.com
+www.pcmag.com
+www.sean-now.com
+www.shopify.com
+www.udacity.com
+www.udemy.com
+www.visa.co.jp
+www.visa.com
+www.visa.com.hk
+www.visa.com.sg
+www.visa.com.tw
+www.visakorea.com
+www.whatismyip.com
+www.whoer.net
+www.who.int
+www.wto.org
+www.zsu.gov.ua
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cloudflare-kai-fang-de-duan-kou&quot;&gt;cloudflare 开放的端口&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;http-ports-supported-by-cloudflare&quot;&gt;HTTP ports supported by Cloudflare&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;HTTP支持端口：80，8080，8880，2052，2082，2086，2095；&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;https-ports-supported-by-cloudflare&quot;&gt;HTTPS ports supported by Cloudflare&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;HTTPS支持端口：443，2053，2083，2087，2096，8443;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ports-supported-by-cloudflare-but-with-caching-disabled&quot;&gt;Ports supported by Cloudflare, but with caching disabled&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;2052 2053 2082 2083 2086 2087 2095 2096 8880 8443&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;fundamentals&#x2F;reference&#x2F;network-ports&#x2F;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cloudflare-di-zhi-fan-wei&quot;&gt;cloudflare 地址范围&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;173.245.48.0&amp;#x2F;20
+103.21.244.0&amp;#x2F;22
+103.22.200.0&amp;#x2F;22
+103.31.4.0&amp;#x2F;22
+141.101.64.0&amp;#x2F;18
+108.162.192.0&amp;#x2F;18
+190.93.240.0&amp;#x2F;20
+188.114.96.0&amp;#x2F;20
+197.234.240.0&amp;#x2F;22
+198.41.128.0&amp;#x2F;17
+162.158.0.0&amp;#x2F;15
+104.16.0.0&amp;#x2F;13
+104.24.0.0&amp;#x2F;14
+172.64.0.0&amp;#x2F;13
+131.0.72.0&amp;#x2F;22
+
+2400:cb00::&amp;#x2F;32
+2606:4700::&amp;#x2F;32
+2803:f800::&amp;#x2F;32
+2405:b500::&amp;#x2F;32
+2405:8100::&amp;#x2F;32
+2a06:98c0::&amp;#x2F;29
+2c0f:f248::&amp;#x2F;32
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;https:&#x2F;&#x2F;www.cloudflare-cn.com&#x2F;ips&#x2F;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;can-kao&quot;&gt;参考&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;blog.cmliussss.com&#x2F;p&#x2F;CloudFlare%E4%BC%98%E9%80%89&#x2F;&quot;&gt;优选域名&lt;&#x2F;a&gt;
+&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.cloudflare-cn.com&#x2F;ips&#x2F;&quot;&gt;cloudflare-ips&lt;&#x2F;a&gt;
+&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;XIU2&#x2F;CloudflareSpeedTest&quot;&gt;cloudflare-speedtest&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>代理协议与网络穿透</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/proxy-network/"/>
+        <id>https://moxuetianya.github.io/2025/07/proxy-network/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/proxy-network/">&lt;h1 id=&quot;dai-li-xie-yi-yu-wang-luo-chuan-tou&quot;&gt;代理协议与网络穿透&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;dai-li-xie-yi-dui-bi&quot;&gt;代理协议对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ji-chu-dai-li-xie-yi&quot;&gt;基础代理协议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;th&gt;现状&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Shadowsocks&lt;&#x2F;td&gt;&lt;td&gt;经典加密代理&lt;&#x2F;td&gt;&lt;td&gt;极易被识别封禁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMess + WebSocket&lt;&#x2F;td&gt;&lt;td&gt;伪装 HTTP 流量&lt;&#x2F;td&gt;&lt;td&gt;端口被封频繁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision&lt;&#x2F;td&gt;&lt;td&gt;消除 TLS in TLS 特征&lt;&#x2F;td&gt;&lt;td&gt;须配合有效证书域名&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision + REALITY&lt;&#x2F;td&gt;&lt;td&gt;偷取大厂 TLS 证书&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;当前最稳定&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;tls-wei-zhuang-xie-yi-yan-jin&quot;&gt;TLS 伪装协议演进&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;shadow-tls&lt;&#x2F;strong&gt;：偷白名单域名证书，仅支持 TLS 1.3，不处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;restls&lt;&#x2F;strong&gt;：支持 TLS 1.2&#x2F;1.3，处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：使用 ECDHE 算法，即使客户端配置泄露也不影响数据安全。ShadowTLS 使用对称 PSK，配置泄露可能导致流量解密&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;anytls&lt;&#x2F;strong&gt;：消除 TLS in TLS 特征，支持自定义填充包数量和长度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xtls-he-xin-ji-shu&quot;&gt;XTLS 核心技术&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;XTLS splice&lt;&#x2F;strong&gt;：将内层 TLS 数据直接嵌入外层 TLS 流，减少重复加解密，降低 CPU 开销&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VISION&lt;&#x2F;strong&gt;：模拟时延与消息交换顺序，抹平 多层TLS 握手的不自然时序特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：在 TLS 握手阶段返回真网站的证书，使连接与普通 HTTPS 访问外观一致&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;XHTTP&lt;&#x2F;strong&gt;：在应用层进一步伪装，上行拆分为多个 POST 请求，下行伪装为流式下载或 SSE，消除&quot;稳定长时间加密流&quot;的特征&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xie-yi-an-quan-ping-gu&quot;&gt;协议安全评估&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;SS 节点搭建后次日即可能被封 IP&lt;&#x2F;li&gt;
+&lt;li&gt;VMess+WS 易被封端口（非封 IP）&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision 目前稳定，需关注域名是否被阻断&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision+REALITY 堪称最稳方案&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cloudflare-dai-li&quot;&gt;Cloudflare 代理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhi-chi-de-duan-kou&quot;&gt;支持的端口&lt;&#x2F;h3&gt;
+&lt;p&gt;HTTP 端口：80, 8080, 8880, 2052, 2082, 2086, 2095&lt;&#x2F;p&gt;
+&lt;p&gt;HTTPS 端口：443, 2053, 2083, 2087, 2096, 8443&lt;&#x2F;p&gt;
+&lt;p&gt;仅 80 和 443 支持缓存、Cloudflare Apps、中国网络等全部功能。通过 WAF 规则可阻止非 80&#x2F;443 端口的流量。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cloudflare-ip-duan&quot;&gt;Cloudflare IP 段&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;173.245.48.0&amp;#x2F;20, 103.21.244.0&amp;#x2F;22, 103.22.200.0&amp;#x2F;22, 103.31.4.0&amp;#x2F;22
+141.101.64.0&amp;#x2F;18, 108.162.192.0&amp;#x2F;18, 190.93.240.0&amp;#x2F;20, 188.114.96.0&amp;#x2F;20
+197.234.240.0&amp;#x2F;22, 198.41.128.0&amp;#x2F;17, 162.158.0.0&amp;#x2F;15, 104.16.0.0&amp;#x2F;13
+104.24.0.0&amp;#x2F;14, 172.64.0.0&amp;#x2F;13, 131.0.72.0&amp;#x2F;22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;cf-worker-vless-proxyip-yuan-li&quot;&gt;CF Worker VLESS proxyIP 原理&lt;&#x2F;h3&gt;
+&lt;p&gt;CF Worker 不能直接访问 Cloudflare 自家的 IP 地址（&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;workers&#x2F;runtime-apis&#x2F;tcp-sockets&#x2F;#considerations&quot;&gt;官方确认&lt;&#x2F;a&gt;）。当远程 TCP 无数据返回时触发 &lt;code&gt;retry()&lt;&#x2F;code&gt;，通过 proxyIP（&quot;神奇的 IP&quot;）中转数据包到 CF 目的 IP。&lt;&#x2F;p&gt;
+&lt;p&gt;这不是每次转发都用，只作 failsafe。非 Cloudflare 部署的网站（如 AWS Cloudfront、Google）可直接访问，不经过 proxyIP。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;proxyIP 的隐患&lt;&#x2F;strong&gt;：安全性（数据转给第三方）、速度受限于单个 IP、可用性不确定。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fan-dai-cf-ip&quot;&gt;反代 CF IP&lt;&#x2F;h3&gt;
+&lt;p&gt;链路：用户 → 自己的 VPS → Cloudflare CDN → 源站&lt;&#x2F;p&gt;
+&lt;p&gt;通过 iptables 将 VPS 端口转发到 Cloudflare 对应端口，实现加速的同时享受 CF 的防护功能。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 使用 arloor 的 iptables 转发脚本
+# 原理：将 VPS 的 80 端口流量转发到 Cloudflare CDN IP:80
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;sing-box-xray-v2ray-bu-shu&quot;&gt;sing-box &#x2F; Xray &#x2F; v2ray 部署&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fu-wu-duan-an-zhuang&quot;&gt;服务端安装&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# sing-box
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;sing-box&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+
+# Xray
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;xray&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;mian-ban-guan-li&quot;&gt;面板管理&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 3x-ui（Xray 管理面板）
+bash &amp;lt;(curl -Ls https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;MHSanaei&amp;#x2F;3x-ui&amp;#x2F;refs&amp;#x2F;tags&amp;#x2F;v2.6.0&amp;#x2F;install.sh)
+x-ui  # TUI 配置界面
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ding-yue-zhuan-huan&quot;&gt;订阅转换&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 不直接兼容大多数机场的订阅格式，需 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;Toperlock&#x2F;sing-box-subscribe&quot;&gt;sing-box-subscribe&lt;&#x2F;a&gt; 转换：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;URL&amp;gt;&amp;#x2F;url=&amp;lt;subscription_url&amp;gt;&amp;#x2F;&amp;amp;file=&amp;lt;sing-box_template_url&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;clash-api-jian-rong&quot;&gt;Clash API 兼容&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 兼容 Clash API，可使用 metacubexd dashboard：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;experimental&amp;quot;: {
+    &amp;quot;clash_api&amp;quot;: {
+      &amp;quot;external_controller&amp;quot;: &amp;quot;0.0.0.0:9090&amp;quot;,
+      &amp;quot;external_ui&amp;quot;: &amp;quot;metacubexd&amp;quot;,
+      &amp;quot;default_mode&amp;quot;: &amp;quot;rule&amp;quot;
+    }
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ke-hu-duan-ruan-jian&quot;&gt;客户端软件&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;mihomo&lt;&#x2F;strong&gt; &#x2F; &lt;strong&gt;clash verge&lt;&#x2F;strong&gt; — Clash 系客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2rayN&lt;&#x2F;strong&gt; — Windows 客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2raya&lt;&#x2F;strong&gt; — 透明代理&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;hiddify-app&lt;&#x2F;strong&gt; — sing-box 前端&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tou-ming-wang-guan&quot;&gt;透明网关&lt;&#x2F;h3&gt;
+&lt;p&gt;在网关上运行 sing-box，其他机器将网关指向该机器即可智能分流。注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;其他机器的 DNS 必须是公网 DNS&lt;&#x2F;li&gt;
+&lt;li&gt;或配置特定入站端口接管 DNS 请求&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-dai-li-pei-zhi&quot;&gt;Nginx 代理配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;proxy-set-header-host&quot;&gt;proxy_set_header Host&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;nginx&quot; class=&quot;language-nginx &quot;&gt;&lt;code class=&quot;language-nginx&quot; data-lang=&quot;nginx&quot;&gt;proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $remote_addr;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;$proxy_host&lt;&#x2F;code&gt;：upstream 服务器的 IP&#x2F;域名（默认值）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时取虚拟主机名（推荐）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$http_host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时为空&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;$host&lt;&#x2F;code&gt; 避免 Host 头部丢失的情况。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;x-forwarded-for&quot;&gt;X-Forwarded-For&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;X-Forwarded-For: client, proxy1, proxy2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每经过一层代理，将请求来源 IP 追加到右侧。最左边的 IP 是原始客户端。该字段易被伪造，应谨慎使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-ju-yu-can-kao&quot;&gt;工具与参考&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Cloudflare 优选 IP：&lt;code&gt;CloudflareSpeedTest&lt;&#x2F;code&gt;、&lt;code&gt;better-cloudflare-ip&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;CF 中转 IP 获取：&lt;code&gt;zip.baipiao.eu.org&lt;&#x2F;code&gt;、电报 &lt;code&gt;@cf_push&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;IP 纯净度查询：&lt;code&gt;scamalytics.com&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在线测速：&lt;code&gt;speedtest.net&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;FOFA 搜索 CF IP：&lt;code&gt;server=&quot;cloudflare&quot; &amp;amp;&amp;amp; country=&quot;US&quot; &amp;amp;&amp;amp; port=&quot;443&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

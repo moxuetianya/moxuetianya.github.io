@@ -1,0 +1,910 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - waypipe</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/waypipe/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-27T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/waypipe/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Linux 使用优化记录（一）：终端与 Wayland 使用优化</title>
+        <published>2026-08-11T11:11:10+08:00</published>
+        <updated>2026-08-12T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/"/>
+        <id>https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/">&lt;h2 id=&quot;he-ji-shuo-ming&quot;&gt;合集说明&lt;&#x2F;h2&gt;
+&lt;p&gt;记录日常 Linux 使用中遇到的小问题与调优过程：现象 → 排查 → 解决 → 总结，方便日后检索复用。本文是第一篇。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;从文件管理器（Nautilus）把文件拖进终端窗口，期望在命令行插入文件路径：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;kitty&lt;&#x2F;strong&gt;：拖放正常，路径直接插入&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Alacritty&lt;&#x2F;strong&gt;：完全无反应，鼠标光标没有任何反馈&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-sheng-ji-ban-ben-wu-xiao&quot;&gt;1. 升级版本无效&lt;&#x2F;h3&gt;
+&lt;p&gt;当时 Alacritty 是 apt 装的 0.13.2，先用 cargo 升级到最新的 0.17.0：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cargo install alacritty --version 0.17.0 --locked
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.cargo&#x2F;bin&lt;&#x2F;code&gt; 在 PATH 最前，新版本生效（&lt;code&gt;alacritty --version&lt;&#x2F;code&gt; 确认）。&lt;strong&gt;但拖放依旧不行。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-que-ren-shi-shang-you-wei-shi-xian-er-fei-pei-zhi-wen-ti&quot;&gt;2. 确认是上游未实现，而非配置问题&lt;&#x2F;h3&gt;
+&lt;p&gt;查 GitHub 找到对应 issue：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;alacritty&#x2F;alacritty&#x2F;issues&#x2F;4010&quot;&gt;alacritty&#x2F;alacritty#4010&lt;&#x2F;a&gt; &quot;Drag and drop to paste file path doesn&#x27;t work under Wayland&quot;，状态 &lt;strong&gt;Open&lt;&#x2F;strong&gt;，被上游 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-windowing&#x2F;winit&#x2F;issues&#x2F;1881&quot;&gt;winit#1881&lt;&#x2F;a&gt; 阻塞。&lt;&#x2F;p&gt;
+&lt;p&gt;关键时间线：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;winit 的 Wayland DnD 实现（PR #4571）&lt;strong&gt;2026-07-16 才合并到 master&lt;&#x2F;strong&gt;，尚未发布到 crates.io&lt;&#x2F;li&gt;
+&lt;li&gt;Alacritty 还在用 crates.io 的 winit 0.30.x，自然没有该功能&lt;&#x2F;li&gt;
+&lt;li&gt;也就是说：&lt;strong&gt;Alacritty 在 Wayland 下不支持拖放是功能缺失，升级解决不了&lt;&#x2F;strong&gt;，只能等 winit 发版 + Alacritty 适配&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-chang-shi-x11-hou-duan-winit-unix-backend-cai-keng&quot;&gt;3. 尝试 X11 后端：WINIT_UNIX_BACKEND 踩坑&lt;&#x2F;h3&gt;
+&lt;p&gt;issue 里确认 X11 模式下拖放可用，于是尝试强制 X11 后端：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;WINIT_UNIX_BACKEND=x11 alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;无效！&lt;&#x2F;strong&gt; 用 &lt;code&gt;lsof&lt;&#x2F;code&gt; 检查进程，发现它监听的还是 &lt;code&gt;Alacritty-wayland-0-*.sock&lt;&#x2F;code&gt;，实际跑的还是 Wayland 后端。&lt;&#x2F;p&gt;
+&lt;p&gt;查 winit 源码（&lt;code&gt;platform_impl&#x2F;linux&#x2F;mod.rs&lt;&#x2F;code&gt; 的 &lt;code&gt;EventLoop::new&lt;&#x2F;code&gt;）才明白：winit 0.29 起&lt;strong&gt;已移除 &lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; 环境变量&lt;&#x2F;strong&gt;，后端选择只看 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;DISPLAY&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Breaking:&lt;&#x2F;strong&gt; &lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; was removed in favor of standard &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; and &lt;code&gt;DISPLAY&lt;&#x2F;code&gt; variables.（winit 0.29 changelog）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;也就是说旧教程里的 &lt;code&gt;WINIT_UNIX_BACKEND=x11&lt;&#x2F;code&gt; 对现代 winit 是&lt;strong&gt;无效的&lt;&#x2F;strong&gt;，坑了不少人。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h2&gt;
+&lt;p&gt;正确的强制 X11 后端方式是 &lt;strong&gt;unset &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;，winit 检测不到 Wayland 后自然 fallback 到 X11：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;env -u WAYLAND_DISPLAY alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证方法（确认窗口真的跑在 X11）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 窗口应出现在 X11 窗口树，带 mutter-x11-frames 装饰
+DISPLAY=:0 wmctrl -l
+
+# 进程不再监听 wayland socket，且无 Alacritty-wayland-*.sock
+lsof -p $(pgrep -x alacritty) | grep -E &amp;#x27;Alacritty.*sock&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实测从 Nautilus 拖文件，路径正常插入。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;gu-hua-qi-dong-fu-gai-desktop-wen-jian&quot;&gt;固化启动：覆盖 desktop 文件&lt;&#x2F;h3&gt;
+&lt;p&gt;改系统 desktop 文件不持久（升级 apt 包会覆盖），在用户级同名文件覆盖即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;Alacritty.desktop
+[Desktop Entry]
+Type=Application
+TryExec=alacritty
+Exec=env -u WAYLAND_DISPLAY alacritty
+Icon=Alacritty
+Terminal=false
+Categories=System;TerminalEmulator;
+
+Name=Alacritty
+GenericName=Terminal
+Comment=A fast, cross-platform, OpenGL terminal emulator
+StartupNotify=true
+StartupWMClass=Alacritty
+Actions=New;
+
+[Desktop Action New]
+Name=New Terminal
+Exec=env -u WAYLAND_DISPLAY alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;desktop-file-validate ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;Alacritty.desktop
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;之后从应用菜单&#x2F;桌面启动的 Alacritty 都走 X11 后端。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-er-x11-hou-duan-xia-zi-ti-bian-da&quot;&gt;问题二：X11 后端下字体变大&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-1&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;改完 desktop 文件后，从应用菜单启动的 Alacritty 字体明显变大（18pt 看起来像 27pt），而之前 Wayland 后端时正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yuan-yin-fen-xi&quot;&gt;原因分析&lt;&#x2F;h3&gt;
+&lt;p&gt;排查链路：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;GNOME 全局设了 &lt;code&gt;text-scaling-factor = 1.5&lt;&#x2F;code&gt;（GNOME Tweaks → 字体 → 缩放因子，或 &lt;code&gt;gsettings&lt;&#x2F;code&gt; 设置，默认 1.0）&lt;&#x2F;li&gt;
+&lt;li&gt;GNOME 会话会把该值&lt;strong&gt;同步给 XWayland&lt;&#x2F;strong&gt;：&lt;code&gt;Xft.dpi = 96 × 1.5 = 144&lt;&#x2F;code&gt;（可用 &lt;code&gt;xrdb -q | grep Xft.dpi&lt;&#x2F;code&gt; 确认）&lt;&#x2F;li&gt;
+&lt;li&gt;winit 的 X11 后端按 &lt;code&gt;Xft.dpi &#x2F; 96&lt;&#x2F;code&gt; 计算窗口 scale factor → 1.5&lt;&#x2F;li&gt;
+&lt;li&gt;Alacritty 字体大小 = &lt;code&gt;font.size (18pt) × scale factor&lt;&#x2F;code&gt; → 视觉 27pt&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;Wayland 后端不读 Xft.dpi&lt;&#x2F;strong&gt;（用 compositor 的 surface scale），所以之前从终端启动（Wayland）完全正常，切到 X11 后端才暴露。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-1&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;两个层次，可叠加：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;单独压掉 Alacritty 的缩放&lt;&#x2F;strong&gt;（推荐，不影响全局）：winit 支持 &lt;code&gt;WINIT_X11_SCALE_FACTOR&lt;&#x2F;code&gt; 环境变量强制 scale factor（数字，或 &lt;code&gt;randr&lt;&#x2F;code&gt; 用 xrandr 自算）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;Exec=env -u WAYLAND_DISPLAY WINIT_X11_SCALE_FACTOR=1.0 alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;本次最终取舍&lt;&#x2F;strong&gt;：全局恢复 1.5（桌面文字大更好读），Alacritty 保持 &lt;code&gt;WINIT_X11_SCALE_FACTOR=1.0&lt;&#x2F;code&gt; 单独压掉——两套方案叠加，互不冲突。改全局到 1.0 实测发现桌面文字偏小，又改回了 1.5。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;&lt;strong&gt;关掉全局文本缩放&lt;&#x2F;strong&gt;（影响所有 GTK 应用，如标题栏、菜单）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set org.gnome.desktop.interface text-scaling-factor 1.0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果调 1.5 只是为了可读性，可以改用系统字体大小替代（如 &lt;code&gt;font-name &#x27;Ubuntu Sans 12&#x27;&lt;&#x2F;code&gt;），两者效果不同但都能放大界面。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;xiao-jie&quot;&gt;小结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;影响&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;text-scaling-factor&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1.5（全局）&lt;&#x2F;td&gt;&lt;td&gt;GTK 应用文本放大；同步 Xft.dpi=144&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Xft.dpi&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;144&lt;&#x2F;td&gt;&lt;td&gt;X11 应用（含 XWayland）按 1.5 缩放&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;WINIT_X11_SCALE_FACTOR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1.0&lt;&#x2F;td&gt;&lt;td&gt;仅覆盖 Alacritty 的 X11 scale factor&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;wen-ti-san-kitty-ssh-hou-mei-ci-an-jian-chu-xian-da-liang-zhong-fu-zi-fu&quot;&gt;问题三：kitty ssh 后每次按键出现大量重复字符&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-2&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;kitty 终端本地开 zsh 一切正常；&lt;code&gt;ssh dev&lt;&#x2F;code&gt; 到远程服务器后，每次键盘输入都出现很多字符（重复&#x2F;乱画），几乎没法用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-1&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;先排除远端 shell 配置&lt;&#x2F;strong&gt;：用 rmux（tmux 类复用器）连 dev，&lt;code&gt;TERM=tmux-256color&lt;&#x2F;code&gt; 时输入完全正常 → 远端 zsh&#x2F;oh-my-zsh 配置本身没问题&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模拟 kitty 场景&lt;&#x2F;strong&gt;：&lt;code&gt;TERM=xterm-kitty ssh dev&lt;&#x2F;code&gt; 复现问题——发送 1 个字符显示 2 个，命令被双重渲染（如 &lt;code&gt;zsh -fzsh -f&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;找到报错&lt;&#x2F;strong&gt;：远端运行 &lt;code&gt;zsh -f&lt;&#x2F;code&gt; 报 &lt;code&gt;zsh: can&#x27;t find terminal definition for xterm-kitty&lt;&#x2F;code&gt;；&lt;code&gt;dpkg -S xterm-kitty&lt;&#x2F;code&gt; 显示无任何包拥有该 terminfo&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;：kitty 连接时把本地 &lt;code&gt;TERM=xterm-kitty&lt;&#x2F;code&gt; 传给远端（sshd 按客户端请求设置 pty TERM），但远端没有 xterm-kitty 的 terminfo 定义。zsh 5.9 的 zle 行编辑器找不到终端定义，光标定位&#x2F;行重绘全部退化 → 每次按键重复字符、画面混乱&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;排查陷阱：远端装了 zsh-autosuggestions，它的补全建议会渲染在当前行后面（如输入 &lt;code&gt;l&lt;&#x2F;code&gt; 显示 &lt;code&gt;lls&lt;&#x2F;code&gt;，其中 &lt;code&gt;s&lt;&#x2F;code&gt; 是建议），capture-pane 会连建议一起抓走，容易误判成&quot;按键重复&quot;。建议用原始字节流（&lt;code&gt;cat -A&lt;&#x2F;code&gt;）对比。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-2&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;在远端安装 xterm-kitty terminfo（本地 kitty 自带，&lt;code&gt;infocmp&lt;&#x2F;code&gt; 导出后远端 &lt;code&gt;tic&lt;&#x2F;code&gt; 导入）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;infocmp xterm-kitty | ssh dev &amp;#x27;tic -x -&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;ssh dev &#x27;infocmp xterm-kitty&#x27;&lt;&#x2F;code&gt; 有输出即成功。之后输入、退格、方向键、自动补全全部恢复正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-an-dui-bi-yu-gu-hua&quot;&gt;方案对比与固化&lt;&#x2F;h3&gt;
+&lt;p&gt;三个层次，按推荐度：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;服务器要求&lt;&#x2F;th&gt;&lt;th&gt;保留能力&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;kitten ssh&lt;&#x2F;code&gt;（推荐，已固化）&lt;&#x2F;td&gt;&lt;td&gt;零配置，首次连接自动装 terminfo（~&#x2F;.terminfo，无需 root）&lt;&#x2F;td&gt;&lt;td&gt;图形协议&#x2F;键盘协议&#x2F;真彩全保留&lt;&#x2F;td&gt;&lt;td&gt;本地需装 kitty；连接复用、shell integration&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;TERM=xterm-256color ssh&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;零（几乎每台机器都有）&lt;&#x2F;td&gt;&lt;td&gt;损失 ssh 图片预览、歧义键区分，真彩降级&lt;&#x2F;td&gt;&lt;td&gt;不想在服务器留任何东西时用；打字&#x2F;编辑&#x2F;vi&#x2F;tmux 完全兼容&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;infocmp xterm-kitty | ssh HOST &#x27;tic -x -&#x27;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;一次性装到 ~&#x2F;.terminfo&lt;&#x2F;td&gt;&lt;td&gt;全保留&lt;&#x2F;td&gt;&lt;td&gt;备用&#x2F;批量脚本&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;已固化到 dotfiles 仓库 &lt;code&gt;~&#x2F;.my_profile.kitty&lt;&#x2F;code&gt;（ssh 包装）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;# 仅&amp;quot;本地有 kitten 且进程确实在 kitty 窗口内(KITTY_PID + KITTY_WINDOW_ID 缺一不可)&amp;quot;才走 kitten ssh, 否则回退普通 ssh
+ssh() {
+    if command -v kitten &amp;gt;&amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1 \
+        &amp;amp;&amp;amp; [[ -n &amp;quot;${KITTY_PID:-}&amp;quot; &amp;amp;&amp;amp; -n &amp;quot;${KITTY_WINDOW_ID:-}&amp;quot; ]]; then
+        command kitten ssh &amp;quot;$@&amp;quot;
+    else
+        command ssh &amp;quot;$@&amp;quot;
+    fi
+}
+# 备用手动补装: kitty-terminfo &amp;lt;host&amp;gt;; 装依赖: bash dotfiles&amp;#x2F;run.sh install_kitty [host]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;实测细节：kitten ssh 要求&quot;进程确实在 kitty 窗口内&quot;——启动器校验 &lt;code&gt;KITTY_PID&lt;&#x2F;code&gt; + &lt;code&gt;KITTY_WINDOW_ID&lt;&#x2F;code&gt; 两个环境变量（缺一即拒绝：&quot;The SSH kitten is meant to run inside a kitty window&quot;），单纯把 TERM 伪装成 xterm-kitty 没用。所以包装必须查这两个变量，tmux 内、其他终端、远端（没装 kitty）自动回退普通 ssh，保证 ssh 永不被包装搞挂。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;顺带：服务器不需要装 kitty 也能 ssh 图片预览——只需轻量工具（&lt;code&gt;chafa --format=kitty img&lt;&#x2F;code&gt; 或 &lt;code&gt;viu -k img&lt;&#x2F;code&gt;，apt 安装），渲染由本地 kitty 完成；&lt;code&gt;bash dotfiles&#x2F;run.sh install_kitty &amp;lt;host&amp;gt;&lt;&#x2F;code&gt; 可一键给远端装 chafa&#x2F;viu&#x2F;timg。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-si-waypipe-ssh-hou-mei-you-wayland-display&quot;&gt;问题四：waypipe ssh 后没有 WAYLAND_DISPLAY&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-3&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh -tY -o controlpath=none dev
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;连上后 &lt;code&gt;echo $WAYLAND_DISPLAY&lt;&#x2F;code&gt; 为空，而 &lt;code&gt;echo $DISPLAY&lt;&#x2F;code&gt; 正常（&lt;code&gt;localhost:10.0&lt;&#x2F;code&gt;，ssh -Y 的 X11 转发）。运行 Wayland 客户端 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt; 报：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;could not load cursor &amp;#x27;dnd-copy&amp;#x27;
+could not load cursor &amp;#x27;dnd-none&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;窗口也没有出现在 host 端。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-2&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;waypipe 的代理 socket 确实建了&lt;&#x2F;strong&gt;：dev 的 &lt;code&gt;&#x2F;run&#x2F;user&#x2F;1000&#x2F;&lt;&#x2F;code&gt; 下能看到一串 &lt;code&gt;wayland-1ET0R84N&lt;&#x2F;code&gt;、&lt;code&gt;wayland-BSpfNUZh&lt;&#x2F;code&gt; 之类的 socket（&lt;code&gt;wayland-&amp;lt;随机后缀&amp;gt;&lt;&#x2F;code&gt; 是 waypipe 的命名规则，时间戳对得上本次会话）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;环境变量被 zshrc 清掉了&lt;&#x2F;strong&gt;：&lt;code&gt;~&#x2F;.my_zshrc&lt;&#x2F;code&gt; 里有一段（之前为修 gpg pinentry 问题加的）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;# XDG_SESSION_TYPE=tty（SSH 会话就是这个值）时直接清掉 WAYLAND_DISPLAY
+if [ &amp;quot;${XDG_SESSION_TYPE:-}&amp;quot; = &amp;quot;tty&amp;quot; ]; then
+  unset WAYLAND_DISPLAY 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;SSH 分配的 pty 会话 &lt;code&gt;XDG_SESSION_TYPE&lt;&#x2F;code&gt; 为 &lt;code&gt;tty&lt;&#x2F;code&gt;，waypipe 给会话设置的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 被登录 shell 启动时直接 unset
+3. &lt;strong&gt;weston-dnd 连不上任何合成器&lt;&#x2F;strong&gt;：&lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 为空 → &lt;code&gt;wl_display_connect()&lt;&#x2F;code&gt; 失败 → 窗口根本没创建（哪里都没显示），&lt;code&gt;could not load cursor&lt;&#x2F;code&gt; 是连接失败阶段报的连带错误，随后进程挂起等 Ctrl+C&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;原 unset 块的来历：tmux server 会继承旧会话的 WAYLAND_DISPLAY（孤儿 socket），残留值让 pinentry-gnome3 误判&quot;有 GUI&quot;而跳过 curses 回退 → SSH 下 gpg 弹窗不出来、干等超时（&quot;agent refused operation&quot;）。相关背景见 &lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;07&#x2F;gpg&#x2F;&quot;&gt;GPG 使用指南&lt;&#x2F;a&gt; 的 pinentry 部分。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-3&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;只清掉指向&lt;strong&gt;不存在 socket&lt;&#x2F;strong&gt; 的残留值，waypipe 创建的真实 socket 予以保留：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;if [ &amp;quot;${XDG_SESSION_TYPE:-}&amp;quot; = &amp;quot;tty&amp;quot; ]; then
+  if [ -n &amp;quot;${WAYLAND_DISPLAY:-}&amp;quot; ] &amp;amp;&amp;amp; { [ -S &amp;quot;${XDG_RUNTIME_DIR}&amp;#x2F;${WAYLAND_DISPLAY}&amp;quot; ] || [ -S &amp;quot;${WAYLAND_DISPLAY}&amp;quot; ] || [ -S &amp;quot;&amp;#x2F;tmp&amp;#x2F;${WAYLAND_DISPLAY}&amp;quot; ]; }; then
+    :
+  else
+    unset WAYLAND_DISPLAY 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+  fi
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;（存在多个机器共用 &lt;code&gt;~&#x2F;.my_zshrc&lt;&#x2F;code&gt; 的情况，本地与远端同步修改，我这边是符号链接到 dotfiles 仓库，改一处即可。）&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;waypipe 真实 socket（&lt;code&gt;wayland-1ET0R84N&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;保留（KEPT）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;不存在的残留值&lt;&#x2F;td&gt;&lt;td&gt;unset（原 pinentry 修复仍生效）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;空值&lt;&#x2F;td&gt;&lt;td&gt;unset（无副作用）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;之后 &lt;code&gt;waypipe ssh -tY -o controlpath=none dev&lt;&#x2F;code&gt; 再跑 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt;，窗口正常显示在 host 端。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-wu-waypipe-ssh-luan-ma-ssh-mux-fu-yong-chong-tu&quot;&gt;问题五：waypipe ssh 乱码——ssh mux 复用冲突&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-4&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;waypipe ssh -tY douhao&lt;&#x2F;code&gt; 连上后终端输出乱码；同一命令对 dev（命令里带 &lt;code&gt;-o controlpath=none&lt;&#x2F;code&gt;）正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-3&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;远端配置全好&lt;&#x2F;strong&gt;：douhao 的 &lt;code&gt;.my_zshrc&lt;&#x2F;code&gt; 已是新版（socket 存在性判断）、xterm-kitty terminfo 已装、locale 正常 → 排除配置类原因&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;怀疑 ssh 复用连接&lt;&#x2F;strong&gt;：本地 ssh config 是 &lt;code&gt;ControlMaster auto&lt;&#x2F;code&gt; + &lt;code&gt;ControlPersist 1h&lt;&#x2F;code&gt;，而 douhao 恰好有一条一个多小时前建立、一直活着的 mux master&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;waypipe 内部直接 exec 系统 ssh&lt;&#x2F;strong&gt;（strace 实证：PATH 里不存在自定义 ssh，最终落到 &lt;code&gt;&#x2F;usr&#x2F;bin&#x2F;ssh&lt;&#x2F;code&gt;），构造的命令是 &lt;code&gt;ssh -R &#x2F;tmp&#x2F;waypipe-server-XXX.sock ... douhao waypipe server ...&lt;&#x2F;code&gt;，&lt;strong&gt;不传任何 control 参数&lt;&#x2F;strong&gt; → 走 config 的 ControlMaster auto → 复用别人建的老 master，把 waypipe 的 &lt;code&gt;-R&lt;&#x2F;code&gt; 转发和 X11 附加到既有会话的通道上 → 通道状态不可靠 → 乱码&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ssh -O exit douhao&lt;&#x2F;code&gt; 清掉旧 master 后再跑 waypipe，恢复正常&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;jie-jue&quot;&gt;解决&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;立即：&lt;code&gt;ssh -O exit &amp;lt;host&amp;gt;&lt;&#x2F;code&gt; 清掉残留 master&lt;&#x2F;li&gt;
+&lt;li&gt;稳妥：waypipe ssh 固定加 &lt;code&gt;-o controlpath=none&lt;&#x2F;code&gt;（独占连接，waypipe 官方 issue 里 ControlMaster 冲突是已知问题）&lt;&#x2F;li&gt;
+&lt;li&gt;持久：ssh config 对 waypipe 目标主机关 mux（&lt;code&gt;Host douhao dev&lt;&#x2F;code&gt; 段加 &lt;code&gt;ControlMaster no&lt;&#x2F;code&gt;）——局域网主机 mux 收益≈0&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;zhu-yi&quot;&gt;注意&lt;&#x2F;h3&gt;
+&lt;p&gt;shell 函数&#x2F;别名（如问题三的 ssh 包装）只拦截交互输入的命令，&lt;strong&gt;管不到 waypipe&#x2F;git&#x2F;scp 等程序内部对系统 ssh 的调用&lt;&#x2F;strong&gt;；这类工具的 ssh 行为只能通过 ssh config（或它们自己的参数）控制。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;尝试&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;升级到 0.17.0&lt;&#x2F;td&gt;&lt;td&gt;无效&lt;&#x2F;td&gt;&lt;td&gt;功能缺失，winit Wayland DnD 2026-07 才合入、未发布&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;WINIT_UNIX_BACKEND=x11&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;无效&lt;&#x2F;td&gt;&lt;td&gt;winit 0.29 起已移除该变量&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;env -u WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;有效&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;winit 检测不到 Wayland 后 fallback 到 X11&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;四个坑点留个备忘：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Wayland 下 Alacritty 拖放无解&lt;&#x2F;strong&gt;：等 winit 发版 + Alacritty 适配（issue #4010 追踪中），之前别折腾配置&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; 是废弃变量&lt;&#x2F;strong&gt;：现代 winit（≥0.29）不认，别信旧教程；强制后端用 &lt;code&gt;env -u WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;用户级 desktop 文件覆盖系统级&lt;&#x2F;strong&gt;：改名相同即可，&lt;code&gt;update-desktop-database&lt;&#x2F;code&gt; 不用手动跑&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;X11 应用的&quot;字体莫名变大&quot;先查 &lt;code&gt;text-scaling-factor&lt;&#x2F;code&gt; 与 &lt;code&gt;Xft.dpi&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：GNOME 全局文本缩放会通过 Xft.dpi 传导到 X11 应用，Wayland 应用不受影响，所以只会在 XWayland 场景暴露&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;代价是 Alacritty 窗口以 XWayland 模式运行（GNOME 下 100% 缩放下无感知差异；高 DPI 缩放下 X11 窗口会模糊，介意的话等上游修复后再切回）。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程</title>
+        <published>2026-08-09T22:25:32+08:00</published>
+        <updated>2026-08-27T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/">&lt;h1 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h1&gt;
+&lt;p&gt;客户端机器通过 waypipe 连到服务器跑图形程序：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh workpc
+weston-dnd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果终端刷出报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;error: Kernel is too old (4.16+ required) or unusable for Iris.
+Check your dmesg logs for loading failures.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;偶发还伴随 waypipe 的 dmabuf 报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;S607565: 60.485827 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键对照：&lt;code&gt;waypipe --no-gpu ssh workpc&lt;&#x2F;code&gt; 后执行 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt; &lt;strong&gt;完全正常&lt;&#x2F;strong&gt;。显然问题在 waypipe 的 GPU 通道（dmabuf 直传）。&lt;&#x2F;p&gt;
+&lt;p&gt;本文如实记录一次&lt;strong&gt;被错误怀疑带偏的排查&lt;&#x2F;strong&gt;——错误的焦点反复落在&quot;服务端&#x2F;客户端到底谁没有 renderD128&quot;上，而真相在另一个层面。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-lun-wu-pan-huai-yi-fu-wu-duan-fu-wu-qi-que-renderd128&quot;&gt;第一轮误判：怀疑服务端（服务器）缺 renderD128&lt;&#x2F;h1&gt;
+&lt;p&gt;初始推断很自然：报错里有 &lt;code&gt;Failed to open drm fd for &#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，dmabuf 直传要求两端都能打开渲染节点，于是先怀疑&lt;strong&gt;服务器&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;在服务器上查证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;          # card0-4 + renderD128，存在
+uname -r              # 7.0.0-28-generic
+getfacl &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128   # user:peter:rw-, mask rw-
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;服务器有 renderD128、ACL 正常、python 实测 &lt;code&gt;open()&lt;&#x2F;code&gt; 成功、&lt;code&gt;gbm_create_device()&lt;&#x2F;code&gt; 成功。&lt;strong&gt;服务器侧完全正常&lt;&#x2F;strong&gt;，排除。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-lun-wu-pan-huai-yi-ke-hu-duan-mei-you-gpu-jie-dian&quot;&gt;第二轮误判：怀疑客户端没有 GPU 节点&lt;&#x2F;h1&gt;
+&lt;p&gt;服务器没问题，那按&quot;两端缺一不可&quot;的逻辑，报错应该发生在&lt;strong&gt;客户端&lt;&#x2F;strong&gt;——客户端 waypipe 进程要打开它自己那台机器的 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;。于是推断&quot;客户端机器有显卡但驱动没加载 render 节点&quot;（比如 NVIDIA 没开 &lt;code&gt;modeset=1&lt;&#x2F;code&gt;、i915 模块被禁用等）。&lt;&#x2F;p&gt;
+&lt;p&gt;但用户明确说：&lt;strong&gt;客户端是有 GPU 的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;而且注意一个拓扑干扰项：SSH 连接里看到的对端 IP &lt;code&gt;192.168.4.148&lt;&#x2F;code&gt; 其实是 &lt;strong&gt;WireGuard 服务器&lt;&#x2F;strong&gt;（中间转发），不是客户端真机——这又增加了&quot;客户端到底在哪&quot;的混乱。实际上真正做 waypipe 客户端的机器是用户面前的物理机。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zhuan-xiang-shi-ce-bao-cuo-dao-di-lai-zi-na-yi-duan&quot;&gt;转向实测：报错到底来自哪一端&lt;&#x2F;h1&gt;
+&lt;p&gt;靠猜没用，直接实验定位报错来源。把两端 stderr 分开：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh workpc &amp;#x27;weston-dnd 2&amp;gt;&amp;#x2F;tmp&amp;#x2F;wp-server-err.log&amp;#x27; 2&amp;gt;&amp;#x2F;tmp&amp;#x2F;wp-client-err.log
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;服务器端&lt;&#x2F;strong&gt; &lt;code&gt;&#x2F;tmp&#x2F;wp-server-err.log&lt;&#x2F;code&gt;：&lt;strong&gt;空&lt;&#x2F;strong&gt;（weston-dnd 在服务器上没报任何错）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;客户端端&lt;&#x2F;strong&gt; &lt;code&gt;&#x2F;tmp&#x2F;wp-client-err.log&lt;&#x2F;code&gt;：正是那两行 Iris 报错&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;报错文本来自客户端 waypipe 进程自身&lt;&#x2F;strong&gt;，不是服务器，也不是 weston-dnd。第一轮&quot;服务器缺 GPU&quot;彻底排除，且&quot;客户端没有 renderD128&quot;也被推翻了——因为客户端明明有：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;    # card0 + renderD128
+lspci           # Intel UHD 770 (Raptor Lake-S)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jue-ding-xing-yi-bu-ke-hu-duan-mesa-qi-shi-quan-zai-ruan-xuan-ran&quot;&gt;决定性一步：客户端 Mesa 其实全在软渲染&lt;&#x2F;h1&gt;
+&lt;p&gt;客户端 GPU 节点存在，但 iris 驱动本身可能有问题。用 &lt;code&gt;glxinfo&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;eglinfo&lt;&#x2F;code&gt; 看客户端 Mesa 实际用的渲染器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;glxinfo -B | grep -i renderer
+# OpenGL renderer string: llvmpipe (LLVM 19.1.7, 256 bits)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：客户端所有 OpenGL 都是 llvmpipe（软件渲染），根本没有用 i915 硬件加速！&lt;&#x2F;strong&gt; 连 gnome-shell 桌面都在软渲染。&lt;&#x2F;p&gt;
+&lt;p&gt;本地直接测 &lt;code&gt;gbm_create_device()&lt;&#x2F;code&gt; 也能复现那两行 Iris 报错（与 waypipe 无关）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;python3 -c &amp;quot;import os,ctypes; ...gbm_create_device(os.open(&amp;#x27;&amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128&amp;#x27;, os.O_RDWR))&amp;quot;
+# error: Kernel is too old (4.16+ required) or unusable for Iris.
+# gbm_create_device: OK     ← 回退到 llvmpipe 后仍能创建设备
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这说明：&lt;strong&gt;不是&quot;没有 GPU 节点&quot;，而是&quot;iris 驱动加载失败，Mesa 静默回退到 llvmpipe&quot;&lt;&#x2F;strong&gt;。waypipe 的 GPU 通道坚持用 iris，失败后就把报错打出来。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zhen-zheng-gen-yin-i915-guc-gu-jian-que-shi-gpu-wedged&quot;&gt;真正根因：i915 GuC 固件缺失，GPU wedged&lt;&#x2F;h1&gt;
+&lt;p&gt;报错提示 &quot;Check your dmesg logs&quot;，用 sudo 看内核日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo dmesg | grep -iE &amp;#x27;i915|xe|drm&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;i915 0000:00:02.0: firmware: failed to load i915&amp;#x2F;tgl_guc_70.1.1.bin (-2)
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC firmware i915&amp;#x2F;tgl_guc_70.bin: fetch failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC initialization failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: Failed to initialize GPU, declaring it wedged!
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因锁定：客户端的 i915 驱动因为缺 GuC 固件初始化失败，GPU 被内核标记为 wedged（不可用）。&lt;&#x2F;strong&gt; 于是 Mesa 的 iris 驱动初始化失败 → 报 &lt;code&gt;Kernel is too old (4.16+ required) or unusable for Iris&lt;&#x2F;code&gt; → 回退 llvmpipe。&lt;&#x2F;p&gt;
+&lt;p&gt;检查固件目录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;lib&amp;#x2F;firmware&amp;#x2F;i915&amp;#x2F;        # 只有 dg2_dmc_ver2_07.bin，无 tgl_guc*
+apt-file search tgl_guc       # 属于 firmware-intel-graphics 包
+apt-cache policy firmware-intel-graphics   # 未安装
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jie-jue-an-zhuang-gu-jian-bao-zhong-qi&quot;&gt;解决：安装固件包 + 重启&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install firmware-intel-graphics
+sudo reboot    # i915 被 Wayland 桌面会话占用，无法热卸载，必须重启
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证固件进入 initramfs（确保重启后能加载）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-$(uname -r) | grep tgl_guc
+# usr&amp;#x2F;lib&amp;#x2F;firmware&amp;#x2F;i915&amp;#x2F;tgl_guc_70.bin ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启后预期：&lt;code&gt;glxinfo -B&lt;&#x2F;code&gt; 渲染器从 &lt;code&gt;llvmpipe&lt;&#x2F;code&gt; 变成 &lt;code&gt;Mesa Intel(R) Raptor Lake-S&lt;&#x2F;code&gt;，waypipe GPU 通道不再报错。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fu-pan-zhe-ci-pai-cha-wei-shen-me-bei-dai-pian&quot;&gt;复盘：这次排查为什么被带偏&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;报错文本双来源混淆&lt;&#x2F;strong&gt;。&lt;code&gt;Failed to open drm fd&lt;&#x2F;code&gt; 是 waypipe 的，&lt;code&gt;Kernel is too old for Iris&lt;&#x2F;code&gt; 是 Mesa 的——两者都指向&quot;GPU 不可用&quot;，但一个让人联想到&quot;缺节点&#x2F;权限&quot;，一个让人联想到&quot;内核太旧&quot;。真正原因（GPU wedged）藏在 dmesg 里，不靠日志只看表象必然误判。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;&quot;两端缺一不可&quot;的框架太粗糙&lt;&#x2F;strong&gt;。渲染节点存在 ≠ 驱动可用。客户端明明有 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，却因 iris 初始化失败实际不可用——&lt;code&gt;ls &#x2F;dev&#x2F;dri&lt;&#x2F;code&gt; 根本看不出 GPU 是好的。&lt;strong&gt;判断 GPU 是否可用要看 Mesa 实际用什么渲染器（&lt;code&gt;glxinfo -B&lt;&#x2F;code&gt;）和内核日志（&lt;code&gt;dmesg&lt;&#x2F;code&gt;），而不是只看有没有节点文件。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;网络拓扑干扰&lt;&#x2F;strong&gt;。WireGuard 中转让 SSH 对端 IP 显示为 WG 服务器而非客户端真机，一度让人纠结&quot;客户端到底是哪台&quot;。先厘清拓扑，再谈哪一端。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;先分离两端 stderr 再下结论&lt;&#x2F;strong&gt;。&lt;code&gt;waypipe ssh host &#x27;cmd 2&amp;gt;server.log&#x27; 2&amp;gt;client.log&lt;&#x2F;code&gt; 一次性把&quot;报错来自客户端还是服务端&quot;定死，避免了来回猜。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;pai-cha-gong-ju-su-cha&quot;&gt;排查工具速查&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;想确认什么&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;报错来自哪端&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;waypipe ssh h &#x27;cmd 2&amp;gt;s.log&#x27; 2&amp;gt;c.log&lt;&#x2F;code&gt; 分别看两端&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GPU 是否真可用&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;glxinfo -B | grep -i renderer&lt;&#x2F;code&gt;（llvmpipe = 软渲染，坏）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;内核驱动状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sudo dmesg | grep -iE &#x27;i915|xe|drm&#x27;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;渲染节点归属&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;readlink &#x2F;sys&#x2F;class&#x2F;drm&#x2F;renderD128&#x2F;device&#x2F;driver&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;固件是否齐全&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;lib&#x2F;firmware&#x2F;i915&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;apt-file search tgl_guc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;固件是否进 initrd&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lsinitramfs &#x2F;boot&#x2F;initrd.img-$(uname -r) | grep tgl_guc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-16-fu-fa-bu-chong-zhe-ci-bu-shi-mei-zhuang-gu-jian-shi-mei-zhong-qi-liang-duan-du-yao-jia-render-zu&quot;&gt;2026-08-16 复发补充：这次不是没装固件，是没重启 + 两端都要加 render 组&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;8 月 16 日同款症状再次出现（&lt;code&gt;waypipe ssh huawei-vm yad&lt;&#x2F;code&gt; 报 Iris + dmabuf 报错），
+但这次排查方向完全不同，记录两个 08-09 版本没覆盖的坑。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zheng-zhuang&quot;&gt;症状&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;error: Kernel is too old (4.16+ required) or unusable for Iris.
+S20933:  0.007984 [src&amp;#x2F;dmabuf.c:129] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: Permission denied
+(yad:20929): Gdk-CRITICAL **: ... gdk_x11_window_get_xid: assertion &amp;#x27;GDK_IS_X11_WINDOW (window)&amp;#x27; failed
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 dmabuf 报错从 &lt;code&gt;No such file or directory&lt;&#x2F;code&gt;（08-09）变成了 &lt;strong&gt;&lt;code&gt;Permission denied&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——上一轮修完的机器已无此问题，
+本次报错来自&lt;strong&gt;另一台机器&lt;&#x2F;strong&gt;（waypipe 客户端，192.168.2.100）。照旧先分离两端 stderr 定位来源：
+&lt;code&gt;waypipe ssh huawei-vm &#x27;yad 2&amp;gt;&#x2F;tmp&#x2F;wp-server-err.log&#x27; 2&amp;gt;&#x2F;tmp&#x2F;wp-client-err.log&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;keng-yi-gu-jian-zhuang-liao-sheng-xiao-wedged-zhuang-tai-zhi-neng-zhong-qi-hui-fu&quot;&gt;坑一：固件装了 ≠ 生效，wedged 状态只能重启恢复&lt;&#x2F;h3&gt;
+&lt;p&gt;客户端 dmesg 明明是 8 月 7 日开机时 &lt;code&gt;tgl_guc_70.bin: fetch failed -ENOENT&lt;&#x2F;code&gt;、GPU wedged，
+但 &lt;code&gt;firmware-intel-graphics&lt;&#x2F;code&gt; &lt;strong&gt;8 月 9 日已装好&lt;&#x2F;strong&gt;、&lt;code&gt;lsinitramfs&lt;&#x2F;code&gt; 也确认 &lt;code&gt;tgl_guc_70.bin&lt;&#x2F;code&gt; 已在 initrd 里——&lt;&#x2F;p&gt;
+&lt;p&gt;对比时间线发现：开机（08-07 21:44）→ 装固件 + 重建 initramfs（08-09 22:16）→ &lt;strong&gt;之后一直没重启&lt;&#x2F;strong&gt;。
+i915 被 Wayland 桌面会话占用无法热卸载，wedged 状态从开机起就固定了，装再多固件也不影响已加载的驱动。
+&lt;strong&gt;判断 GPU 是否真修好必须看当前会话的 &lt;code&gt;glxinfo -B&lt;&#x2F;code&gt;（llvmpipe = 还是坏的），而不是看 initrd 里有没有固件。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;keng-er-liang-duan-du-yao-you-render-zu-quan-xian-vm-nei-ye-yao-jia&quot;&gt;坑二：两端都要有 render 组权限，VM 内也要加&lt;&#x2F;h3&gt;
+&lt;p&gt;修复 Iris 后 dmabuf 报错仍在（&lt;code&gt;Permission denied&lt;&#x2F;code&gt;），客户端 &lt;code&gt;usermod -aG render peter&lt;&#x2F;code&gt; 后
+报错消失一半——剩 &lt;code&gt;Permission denied&lt;&#x2F;code&gt; 转到了&lt;strong&gt;服务端 huawei-vm&lt;&#x2F;strong&gt;（VM 内 peter 只有 &lt;code&gt;video&lt;&#x2F;code&gt; 组，
+&lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt; 属组是 &lt;code&gt;render&lt;&#x2F;code&gt;）。VM 内同样要加：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# VM 内（或经 qemu-guest-agent 以 root 执行）
+usermod -aG render peter
+# 组变更不作用于已登录会话，重新 ssh 即可；客户端侧同理
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;keng-san-yad-de-gdk-critical-shi-wayland-xia-de-wu-hai-duan-yan&quot;&gt;坑三：yad 的 Gdk-CRITICAL 是 wayland 下的无害断言&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;gdk_x11_window_get_xid: assertion &#x27;GDK_IS_X11_WINDOW&#x27; failed&lt;&#x2F;code&gt; 是 yad（GTK3）内部获取
+X11 窗口 ID 的代码路径在 wayland 后端下触发的断言——窗口仍能正常弹出，&lt;strong&gt;忽略即可&lt;&#x2F;strong&gt;，不属于故障。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;ben-ci-wan-zheng-lian-lu-xiao-jie&quot;&gt;本次完整链路小结&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Iris 报错（客户端）→ 固件在 initrd 里但没重启 → 重启
+dmabuf Permission denied（客户端）→ usermod -aG render
+dmabuf Permission denied（服务端 VM）→ VM 内同样 usermod -aG render
+Gdk-CRITICAL → 无害，忽略
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-26-fu-fa-bu-chong-di-san-chong-xing-tai-fu-wu-duan-jiu-shi-qxl-yong-yuan-mei-you-renderd128&quot;&gt;2026-08-26 复发补充：第三种形态——服务端就是 QXL，永远没有 renderD128&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;8 月 26 日同款报错再次出现（&lt;code&gt;cat ~&#x2F;.ssh&#x2F;id_ed25519.pub | clipcopy&lt;&#x2F;code&gt; 后终端刷出），
+但与前两次排雷方向都不同：&lt;strong&gt;这一次没任何 GPU 问题是可修的，纯粹是拓扑+参数问题&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zheng-zhuang-1&quot;&gt;症状&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;blog % cat ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519.pub | clipcopy
+S45742: 56.574026 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;和前两次的关键区别：报错文本是 &lt;strong&gt;&lt;code&gt;No such file or directory&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（08-09 同款文本），
+而不是 08-16 的 &lt;code&gt;Permission denied&lt;&#x2F;code&gt;——这次不是&quot;有节点但权限不足&quot;，而是&lt;strong&gt;节点本身不存在&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;ding-wei-fu-wu-duan-mu-biao-ji-shi-qxl-xu-ni-xian-qia-wu-xuan-ran-jie-dian&quot;&gt;定位：服务端（目标机）是 QXL 虚拟显卡，无渲染节点&lt;&#x2F;h3&gt;
+&lt;p&gt;报错来自 waypipe 服务端，即本次 SSH 的目标机（his-host，192.168.2.156 虚拟机）。查：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;
+# crw-rw---- 1 root video 226,  1 ... card1      ← 只有显示节点
+#                                无 renderD128       ← 没有渲染节点
+lspci | grep -i vga
+# 00:01.0 VGA compatible controller: Red Hat, Inc. QXL paravirtual graphic card
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;QXL 是纯 2D 的哑虚拟显卡（CPU 描画、无 3D 硬件），内核驱动&lt;strong&gt;本来就不注册渲染节点&lt;&#x2F;strong&gt;，
+与 08-09&#x2F;08-16 里&quot;客户端机器有 renderD128 但驱动坏了&#x2F;没权限&quot;完全是两码事——&lt;strong&gt;这台机器永远不会有 renderD128&lt;&#x2F;strong&gt;，
+再怎么装固件、加 render 组都没用（芯片没这功能）。CHANGELOG 里的待办&quot;QXL → virtio-gpu 3D（virgl）&quot;
+就是给虚拟显卡模拟 3D 后，renderD128 才会出现。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fu-fa-de-zhi-jie-yuan-yin-hui-hua-mei-dai-no-gpu&quot;&gt;复发的直接原因：会话没带 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;08-09 的修复约定是&lt;strong&gt;客户端&lt;&#x2F;strong&gt; &lt;code&gt;waypipe --no-gpu ssh&lt;&#x2F;code&gt;（禁用 GPU 协议、改走共享内存），
+只要带了，即使服务端没渲染节点也不报错。但本次的 waypipe server 进程是 &lt;strong&gt;8&#x2F;21 重建的会话&lt;&#x2F;strong&gt;，
+看进程 cmdline 就知道客户端当时没用 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;（若带了，server 侧命令会带 &lt;code&gt;-n&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe -c lz4 --login-shell --unlink-socket -s &amp;#x2F;tmp waypipe-server-...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;于是剪贴板复制时服务端照样尝试 dmabuf 直传 → 打开 &#x2F;dev&#x2F;dri&#x2F;renderD128 → No such file。&lt;&#x2F;p&gt;
+&lt;p&gt;repo 里两份&quot;入口文档&quot;仍写着&lt;strong&gt;不带 --no-gpu 的旧命令&lt;&#x2F;strong&gt;，这正是复发温床：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;dotfiles&#x2F;.cheat&#x2F;waypipe.&lt;&#x2F;code&gt;：&lt;code&gt;waypipe ssh -o controlpath=none peter@&amp;lt;旧IP&amp;gt;&lt;&#x2F;code&gt;（无 --no-gpu，IP 还是 192.168.7.99）&lt;&#x2F;li&gt;
+&lt;li&gt;IP 也已变（192.168.7.99 → 192.168.2.156），旧会话是照着旧 cheat 连的&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;san-chong-xing-tai-pan-bie-su-cha&quot;&gt;三种形态判别速查&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;报错文本&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;No such file or directory&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;打开 renderD128 时节点不存在&lt;&#x2F;td&gt;&lt;td&gt;该端是 2D-only 卡（QXL&#x2F;virtio-gpu 2D&#x2F;bochs），只能 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Permission denied&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;节点存在但用户无权限&lt;&#x2F;td&gt;&lt;td&gt;该端 &lt;code&gt;usermod -aG render&lt;&#x2F;code&gt;（重新 ssh 生效）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Kernel is too old ... for Iris&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;设备存在但驱动初始化失败（GPU wedged）&lt;&#x2F;td&gt;&lt;td&gt;查 dmesg：装固件 + 重启&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;ben-ci-xiu-fu&quot;&gt;本次修复&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;客户端重连会话，用 &lt;code&gt;waypipe --no-gpu ssh -o controlpath=none peter@192.168.2.156&lt;&#x2F;code&gt;（连着旧会话的窗口重开）&lt;&#x2F;li&gt;
+&lt;li&gt;顺手更新 &lt;code&gt;dotfiles&#x2F;.cheat&#x2F;waypipe.&lt;&#x2F;code&gt; 为带 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 的新命令&lt;&#x2F;li&gt;
+&lt;li&gt;长期：VM 升级 virgl（virtio-gpu 3D）后 renderD128 出现，届时才可去掉 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>工具链迁移 Wayland：剪贴板踩坑与适配方案</title>
+        <published>2026-08-09T13:12:21+08:00</published>
+        <updated>2026-08-09T13:12:21+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/"/>
+        <id>https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/">&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;X11 时代复制粘贴很简单：&lt;code&gt;xclip&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;xsel&lt;&#x2F;code&gt; 全家桶，tmux、fzf、vim 里全是它们的影子。切到 Wayland 后，剪贴板不再由&quot;全局 X server&quot;统一管理，而是每个合成器（compositor）自己实现，工具链也得跟着换。&lt;&#x2F;p&gt;
+&lt;p&gt;本文记录迁移到 Wayland 剪贴板工具链的完整踩坑过程与最终方案，包含一个容易误判的 waypipe 报错，以及虚拟机显卡升级（QXL → virtio-gpu 3D）的根治思路。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wayland-yu-x11-jian-tie-ban-de-chai-yi&quot;&gt;Wayland 与 X11 剪贴板的差异&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;X11 (xclip&#x2F;xsel)&lt;&#x2F;th&gt;&lt;th&gt;Wayland (wl-clipboard)&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;环境变量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; + &lt;code&gt;XDG_RUNTIME_DIR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;剪贴板&lt;&#x2F;td&gt;&lt;td&gt;一个全局剪贴板&lt;&#x2F;td&gt;&lt;td&gt;clipboard 与 primary selection &lt;strong&gt;分开&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;复制命令&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xclip -selection clipboard&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy&lt;&#x2F;code&gt;（clipboard）&#x2F; &lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;粘贴命令&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xclip -o&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;常驻方式&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;-r&lt;&#x2F;code&gt; 保持存活&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;默认 fork 守护进程&lt;&#x2F;strong&gt;，持有数据直到被替换&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;回显管道&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;-f&lt;&#x2F;code&gt; 支持 stdin 原样回显&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;无回显选项&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wayland-de-shuang-jian-tie-ban-clipboard-yu-primary-selection&quot;&gt;Wayland 的双剪贴板：clipboard 与 primary selection&lt;&#x2F;h3&gt;
+&lt;p&gt;X11 有三个 selection（primary &#x2F; secondary &#x2F; clipboard），Wayland 只有两个：&lt;strong&gt;clipboard&lt;&#x2F;strong&gt; 和 &lt;strong&gt;primary selection&lt;&#x2F;strong&gt;，它们不是同一个协议的两种用法，而是&lt;strong&gt;两套机制几乎一样、语义完全不同的协议&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;xie-yi-ceng-mian&quot;&gt;协议层面&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;clipboard&lt;&#x2F;th&gt;&lt;th&gt;primary selection&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;协议&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl_data_device&lt;&#x2F;code&gt;（Wayland &lt;strong&gt;核心协议&lt;&#x2F;strong&gt;自带）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wp_primary_selection&lt;&#x2F;code&gt;（&lt;strong&gt;独立扩展协议&lt;&#x2F;strong&gt;，2024 年才进 stable）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;触发方式&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;显式复制&lt;&#x2F;strong&gt;：Ctrl+C &#x2F; 右键复制 &#x2F; 应用内&quot;复制&quot;按钮&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;选中即复制&lt;&#x2F;strong&gt;：鼠标选中文本的瞬间，应用立刻设置 selection，没有&quot;复制&quot;这个动作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;常用快捷键&lt;&#x2F;td&gt;&lt;td&gt;复制 &lt;code&gt;Ctrl+C&lt;&#x2F;code&gt;（终端 &lt;code&gt;Ctrl+Shift+C&lt;&#x2F;code&gt;）、剪切 &lt;code&gt;Ctrl+X&lt;&#x2F;code&gt;、粘贴 &lt;code&gt;Ctrl+V&lt;&#x2F;code&gt;（终端 &lt;code&gt;Ctrl+Shift+V&lt;&#x2F;code&gt;）；&lt;code&gt;Ctrl+Insert&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 在多数场景也映射到 clipboard&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;没有复制快捷键&lt;&#x2F;strong&gt;（选中即复制）；粘贴是&lt;strong&gt;鼠标中键单击&lt;&#x2F;strong&gt;；&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 在部分终端（xterm 系、foot）粘贴 primary&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;粘贴方式&lt;&#x2F;td&gt;&lt;td&gt;Ctrl+V &#x2F; 右键粘贴 &#x2F; &lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;中键单击&lt;&#x2F;strong&gt;（终端&#x2F;编辑器里） &#x2F; &lt;code&gt;wl-paste --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;生命周期&lt;&#x2F;td&gt;&lt;td&gt;持续到下一次复制或被显式清空&lt;&#x2F;td&gt;&lt;td&gt;下一次选中立刻被替换；多数合成器在&lt;strong&gt;焦点切换后清空&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;对应工具&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;wl-paste --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;易混点：&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 的映射因终端而异——X11 传统（xterm）它粘贴 &lt;strong&gt;primary&lt;&#x2F;strong&gt;，GNOME Terminal 等则当作 clipboard 粘贴；Wayland 终端（如 foot）保留 X11 语义：&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; = primary，&lt;code&gt;Ctrl+Shift+V&lt;&#x2F;code&gt; = clipboard。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;lian-xi&quot;&gt;联系&lt;&#x2F;h4&gt;
+&lt;p&gt;两套协议的实现结构完全同构：&lt;code&gt;data_source&lt;&#x2F;code&gt;（数据提供方）+ &lt;code&gt;data_offer&lt;&#x2F;code&gt;（数据接受方）+ &lt;code&gt;data_device&lt;&#x2F;code&gt;（会话对象），走同一套 &lt;strong&gt;MIME 类型协商&lt;&#x2F;strong&gt;机制。&lt;code&gt;wl-copy&lt;&#x2F;code&gt; 加不加 &lt;code&gt;--primary&lt;&#x2F;code&gt; 只是往哪套协议上挂 source。&lt;&#x2F;p&gt;
+&lt;p&gt;部分合成器提供&quot;联动&quot;选项（比如选中文本时同步写入 clipboard），但那是合成器的额外实现，不是协议保证的行为——迁移时不要假设 Ctrl+C 和选中是同一个剪贴板。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;wl-copy-gong-zuo-yuan-li-wei-shen-me-fu-zhi-gong-ju-bi-xu-chang-zhu&quot;&gt;wl-copy 工作原理：为什么复制工具必须常驻&lt;&#x2F;h3&gt;
+&lt;p&gt;理解了这个机制，前面表格里&quot;daemon 常驻&quot;和&quot;管道挂死&quot;两个坑就都说得通了。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;duo-xing-chuan-shu-lazy-transfer&quot;&gt;惰性传输（lazy transfer）&lt;&#x2F;h4&gt;
+&lt;p&gt;Wayland 剪贴板&lt;strong&gt;不是&quot;复制时把数据交给合成器&quot;&lt;&#x2F;strong&gt;，而是&quot;注册一个数据源，谁要粘贴谁自己来取&quot;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;复制方(wl-copy)                    合成器                      粘贴方(wl-paste)
+     │ 创建 data_source               │                           │
+     │ 声明 MIME(text&amp;#x2F;plain 等)        │                           │
+     │ set_selection(source) ───────►│                           │
+     │                                │── 收到 data_offer ───────►│
+     │                                │◄───── receive(mime, fd) ──│
+     │◄── send(mime, fd) 回调 ────────│                           │
+     │ 把数据写进 fd ──────────────────────────────►               │
+     │                                │                           │
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键点：&lt;strong&gt;数据在&quot;复制&quot;时刻并没有传输&lt;&#x2F;strong&gt;。合成器只记下&quot;当前剪贴板内容是哪个进程提供的&quot;。直到有人真的执行粘贴，合成器才会回调数据源进程的 &lt;code&gt;send()&lt;&#x2F;code&gt; 回调，把数据中转到粘贴方。&lt;&#x2F;p&gt;
+&lt;p&gt;所以数据源进程（wl-copy 的守护进程）&lt;strong&gt;必须活着&lt;&#x2F;strong&gt;——它死了，合成器就只能给粘贴方一份空数据。xclip 常驻是同一个道理。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;wl-copy-de-zhi-xing-liu-cheng&quot;&gt;wl-copy 的执行流程&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;读入全部 stdin（或参数&#x2F;文件内容），按内容推断 MIME：UTF-8 纯文本 → &lt;code&gt;text&#x2F;plain;charset=utf-8&lt;&#x2F;code&gt;，含 NUL 字节&#x2F;非 UTF-8 → &lt;code&gt;application&#x2F;octet-stream&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;内容先落到临时缓冲（&lt;code&gt;&#x2F;tmp&#x2F;wl-copy-buffer-*&#x2F;&lt;&#x2F;code&gt; 目录 + memfd），大剪贴板（截图、视频帧）不会撑爆内存——实测守护进程的 fd 列表里能看到这个文件&lt;&#x2F;li&gt;
+&lt;li&gt;连接合成器，创建 &lt;code&gt;wl_data_source&lt;&#x2F;code&gt;，声明 MIME&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;set_selection()&lt;&#x2F;code&gt; 提交 → &lt;strong&gt;fork 守护进程&lt;&#x2F;strong&gt;：父进程退出，子进程保持 wayland 连接，等待 &lt;code&gt;send()&lt;&#x2F;code&gt; 回调&lt;&#x2F;li&gt;
+&lt;li&gt;每次有人粘贴，把缓冲里的数据写进合成器给的 fd；被新复制替换或收到 release 后退出&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;zhe-jie-shi-liao-liang-ge-keng&quot;&gt;这解释了两个坑&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;管道挂死&lt;&#x2F;strong&gt;：&lt;code&gt;printf x | wl-copy&lt;&#x2F;code&gt; 卡住——守护进程 fork 时继承了管道读端 fd，shell 等管道 EOF 永远等不到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;异步报错&lt;&#x2F;strong&gt;：wl-copy&#x2F;waypipe 的很多错误是&quot;粘贴发生时&quot;才触发的（比如前文的 dmabuf 报错延迟 15~60 秒才出现），不是复制那一刻&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-yi-wl-copy-mei-you-f-hui-xian&quot;&gt;关键差异一：wl-copy 没有 &lt;code&gt;-f&lt;&#x2F;code&gt; 回显&lt;&#x2F;h3&gt;
+&lt;p&gt;X11 时代的经典管道：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;xclip -i -f -selection primary | xclip -i -f -selection clipboard
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;xclip -f&lt;&#x2F;code&gt; 会把 stdin 原样回显到 stdout，所以可以串联多个 selection。wl-copy &lt;strong&gt;没有这个选项&lt;&#x2F;strong&gt;，&lt;code&gt;wl-copy | wl-copy --primary&lt;&#x2F;code&gt; 的第二段会读到空。&lt;&#x2F;p&gt;
+&lt;p&gt;解法：先用临时文件接住数据，再分别喂给两个 wl-copy：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;f=$(mktemp &amp;#x2F;tmp&amp;#x2F;wlyank.XXXXXX)
+cat &amp;gt;&amp;quot;$f&amp;quot;          # 接住 stdin
+wl-copy &amp;lt;&amp;quot;$f&amp;quot;      # clipboard
+wl-copy --primary &amp;lt;&amp;quot;$f&amp;quot;   # primary
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-er-daemon-chang-zhu-guan-dao-gua-si&quot;&gt;关键差异二：daemon 常驻 + 管道挂死&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;echo foo | wl-copy&lt;&#x2F;code&gt; 在脚本里没问题，但&lt;strong&gt;放到管道链尾部会挂住&lt;&#x2F;strong&gt;：wl-copy fork 出的守护进程继承了管道读端 fd，shell 等管道关闭时永远等不到。&lt;&#x2F;p&gt;
+&lt;p&gt;实测：&lt;code&gt;printf x | wl-copy&lt;&#x2F;code&gt; 在 bash 里能卡 120 秒以上。所以 tmux 绑定里不要写成管道，用文件重定向最稳。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-san-mei-you-quan-ju-jian-tie-ban-zhi-you-socket&quot;&gt;关键差异三：没有全局剪贴板，只有 socket&lt;&#x2F;h3&gt;
+&lt;p&gt;Wayland 客户端通过 &lt;code&gt;$XDG_RUNTIME_DIR&#x2F;$WAYLAND_DISPLAY&lt;&#x2F;code&gt; 这个 unix socket 连合成器。坑点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;tmux server 继承旧 socket&lt;&#x2F;strong&gt;：tmux server 是长驻进程，它启动时的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 可能早已失效（会话退出、waypipe 重连后 socket 名都变了）。新 pane 继承 server 环境 → 复制直接报 &lt;code&gt;Failed to connect to a Wayland server&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;多个 socket 并存&lt;&#x2F;strong&gt;：SSH 多会话 + waypipe 隧道时，&lt;code&gt;&#x2F;run&#x2F;user&#x2F;$UID&#x2F;&lt;&#x2F;code&gt; 下可能同时躺着好几个 &lt;code&gt;wayland-*&lt;&#x2F;code&gt; socket，肉眼无法判断哪个有效。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;解法（wlyank.sh 运行时自愈）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# socket 失效时自动回退到最新可用 socket
+if [ -n &amp;quot;${WAYLAND_DISPLAY:-}&amp;quot; ] &amp;amp;&amp;amp; [ ! -S &amp;quot;&amp;#x2F;run&amp;#x2F;user&amp;#x2F;$(id -u)&amp;#x2F;$WAYLAND_DISPLAY&amp;quot; ]; then
+  export WAYLAND_DISPLAY=$(ls -t &amp;#x2F;run&amp;#x2F;user&amp;#x2F;$(id -u)&amp;#x2F;wayland-* 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | head -1 | xargs -r basename)
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yi-nan-bao-cuo-yi-dmabuf-cuo-wu-qi-shi-shi-waypipe-de&quot;&gt;疑难报错一：dmabuf 错误其实是 waypipe 的&lt;&#x2F;h2&gt;
+&lt;p&gt;症状：tmux 消息行每隔一阵刷一条绿色报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$591700: 15.880863 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;第一反应是 wl-copy 的错——查了 wl-clipboard 2.2.1 源码，&lt;strong&gt;根本没有 &lt;code&gt;dmabuf.c&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;。报错格式 &lt;code&gt;$pid: elapsed [src&#x2F;xxx.c:line]&lt;&#x2F;code&gt; 是 waypipe 的日志风格。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;看进程：机器上跑着 &lt;code&gt;waypipe ... --display wayland-n49YaBhs server&lt;&#x2F;code&gt;，&lt;code&gt;wayland-n49YaBhs&lt;&#x2F;code&gt; 正是 tmux 客户端在用的 socket——这个会话是&lt;strong&gt;经 waypipe 隧道转发&lt;&#x2F;strong&gt;的。&lt;&#x2F;li&gt;
+&lt;li&gt;时间线吻合：waypipe 进程启动 60 秒后出现 &lt;code&gt;60.485827&lt;&#x2F;code&gt; 的报错，与每次复制&#x2F;粘贴的传输时机对得上。&lt;&#x2F;li&gt;
+&lt;li&gt;根因：waypipe 在隧道间传缓冲区时优先走 &lt;strong&gt;GPU dmabuf 直传&lt;&#x2F;strong&gt;，但这台虚拟机是 QXL 显卡，&lt;code&gt;&#x2F;dev&#x2F;dri&lt;&#x2F;code&gt; 下没有渲染节点 &lt;code&gt;renderD128&lt;&#x2F;code&gt; → 每次传剪贴板都异步失败一次。&lt;&#x2F;li&gt;
+&lt;li&gt;复制本身是成功的（waypipe&#x2F;wl-copy 会回退到共享内存拷贝），纯粹是噪音——但天天刷也烦。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;jie-jue&quot;&gt;解决&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;waypipe&lt;&#x2F;code&gt; 客户端加 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe --no-gpu ssh -t &amp;lt;server&amp;gt; &amp;#x27;env SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass sudo -A &amp;lt;command&amp;gt;&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 禁用 GPU 相关协议、改走共享内存拷贝。&lt;strong&gt;注意是客户端侧参数&lt;&#x2F;strong&gt;，而且当前已建立的隧道要重连才生效。&lt;&#x2F;p&gt;
+&lt;p&gt;教训：报错文本里的源码路径 + pid 前缀是定位&lt;strong&gt;哪个程序&lt;&#x2F;strong&gt;在叫的关键证据，别被&quot;看起来像剪贴板错误&quot;带偏。先 &lt;code&gt;grep&lt;&#x2F;code&gt; 一下报错字符串属于哪个项目，再动手改。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;tmux-jian-tie-ban-bang-ding-zui-zhong-xing-tai&quot;&gt;tmux 剪贴板绑定最终形态&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;tmux&quot; class=&quot;language-tmux &quot;&gt;&lt;code class=&quot;language-tmux&quot; data-lang=&quot;tmux&quot;&gt;# copy-mode 按 y：复制到 wayland clipboard
+bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel &amp;#x27;wl-copy&amp;#x27;
+
+# 鼠标拖拽：clipboard + primary + OSC52 兜底（ssh 远程无 wayland 时降级）
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel wlyank.sh
+
+# prefix + M：切换成纯 OSC52 模式（copy-pipe-no-clear，适合连续选区）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;wlyank.sh&lt;&#x2F;code&gt; 完整逻辑：接 stdin → 校验&#x2F;回退 WAYLAND_DISPLAY → &lt;code&gt;wl-copy&lt;&#x2F;code&gt; + &lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt;（&lt;code&gt;2&amp;gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt; 压掉连接噪音）→ &lt;code&gt;myyank.sh&lt;&#x2F;code&gt; 发 OSC52 兜底。&lt;&#x2F;p&gt;
+&lt;p&gt;依赖关系也要理清：脚本放 &lt;code&gt;~&#x2F;.my_local&#x2F;bin&lt;&#x2F;code&gt;（整目录软链，自动部署），绑定放 &lt;code&gt;~&#x2F;.tmux.conf&lt;&#x2F;code&gt;，apt 依赖 &lt;code&gt;wl-clipboard&lt;&#x2F;code&gt; 在根 &lt;code&gt;run.sh&lt;&#x2F;code&gt; 的 &lt;code&gt;install_pre&lt;&#x2F;code&gt; 里——新环境 &lt;code&gt;bash run.sh default&lt;&#x2F;code&gt; 一键落地。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-zhi-fang-an-qxl-virtio-gpu-3d&quot;&gt;根治方案：QXL → virtio-gpu 3D&lt;&#x2F;h2&gt;
+&lt;p&gt;以上都是&quot;兼容性修补&quot;。想让 dmabuf 真正可用，得让虚拟机有渲染节点。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yuan-li&quot;&gt;原理&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;QXL&lt;&#x2F;strong&gt;：纯显示卡，没有 3D 加速，不提供 &lt;code&gt;renderD128&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;virtio-gpu + virgl&lt;&#x2F;strong&gt;：虚拟 GPU 支持 3D 加速，guest 里出现 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，dmabuf 直传可用（waypipe 也能开 GPU 传输了）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;cao-zuo-su-zhu-ji-shang&quot;&gt;操作（宿主机上）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 停 VM，编辑配置
+virsh shutdown &amp;lt;vm&amp;gt;
+virsh edit &amp;lt;vm&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;video&amp;gt;
+  &amp;lt;model type=&amp;quot;virtio&amp;quot; heads=&amp;quot;1&amp;quot; primary=&amp;quot;yes&amp;quot;&amp;gt;
+    &amp;lt;acceleration accel3d=&amp;quot;yes&amp;quot; rendernode=&amp;quot;&amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128&amp;quot;&amp;#x2F;&amp;gt;
+  &amp;lt;&amp;#x2F;model&amp;gt;
+&amp;lt;&amp;#x2F;video&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;图形输出走 SPICE（&lt;code&gt;&amp;lt;graphics type=&#x27;spice&#x27;&amp;gt;&lt;&#x2F;code&gt;）才能用 virgl 3D；QXL 显示协议要改成 spice&#x2F;virtio&lt;&#x2F;li&gt;
+&lt;li&gt;宿主必须本身有 render 节点（物理 GPU 或另一层 virtio-gpu），否则 &lt;code&gt;rendernode&lt;&#x2F;code&gt; 指向的节点不存在&lt;&#x2F;li&gt;
+&lt;li&gt;guest 内核需要 &lt;code&gt;virtio_gpu&lt;&#x2F;code&gt; 模块（主线内核默认有），装好 &lt;code&gt;mesa&lt;&#x2F;code&gt; 的 virgl 驱动&lt;&#x2F;li&gt;
+&lt;li&gt;改完重启 VM，验证：&lt;code&gt;ls &#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt; 存在即可&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie-wayland-jian-tie-ban-gua-pei-jian-cha-qing-dan&quot;&gt;总结：Wayland 剪贴板适配检查清单&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;所有 &lt;code&gt;xclip&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;xsel&lt;&#x2F;code&gt; 换成 &lt;code&gt;wl-copy&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;wl-paste&lt;&#x2F;code&gt;，注意 &lt;code&gt;--primary&lt;&#x2F;code&gt; 与默认 clipboard 的区别&lt;&#x2F;li&gt;
+&lt;li&gt;不要写 &lt;code&gt;wl-copy | wl-copy&lt;&#x2F;code&gt; 管道（无回显 + daemon 挂管道），用临时文件&lt;&#x2F;li&gt;
+&lt;li&gt;长驻进程（tmux server）的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 可能失效，脚本里做 socket 存在性检查 + 回退&lt;&#x2F;li&gt;
+&lt;li&gt;遇到 &lt;code&gt;[src&#x2F;xxx.c]&lt;&#x2F;code&gt; 格式的报错先确认属于哪个程序（本案例是 waypipe 不是 wl-copy）&lt;&#x2F;li&gt;
+&lt;li&gt;waypipe 隧道在无渲染节点机器上必加 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;想根治 dmabuf：虚拟机升 virtio-gpu 3D（virgl），宿主需有 render 节点&lt;&#x2F;li&gt;
+&lt;li&gt;ssh 远程&#x2F;无 wayland 场景，OSC52（myyank.sh）兜底不能丢&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>waypipe + weston 全屏乱码排查：一次被现象带偏的过程</title>
+        <published>2026-07-08T12:00:00+08:00</published>
+        <updated>2026-07-08T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/"/>
+        <id>https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/07/waypipe-weston-乱码排查/">&lt;h1 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h1&gt;
+&lt;p&gt;通过 waypipe 把远程主机的 Wayland 应用转发到本地显示：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh peter@dev weston
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果整个 Weston 窗口（包括标题栏和内部终端）&lt;strong&gt;所有文字都是整齐的方块（tofu）&lt;&#x2F;strong&gt;，连 ASCII 字符都无法显示。&lt;&#x2F;p&gt;
+&lt;p&gt;关键对照：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;同样的命令连另一台服务器 &lt;code&gt;douhao&lt;&#x2F;code&gt; &lt;strong&gt;完全正常&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;直接 &lt;code&gt;ssh dev&lt;&#x2F;code&gt; 用本地终端登录，文字显示&lt;strong&gt;一切正常&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这两个对照信息看似缩小了范围，实际上把排查带偏了好几次。本文如实记录整个过程，重点是&lt;strong&gt;每一步用什么工具、看什么输出、为什么某个结论是错的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-qian-de-ji-chu-xin-xi-shou-ji&quot;&gt;排查前的基础信息收集&lt;&#x2F;h1&gt;
+&lt;p&gt;第一步永远是确认版本和环境，不要凭记忆。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地
+waypipe --version    # -&amp;gt; waypipe 0.8.6
+
+# 两台服务器
+ssh dev    &amp;quot;waypipe --version; weston --version&amp;quot;   # -&amp;gt; 0.9.2 &amp;#x2F; weston 14.0.2
+ssh douhao &amp;quot;waypipe --version; weston --version&amp;quot;   # -&amp;gt; 0.9.2 &amp;#x2F; weston 14.0.2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;wu-pan-yi-yi-wei-shi-zi-ti-que-shi&quot;&gt;误判一：以为是字体缺失&lt;&#x2F;h1&gt;
+&lt;p&gt;最初的直觉：方块 = 缺字体。于是去数远程的字体：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh dev &amp;quot;fc-list | wc -l&amp;quot;     # -&amp;gt; 168
+ssh dev &amp;quot;fc-list | grep -iE &amp;#x27;mono|dejavu|noto&amp;#x27;&amp;quot;
+# &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;fonts&amp;#x2F;truetype&amp;#x2F;dejavu&amp;#x2F;DejaVuSansMono.ttf: DejaVu Sans Mono ...
+# &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;fonts&amp;#x2F;truetype&amp;#x2F;noto&amp;#x2F;NotoSansMono-Regular.ttf ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;&lt;code&gt;fc-list&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; 列出系统所有已注册字体。dev 上有 168 个字体，DejaVu Sans Mono、Noto 一应俱全。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;结论：字体文件不缺。&lt;strong&gt;「缺字体」被排除。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;这里其实已经埋下伏笔——&lt;code&gt;fc-list&lt;&#x2F;code&gt; 能列出字体，不代表字体查询系统本身是健康的。但当时没意识到。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wu-pan-er-yi-wei-shi-gpu-dmabuf-chuan-shu-wen-ti&quot;&gt;误判二：以为是 GPU DMABUF 传输问题&lt;&#x2F;h1&gt;
+&lt;p&gt;既然字体不缺，转去看 dev 和 douhao 的硬件差异：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh dev    &amp;quot;lspci -nn | grep -iE &amp;#x27;vga|3d&amp;#x27;; ls -l &amp;#x2F;dev&amp;#x2F;dri&amp;quot;
+ssh douhao &amp;quot;lspci -nn | grep -iE &amp;#x27;vga|3d&amp;#x27;; ls -l &amp;#x2F;dev&amp;#x2F;dri&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;发现一个「重大差异」：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;GPU&lt;&#x2F;th&gt;&lt;th&gt;缓冲区类型&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;dev&lt;&#x2F;strong&gt;（乱码）&lt;&#x2F;td&gt;&lt;td&gt;真实 Intel 显卡 (i915&#x2F;iris, renderD128)&lt;&#x2F;td&gt;&lt;td&gt;硬件 tiled&#x2F;带 modifier 的 DMABUF&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;douhao&lt;&#x2F;strong&gt;（正常）&lt;&#x2F;td&gt;&lt;td&gt;virtio-gpu（虚拟机）&lt;&#x2F;td&gt;&lt;td&gt;线性 (linear) 缓冲区&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;推理链看起来很完美：Weston 在 dev 上用 GL 渲染器输出 Intel 平铺格式的显存缓冲区，waypipe 通过网络传这些 GPU buffer 时 tiling modifier 没正确还原 → 乱码；douhao 是虚拟 GPU、线性缓冲，所以正常。&lt;&#x2F;p&gt;
+&lt;p&gt;于是给出三个方案（对应 &lt;code&gt;waypipe --help&lt;&#x2F;code&gt; 里的选项）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh peter@dev weston --renderer=pixman   # 让 weston 用 CPU 软件渲染，输出线性缓冲
+waypipe --no-gpu ssh peter@dev weston            # 让 waypipe 不转发 GPU dmabuf
+waypipe --allow-tiled ssh peter@dev weston       # 允许带 modifier 的 tiled 缓冲
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结果三个全部还是乱码。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 走的是纯 SHM 内存缓冲路径，理论上完全绕开 GPU。它都乱码，说明&lt;strong&gt;根因不在 GPU &#x2F; DMABUF 传输&lt;&#x2F;strong&gt;。GPU 差异理论被推翻。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;教训：一个「显著差异」不等于「根因」。dev 和 douhao 有很多不同点，GPU 只是最扎眼的那个。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wu-pan-san-yi-wei-shi-waypipe-ban-ben-bu-pi-pei&quot;&gt;误判三：以为是 waypipe 版本不匹配&lt;&#x2F;h1&gt;
+&lt;p&gt;加 &lt;code&gt;--debug&lt;&#x2F;code&gt; 抓真实日志，这是转折点：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe --debug ssh peter@dev &amp;quot;weston --renderer=pixman&amp;quot; 2&amp;gt;&amp;amp;1 | head -60
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;日志里跳出版本号：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;c2951318: ... version: 0.8.6      &amp;lt;- 本地 client
+s747338:  ... version: 0.9.2      &amp;lt;- 远程 server
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;waypipe 0.8.x 和 0.9.x 之间线协议（wire protocol）确实不保证兼容，看起来是铁证。&lt;&#x2F;p&gt;
+&lt;p&gt;但对照 &lt;code&gt;douhao&lt;&#x2F;code&gt; 时立刻自相矛盾：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe --version                       # 本地 0.8.6
+ssh dev    &amp;quot;waypipe --version&amp;quot;          # 0.9.2
+ssh douhao &amp;quot;waypipe --version&amp;quot;          # 0.9.2
+ssh dev    &amp;quot;ls -l \$(command -v waypipe)&amp;quot;    # 236056 字节
+ssh douhao &amp;quot;ls -l \$(command -v waypipe)&amp;quot;    # 236056 字节，完全一致
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;连接&lt;&#x2F;th&gt;&lt;th&gt;本地 client&lt;&#x2F;th&gt;&lt;th&gt;远程 server&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;dev&lt;&#x2F;td&gt;&lt;td&gt;0.8.6&lt;&#x2F;td&gt;&lt;td&gt;0.9.2&lt;&#x2F;td&gt;&lt;td&gt;乱码&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;douhao&lt;&#x2F;td&gt;&lt;td&gt;0.8.6&lt;&#x2F;td&gt;&lt;td&gt;0.9.2&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;正常&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;两条连接是&lt;strong&gt;完全相同的 0.8.6 ↔ 0.9.2 组合&lt;&#x2F;strong&gt;。如果纯粹是版本协议不兼容，douhao 也该乱码。&lt;strong&gt;版本不匹配被推翻。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;顺手也排除了 CPU&#x2F;SIMD 差异（waypipe 用手写 AVX2&#x2F;AVX512 内核做缓冲区 diff）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;grep -m1 flags &amp;#x2F;proc&amp;#x2F;cpuinfo | grep -oE &amp;#x27;avx512[a-z]*|avx2&amp;#x27;   # 三方都查
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果本地是 i7-11700T（有 avx512），两台服务器都是 &lt;strong&gt;i7-14700K（相同，avx2、无 avx512）&lt;&#x2F;strong&gt;。两台服务器 CPU 完全一样，SIMD 路径不是差异点。&lt;&#x2F;p&gt;
+&lt;p&gt;至此，dev 和 douhao 在&lt;strong&gt;版本、CPU、Mesa、字体文件&lt;&#x2F;strong&gt;上全都相同，硬件 GPU 差异又已被 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 排除。必须换思路。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-gen-yin-dui-bi-fontconfig-pi-pei-jie-guo&quot;&gt;定位根因：对比 fontconfig 匹配结果&lt;&#x2F;h1&gt;
+&lt;p&gt;回到最朴素的观察：&lt;strong&gt;乱码是整齐的方块（tofu），不是彩色雪花噪点。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;缓冲区&#x2F;传输损坏 → 应该是随机噪点、错位、花屏。&lt;&#x2F;li&gt;
+&lt;li&gt;整齐的 &lt;code&gt;.notdef&lt;&#x2F;code&gt; 方块 → 是&lt;strong&gt;字形（glyph）查询失败&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;现象一直在说「字体」，只是我前面把「字体文件存在」错当成了「字体系统正常」。直接对比两台的字体&lt;strong&gt;匹配&lt;&#x2F;strong&gt;行为（而不是字体&lt;strong&gt;列表&lt;&#x2F;strong&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;for h in dev douhao; do
+  echo &amp;quot;===== $h =====&amp;quot;
+  ssh $h &amp;quot;fc-match monospace; fc-match sans-serif; fc-cache -v 2&amp;gt;&amp;amp;1 | grep -iE &amp;#x27;invalid|成功&amp;#x27;&amp;quot;
+done
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;&lt;code&gt;fc-match &amp;lt;类别&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; 才是关键工具——它模拟应用程序实际拿字体的过程，回答「monospace 这个别名最终解析到哪个字体文件」。输出对比：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;fc-match monospace&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;fc-cache&lt;&#x2F;code&gt; 状态&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;dev&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Droid Sans Fallback&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;⚠️ &lt;code&gt;invalid cache file: 21a99156...-le64.cache-9&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;douhao&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Noto Sans Mono CJK SC&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;正常&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;两个问题同时暴露：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;dev 的 fontconfig 缓存损坏&lt;&#x2F;strong&gt;：&lt;code&gt;invalid cache file&lt;&#x2F;code&gt;，douhao 没有这行。&lt;&#x2F;li&gt;
+&lt;li&gt;dev 默认 monospace 解析到了 CJK 覆盖不全的 &lt;code&gt;Droid Sans Fallback&lt;&#x2F;code&gt;，douhao 是完整的 &lt;code&gt;Noto CJK&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;xiu-fu&quot;&gt;修复&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 在 dev 上执行
+rm -rf ~&amp;#x2F;.cache&amp;#x2F;fontconfig            # 删除损坏的缓存
+sudo apt install fonts-noto-cjk fonts-noto-mono   # 补齐和 douhao 一致的字体
+fc-cache -fv                          # 重建缓存
+fc-match monospace                    # 验证 -&amp;gt; Noto Sans Mono CJK SC
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh dev &amp;quot;fc-match monospace; fc-cache -v 2&amp;gt;&amp;amp;1 | grep -iE &amp;#x27;invalid|成功&amp;#x27;&amp;quot;
+# NotoSansCJK-Regular.ttc: &amp;quot;Noto Sans Mono CJK SC&amp;quot; &amp;quot;Regular&amp;quot;
+# fc-cache: 缓存生成成功          &amp;lt;- 不再有 invalid
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;之后裸命令 &lt;code&gt;waypipe ssh peter@dev weston&lt;&#x2F;code&gt; 恢复正常，不需要任何 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;--renderer&lt;&#x2F;code&gt; 参数。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin-jie-shi-wei-shen-me-lian-ascii-du-bian-fang-kuai&quot;&gt;根因解释：为什么连 ASCII 都变方块？&lt;&#x2F;h1&gt;
+&lt;p&gt;这是最反直觉的一点，也是最值得记住的：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;ASCII 字形任何西文字体都有，「monospace 匹配到覆盖不全的字体」根本不该让 ASCII 也变方块。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;真正让 &lt;strong&gt;ASCII 也乱码&lt;&#x2F;strong&gt;的是&lt;strong&gt;另一半原因：fontconfig 缓存损坏&lt;&#x2F;strong&gt;。渲染链路是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;weston-terminal  -&amp;gt;  Cairo &amp;#x2F; Pango  -&amp;gt;  fontconfig  -&amp;gt;  FreeType
+                                          (查询)        (取字形)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;每渲染一个字符，Pango 都要先问 fontconfig：「这个码点用哪个字体？文件在哪？glyph 索引多少？」&lt;&#x2F;li&gt;
+&lt;li&gt;fontconfig 的这套查询&lt;strong&gt;依赖磁盘上的缓存文件&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;当缓存是 &lt;code&gt;invalid&lt;&#x2F;code&gt; 状态时，查询&lt;strong&gt;整体失败&lt;&#x2F;strong&gt;——不是「某个中文字找不到」，而是&lt;strong&gt;连 ASCII 的字形查询都拿不到结果&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;拿不到 glyph，Pango 对&lt;strong&gt;所有字符&lt;&#x2F;strong&gt;（&lt;code&gt;~&lt;&#x2F;code&gt;、&lt;code&gt;$&lt;&#x2F;code&gt;、字母、中文）一律画成 &lt;code&gt;.notdef&lt;&#x2F;code&gt; 空方块。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以现象才是「连 ASCII 都是方块」：&lt;strong&gt;不是字体文件缺失，是字体查询系统整体挂了。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;两个原因各自的作用要分清：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;th&gt;造成的现象&lt;&#x2F;th&gt;&lt;th&gt;修复手段&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;fontconfig 缓存损坏&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;连 ASCII 都变方块&lt;&#x2F;strong&gt;（根因）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;rm -rf ~&#x2F;.cache&#x2F;fontconfig &amp;amp;&amp;amp; fc-cache -fv&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;默认字体是 Droid Sans Fallback&lt;&#x2F;td&gt;&lt;td&gt;中文提示符覆盖不全&lt;&#x2F;td&gt;&lt;td&gt;安装 &lt;code&gt;fonts-noto-cjk&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;真正治好 ASCII 方块的是删缓存重建那一步；装 Noto CJK 只是顺带把中文显示也补全了。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wei-shen-me-zhi-jie-ssh-dev-jiu-mei-shi&quot;&gt;为什么直接 ssh dev 就没事？&lt;&#x2F;h1&gt;
+&lt;p&gt;因为渲染位置不同：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;直接 &lt;code&gt;ssh dev&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：文字在&lt;strong&gt;本地终端仿真器&lt;&#x2F;strong&gt;里渲染，用的是&lt;strong&gt;本地机器&lt;&#x2F;strong&gt;的字体系统，dev 的 fontconfig 完全没参与。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;waypipe ssh dev weston&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：Weston 及其终端跑在 dev 上，&lt;strong&gt;所有字形渲染都在 dev 完成&lt;&#x2F;strong&gt;，然后把画好的像素缓冲通过 waypipe 传回本地。这条路径才会踩到 dev 上损坏的 fontconfig。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;tui-lun-ben-di-zhi-lian-dev-pao-gui-ye-hui-luan-ma-ma&quot;&gt;推论：本地直连 dev 跑 GUI 也会乱码吗？&lt;&#x2F;h1&gt;
+&lt;p&gt;会。判断标准始终是**「谁在画字、用哪台机器的 fontconfig」**，跟 waypipe &#x2F; 网络无关。&lt;&#x2F;p&gt;
+&lt;p&gt;如果直接坐在 dev 前（或本地登录 dev）用它的显示器跑 GUI 程序（weston、weston-terminal 等），字形渲染就在 dev 上、走 dev 的 fontconfig 完成，同样会命中那份损坏的缓存 → 一样的方块。&lt;&#x2F;p&gt;
+&lt;p&gt;有一个前提要注意：损坏的是&lt;strong&gt;用户 &lt;code&gt;peter&lt;&#x2F;code&gt; 的 &lt;code&gt;~&#x2F;.cache&#x2F;fontconfig&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（用户级缓存）。所以精确说法是：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;以 &lt;strong&gt;peter 身份&lt;&#x2F;strong&gt;在 dev 上跑 GUI → 乱码。&lt;&#x2F;li&gt;
+&lt;li&gt;换成缓存正常的&lt;strong&gt;另一个用户&lt;&#x2F;strong&gt;（或 root 用另一份缓存）→ 未必乱码。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这也反过来印证了前一节：&lt;code&gt;ssh dev&lt;&#x2F;code&gt; 用本地终端不乱码，是因为渲染在本机、用本机 fontconfig，dev 的坏缓存根本没参与。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jing-yan-zong-jie&quot;&gt;经验总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;让现象说话，别让「显著差异」抢戏。&lt;&#x2F;strong&gt; 整齐方块（tofu）= 字形缺失，彩色噪点 = 缓冲区损坏。一开始就该抓住这个区别，而不是先盯着 GPU。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;对照组是双刃剑。&lt;&#x2F;strong&gt; 「douhao 正常」帮我推翻了版本、CPU、GPU 理论，但也一度让我忽略「两台都有字体文件、差异只在匹配结果」这个更细的层面。用对照时要对比到&lt;strong&gt;行为&lt;&#x2F;strong&gt;（&lt;code&gt;fc-match&lt;&#x2F;code&gt;），而不只是&lt;strong&gt;存在性&lt;&#x2F;strong&gt;（&lt;code&gt;fc-list&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;--debug&lt;&#x2F;code&gt; 尽早上。&lt;&#x2F;strong&gt; waypipe&#x2F;weston 的调试日志一句话就暴露了版本号、dmabuf 权限（&lt;code&gt;renderD128: Permission denied&lt;&#x2F;code&gt;，说明 dmabuf 早已被禁用）等关键事实，省去大量猜测。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;区分「文件存在」和「系统可用」。&lt;&#x2F;strong&gt; &lt;code&gt;fc-list&lt;&#x2F;code&gt; 能列出字体 ≠ fontconfig 能正常查询。缓存损坏是「文件都在但系统坏了」的典型。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;gong-ju-su-cha&quot;&gt;工具速查&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;本次关键输出&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;waypipe --version&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;确认两端版本&lt;&#x2F;td&gt;&lt;td&gt;排除&#x2F;确认版本不匹配&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;waypipe --debug ...&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;打印协议级日志&lt;&#x2F;td&gt;&lt;td&gt;暴露版本号、dmabuf 权限被拒&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;waypipe --help&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;--allow-tiled&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;--renderer&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;尝试绕过 GPU&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;fc-list&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;列出已安装字体（存在性）&lt;&#x2F;td&gt;&lt;td&gt;168 个，文件不缺&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;fc-match &amp;lt;类别&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;模拟应用取字体（匹配行为）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;定位到 Droid Sans Fallback &#x2F; 缓存 invalid&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;fc-cache -fv&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;重建字体缓存&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;修复根因&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;lspci -nn&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;ls &#x2F;dev&#x2F;dri&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查 GPU 类型&lt;&#x2F;td&gt;&lt;td&gt;发现 Intel vs virtio（最终无关）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;proc&#x2F;cpuinfo&lt;&#x2F;code&gt; flags&lt;&#x2F;td&gt;&lt;td&gt;查 SIMD 指令集&lt;&#x2F;td&gt;&lt;td&gt;排除 AVX 差异&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>远程桌面配置</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/remote-desktop/"/>
+        <id>https://moxuetianya.github.io/2025/07/remote-desktop/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/remote-desktop/">&lt;h1 id=&quot;yuan-cheng-zhuo-mian-pei-zhi&quot;&gt;远程桌面配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;du-li-hui-hua-vs-ping-mu-gong-xiang&quot;&gt;独立会话 vs 屏幕共享&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;模式&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;独立会话&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;一台机器多人同时使用，各自会话隔离（RDP 支持）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;屏幕共享&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;多人共享同一会话，抢占键鼠焦点（moonlight&#x2F;parsec）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;wayland-fang-an&quot;&gt;Wayland 方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;waypipe-ssh-ying-yong-ji-zhuan-fa&quot;&gt;Waypipe + SSH（应用级转发）&lt;&#x2F;h3&gt;
+&lt;p&gt;适用于远程运行单个 Wayland 原生应用，低带宽环境友好。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装
+sudo apt install waypipe openssh
+
+# 启动远程应用
+waypipe -c lz4=9 ssh user@remote firefox
+
+# 多线程渲染 + 无光标传输（减少带宽）
+waypipe -j 4 -c lz4=9 ssh user@remote blender
+waypipe -C none ssh user@remote gedit
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;限制：不转发 XWayland 应用；客户端和服务端 Wayland 协议版本需一致。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;gnome-remote-desktop-g-r-d&quot;&gt;GNOME Remote Desktop (g-r-d)&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;GNOME 内置 RDP 服务端&lt;&#x2F;li&gt;
+&lt;li&gt;GNOME 47 起支持&lt;strong&gt;持久化会话&lt;&#x2F;strong&gt;（重连时不注销）&lt;&#x2F;li&gt;
+&lt;li&gt;GNOME 46 及以下重连会注销当前会话&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;配置文件：&lt;code&gt;~&#x2F;.config&#x2F;gr-d&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;weston-rdp&quot;&gt;Weston RDP&lt;&#x2F;h3&gt;
+&lt;p&gt;企业级 RDP，支持 Windows &lt;code&gt;mstsc.exe&lt;&#x2F;code&gt; 直接连接。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.config&#x2F;weston.ini&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[screen-share]
+module=rdp.so
+address=0.0.0.0
+port=3389
+
+[core]
+gbm-format=argb8888
+
+[rdp]
+color-depth=32
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;weston --backend=rdp-backend.so
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;krdp&quot;&gt;Krdp&lt;&#x2F;h3&gt;
+&lt;p&gt;KDE Plasma 原生 RDP，仅限 KDE 环境。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;wprs&quot;&gt;wprs&lt;&#x2F;h3&gt;
+&lt;p&gt;Rootless Wayland RDP 服务端。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;x11-fang-an&quot;&gt;X11 方案&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;x11 转发（SSH -X）&lt;&#x2F;td&gt;&lt;td&gt;低带宽，单个应用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;xrdp&lt;&#x2F;td&gt;&lt;td&gt;无脑首选，兼容性最好&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;FreeRDP&lt;&#x2F;td&gt;&lt;td&gt;高性能 + RDP 扩展&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;x2go&lt;&#x2F;td&gt;&lt;td&gt;多会话支持&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ThinLinc&lt;&#x2F;td&gt;&lt;td&gt;商用方案&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;xrdp-ren-zheng-dan-chuang-xiu-fu&quot;&gt;xrdp 认证弹窗修复&lt;&#x2F;h3&gt;
+&lt;p&gt;创建 &lt;code&gt;&#x2F;etc&#x2F;polkit-1&#x2F;localauthority.conf.d&#x2F;02-allow-colord.conf&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;conf&quot; class=&quot;language-conf &quot;&gt;&lt;code class=&quot;language-conf&quot; data-lang=&quot;conf&quot;&gt;polkit.addRule(function(action, subject) {
+  if ((action.id == &amp;quot;org.freedesktop.color-manager.create-device&amp;quot; ||
+       action.id == &amp;quot;org.freedesktop.color-manager.create-profile&amp;quot; ||
+       action.id == &amp;quot;org.freedesktop.color-manager.delete-device&amp;quot; ||
+       action.id == &amp;quot;org.freedesktop.color-manager.delete-profile&amp;quot; ||
+       action.id == &amp;quot;org.freedesktop.color-manager.modify-device&amp;quot; ||
+       action.id == &amp;quot;org.freedesktop.color-manager.modify-profile&amp;quot;) &amp;amp;&amp;amp;
+       subject.isInGroup(&amp;quot;{users}&amp;quot;)) {
+    return polkit.Result.YES;
+  }
+});
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fang-an-dui-bi&quot;&gt;方案对比&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;th&gt;会话类型&lt;&#x2F;th&gt;&lt;th&gt;适用场景&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Waypipe&lt;&#x2F;td&gt;&lt;td&gt;Wayland&#x2F;SSH&lt;&#x2F;td&gt;&lt;td&gt;应用级&lt;&#x2F;td&gt;&lt;td&gt;单应用远程&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;g-r-d&lt;&#x2F;td&gt;&lt;td&gt;RDP&lt;&#x2F;td&gt;&lt;td&gt;独立+共享&lt;&#x2F;td&gt;&lt;td&gt;GNOME 桌面&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Weston RDP&lt;&#x2F;td&gt;&lt;td&gt;RDP&lt;&#x2F;td&gt;&lt;td&gt;独立&lt;&#x2F;td&gt;&lt;td&gt;企业 Windows 接入&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;xrdp&lt;&#x2F;td&gt;&lt;td&gt;RDP&lt;&#x2F;td&gt;&lt;td&gt;独立&lt;&#x2F;td&gt;&lt;td&gt;X11 桌面&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;moonlight&#x2F;sunshine&lt;&#x2F;td&gt;&lt;td&gt;自定义&lt;&#x2F;td&gt;&lt;td&gt;屏幕共享&lt;&#x2F;td&gt;&lt;td&gt;游戏&#x2F;低延迟&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;parsec&#x2F;gameviewer&lt;&#x2F;td&gt;&lt;td&gt;自定义&lt;&#x2F;td&gt;&lt;td&gt;屏幕共享&lt;&#x2F;td&gt;&lt;td&gt;远程游戏&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;gnome-47-rdp-yi-zhi-wen-ti&quot;&gt;GNOME 47 RDP 已知问题&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;gnome-shell 加载 NVIDIA 驱动后调用 MESA，增加闪退概率&lt;&#x2F;li&gt;
+&lt;li&gt;幽灵账户 + u→g 组权限：firefox&#x2F;edge 无法保持 cookie&#x2F;localstorage（可能与 keyring 相关）&lt;&#x2F;li&gt;
+&lt;li&gt;aRDP 客户端尚未支持 Super Key&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

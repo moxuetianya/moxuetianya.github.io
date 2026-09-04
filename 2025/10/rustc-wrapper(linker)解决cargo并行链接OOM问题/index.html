@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>rustc-wrapper(linker)解决cargo并行链接OOM问题 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="墨雪天琊的技术博客" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/" />
+  <meta property="og:description" content="墨雪天琊的技术博客" />
+  <meta name="twitter:description" content="墨雪天琊的技术博客" />
+  <meta property="og:title" content="rustc-wrapper(linker)解决cargo并行链接OOM问题 | 墨雪天琊" />
+  <meta name="twitter:title" content="rustc-wrapper(linker)解决cargo并行链接OOM问题 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-10-31" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/">rustc-wrapper(linker)解决cargo并行链接OOM问题</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 31, 2025 <span class="rpad"></span> #<a href="https://moxuetianya.github.io/tags/cargo/">cargo</a>  #<a href="https://moxuetianya.github.io/tags/rustc/">rustc</a>  #<a href="https://moxuetianya.github.io/tags/linker/">linker</a>  #<a href="https://moxuetianya.github.io/tags/ld/">ld</a> </span>
+
+    
+
+
+<h1 id="bao-zhuan-linkerde-fang-shi">包转linker的方式</h1>
+<p>ld_wrapper.sh
+并没有验证通过ORZ?</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">#!&#x2F;bin&#x2F;bash
+# 通用链接器包装器 - ld_generic_wrapper.sh
+
+PRESSURE_THRESHOLD=&quot;0.10&quot;          # 内存压力阈值（10%）
+MAX_WAIT_TIME=600                  # 最大等待时间（秒）
+MIN_WAIT_TIME=5                    # 最小等待时间（秒） 
+MAX_RETRIES=100                    # 最大重试次数
+PRESSURE_FILE=&quot;&#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;user.slice&#x2F;user-$(id -u).slice&#x2F;memory.pressure&quot;
+REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;ld&quot;              # 真实链接器路径，可根据需要修改
+LOG_FILE=&quot;&#x2F;tmp&#x2F;linker_wrapper.log&quot; # 日志文件路径
+
+# 检测真实链接器
+detect_real_linker() {
+    local wrapper_name=$(basename &quot;$0&quot;)
+    case &quot;$wrapper_name&quot; in
+        *ld*)
+            REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;ld&quot;
+            ;;
+        *lld*)
+            REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;lld&quot;
+            ;;
+        *gold*)
+            REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;gold&quot;
+            ;;
+        *)
+            REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;ld&quot;
+            ;;
+    esac
+    
+    # 检查链接器是否存在
+    if [[ ! -x &quot;$REAL_LD&quot; ]]; then
+        # 尝试在PATH中查找
+        REAL_LD=$(which &quot;${wrapper_name#wrapper_}&quot;) || REAL_LD=&quot;&#x2F;usr&#x2F;bin&#x2F;ld&quot;
+    fi
+}
+
+# 日志函数
+log_message() {
+    echo &quot;$(date &#x27;+%Y-%m-%d %H:%M:%S&#x27;) - $1&quot; &gt;&gt; &quot;$LOG_FILE&quot;
+}
+
+# 其余函数与之前相同...
+get_some_avg10() {
+    local pressure_file=$1
+    if [[ -f &quot;$pressure_file&quot; ]]; then
+        local line=$(grep &quot;^some&quot; &quot;$pressure_file&quot;)
+        if [[ $line =~ avg10=([0-9.]+) ]]; then
+            echo &quot;${BASH_REMATCH[1]}&quot;
+            return 0
+        fi
+    fi
+    echo &quot;0.00&quot;
+}
+
+wait_for_low_memory_pressure() {
+    local retry_count=0
+    local current_pressure
+    
+    while [[ $retry_count -lt $MAX_RETRIES ]]; do
+        current_pressure=$(get_some_avg10 &quot;$PRESSURE_FILE&quot;)
+        
+        # 使用bc进行浮点数比较
+        if command -v bc &gt;&#x2F;dev&#x2F;null 2&gt;&amp;1; then
+            # 如果有bc，进行精确比较
+            if (( $(echo &quot;$current_pressure &lt; $PRESSURE_THRESHOLD&quot; | bc -l) )); then
+                log_message &quot;内存压力正常 ($current_pressure &lt; $PRESSURE_THRESHOLD)，开始执行链接&quot;
+                return 0
+            fi
+        else
+            # 如果没有bc，使用bash内置的数值比较（假设压力值小于10）
+            if (( $(echo &quot;${current_pressure} &lt; ${PRESSURE_THRESHOLD}&quot; | tr -d &#x27;.&#x27; | head -c3) &lt; $(echo &quot;${PRESSURE_THRESHOLD}&quot; | tr -d &#x27;.&#x27; | head -c3) )); then
+                log_message &quot;内存压力正常 ($current_pressure &lt; $PRESSURE_THRESHOLD)，开始执行链接&quot;
+                return 0
+            fi
+        fi
+        
+        # 计算随机等待时间
+        local wait_time=$(( MIN_WAIT_TIME + RANDOM % (MAX_WAIT_TIME - MIN_WAIT_TIME + 1) ))
+        
+        log_message &quot;内存压力过高: $current_pressure (阈值: $PRESSURE_THRESHOLD), 等待 ${wait_time}秒后重试 (尝试: $((retry_count + 1))&#x2F;$MAX_RETRIES)&quot;
+        
+        # 等待
+        sleep $wait_time
+        
+        ((retry_count++))
+    done
+    
+    log_message &quot;错误: 达到最大重试次数 ($MAX_RETRIES)，内存压力仍过高: $current_pressure&quot;
+    return 1
+}
+
+main() {
+    log_message &quot;链接器包装器被调用，参数: $*&quot;
+
+    detect_real_linker
+    log_message &quot;$(date) - 链接器包装器调用: $REAL_LD, 参数: $*&quot; &gt;&gt; &quot;$LOG_FILE&quot;
+    
+    if ! wait_for_low_memory_pressure; then
+        log_message &quot;错误: 内存压力持续过高&quot; &gt;&amp;2
+        return 1
+    fi
+    
+    log_message &quot;执行真实链接器: $REAL_LD $*&quot;
+    exec &quot;$REAL_LD&quot; &quot;$@&quot;
+}
+
+main &quot;$@&quot;
+</code></pre>
+<p>修改cargo编译使用的链接器</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 临时生效： 使脚本可执行
+chmod +x &#x2F;path&#x2F;to&#x2F;ld_wrapper.sh
+
+# 配置RUSTFLAGS环境变量
+export RUSTFLAGS=&quot;-C link-arg=-fuse-ld=&#x2F;path&#x2F;to&#x2F;ld_wrapper.sh&quot;
+cargo build
+# 或者配置
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=$(realpath &#x2F;path&#x2F;to&#x2F;wrap-ld.sh)
+
+# 创建符号链接
+ln -s &#x2F;path&#x2F;to&#x2F;ld_generic_wrapper.sh &#x2F;path&#x2F;to&#x2F;wrapper_ld
+ln -s &#x2F;path&#x2F;to&#x2F;ld_generic_wrapper.sh &#x2F;path&#x2F;to&#x2F;wrapper_lld
+ln -s &#x2F;path&#x2F;to&#x2F;ld_generic_wrapper.sh &#x2F;path&#x2F;to&#x2F;wrapper_gold
+
+# 在cargo配置中使用
+[target.x86_64-unknown-linux-gnu]
+linker = &quot;&#x2F;path&#x2F;to&#x2F;wrapper_ld&quot;
+
+# 实时查看日志
+tail -f &#x2F;tmp&#x2F;ld_wrapper.log
+
+# 监控内存压力变化
+watch -n 1 &#x27;cat &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;user.slice&#x2F;user-$(id -u).slice&#x2F;memory.pressure&#x27;
+
+# 检查链接进程
+ps aux | grep ld_wrapper
+</code></pre>
+<h1 id="bao-zhuang-rustcjin-xing-bian-yi">包装rustc进行编译</h1>
+<p>使用rustc-wrapper.sh</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">#!&#x2F;bin&#x2F;bash
+RUSTC_BIN=&quot;$1&quot;
+shift
+
+PRESSURE_THRESHOLD=&quot;0.10&quot;
+MAX_WAIT_TIME=60
+MIN_WAIT_TIME=5
+MAX_RETRIES=60
+PRESSURE_FILE=&quot;&#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;user.slice&#x2F;user-$(id -u).slice&#x2F;memory.pressure&quot;
+
+get_some_avg10() {
+    if [[ -f &quot;$PRESSURE_FILE&quot; ]]; then
+        local line=$(grep &quot;^some&quot; &quot;$PRESSURE_FILE&quot;)
+        if [[ $line =~ avg10=([0-9.]+) ]]; then
+            echo &quot;${BASH_REMATCH[1]}&quot;
+            return 0
+        fi
+    fi
+    # 默认返回 0.00，表示没有压力
+    echo &quot;0.00&quot;
+}
+
+# 检查是否为链接阶段：包含 --crate-type=bin 或 cdylib，且不包含 --print（避免干扰 Cargo 查询）
+if [[ &quot;$*&quot; == *&quot;--crate-type bin&quot;* || &quot;$*&quot; == *&quot;--crate-type cdylib&quot;* ]] &amp;&amp; [[ &quot;$*&quot; != *&quot;--print&quot;* ]]; then
+    echo &#x27;****************Linker stage ...****************&#x27;
+    retry_count=0
+    while [[ $retry_count -lt 100 ]]; do
+        current_pressure=$(get_some_avg10 &quot;$PRESSURE_FILE&quot;)
+        # 使用bc进行浮点数比较
+        if command -v bc &gt;&#x2F;dev&#x2F;null 2&gt;&amp;1; then
+            if (( $(echo &quot;$current_pressure &lt; $PRESSURE_THRESHOLD&quot; | bc -l) )); then
+                echo &quot;****************内存压力正常 ($current_pressure &lt; $PRESSURE_THRESHOLD)，开始执行 rustc****************&quot;
+		break
+            fi
+        else
+                echo &quot;****************必须安装bc工具计算浮点运算****************&quot;
+		exit 1
+        fi
+
+        # 计算随机等待时间
+        wait_time=$(( MIN_WAIT_TIME + RANDOM % (MAX_WAIT_TIME - MIN_WAIT_TIME + 1) ))
+        echo &quot;****************内存压力过高: $current_pressure (阈值: $PRESSURE_THRESHOLD), 等待 ${wait_time}秒后重试 (尝试: $((retry_count + 1))&#x2F;$MAX_RETRIES)****************&quot;
+        sleep $wait_time
+        ((retry_count++))
+    done
+fi
+
+exec &quot;$RUSTC_BIN&quot; &quot;$@&quot;
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/11/从pve切换到libvirt 问题排查/">&#8249; 从pve切换到libvirt 问题排查</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2025/10/wait-online when any-interface ready/"> wait-online when any-interface ready &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bao-zhuan-linkerde-fang-shi">包转linker的方式</a>
+        </div>
+        <div>
+          <a href="#bao-zhuang-rustcjin-xing-bian-yi">包装rustc进行编译</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - wl-clipboard</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/wl-clipboard/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-09T13:12:21+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/wl-clipboard/atom.xml</id>
+    <entry xml:lang="en">
+        <title>工具链迁移 Wayland：剪贴板踩坑与适配方案</title>
+        <published>2026-08-09T13:12:21+08:00</published>
+        <updated>2026-08-09T13:12:21+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/"/>
+        <id>https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/wayland-migration-toolchain/">&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;X11 时代复制粘贴很简单：&lt;code&gt;xclip&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;xsel&lt;&#x2F;code&gt; 全家桶，tmux、fzf、vim 里全是它们的影子。切到 Wayland 后，剪贴板不再由&quot;全局 X server&quot;统一管理，而是每个合成器（compositor）自己实现，工具链也得跟着换。&lt;&#x2F;p&gt;
+&lt;p&gt;本文记录迁移到 Wayland 剪贴板工具链的完整踩坑过程与最终方案，包含一个容易误判的 waypipe 报错，以及虚拟机显卡升级（QXL → virtio-gpu 3D）的根治思路。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wayland-yu-x11-jian-tie-ban-de-chai-yi&quot;&gt;Wayland 与 X11 剪贴板的差异&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;X11 (xclip&#x2F;xsel)&lt;&#x2F;th&gt;&lt;th&gt;Wayland (wl-clipboard)&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;环境变量&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; + &lt;code&gt;XDG_RUNTIME_DIR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;剪贴板&lt;&#x2F;td&gt;&lt;td&gt;一个全局剪贴板&lt;&#x2F;td&gt;&lt;td&gt;clipboard 与 primary selection &lt;strong&gt;分开&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;复制命令&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xclip -selection clipboard&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy&lt;&#x2F;code&gt;（clipboard）&#x2F; &lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;粘贴命令&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;xclip -o&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;常驻方式&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;-r&lt;&#x2F;code&gt; 保持存活&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;默认 fork 守护进程&lt;&#x2F;strong&gt;，持有数据直到被替换&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;回显管道&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;-f&lt;&#x2F;code&gt; 支持 stdin 原样回显&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;无回显选项&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wayland-de-shuang-jian-tie-ban-clipboard-yu-primary-selection&quot;&gt;Wayland 的双剪贴板：clipboard 与 primary selection&lt;&#x2F;h3&gt;
+&lt;p&gt;X11 有三个 selection（primary &#x2F; secondary &#x2F; clipboard），Wayland 只有两个：&lt;strong&gt;clipboard&lt;&#x2F;strong&gt; 和 &lt;strong&gt;primary selection&lt;&#x2F;strong&gt;，它们不是同一个协议的两种用法，而是&lt;strong&gt;两套机制几乎一样、语义完全不同的协议&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;xie-yi-ceng-mian&quot;&gt;协议层面&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;clipboard&lt;&#x2F;th&gt;&lt;th&gt;primary selection&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;协议&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl_data_device&lt;&#x2F;code&gt;（Wayland &lt;strong&gt;核心协议&lt;&#x2F;strong&gt;自带）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wp_primary_selection&lt;&#x2F;code&gt;（&lt;strong&gt;独立扩展协议&lt;&#x2F;strong&gt;，2024 年才进 stable）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;触发方式&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;显式复制&lt;&#x2F;strong&gt;：Ctrl+C &#x2F; 右键复制 &#x2F; 应用内&quot;复制&quot;按钮&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;选中即复制&lt;&#x2F;strong&gt;：鼠标选中文本的瞬间，应用立刻设置 selection，没有&quot;复制&quot;这个动作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;常用快捷键&lt;&#x2F;td&gt;&lt;td&gt;复制 &lt;code&gt;Ctrl+C&lt;&#x2F;code&gt;（终端 &lt;code&gt;Ctrl+Shift+C&lt;&#x2F;code&gt;）、剪切 &lt;code&gt;Ctrl+X&lt;&#x2F;code&gt;、粘贴 &lt;code&gt;Ctrl+V&lt;&#x2F;code&gt;（终端 &lt;code&gt;Ctrl+Shift+V&lt;&#x2F;code&gt;）；&lt;code&gt;Ctrl+Insert&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 在多数场景也映射到 clipboard&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;没有复制快捷键&lt;&#x2F;strong&gt;（选中即复制）；粘贴是&lt;strong&gt;鼠标中键单击&lt;&#x2F;strong&gt;；&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 在部分终端（xterm 系、foot）粘贴 primary&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;粘贴方式&lt;&#x2F;td&gt;&lt;td&gt;Ctrl+V &#x2F; 右键粘贴 &#x2F; &lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;中键单击&lt;&#x2F;strong&gt;（终端&#x2F;编辑器里） &#x2F; &lt;code&gt;wl-paste --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;生命周期&lt;&#x2F;td&gt;&lt;td&gt;持续到下一次复制或被显式清空&lt;&#x2F;td&gt;&lt;td&gt;下一次选中立刻被替换；多数合成器在&lt;strong&gt;焦点切换后清空&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;对应工具&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;wl-paste&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;wl-paste --primary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;易混点：&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; 的映射因终端而异——X11 传统（xterm）它粘贴 &lt;strong&gt;primary&lt;&#x2F;strong&gt;，GNOME Terminal 等则当作 clipboard 粘贴；Wayland 终端（如 foot）保留 X11 语义：&lt;code&gt;Shift+Insert&lt;&#x2F;code&gt; = primary，&lt;code&gt;Ctrl+Shift+V&lt;&#x2F;code&gt; = clipboard。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;lian-xi&quot;&gt;联系&lt;&#x2F;h4&gt;
+&lt;p&gt;两套协议的实现结构完全同构：&lt;code&gt;data_source&lt;&#x2F;code&gt;（数据提供方）+ &lt;code&gt;data_offer&lt;&#x2F;code&gt;（数据接受方）+ &lt;code&gt;data_device&lt;&#x2F;code&gt;（会话对象），走同一套 &lt;strong&gt;MIME 类型协商&lt;&#x2F;strong&gt;机制。&lt;code&gt;wl-copy&lt;&#x2F;code&gt; 加不加 &lt;code&gt;--primary&lt;&#x2F;code&gt; 只是往哪套协议上挂 source。&lt;&#x2F;p&gt;
+&lt;p&gt;部分合成器提供&quot;联动&quot;选项（比如选中文本时同步写入 clipboard），但那是合成器的额外实现，不是协议保证的行为——迁移时不要假设 Ctrl+C 和选中是同一个剪贴板。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;wl-copy-gong-zuo-yuan-li-wei-shen-me-fu-zhi-gong-ju-bi-xu-chang-zhu&quot;&gt;wl-copy 工作原理：为什么复制工具必须常驻&lt;&#x2F;h3&gt;
+&lt;p&gt;理解了这个机制，前面表格里&quot;daemon 常驻&quot;和&quot;管道挂死&quot;两个坑就都说得通了。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;duo-xing-chuan-shu-lazy-transfer&quot;&gt;惰性传输（lazy transfer）&lt;&#x2F;h4&gt;
+&lt;p&gt;Wayland 剪贴板&lt;strong&gt;不是&quot;复制时把数据交给合成器&quot;&lt;&#x2F;strong&gt;，而是&quot;注册一个数据源，谁要粘贴谁自己来取&quot;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;复制方(wl-copy)                    合成器                      粘贴方(wl-paste)
+     │ 创建 data_source               │                           │
+     │ 声明 MIME(text&amp;#x2F;plain 等)        │                           │
+     │ set_selection(source) ───────►│                           │
+     │                                │── 收到 data_offer ───────►│
+     │                                │◄───── receive(mime, fd) ──│
+     │◄── send(mime, fd) 回调 ────────│                           │
+     │ 把数据写进 fd ──────────────────────────────►               │
+     │                                │                           │
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键点：&lt;strong&gt;数据在&quot;复制&quot;时刻并没有传输&lt;&#x2F;strong&gt;。合成器只记下&quot;当前剪贴板内容是哪个进程提供的&quot;。直到有人真的执行粘贴，合成器才会回调数据源进程的 &lt;code&gt;send()&lt;&#x2F;code&gt; 回调，把数据中转到粘贴方。&lt;&#x2F;p&gt;
+&lt;p&gt;所以数据源进程（wl-copy 的守护进程）&lt;strong&gt;必须活着&lt;&#x2F;strong&gt;——它死了，合成器就只能给粘贴方一份空数据。xclip 常驻是同一个道理。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;wl-copy-de-zhi-xing-liu-cheng&quot;&gt;wl-copy 的执行流程&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;读入全部 stdin（或参数&#x2F;文件内容），按内容推断 MIME：UTF-8 纯文本 → &lt;code&gt;text&#x2F;plain;charset=utf-8&lt;&#x2F;code&gt;，含 NUL 字节&#x2F;非 UTF-8 → &lt;code&gt;application&#x2F;octet-stream&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;内容先落到临时缓冲（&lt;code&gt;&#x2F;tmp&#x2F;wl-copy-buffer-*&#x2F;&lt;&#x2F;code&gt; 目录 + memfd），大剪贴板（截图、视频帧）不会撑爆内存——实测守护进程的 fd 列表里能看到这个文件&lt;&#x2F;li&gt;
+&lt;li&gt;连接合成器，创建 &lt;code&gt;wl_data_source&lt;&#x2F;code&gt;，声明 MIME&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;set_selection()&lt;&#x2F;code&gt; 提交 → &lt;strong&gt;fork 守护进程&lt;&#x2F;strong&gt;：父进程退出，子进程保持 wayland 连接，等待 &lt;code&gt;send()&lt;&#x2F;code&gt; 回调&lt;&#x2F;li&gt;
+&lt;li&gt;每次有人粘贴，把缓冲里的数据写进合成器给的 fd；被新复制替换或收到 release 后退出&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;zhe-jie-shi-liao-liang-ge-keng&quot;&gt;这解释了两个坑&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;管道挂死&lt;&#x2F;strong&gt;：&lt;code&gt;printf x | wl-copy&lt;&#x2F;code&gt; 卡住——守护进程 fork 时继承了管道读端 fd，shell 等管道 EOF 永远等不到&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;异步报错&lt;&#x2F;strong&gt;：wl-copy&#x2F;waypipe 的很多错误是&quot;粘贴发生时&quot;才触发的（比如前文的 dmabuf 报错延迟 15~60 秒才出现），不是复制那一刻&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-yi-wl-copy-mei-you-f-hui-xian&quot;&gt;关键差异一：wl-copy 没有 &lt;code&gt;-f&lt;&#x2F;code&gt; 回显&lt;&#x2F;h3&gt;
+&lt;p&gt;X11 时代的经典管道：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;xclip -i -f -selection primary | xclip -i -f -selection clipboard
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;xclip -f&lt;&#x2F;code&gt; 会把 stdin 原样回显到 stdout，所以可以串联多个 selection。wl-copy &lt;strong&gt;没有这个选项&lt;&#x2F;strong&gt;，&lt;code&gt;wl-copy | wl-copy --primary&lt;&#x2F;code&gt; 的第二段会读到空。&lt;&#x2F;p&gt;
+&lt;p&gt;解法：先用临时文件接住数据，再分别喂给两个 wl-copy：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;f=$(mktemp &amp;#x2F;tmp&amp;#x2F;wlyank.XXXXXX)
+cat &amp;gt;&amp;quot;$f&amp;quot;          # 接住 stdin
+wl-copy &amp;lt;&amp;quot;$f&amp;quot;      # clipboard
+wl-copy --primary &amp;lt;&amp;quot;$f&amp;quot;   # primary
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-er-daemon-chang-zhu-guan-dao-gua-si&quot;&gt;关键差异二：daemon 常驻 + 管道挂死&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;echo foo | wl-copy&lt;&#x2F;code&gt; 在脚本里没问题，但&lt;strong&gt;放到管道链尾部会挂住&lt;&#x2F;strong&gt;：wl-copy fork 出的守护进程继承了管道读端 fd，shell 等管道关闭时永远等不到。&lt;&#x2F;p&gt;
+&lt;p&gt;实测：&lt;code&gt;printf x | wl-copy&lt;&#x2F;code&gt; 在 bash 里能卡 120 秒以上。所以 tmux 绑定里不要写成管道，用文件重定向最稳。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;guan-jian-chai-yi-san-mei-you-quan-ju-jian-tie-ban-zhi-you-socket&quot;&gt;关键差异三：没有全局剪贴板，只有 socket&lt;&#x2F;h3&gt;
+&lt;p&gt;Wayland 客户端通过 &lt;code&gt;$XDG_RUNTIME_DIR&#x2F;$WAYLAND_DISPLAY&lt;&#x2F;code&gt; 这个 unix socket 连合成器。坑点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;tmux server 继承旧 socket&lt;&#x2F;strong&gt;：tmux server 是长驻进程，它启动时的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 可能早已失效（会话退出、waypipe 重连后 socket 名都变了）。新 pane 继承 server 环境 → 复制直接报 &lt;code&gt;Failed to connect to a Wayland server&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;多个 socket 并存&lt;&#x2F;strong&gt;：SSH 多会话 + waypipe 隧道时，&lt;code&gt;&#x2F;run&#x2F;user&#x2F;$UID&#x2F;&lt;&#x2F;code&gt; 下可能同时躺着好几个 &lt;code&gt;wayland-*&lt;&#x2F;code&gt; socket，肉眼无法判断哪个有效。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;解法（wlyank.sh 运行时自愈）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# socket 失效时自动回退到最新可用 socket
+if [ -n &amp;quot;${WAYLAND_DISPLAY:-}&amp;quot; ] &amp;amp;&amp;amp; [ ! -S &amp;quot;&amp;#x2F;run&amp;#x2F;user&amp;#x2F;$(id -u)&amp;#x2F;$WAYLAND_DISPLAY&amp;quot; ]; then
+  export WAYLAND_DISPLAY=$(ls -t &amp;#x2F;run&amp;#x2F;user&amp;#x2F;$(id -u)&amp;#x2F;wayland-* 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | head -1 | xargs -r basename)
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yi-nan-bao-cuo-yi-dmabuf-cuo-wu-qi-shi-shi-waypipe-de&quot;&gt;疑难报错一：dmabuf 错误其实是 waypipe 的&lt;&#x2F;h2&gt;
+&lt;p&gt;症状：tmux 消息行每隔一阵刷一条绿色报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$591700: 15.880863 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;第一反应是 wl-copy 的错——查了 wl-clipboard 2.2.1 源码，&lt;strong&gt;根本没有 &lt;code&gt;dmabuf.c&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;。报错格式 &lt;code&gt;$pid: elapsed [src&#x2F;xxx.c:line]&lt;&#x2F;code&gt; 是 waypipe 的日志风格。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;看进程：机器上跑着 &lt;code&gt;waypipe ... --display wayland-n49YaBhs server&lt;&#x2F;code&gt;，&lt;code&gt;wayland-n49YaBhs&lt;&#x2F;code&gt; 正是 tmux 客户端在用的 socket——这个会话是&lt;strong&gt;经 waypipe 隧道转发&lt;&#x2F;strong&gt;的。&lt;&#x2F;li&gt;
+&lt;li&gt;时间线吻合：waypipe 进程启动 60 秒后出现 &lt;code&gt;60.485827&lt;&#x2F;code&gt; 的报错，与每次复制&#x2F;粘贴的传输时机对得上。&lt;&#x2F;li&gt;
+&lt;li&gt;根因：waypipe 在隧道间传缓冲区时优先走 &lt;strong&gt;GPU dmabuf 直传&lt;&#x2F;strong&gt;，但这台虚拟机是 QXL 显卡，&lt;code&gt;&#x2F;dev&#x2F;dri&lt;&#x2F;code&gt; 下没有渲染节点 &lt;code&gt;renderD128&lt;&#x2F;code&gt; → 每次传剪贴板都异步失败一次。&lt;&#x2F;li&gt;
+&lt;li&gt;复制本身是成功的（waypipe&#x2F;wl-copy 会回退到共享内存拷贝），纯粹是噪音——但天天刷也烦。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;jie-jue&quot;&gt;解决&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;waypipe&lt;&#x2F;code&gt; 客户端加 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe --no-gpu ssh -t &amp;lt;server&amp;gt; &amp;#x27;env SUDO_ASKPASS=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-askpass sudo -A &amp;lt;command&amp;gt;&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 禁用 GPU 相关协议、改走共享内存拷贝。&lt;strong&gt;注意是客户端侧参数&lt;&#x2F;strong&gt;，而且当前已建立的隧道要重连才生效。&lt;&#x2F;p&gt;
+&lt;p&gt;教训：报错文本里的源码路径 + pid 前缀是定位&lt;strong&gt;哪个程序&lt;&#x2F;strong&gt;在叫的关键证据，别被&quot;看起来像剪贴板错误&quot;带偏。先 &lt;code&gt;grep&lt;&#x2F;code&gt; 一下报错字符串属于哪个项目，再动手改。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;tmux-jian-tie-ban-bang-ding-zui-zhong-xing-tai&quot;&gt;tmux 剪贴板绑定最终形态&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;tmux&quot; class=&quot;language-tmux &quot;&gt;&lt;code class=&quot;language-tmux&quot; data-lang=&quot;tmux&quot;&gt;# copy-mode 按 y：复制到 wayland clipboard
+bind -T copy-mode-vi y send-keys -X copy-pipe-and-cancel &amp;#x27;wl-copy&amp;#x27;
+
+# 鼠标拖拽：clipboard + primary + OSC52 兜底（ssh 远程无 wayland 时降级）
+bind-key -T copy-mode-vi MouseDragEnd1Pane send-keys -X copy-pipe-and-cancel wlyank.sh
+
+# prefix + M：切换成纯 OSC52 模式（copy-pipe-no-clear，适合连续选区）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;wlyank.sh&lt;&#x2F;code&gt; 完整逻辑：接 stdin → 校验&#x2F;回退 WAYLAND_DISPLAY → &lt;code&gt;wl-copy&lt;&#x2F;code&gt; + &lt;code&gt;wl-copy --primary&lt;&#x2F;code&gt;（&lt;code&gt;2&amp;gt;&#x2F;dev&#x2F;null&lt;&#x2F;code&gt; 压掉连接噪音）→ &lt;code&gt;myyank.sh&lt;&#x2F;code&gt; 发 OSC52 兜底。&lt;&#x2F;p&gt;
+&lt;p&gt;依赖关系也要理清：脚本放 &lt;code&gt;~&#x2F;.my_local&#x2F;bin&lt;&#x2F;code&gt;（整目录软链，自动部署），绑定放 &lt;code&gt;~&#x2F;.tmux.conf&lt;&#x2F;code&gt;，apt 依赖 &lt;code&gt;wl-clipboard&lt;&#x2F;code&gt; 在根 &lt;code&gt;run.sh&lt;&#x2F;code&gt; 的 &lt;code&gt;install_pre&lt;&#x2F;code&gt; 里——新环境 &lt;code&gt;bash run.sh default&lt;&#x2F;code&gt; 一键落地。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-zhi-fang-an-qxl-virtio-gpu-3d&quot;&gt;根治方案：QXL → virtio-gpu 3D&lt;&#x2F;h2&gt;
+&lt;p&gt;以上都是&quot;兼容性修补&quot;。想让 dmabuf 真正可用，得让虚拟机有渲染节点。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yuan-li&quot;&gt;原理&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;QXL&lt;&#x2F;strong&gt;：纯显示卡，没有 3D 加速，不提供 &lt;code&gt;renderD128&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;virtio-gpu + virgl&lt;&#x2F;strong&gt;：虚拟 GPU 支持 3D 加速，guest 里出现 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，dmabuf 直传可用（waypipe 也能开 GPU 传输了）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;cao-zuo-su-zhu-ji-shang&quot;&gt;操作（宿主机上）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 停 VM，编辑配置
+virsh shutdown &amp;lt;vm&amp;gt;
+virsh edit &amp;lt;vm&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;video&amp;gt;
+  &amp;lt;model type=&amp;quot;virtio&amp;quot; heads=&amp;quot;1&amp;quot; primary=&amp;quot;yes&amp;quot;&amp;gt;
+    &amp;lt;acceleration accel3d=&amp;quot;yes&amp;quot; rendernode=&amp;quot;&amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128&amp;quot;&amp;#x2F;&amp;gt;
+  &amp;lt;&amp;#x2F;model&amp;gt;
+&amp;lt;&amp;#x2F;video&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;图形输出走 SPICE（&lt;code&gt;&amp;lt;graphics type=&#x27;spice&#x27;&amp;gt;&lt;&#x2F;code&gt;）才能用 virgl 3D；QXL 显示协议要改成 spice&#x2F;virtio&lt;&#x2F;li&gt;
+&lt;li&gt;宿主必须本身有 render 节点（物理 GPU 或另一层 virtio-gpu），否则 &lt;code&gt;rendernode&lt;&#x2F;code&gt; 指向的节点不存在&lt;&#x2F;li&gt;
+&lt;li&gt;guest 内核需要 &lt;code&gt;virtio_gpu&lt;&#x2F;code&gt; 模块（主线内核默认有），装好 &lt;code&gt;mesa&lt;&#x2F;code&gt; 的 virgl 驱动&lt;&#x2F;li&gt;
+&lt;li&gt;改完重启 VM，验证：&lt;code&gt;ls &#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt; 存在即可&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie-wayland-jian-tie-ban-gua-pei-jian-cha-qing-dan&quot;&gt;总结：Wayland 剪贴板适配检查清单&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;所有 &lt;code&gt;xclip&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;xsel&lt;&#x2F;code&gt; 换成 &lt;code&gt;wl-copy&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;wl-paste&lt;&#x2F;code&gt;，注意 &lt;code&gt;--primary&lt;&#x2F;code&gt; 与默认 clipboard 的区别&lt;&#x2F;li&gt;
+&lt;li&gt;不要写 &lt;code&gt;wl-copy | wl-copy&lt;&#x2F;code&gt; 管道（无回显 + daemon 挂管道），用临时文件&lt;&#x2F;li&gt;
+&lt;li&gt;长驻进程（tmux server）的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 可能失效，脚本里做 socket 存在性检查 + 回退&lt;&#x2F;li&gt;
+&lt;li&gt;遇到 &lt;code&gt;[src&#x2F;xxx.c]&lt;&#x2F;code&gt; 格式的报错先确认属于哪个程序（本案例是 waypipe 不是 wl-copy）&lt;&#x2F;li&gt;
+&lt;li&gt;waypipe 隧道在无渲染节点机器上必加 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;想根治 dmabuf：虚拟机升 virtio-gpu 3D（virgl），宿主需有 render 节点&lt;&#x2F;li&gt;
+&lt;li&gt;ssh 远程&#x2F;无 wayland 场景，OSC52（myyank.sh）兜底不能丢&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

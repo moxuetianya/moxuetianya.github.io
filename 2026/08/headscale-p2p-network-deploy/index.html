@@ -1,0 +1,618 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="用 headscale + Tailscale 官方客户端,在自有 VPS 上搭建 P2P 互联网络:打洞直连(21ms)不经服务器、失败自动走自建 DERP 中继、默认仅节点互通子网按需开关。完整记录方案选型对比、备案约束下的自定义端口、Cloudflare DNS-01 证书、国内镜像拉取、客户端接入(含 VPS 管理节点与 home Proxmox 宿主第 4 节点)、headplane 面板经 tailnet 内访问(无公网暴露)与公网 CF Tunnel 备选方案、wg-easy 废弃清理、子网路由 accept 自吸与双路由器 HA 踩坑,以及阿里云内网服务被 tailnet CGNAT 网段冲突阻断导致备份失败的排查实录(ts-input 防欺骗 DROP 丢弃 100.x 回包、iptables 放行 100.100.0.0&#x2F;16 + 持久化 oneshot、ipset 备选方案)" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/" />
+  <meta property="og:description" content="用 headscale + Tailscale 官方客户端,在自有 VPS 上搭建 P2P 互联网络:打洞直连(21ms)不经服务器、失败自动走自建 DERP 中继、默认仅节点互通子网按需开关。完整记录方案选型对比、备案约束下的自定义端口、Cloudflare DNS-01 证书、国内镜像拉取、客户端接入(含 VPS 管理节点与 home Proxmox 宿主第 4 节点)、headplane 面板经 tailnet 内访问(无公网暴露)与公网 CF Tunnel 备选方案、wg-easy 废弃清理、子网路由 accept 自吸与双路由器 HA 踩坑,以及阿里云内网服务被 tailnet CGNAT 网段冲突阻断导致备份失败的排查实录(ts-input 防欺骗 DROP 丢弃 100.x 回包、iptables 放行 100.100.0.0&#x2F;16 + 持久化 oneshot、ipset 备选方案)" />
+  <meta name="twitter:description" content="用 headscale + Tailscale 官方客户端,在自有 VPS 上搭建 P2P 互联网络:打洞直连(21ms)不经服务器、失败自动走自建 DERP 中继、默认仅节点互通子网按需开关。完整记录方案选型对比、备案约束下的自定义端口、Cloudflare DNS-01 证书、国内镜像拉取、客户端接入(含 VPS 管理节点与 home Proxmox 宿主第 4 节点)、headplane 面板经 tailnet 内访问(无公网暴露)与公网 CF Tunnel 备选方案、wg-easy 废弃清理、子网路由 accept 自吸与双路由器 HA 踩坑,以及阿里云内网服务被 tailnet CGNAT 网段冲突阻断导致备份失败的排查实录(ts-input 防欺骗 DROP 丢弃 100.x 回包、iptables 放行 100.100.0.0&#x2F;16 + 持久化 oneshot、ipset 备选方案)" />
+  <meta property="og:title" content="自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板 | 墨雪天琊" />
+  <meta name="twitter:title" content="自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-21" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/headscale-p2p-network-deploy/">自建 headscale 打通公司与家庭的 P2P 网络:方案选型、部署与面板</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 14, 2026 <span class="rpad"></span>更新: 八月 21, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/wang-luo/">网络</a>] #<a href="https://moxuetianya.github.io/tags/headscale/">headscale</a>  #<a href="https://moxuetianya.github.io/tags/tailscale/">tailscale</a>  #<a href="https://moxuetianya.github.io/tags/cloudflare/">cloudflare</a>  #<a href="https://moxuetianya.github.io/tags/wireguard/">wireguard</a>  #<a href="https://moxuetianya.github.io/tags/p2p/">p2p</a>  #<a href="https://moxuetianya.github.io/tags/iptables/">iptables</a> </span>
+
+    
+
+
+<h1 id="xu-qiu">需求</h1>
+<p>打通<strong>公司工作机</strong>(Ubuntu 24.04,位于公司 NAT 后)与<strong>家庭机器</strong>(Debian 13,位于家宽 NAT 后)的加密互联。已有<strong>一台阿里云北京 VPS</strong> 可作协商/中继节点。用途:SSH 运维、访问公司内部 GitLab/Jenkins/Wiki、RDP 桌面。</p>
+<p>约束条件:</p>
+<ul>
+<li>VPS 为大陆节点,80/443 端口提供服务需 <strong>ICP 备案</strong>,不能走常规端口;</li>
+<li>尽量<strong>不依赖家庭路由器配置</strong>(不强制端口转发);</li>
+<li>数据面优先点对点,<strong>流量不过第三方</strong>;</li>
+<li>维护简单、逻辑清晰。</li>
+</ul>
+<h1 id="fang-an-xuan-xing">方案选型</h1>
+<table><thead><tr><th>方案</th><th>P2P 直连</th><th>VPS 角色</th><th>维护难度</th><th>结论</th></tr></thead><tbody>
+<tr><td><strong>headscale</strong>(自托管 Tailscale 控制面)</td><td>✅ 自动打洞,失败走 DERP</td><td>控制面 + 中继兜底</td><td>低</td><td><strong>选用</strong></td></tr>
+<tr><td>纯 WireGuard 星型</td><td>❌ 全走 VPS</td><td>数据中继</td><td>最低</td><td>带宽被 VPS 卡死</td></tr>
+<tr><td>WG 手动直连 + VPS 兜底</td><td>⚠️ 部分</td><td>中继</td><td>高</td><td>NAT 变化要手动改</td></tr>
+<tr><td>OpenVPN</td><td>❌</td><td>中继</td><td>高(PKI)</td><td>无 P2P、性能差</td></tr>
+<tr><td>tinc / n2n / zerotier</td><td>⚠️ 部分</td><td>协商/中继</td><td>中高</td><td>维护弱/控制面在海外</td></tr>
+</tbody></table>
+<p><strong>选 headscale 的理由</strong>:真 P2P(打洞成功流量不经 VPS,带宽无瓶颈)、DERP 中继兜底(打洞失败仍可用)、控制面一个 Go 二进制 + 官方客户端,维护最清晰。客户端用 Tailscale 官方客户端(Apache 2.0 开源),控制面完全自建,数据不出自己的节点。</p>
+<h1 id="jia-gou-yu-yuan-li">架构与原理</h1>
+<pre><code>公司机 (Ubuntu 24.04)          VPS (阿里云北京)                 home 机 (Debian 13)
+┌─────────────────┐   ①元数据  ┌──────────────────────┐   ①元数据  ┌─────────────────┐
+│ tailscale       │◀──8443──▶  │ headscale 控制面(8443)│◀──8443──▶  │ tailscale       │
+│                 │            │ DERP 中继(同 8443)     │            │                 │
+│                 │            │ STUN (3478&#x2F;udp)       │            │                 │
+└──────┬──────────┘            └──────────────────────┘            └────────┬────────┘
+       │  ② 直连 UDP(打洞成功,不经 VPS)                                    │
+       └────────────────────────────────────────────────────────────────────┘
+       │  ③ DERP 中继 TCP 8443(打洞失败兜底,仍端到端加密)                  │
+</code></pre>
+<p>三种流量路径:</p>
+<ol>
+<li><strong>控制面</strong>(headscale):只交换元数据——公钥、双方公网 IP:端口、NAT 类型、节点列表。不承载业务流量。</li>
+<li><strong>P2P 直连</strong>(打洞成功):两端 UDP 直连,WireGuard 加密,流量完全不经 VPS。<code>tailscale status</code> 显示 <code>direct</code>。</li>
+<li><strong>DERP 中继</strong>(打洞失败):走 VPS 上的中继,但只转发端到端加密密文,<strong>中继无法解密内容</strong>。</li>
+</ol>
+<h2 id="nat-da-dong-wei-shen-me-you-shi-shi-bai">NAT 打洞为什么有时失败</h2>
+<p>打洞依赖双方 NAT 的"入站宽容度",<strong>成功率取决于最严格的那一端,不是最宽松的</strong>:</p>
+<table><thead><tr><th>NAT 类型</th><th>入站行为</th><th>打洞结果</th></tr></thead><tbody>
+<tr><td>Full cone</td><td>任何人发到映射端口都能进</td><td>几乎必成</td></tr>
+<tr><td>Restricted/Port-restricted cone(家用路由器)</td><td>只收"映射记录的源"</td><td>双端同时发包可成</td></tr>
+<tr><td><strong>Symmetric</strong>(企业防火墙/CGNAT)</td><td>只收"源地址精确匹配",且每次出站换端口</td><td>大概率失败 → 走 DERP</td></tr>
+</tbody></table>
+<p>典型死局:home 是 cone(能收到公司的包),公司是 symmetric(收不到 home 的回包,因为每次出站端口都变)→ 单向通,打洞失败,自动降级 DERP。本部署实测:公司 NAT 友好,打洞成功,ping 21ms 直连。</p>
+<h2 id="derp-yu-stun-de-gui-shu">DERP 与 STUN 的归属</h2>
+<ul>
+<li><strong>STUN(UDP 3478)由 DERP 服务器内置提供</strong>(headscale 内置 DERP 自带),客户端靠它探测自己的公网 IP:端口;</li>
+<li><strong>DERP 中继复用 headscale 的 HTTPS 端口 8443</strong>(内置 DERP 与主服务共用 TLS 监听),无独立端口;</li>
+<li>headscale 内置 DERP <strong>默认 <code>verify_clients: true</code></strong>——只允许本 tailnet 节点中继,外部客户端直接拒绝(防滥用,零配置)。</li>
+</ul>
+<h1 id="bu-shu-zhun-bei">部署准备</h1>
+<h2 id="duan-kou-yu-an-quan-zu-bei-an-yue-shu">端口与安全组(备案约束)</h2>
+<p>VPS 为大陆节点,80/443 需备案,故全部走自定义端口:</p>
+<table><thead><tr><th>端口</th><th>用途</th></tr></thead><tbody>
+<tr><td>TCP 8443</td><td>headscale 控制面 + 内置 DERP 中继(共用)</td></tr>
+<tr><td>UDP 3478</td><td>STUN 打洞辅助</td></tr>
+<tr><td>TCP 22</td><td>SSH(保留)</td></tr>
+</tbody></table>
+<p>阿里云安全组放行 <code>8443/tcp 3478/udp</code>。部署前实测:VPS 安全组原只放行 22,其余端口全被拦——这是最容易忽略的坑。</p>
+<h2 id="yu-ming-yu-zheng-shu-cloudflare-dns-acme-sh">域名与证书(Cloudflare DNS + acme.sh)</h2>
+<p>域名托管在 Cloudflare,用 acme.sh 的 <strong><code>dns_cf</code> 插件做 DNS-01 验证</strong>(不依赖 80 端口,正好绕开备案):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># Cloudflare 控制台 → My Profile → API Tokens → Create Token
+# 模板 &quot;Edit zone DNS&quot; → Zone 限定你的域名 → 得到 CF_Token &#x2F; CF_Account_ID
+
+curl https:&#x2F;&#x2F;gitee.com&#x2F;neilpang&#x2F;acme.sh&#x2F;raw&#x2F;master&#x2F;install.sh | sh   # GitHub 可能不通,用 gitee
+export CF_Token=&quot;xxx&quot; CF_Account_ID=&quot;xxx&quot;
+~&#x2F;.acme.sh&#x2F;acme.sh --issue --dns dns_cf -d headscale.demo.com
+
+~&#x2F;.acme.sh&#x2F;acme.sh --install-cert -d headscale.demo.com \
+  --key-file ~&#x2F;p2p&#x2F;certs&#x2F;key.pem --fullchain-file ~&#x2F;p2p&#x2F;certs&#x2F;cert.pem \
+  --reloadcmd &quot;docker restart headscale&quot;    # 续期后自动重载容器
+</code></pre>
+<p>自动续期由 acme.sh 安装时写入的 cron 负责(每天检查),<code>--reloadcmd</code> 让续期后自动加载新证书,全链路无人值守。</p>
+<p>⚠️ 记录必须 <strong>DNS-only(灰云)</strong>:不要开 Cloudflare 橙色代理,否则 8443 等非标准端口无法穿透。</p>
+<h2 id="jing-xiang-zhun-bei-guo-nei-vps-la-bu-dong-docker-hub">镜像准备(国内 VPS 拉不动 Docker Hub)</h2>
+<p>VPS 实测连 Docker Hub 超时(DNS 被污染),但 <strong>ghcr.io 可直拉</strong>(headplane 镜像就是 VPS 直拉的)。headscale 镜像走本地中转:</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 本地(公司机,有代理):
+podman pull docker.io&#x2F;headscale&#x2F;headscale:0.29.3
+podman save docker.io&#x2F;headscale&#x2F;headscale:0.29.3 -o headscale.tar
+scp headscale.tar vps:&#x2F;tmp&#x2F;
+# VPS:
+docker load -i &#x2F;tmp&#x2F;headscale.tar
+</code></pre>
+<h1 id="vps-bu-shu-headscale-headplane">VPS 部署(headscale + headplane)</h1>
+<p>部署目录 <code>~/p2p/</code>(用户有 docker 组权限,全程无需 root)。</p>
+<h2 id="docker-compose-yml">docker-compose.yml</h2>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">services:
+  headscale:
+    image: headscale&#x2F;headscale:0.29.3
+    container_name: headscale
+    restart: unless-stopped
+    command: serve
+    volumes:
+      - .&#x2F;config:&#x2F;etc&#x2F;headscale
+      - .&#x2F;data:&#x2F;var&#x2F;lib&#x2F;headscale
+      - .&#x2F;certs:&#x2F;var&#x2F;lib&#x2F;headscale&#x2F;certs:ro
+    ports:
+      - &quot;8443:8443&#x2F;tcp&quot;
+      - &quot;3478:3478&#x2F;udp&quot;
+
+  headplane:
+    image: ghcr.io&#x2F;tale&#x2F;headplane:latest
+    container_name: headplane
+    restart: unless-stopped
+    depends_on: [headscale]
+    volumes:
+      - .&#x2F;headplane.yaml:&#x2F;etc&#x2F;headplane&#x2F;config.yaml:ro
+      - .&#x2F;data&#x2F;headplane:&#x2F;var&#x2F;lib&#x2F;headplane
+      - .&#x2F;config:&#x2F;etc&#x2F;headscale:ro
+    ports:
+      - &quot;127.0.0.1:3000:3000&#x2F;tcp&quot;
+      - &quot;100.64.0.100:3000:3000&#x2F;tcp&quot;   # 更新(2026-08-15):VPS 管理节点加入后双绑定,tailnet 内访问
+</code></pre>
+<blockquote>
+<p><code>100.64.0.100</code> 是 VPS 节点的<strong>固定</strong> tailnet IP(headscale 无 CLI 指定 IP,直接改 sqlite <code>nodes.ipv4</code> 实现,详见下节)。若节点重新注册导致 IP 变化,需同步改此绑定与 headplane.yaml 的 <code>base_url</code>。</p>
+</blockquote>
+<h2 id="config-yaml-guan-jian-xiang">config.yaml 关键项</h2>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">server_url: https:&#x2F;&#x2F;headscale.demo.com:8443
+listen_addr: 0.0.0.0:8443
+metrics_listen_addr: 0.0.0.0:9090
+prefixes:
+  v4: 100.64.0.0&#x2F;10                # tailnet 虚拟网段,与家&#x2F;公司网段无冲突
+derp:
+  urls: []                          # ★ 清空官方 DERP 地图,否则客户端会绕海外
+  server:
+    enabled: true
+    region_code: &quot;ali&quot;
+    region_name: &quot;Aliyun Beijing&quot;
+    ipv4: &lt;VPS公网IP&gt;
+    stun_listen_addr: &quot;0.0.0.0:3478&quot;
+    # verify_clients 默认 true:仅本 tailnet 节点可中继
+database:
+  type: sqlite
+tls_cert_path: &#x2F;var&#x2F;lib&#x2F;headscale&#x2F;certs&#x2F;cert.pem
+tls_key_path: &#x2F;var&#x2F;lib&#x2F;headscale&#x2F;certs&#x2F;key.pem
+dns:
+  magic_dns: false
+  override_local_dns: false          # 关掉 MagicDNS,避免干扰公司 DNS
+</code></pre>
+<p><strong>两个必踩的坑</strong>:</p>
+<ol>
+<li><code>derp.urls</code> 若留默认(指向 controlplane.tailscale.com),客户端会优先尝试官方海外 DERP——必须清空,只留内置;</li>
+<li>headscale 0.29 要求 <code>dns.override_local_dns: true</code> 时必须有 <code>dns.nameservers.global</code>——不用 MagicDNS 就直接两个都关。</li>
+</ol>
+<p>启动验证:<code>curl -k https://headscale.demo.com:8443/health</code> 返回 <code>{"status":"pass"}</code>。</p>
+<h1 id="ke-hu-duan-jie-ru-gong-si-ji-home-ji-vps-guan-li-jie-dian">客户端接入(公司机 + home 机 + VPS 管理节点)</h1>
+<blockquote>
+<p><strong>更新(2026-08-15)</strong>:新增 VPS 作为 tailnet 第 3 节点(管理入口),headplane 面板经 tailnet 访问。本节点也按下面流程加入,只是 headplane 部署在本机上。</p>
+</blockquote>
+<blockquote>
+<p><strong>更新(2026-08-15)</strong>:新增 home 局域网 Proxmox 宿主(<code>peter.xiao.com</code>,192.168.2.100,Debian 13)为 tailnet 第 4 节点,headplane 面板中重命名为 <code>peter-xiao100</code>(100.64.0.3)。同时把全部节点在 headplane 面板统一重命名:<code>xiao</code> → <code>xiao200</code>、VPS <code>iz2zehkipqcroqwfrvhwj7z</code> → <code>ali</code>。节点重命名完全可以在 headplane 面板(Machines)操作,无需 CLI。</p>
+</blockquote>
+<blockquote>
+<p><strong>更新(2026-08-16)</strong>:新增 tailnet 第 5、6 节点并上线公司侧双路由器 HA——公司局域网 <code>xiao99</code>(192.168.7.99,100.64.0.5)通告 <code>192.168.4.0/22</code>,与 <code>peter-optiplex-7090</code> 双通告双审批(客户端按连接分配、故障自动切换);home 局域网 <code>peter-megabook-14</code>(192.168.2.147,100.64.0.6)作为普通节点加入。同日踩坑:<strong>子网路由器 accept 自吸</strong>(xiao99 开 <code>--accept-routes</code> 后 LAN 内主机 ping 不通它、tailnet 直连却正常,回包被 table 52 吸进 tailscale0),详见「子网路由原理」一节。</p>
+</blockquote>
+<h2 id="an-zhuang-guan-fang-apt-yuan-guo-nei-zhi-lian-ke-yong">安装(官方 apt 源,国内直连可用)</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># Ubuntu 用 ubuntu&#x2F;noble,Debian 用 debian&#x2F;trixie
+sudo mkdir -p --mode=0755 &#x2F;usr&#x2F;share&#x2F;keyrings
+curl -fsSL https:&#x2F;&#x2F;pkgs.tailscale.com&#x2F;stable&#x2F;&lt;发行版&gt;.noarmor.gpg | sudo tee &#x2F;usr&#x2F;share&#x2F;keyrings&#x2F;tailscale-archive-keyring.gpg &gt;&#x2F;dev&#x2F;null
+curl -fsSL https:&#x2F;&#x2F;pkgs.tailscale.com&#x2F;stable&#x2F;&lt;发行版&gt;.tailscale-keyring.list | sudo tee &#x2F;etc&#x2F;apt&#x2F;sources.list.d&#x2F;tailscale.list &gt;&#x2F;dev&#x2F;null
+sudo apt-get update &amp;&amp; sudo apt-get install -y tailscale
+</code></pre>
+<h2 id="deng-lu-preauthkey-mian-liu-lan-qi">登录(preauthkey 免浏览器)</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># VPS 创建用户 + key(headscale 0.29 的 --user 参数是数字 ID!)
+docker-compose exec headscale headscale users create peter
+docker-compose exec headscale headscale users list            # 拿 ID
+docker-compose exec headscale headscale preauthkeys create --user &lt;ID&gt; --expiration 24h
+
+# 客户端:
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443 --authkey=&lt;key&gt;
+</code></pre>
+<h2 id="yan-zheng">验证</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo tailscale status
+# 100.64.0.1  company  peter  linux  -
+# 100.64.0.2  home     peter  linux  active; direct &lt;home公网IP&gt;:&lt;端口&gt;, tx 5716 rx 4540
+
+sudo tailscale ping --c 3 100.64.0.2
+# pong from home via &lt;home公网IP&gt;:61761 in 21ms   ← direct,不经 VPS
+
+sudo tailscale netcheck   # 确认 Nearest DERP 是自建节点,无海外
+</code></pre>
+<p>实测结果:打洞成功(21ms 直连),DERP 地图只有自建节点。</p>
+<h2 id="vps-guan-li-jie-dian-di-3-jie-dian-2026-08-15-jia-ru">VPS 管理节点(第 3 节点,2026-08-15 加入)</h2>
+<p>VPS 也加入 tailnet,作为 headplane 面板所在的管理节点——headscale 控制面容器与 tailscaled 客户端共存无冲突(8443/3478 与客户端数据面 UDP 41641 不撞端口):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 安装(Ubuntu noble 官方源,需 sudo)
+sudo mkdir -p --mode=0755 &#x2F;usr&#x2F;share&#x2F;keyrings
+curl -fsSL https:&#x2F;&#x2F;pkgs.tailscale.com&#x2F;stable&#x2F;ubuntu&#x2F;noble.noarmor.gpg | sudo tee &#x2F;usr&#x2F;share&#x2F;keyrings&#x2F;tailscale-archive-keyring.gpg &gt;&#x2F;dev&#x2F;null
+curl -fsSL https:&#x2F;&#x2F;pkgs.tailscale.com&#x2F;stable&#x2F;ubuntu&#x2F;noble.tailscale-keyring.list | sudo tee &#x2F;etc&#x2F;apt&#x2F;sources.list.d&#x2F;tailscale.list &gt;&#x2F;dev&#x2F;null
+sudo apt-get update &amp;&amp; sudo apt-get install -y tailscale
+
+# 登录(--operator=peter 让普通用户免 sudo 执行 tailscale 命令)
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443 --authkey=&lt;key&gt; --operator=peter
+</code></pre>
+<p>tailnet IP <strong>固定为 <code>100.64.0.100</code></strong>(刻意选的易记地址)。headscale 0.29 没有 CLI 指定 IP,固定方式是直接改 sqlite 的 <code>nodes.ipv4</code>(<code>headscale nodes list -o json</code> 确认节点 ID → <code>docker stop headscale</code> → 备份 → 改库 → <code>docker start</code>);若节点重新注册 IP 会变,需同步改 compose 绑定、headplane.yaml 的 <code>base_url</code> 和 @reboot cron 的 grep 模式。headplane 绑定该 IP 供其他节点访问(见下节)。</p>
+<p><strong>部署时遇到的 DNS 坑</strong>:VPS 的阿里云 VPC DNS(100.100.2.136/138)曾整体不可达,导致 tailscaled 登录控制面失败(DoH 兜底又被大陆屏蔽)。已通过 <code>/etc/hosts</code> 硬编码 <code>headscale.demo.com</code> + systemd-resolved 改用公共 DNS(223.5.5.5/119.29.29.29)修复。<strong>更正(2026-08-21)</strong>:当时判断为"DNS 污染/不可达"不完整——真因是 ts-input 防欺骗规则丢 100.x 回包(CGNAT 网段冲突,与下文备份失败同根因),绕过有效但掩盖了根因。</p>
+<p><strong>开机顺序坑</strong>:重启后 docker 先于 tailscaled 启动,headplane 绑定的 <code>100.64.0.100:3000</code> 会绑定失败导致容器起不来。兜底:peter 的 @reboot cron 等待 <code>ts0</code> 出现 tailnet IP 后 <code>docker restart headplane</code>;未生效时手动重启容器即可。</p>
+<h2 id="home-proxmox-su-zhu-di-4-jie-dian-2026-08-15-jia-ru">home Proxmox 宿主(第 4 节点,2026-08-15 加入)</h2>
+<p>tailnet 第 4 节点为 home 局域网内的 Proxmox 宿主(<code>peter.xiao.com</code>,192.168.2.100,Debian 13),与 home 机 xiao200(192.168.2.200)同网段。加入方式与 VPS 节点完全相同:</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 安装(debian&#x2F;trixie 官方源)后登录,同样 --operator=peter 免 sudo
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.juzhong.xyz:8443 --authkey=&lt;key&gt; --operator=peter
+</code></pre>
+<p>关键点:</p>
+<ul>
+<li><strong>节点重命名走面板</strong>:headscale 0.29 的 CLI 是 <code>headscale nodes rename -i &lt;id&gt; &lt;新名&gt;</code>(需在 VPS 上 exec),但完全可以在 headplane 面板 Machines 里直接改——本次 4 个节点全部在面板统一重命名(<code>peter-optiplex-7090</code> / <code>xiao200</code> / <code>ali</code> / <code>peter-xiao100</code>)。CLI 与面板等效,均即时下发,无需重启服务端或客户端(客户端下次同步 netmap 即生效)。</li>
+<li><strong>实测延迟</strong>:同网段 xiao200 直连 ~5ms(局域网内部,不出网);VPS 直连 ~4ms;公司机打洞直连 ~25-36ms(首包经 DERP(ali) 后切 direct)。</li>
+<li><strong>策略路由表</strong>:tailnet 路由在 Linux 上不占用主路由表,<code>ip route</code> 看不到 <code>100.64.0.0/10</code> 属正常——路由在独立 <code>table 52</code>,由 <code>ip rule</code> 的 <code>5270: from all lookup 52</code> 策略路由承接(优先级低于 fwmark 自保护规则、高于主表),<code>ip route show table 52</code> 才能看到。tailscaled 自身流量(连控制面/STUN)打 fwmark <code>0x80000</code>,先查 main/default 表,避免走 tailnet 递归。</li>
+<li><strong>preauth key 与节点有效期无关</strong>:<code>--expiration 24h</code> 只限制 key 的注册窗口,节点注册成功后永久有效(nodes list 的 Expiration 为 N/A),除非手动 expire/delete。</li>
+</ul>
+<h2 id="gong-si-ce-zi-wang-lu-you-qi-xiao99-di-5-jie-dian-2026-08-16-jia-ru-shuang-lu-you-qi-ha">公司侧子网路由器 xiao99(第 5 节点,2026-08-16 加入,双路由器 HA)</h2>
+<p>公司局域网内 Debian 13 主机(192.168.7.99,100.64.0.5)。此前已入网,本次补通告 <code>192.168.4.0/22</code>,与 peter-optiplex-7090 组成<strong>双路由器 HA</strong>(同一网段双通告双审批,headscale 0.29 <code>node.routes.ha</code> 默认开启,客户端按连接哈希分发、一台挂掉自动切换):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># ① 补通告(已是节点、--operator=peter,免 sudo;tailscale up 需列出全部非默认 flag,含 --login-server)
+tailscale up --login-server=https:&#x2F;&#x2F;headscale.juzhong.xyz:8443 --advertise-routes=192.168.4.0&#x2F;22
+
+# ② VPS 审批(ip_forward Debian 13 默认已是 1)
+docker-compose exec headscale headscale nodes approve-routes -i 6 -r 192.168.4.0&#x2F;22
+docker-compose exec headscale headscale nodes list-routes   # 两个节点同一网段均为 Approved+Available
+</code></pre>
+<p>查看路由偏好:<code>tailscale status</code> <strong>不显示</strong> advertise/accept,要用 <code>tailscale debug prefs</code>(AdvertiseRoutes/AcceptRoutes 字段)。</p>
+<h2 id="home-ji-peter-megabook-14-di-6-jie-dian-2026-08-16-jia-ru">home 机 peter-megabook-14(第 6 节点,2026-08-16 加入)</h2>
+<p>home 局域网内 Ubuntu 26.04 笔记本(192.168.2.147,100.64.0.6),普通节点,无子网路由角色。</p>
+<p><strong>注册踩坑</strong>:首次接入时没带 <code>--login-server</code>,误注册到了<strong>官方控制面</strong>(login.tailscale.com,登录链接形如 <code>https://login.tailscale.com/a/xxx</code>)——与自建 headscale 是两个完全不同的控制面,节点列表互不可见。修复:先杀掉等待官方认证的 <code>tailscale up</code> 进程,再用 preauthkey 指向自建控制面重新注册即可,<code>tailscale status</code> 立刻显示 tailnet 全部节点。</p>
+<h1 id="an-quan-she-ji-zi-wang-fang-wen-mo-ren-guan-bi-xian-shi-kai-guan">安全设计:子网访问默认关闭,显式开关</h1>
+<p>默认仅 tailnet 节点互通(虚拟网段内),<strong>任何一侧局域网互访默认关闭</strong>,按需开启:</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 开启「公司侧局域网可被 home 访问」三步:
+# ① 公司机宣告路由:
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443 --advertise-routes=192.168.4.0&#x2F;22
+# ② home 机接受路由:
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443 --accept-routes
+# ③ VPS 审批(0.29.3 语法):
+docker-compose exec headscale headscale nodes list-routes
+docker-compose exec headscale headscale nodes approve-routes -i &lt;node_id&gt; -r 192.168.4.0&#x2F;22
+
+# 关闭(任一侧,恢复仅节点互通):
+sudo tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443
+</code></pre>
+<p>home 侧对称操作(宣告 192.168.2.0/24)。<code>tailscale up</code> 重复执行只更新偏好,不会掉线。公司网段需注意与 home 网段、tailnet CGNAT 段(100.64.0.0/10)无冲突。</p>
+<h2 id="zi-wang-lu-you-yuan-li-xuan-gao-jie-shou-ip-forward-snat-yu-hui-cheng-2026-08-15-shi-ce-zheng-li">子网路由原理:宣告/接受、ip_forward、SNAT 与回程(2026-08-15 实测整理)</h2>
+<p>子网访问能通依赖三件套,缺一不可:</p>
+<p><strong>① 宣告 vs 接受(方向配对)</strong>:<code>--advertise-routes</code> = 宣告方(我所在的局域网可被 tailnet 访问,需 headscale <code>nodes approve-routes</code> 审批才生效);<code>--accept-routes</code> = 接受方(把对端宣告的子网注入本机路由表)。<strong>⚠️ 子网路由器不要 accept</strong>(见下方「accept 自吸」),本方案 <code>scripts/*-routes-on.sh</code> 已改为只通告,需要接受对端网段时单独跑 <code>*-accept.sh</code>——同一台机器不要同时跑两个脚本。</p>
+<p><strong>② IP 转发(最容易漏)</strong>:子网路由器必须 <code>net.ipv4.ip_forward = 1</code>,<strong>tailscale 不会自动设置</strong>(Linux 上;macOS 才自动)。Ubuntu 工作站默认是 0——实测本方案中 home 侧 Proxmox 宿主天然为 1(PVE 桥接需要),但公司机极可能为 0,子网流量会静默不通。已在 <code>scripts/*-routes-on.sh</code> 里加入启动时自动检查并开启(<code>sysctl -w</code> 仅本次生效,持久化需写 <code>/etc/sysctl.d/99-tailscale.conf</code>)。</p>
+<p><strong>③ SNAT(默认开启,零配置)</strong>:<code>--snat-subnet-routes</code> 默认 true,tailscale 自动对子网转发流量做 masquerade。效果:子网内主机看到的源 IP 是<strong>子网路由器的局域网 IP</strong>(不是 tailnet 的 100.64.0.x),回包只需发给默认网关(即子网路由器),conntrack 对称恢复后送回隧道——<strong>子网内主机完全不需要知道 tailnet 路由,回程天然通畅</strong>。</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">home(100.64.0.2) → tailscale0 → 子网路由器解密 → 内核转发 eth0
+    ↑                                 │ 并发包 SNAT:源 100.64.0.2 → 路由器 LAN IP
+    └── conntrack 恢复源地址 ← 子网内主机回包给默认网关(路由器)
+</code></pre>
+<p><strong>何时需要手动回程路由</strong>:只有关闭 SNAT(<code>--snat-subnet-routes=false</code>,需保留真实源 IP 做日志审计时)才有此需求——此时子网内主机收到源为 <code>100.64.0.x</code> 的包,必须给它加 <code>100.64.0.0/10 → 子网路由器 LAN IP</code> 的静态路由(DHCP/VPC 下发),否则回程丢包。默认 SNAT 开启时无此坑。</p>
+<p><strong>排障顺序</strong>:① 两端 accept/advertise 是否配对(<code>tailscale debug prefs</code> 查 AdvertiseRoutes/AcceptRoutes);② headscale <code>nodes list-routes</code> 的 Approved 列是否包含该网段;③ 子网路由器 <code>sysctl net.ipv4.ip_forward</code> 是否为 1;④ 目标机防火墙;⑤ 子网路由器是否误开 accept(见下条)。</p>
+<p><strong>accept-routes 自吸(2026-08-16 实测 xiao99,全网段断连 20 分钟的元凶)</strong>:机器<strong>自己就在通告的网段内</strong>时开 <code>--accept-routes</code>,tailscale 会把本网段路由也装进 table 52(策略路由 <code>5270 lookup 52</code> 优先于 <code>32766 lookup main</code>),于是——<strong>本机发往局域网的包(含对 LAN 主机的回包)全部被吸进 tailscale0</strong>,tailscaled 视其为不可达丢弃。症状极具迷惑性:<strong>局域网内主机 ping 这台机器 100% 丢包,但 tailnet 直连(<code>tailscale ping 100.64.0.x</code>)完全正常</strong>——先怀疑隧道/打洞坏了,实际是回包自吸。抓包特征:回包从 <code>tailscale0 Out</code> 出去(<code>ICMP ... udp port xxx unreachable</code>),br0 上只有入包没有回包。修复:<code>tailscale set --accept-routes=false</code> 秒恢复。tailscale 官方文档对 HA 双路由器场景同样警告:"standby 会接受 primary 宣告的同一路由,导致本可直接连接的子网绕道 primary"——<strong>双通告的路由器应该只用 <code>--advertise-routes</code></strong>。</p>
+<p><strong>双路由器 HA(2026-08-16 实测)</strong>:同一网段 <code>192.168.4.0/22</code> 由 peter-optiplex-7090 与 xiao99 双通告并逐个审批后,headscale <code>node.routes.ha</code>(默认开启)使客户端同时拿到两条候选路由,按连接(五元组哈希)分发、单台掉线自动切换;<code>headscale nodes list-routes</code> 两个节点均显示 Approved+Available。局限:无法配置优先级(主备),负载近似均分;两台都别开 accept。</p>
+<p><strong>与 OpenVPN 路由共存(2026-08-16 实测 peter-xiao100)</strong>:home 本机已有 OpenVPN 路由 <code>192.168.4.0/22 via 10.8.0.5 dev tun0</code>(main 表),与 tailnet 宣告的公司网段<strong>完全重叠</strong>。实测结论:<strong>不冲突,但 tailscale 会接管</strong>——tailnet 子网路由进独立 table 52,策略路由优先级 <code>5270 lookup 52</code> &lt; <code>32766 lookup main</code>,accept 后访问 192.168.4.x 全部走 tailscale 隧道(公司机作子网路由器 + SNAT),OpenVPN 那条路由休眠但保留。两条隧道本质是"到同一网段的两个入口",谁的路由表优先级高谁生效。想继续走 OpenVPN(如 443 穿透公司严格 NAT)就<strong>不要</strong>执行 accept;接管情况用 <code>ip route show table 52</code> 确认。</p>
+<h1 id="guan-li-mian-ban-headplane-fang-wen">管理面板(headplane)访问</h1>
+<blockquote>
+<p><strong>更正(2026-08-15)</strong>:本文初稿的"headplane 公网访问"方案(CF Tunnel / Zero Trust)当时并未实际启用——<code>panel.juzhong.xyz</code> 未建 DNS 记录、cloudflared 也未配对应 ingress。实际落地改为<strong>经 tailnet 内访问</strong>(headplane 不监听公网,只绑 <code>127.0.0.1:3000</code> 与 tailnet IP <code>100.64.0.100:3000</code>)。原方案对比保留,作为未来公网访问的备选资料。为何不用 <code>tailscale serve</code> 暴露见文末"踩坑记录"。</p>
+</blockquote>
+<p>headplane 绑定:</p>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml"># docker-compose.yml
+    ports:
+      - &quot;127.0.0.1:3000:3000&#x2F;tcp&quot;
+      - &quot;100.64.0.100:3000:3000&#x2F;tcp&quot;
+
+# headplane.yaml
+  base_url: &quot;http:&#x2F;&#x2F;100.64.0.100:3000&quot;   # tailnet IP,须与绑定一致
+  cookie_secure: false                  # tailnet 内走 HTTP;WireGuard 已加密,无需 secure cookie
+</code></pre>
+<p>访问:任意 tailnet 节点浏览器开 <code>http://100.64.0.100:3000/admin</code>,用 headscale API key 登录。安全模型:公网安全组不放行 3000 + 容器不监听 0.0.0.0 + WireGuard 端到端加密 + API key 认证,四层无公网暴露面。</p>
+<p>运维速查(常用命令):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cd &#x2F;home&#x2F;peter&#x2F;p2p
+docker-compose exec headscale headscale users list                # 用户及 ID
+docker-compose exec headscale headscale users create &lt;名称&gt;        # 新增用户
+docker-compose exec headscale headscale nodes list                # 节点与状态
+docker-compose exec headscale headscale nodes expire -i &lt;id&gt;      # 踢下线
+docker-compose exec headscale headscale preauthkeys create --user &lt;id&gt; --expiration 24h   # 新设备入网 key
+docker-compose exec headscale headscale apikeys create            # headplane 登录 key(只显示一次)
+docker-compose exec headscale headscale nodes list-routes                # 子网路由审批(0.29.3 语法;旧 routes list&#x2F;enable 已移除)
+</code></pre>
+<p>固定节点 IP(headscale 无 CLI,直接改库;先备份,改完重启 headscale 和客户端):</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">docker exec headscale headscale nodes list -o json | grep -i given_name   # 确认节点 ID
+docker stop headscale
+cp &#x2F;home&#x2F;peter&#x2F;p2p&#x2F;data&#x2F;db.sqlite* &#x2F;tmp&#x2F;
+python3 -c &quot;import sqlite3; d=sqlite3.connect(&#x27;&#x2F;home&#x2F;peter&#x2F;p2p&#x2F;data&#x2F;db.sqlite&#x27;); d.execute(\&quot;UPDATE nodes SET ipv4=&#x27;100.64.0.100&#x27; WHERE id=3\&quot;); d.commit()&quot;
+docker start headscale
+tailscale up --login-server=https:&#x2F;&#x2F;headscale.demo.com:8443 --operator=peter   # 重新拉取地图
+</code></pre>
+<h2 id="gong-wang-fang-wen-bei-xuan-fang-an-yi-chun-cloudflare-tunnel-wei-qi-yong-bei-xuan">公网访问备选方案一:纯 Cloudflare Tunnel(未启用,备选)</h2>
+<p><strong>关键认知:Tunnel(通道)不需要 Zero Trust 组织、不需要信用卡;Access(认证门)才需要</strong>。纯 CLI 路线全程只碰 CF 基础 DNS + 隧道:</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cloudflared tunnel login                      # 浏览器授权
+cloudflared tunnel create caddy-tunnel        # 建隧道
+cloudflared tunnel route dns caddy-tunnel panel.demo.com   # 加 CNAME
+# &#x2F;etc&#x2F;cloudflared&#x2F;config.yml 在 404 兜底前插入:
+#   - hostname: panel.demo.com
+#     service: http:&#x2F;&#x2F;localhost:3000
+sudo systemctl restart cloudflared
+</code></pre>
+<p>headplane 侧同步改配置并重启(启用公网方案时,与 tailnet 内访问二选一或共存):</p>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">server:
+  base_url: &quot;https:&#x2F;&#x2F;panel.demo.com&quot;   # 必须改,否则登录后跳转回 localhost
+  cookie_secure: true
+</code></pre>
+<p>访问 <code>https://panel.demo.com/admin</code>,用 headscale API key 登录。安全模型:无端口暴露 + TLS + API key 单层认证。</p>
+<h2 id="gong-wang-fang-wen-bei-xuan-fang-an-er-zero-trust-access-wei-qi-yong-bei-xuan-bang-qia-bian-yuan-shuang-yin-zi">公网访问备选方案二:Zero Trust + Access(未启用,备选,绑卡边缘双因子)</h2>
+<p>创建 Zero Trust 组织时 CF 要求添加付款方式(风控,Free 计划 50 用户不扣费)。之后:</p>
+<ol>
+<li>Tunnel → Public Hostname 添加 <code>panel.demo.com</code> → HTTP → <code>localhost:3000</code>;</li>
+<li>Access → Applications → Self-hosted → 配置 Email OTP(或 Google)策略。</li>
+</ol>
+<p>访问流程:浏览器 → CF 边缘邮箱验证码(未认证请求到不了 VPS)→ 隧道 → headplane API key。双因子 + 边缘审计,代价是绑卡一次 + 依赖 CF 零信任产品线(国内 VPS↔CF 边缘稳定性需实测)。</p>
+<table><thead><tr><th>维度</th><th>方案一 纯隧道</th><th>方案二 Zero Trust + Access</th></tr></thead><tbody>
+<tr><td>成本</td><td>0 元,无卡</td><td>0 元(Free),绑卡验证一次</td></tr>
+<tr><td>认证</td><td>headplane API key 单层</td><td>CF 双因子 + API key 两层</td></tr>
+<tr><td>攻击面</td><td>无端口,有认证入口</td><td>认证在边缘,请求到不了 VPS</td></tr>
+<tr><td>审计</td><td>无</td><td>CF 登录审计</td></tr>
+</tbody></table>
+<p>个人场景方案一已够用;两方案可随时切换,隧道配置完全复用。</p>
+<h1 id="fei-qi-wg-easy">废弃 wg-easy</h1>
+<p>VPS 上原有 wg-easy(WireGuard 管理面板)与新方案并存无冲突,确认废弃后清理:</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">docker-compose rm -sf wg-easy          # 停并删容器
+docker volume rm wg-easy_etc_wireguard # 删数据卷(已空)
+# 从 docker-compose.yaml 移除服务块(先备份)
+</code></pre>
+<p>残留:旧配置目录(root 属主,需 sudo 删)、安全组 51820/udp 放行(无害可留)。</p>
+<h1 id="a-li-yun-nei-wang-fu-wu-bei-tailnet-cgnat-wang-duan-chong-tu-zu-duan-2026-08-21-shi-ce">阿里云内网服务被 tailnet CGNAT 网段冲突阻断(2026-08-21 实测)</h1>
+<p>2026-08-21,VPS 上阿里云自动备份(hbrclient)持续失败,排查后定位为 <strong>tailnet CGNAT 网段与阿里云 VPC 内网服务网段重叠</strong>,入向回包被 tailscale 防火墙丢弃。这也是 8-14 部署时"VPC DNS 不可达"坑的真身(见本节末尾关联)。</p>
+<h2 id="xian-xiang">现象</h2>
+<ul>
+<li><code>hbrclient.service</code>(Alibaba Cloud Backup Service)反复重启,日志反复报 <code>NoAvailableEndpoint</code></li>
+<li><code>ss -tn</code> 可见发往 <code>100.100.105.60:443</code> 的连接永远卡在 <code>SYN-SENT</code></li>
+<li>VPC 内网 DNS(100.100.2.136)解析一度超时</li>
+</ul>
+<h2 id="gen-yin-liang-ge-100-wang-duan-zhuang-che">根因:两个"100 网段"撞车</h2>
+<p>headscale 默认给 tailnet 分配 <code>100.64.0.0/10</code>(config <code>prefixes.v4</code>)。Tailscale 客户端为防 IP 欺骗,在 <code>ts-input</code> 链装了丢弃规则:</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">-A ts-input -s 100.64.0.0&#x2F;10 ! -i tailscale0 -j DROP
+</code></pre>
+<p>而阿里云 VPC 内网服务恰好也落在 <code>100.64.0.0/10</code> 内:</p>
+<table><thead><tr><th>地址</th><th>用途</th><th>稳定性</th></tr></thead><tbody>
+<tr><td>100.100.2.136/138</td><td>VPC 内网 DNS</td><td>固定(DHCP 同步推送路由)</td></tr>
+<tr><td>100.100.100.200</td><td>ECS metadata(实例身份)</td><td>固定</td></tr>
+<tr><td>100.100.105.60</td><td>HBR 备份 MQTT 通道(<code>post-cn-xxx-internal.mqtt.aliyuncs.com</code> 解析)</td><td>域名稳定,IP 可能轮换</td></tr>
+</tbody></table>
+<p>机制:<strong>出站请求正常</strong>(路由走 eth0,table 52 无覆盖路由),但<strong>回包</strong>源地址落在 CGNAT 段且非来自 tailscale0 → 命中 DROP → TCP 永远建不起连接。</p>
+<h2 id="pai-cha-yao-dian-shi-ce-ming-ling">排查要点(实测命令)</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ip rule show                       # 5270: from all lookup 52(优先级高于主表 32766)
+ip route show table 52             # 只有 tailnet peer IP,无 100.100.x 覆盖路由 → 路由没问题
+ip route get 100.100.2.136         # via &lt;VPC网关&gt; dev eth0 → 出站正常
+ss -tn | grep 100\.                # SYN-SENT 100.100.105.60:443 ← 实锤
+sudo iptables -S ts-input          # 看到 -s 100.64.0.0&#x2F;10 ! -i tailscale0 -j DROP
+tail -30 &#x2F;opt&#x2F;alibabacloud&#x2F;hbrclient&#x2F;logs&#x2F;hbrclient.log
+# &quot;Cannot connect to wss:&#x2F;&#x2F;post-cn-xxx-internal.mqtt.aliyuncs.com:443 ... i&#x2F;o timeout&quot;
+# &quot;Failed to get ECS metadata ... 100.100.100.200:80 i&#x2F;o timeout&quot;
+</code></pre>
+<p>一句话定位:<strong>路由没坏,坏在防火墙对"内网回包"的防欺骗丢弃</strong>(先查 <code>ip route get</code> 排除路由,再看 <code>ss</code> 抓 SYN-SENT 定位目标 IP,最后 iptables 确认 DROP 规则)。</p>
+<h2 id="xiu-fu-fang-xing-a-li-yun-nei-wang-fu-wu-duan">修复:放行阿里云内网服务段</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo iptables -I ts-input 1 -s 100.100.0.0&#x2F;16 -j ACCEPT
+</code></pre>
+<p><code>100.100.0.0/16</code> 是阿里云内网服务固定段,一条覆盖 DNS/metadata/MQTT 及后续新增内网 endpoint,换 IP 无需维护。</p>
+<h3 id="chi-jiu-hua-bi-cai-de-keng">持久化(必踩的坑)</h3>
+<p><strong>tailscaled 每次启动会重建 ts-* 链并冲掉自定义规则</strong>;<code>iptables-persistent</code> 恢复时机在 tailscaled 之前,同样会被清。需 systemd oneshot(<code>After=tailscaled.service</code>):</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini"># &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;ts-input-aliyun-allow.service
+[Unit]
+Description=Allow Aliyun internal 100.100.0.0&#x2F;16 in ts-input
+After=tailscaled.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=&#x2F;usr&#x2F;sbin&#x2F;iptables -C ts-input -s 100.100.0.0&#x2F;16 -j ACCEPT 2&gt;&#x2F;dev&#x2F;null || &#x2F;usr&#x2F;sbin&#x2F;iptables -I ts-input 1 -s 100.100.0.0&#x2F;16 -j ACCEPT
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+<h3 id="yan-zheng-1">验证</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">timeout 3 bash -c &#x27;&lt;&#x2F;dev&#x2F;tcp&#x2F;100.100.105.60&#x2F;443&#x27; &amp;&amp; echo OK   # 之前 SYN-SENT 卡死,现在应连通
+curl -m 3 -s http:&#x2F;&#x2F;100.100.100.200&#x2F;latest&#x2F;meta-data&#x2F;instance-id   # metadata 恢复
+grep -i NoAvailableEndpoint &#x2F;opt&#x2F;alibabacloud&#x2F;hbrclient&#x2F;logs&#x2F;hbrclient.log | tail   # 不再新增
+</code></pre>
+<p><strong>实测结果(2026-08-21 15:31 起)</strong>:加规则后 TCP 建连立即 OK、metadata 返回 instance-id、<code>ss</code> 从 SYN-SENT 变 ESTAB;hbrclient 重启后日志不再报 <code>Cannot connect</code>/<code>NoAvailableEndpoint</code>,MQ 注册成功、任务轮询正常,备份链路恢复。</p>
+<h2 id="bei-xuan-fang-an-ji-lu-bei-cha">备选方案(记录备查)</h2>
+<table><thead><tr><th>方案</th><th>安全性</th><th>维护量</th><th>静默失败风险</th></tr></thead><tbody>
+<tr><td>精确 IP 白名单(按日志逐个加)</td><td>最高</td><td>低,但要盯日志</td><td>高(阿里云换 IP 即挂)</td></tr>
+<tr><td><strong>ipset + 内网域名定时刷新</strong>(折中)</td><td>高</td><td>中</td><td>低</td></tr>
+<tr><td>放行 100.100.0.0/16(当前采用)</td><td>中(有意放宽)</td><td>最低</td><td>最低</td></tr>
+</tbody></table>
+<p>ipset 方案:i 一条 iptables 规则引用 ipset 集合,cron 按<strong>内网 DNS</strong>(<code>dig @100.100.2.136</code>)解析 <code>*-internal.aliyuncs.com</code> 域名刷新集合——必须用内网 DNS 解析,公网 DNS 拿到的是公网 IP,白名单失效;域名清单需随 agent 演进手动增补;ipset 与规则同样需要重启后恢复。</p>
+<h2 id="an-quan-shuo-ming">安全说明</h2>
+<p>放行 /16 使 ts-input 防欺骗对该段失效(tailnet 成员可伪造该段源 IP 直达本机服务)。实际风险低:tailnet 全为自有设备、外部攻击者受阿里云安全组 + vSwitch 源地址校验限制、本机服务无按源 IP 做信任判断者。若未来 tailnet 加入不可信节点,应收窄回精确 IP/ipset 方案。</p>
+<h2 id="guan-lian-8-14-bu-shu-shi-de-dns-keng-jiu-shi-ta">关联:8-14 部署时的 DNS 坑就是它</h2>
+<p>部署时"VPC DNS 不可达"当时用 <code>/etc/hosts</code> 硬编码 + 公共 DNS 绕过,判断为"DNS 污染/不可达"。现在看,那次"不可达"正是 ts-input 丢回包(当时 VPS 节点刚加入 tailnet),绕过方案有效但掩盖了根因;本次备份失败把真凶暴露出来,一次解决了两类症状。教训:<strong>加入 tailnet 后阿里云内网服务异常,优先怀疑 CGNAT 网段冲突,而不是 DNS 污染</strong>。</p>
+<h1 id="zong-jie">总结</h1>
+<ul>
+<li><strong>方案</strong>:headscale 控制面 + Tailscale 官方客户端,打洞直连优先、DERP 中继兜底,数据面完全自主可控;</li>
+<li><strong>坑</strong>:备案约束 → 自定义端口;官方 DERP 地图不清空会绕海外;0.29 的 preauthkey 用数字用户 ID;国内 VPS 拉 Docker Hub 需本地中转;</li>
+<li><strong>安全</strong>:默认仅节点互通 + 子网显式开关;DERP 默认 verify_clients;面板经 tailnet 内访问(无公网暴露,四层防护);</li>
+<li><strong>实测</strong>:打洞成功 21ms 直连,DERP 只走自建节点,证书续期全自动。</li>
+</ul>
+<h1 id="cai-keng-ji-lu-tailscale-serve-zai-ben-tuo-bu-xia-bu-ke-yong-2026-08-15">踩坑记录:tailscale serve 在本拓扑下不可用(2026-08-15)</h1>
+<p>曾尝试用 <code>tailscale serve --bg --http 3000 3000</code> 把 headplane 暴露到 tailnet,实测失败,两个原因:</p>
+<ol>
+<li><strong>代理端口与 docker-proxy 冲突</strong>:serve 的代理监听端口与 headplane 容器已占用的 <code>127.0.0.1:3000</code> 冲突(headplane 容器先于 tailscaled 启动),请求全部返回 <code>404 page not found</code>(Go 默认 404,19 字节);</li>
+<li><strong>挂载按主机名匹配 Host</strong>:serve 挂载 key 是 tailnet 主机名 <code>iz2zehkipqcroqwfrvhwj7z:3000</code>,而本 tailnet <code>magic_dns: false</code>,其他节点无法解析该主机名、只能用 IP 访问 → Host 匹配失败同样 404。</li>
+</ol>
+<p><strong>结论</strong>:改用 docker 双绑定(<code>127.0.0.1:3000</code> + <code>100.64.0.100:3000</code>)直连,无 serve 的匹配与端口冲突问题;若要恢复 MagicDNS 才能发挥 serve 价值,而 MagicDNS 会干扰公司 DNS(见 config 注释),故弃用 serve。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/">&#8249; 触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/npu-gpu-bmc-management-port/"> 服务器管理口（BMC/iBMC）排查与配置指南：NPU 与 GPU 服务器实测 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xu-qiu">需求</a>
+        </div>
+        <div>
+          <a href="#fang-an-xuan-xing">方案选型</a>
+        </div>
+        <div>
+          <a href="#jia-gou-yu-yuan-li">架构与原理</a>
+        </div>
+        <div class="hpad">
+          <a href="#nat-da-dong-wei-shen-me-you-shi-shi-bai"><small>- NAT 打洞为什么有时失败</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#derp-yu-stun-de-gui-shu"><small>- DERP 与 STUN 的归属</small></a>
+        </div>
+        <div>
+          <a href="#bu-shu-zhun-bei">部署准备</a>
+        </div>
+        <div class="hpad">
+          <a href="#duan-kou-yu-an-quan-zu-bei-an-yue-shu"><small>- 端口与安全组(备案约束)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yu-ming-yu-zheng-shu-cloudflare-dns-acme-sh"><small>- 域名与证书(Cloudflare DNS + acme.sh)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jing-xiang-zhun-bei-guo-nei-vps-la-bu-dong-docker-hub"><small>- 镜像准备(国内 VPS 拉不动 Docker Hub)</small></a>
+        </div>
+        <div>
+          <a href="#vps-bu-shu-headscale-headplane">VPS 部署(headscale + headplane)</a>
+        </div>
+        <div class="hpad">
+          <a href="#docker-compose-yml"><small>- docker-compose.yml</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#config-yaml-guan-jian-xiang"><small>- config.yaml 关键项</small></a>
+        </div>
+        <div>
+          <a href="#ke-hu-duan-jie-ru-gong-si-ji-home-ji-vps-guan-li-jie-dian">客户端接入(公司机 + home 机 + VPS 管理节点)</a>
+        </div>
+        <div class="hpad">
+          <a href="#an-zhuang-guan-fang-apt-yuan-guo-nei-zhi-lian-ke-yong"><small>- 安装(官方 apt 源,国内直连可用)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#deng-lu-preauthkey-mian-liu-lan-qi"><small>- 登录(preauthkey 免浏览器)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng"><small>- 验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#vps-guan-li-jie-dian-di-3-jie-dian-2026-08-15-jia-ru"><small>- VPS 管理节点(第 3 节点,2026-08-15 加入)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#home-proxmox-su-zhu-di-4-jie-dian-2026-08-15-jia-ru"><small>- home Proxmox 宿主(第 4 节点,2026-08-15 加入)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gong-si-ce-zi-wang-lu-you-qi-xiao99-di-5-jie-dian-2026-08-16-jia-ru-shuang-lu-you-qi-ha"><small>- 公司侧子网路由器 xiao99(第 5 节点,2026-08-16 加入,双路由器 HA)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#home-ji-peter-megabook-14-di-6-jie-dian-2026-08-16-jia-ru"><small>- home 机 peter-megabook-14(第 6 节点,2026-08-16 加入)</small></a>
+        </div>
+        <div>
+          <a href="#an-quan-she-ji-zi-wang-fang-wen-mo-ren-guan-bi-xian-shi-kai-guan">安全设计:子网访问默认关闭,显式开关</a>
+        </div>
+        <div class="hpad">
+          <a href="#zi-wang-lu-you-yuan-li-xuan-gao-jie-shou-ip-forward-snat-yu-hui-cheng-2026-08-15-shi-ce-zheng-li"><small>- 子网路由原理:宣告&#x2F;接受、ip_forward、SNAT 与回程(2026-08-15 实测整理)</small></a>
+        </div>
+        <div>
+          <a href="#guan-li-mian-ban-headplane-fang-wen">管理面板(headplane)访问</a>
+        </div>
+        <div class="hpad">
+          <a href="#gong-wang-fang-wen-bei-xuan-fang-an-yi-chun-cloudflare-tunnel-wei-qi-yong-bei-xuan"><small>- 公网访问备选方案一:纯 Cloudflare Tunnel(未启用,备选)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gong-wang-fang-wen-bei-xuan-fang-an-er-zero-trust-access-wei-qi-yong-bei-xuan-bang-qia-bian-yuan-shuang-yin-zi"><small>- 公网访问备选方案二:Zero Trust + Access(未启用,备选,绑卡边缘双因子)</small></a>
+        </div>
+        <div>
+          <a href="#fei-qi-wg-easy">废弃 wg-easy</a>
+        </div>
+        <div>
+          <a href="#a-li-yun-nei-wang-fu-wu-bei-tailnet-cgnat-wang-duan-chong-tu-zu-duan-2026-08-21-shi-ce">阿里云内网服务被 tailnet CGNAT 网段冲突阻断(2026-08-21 实测)</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin-liang-ge-100-wang-duan-zhuang-che"><small>- 根因:两个&quot;100 网段&quot;撞车</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#pai-cha-yao-dian-shi-ce-ming-ling"><small>- 排查要点(实测命令)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-fang-xing-a-li-yun-nei-wang-fu-wu-duan"><small>- 修复:放行阿里云内网服务段</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#chi-jiu-hua-bi-cai-de-keng"><small>· 持久化(必踩的坑)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yan-zheng-1"><small>· 验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#bei-xuan-fang-an-ji-lu-bei-cha"><small>- 备选方案(记录备查)</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#an-quan-shuo-ming"><small>- 安全说明</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-lian-8-14-bu-shu-shi-de-dns-keng-jiu-shi-ta"><small>- 关联:8-14 部署时的 DNS 坑就是它</small></a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+        <div>
+          <a href="#cai-keng-ji-lu-tailscale-serve-zai-ben-tuo-bu-xia-bu-ke-yong-2026-08-15">踩坑记录:tailscale serve 在本拓扑下不可用(2026-08-15)</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,326 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="aarch64 宿主机上给 KVM 虚拟机做局域网直连（macvtap bridge 模式挂物理网卡），不动宿主网卡配置；再用 VSOCK 补上宿主机到虚拟机的专属 SSH 通道，绕过 macvlan 的宿主-客户机互不可达限制。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/" />
+  <meta property="og:description" content="aarch64 宿主机上给 KVM 虚拟机做局域网直连（macvtap bridge 模式挂物理网卡），不动宿主网卡配置；再用 VSOCK 补上宿主机到虚拟机的专属 SSH 通道，绕过 macvlan 的宿主-客户机互不可达限制。" />
+  <meta name="twitter:description" content="aarch64 宿主机上给 KVM 虚拟机做局域网直连（macvtap bridge 模式挂物理网卡），不动宿主网卡配置；再用 VSOCK 补上宿主机到虚拟机的专属 SSH 通道，绕过 macvlan 的宿主-客户机互不可达限制。" />
+  <meta property="og:title" content="libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险 | 墨雪天琊" />
+  <meta name="twitter:title" content="libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-08-31" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=91ebdc86478775f80061"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/">libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 31, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/virtualization/">virtualization</a>] #<a href="https://moxuetianya.github.io/tags/libvirt/">libvirt</a>  #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/virtualization/">virtualization</a>  #<a href="https://moxuetianya.github.io/tags/network/">network</a> </span>
+
+    
+
+
+<h1 id="libvirt-macvlan-vsock-ju-yu-wang-zhi-lian-xu-ni-ji-su-zhu-ling-duan-wang-feng-xian">libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险</h1>
+<h2 id="bei-jing">背景</h2>
+<p>给一台 aarch64 宿主（192.168.6.8，KVM）上的新虚拟机做<strong>局域网直连</strong>（局域网其他机器能直接访问 VM），但有两个顾虑：</p>
+<ul>
+<li>不想在宿主<strong>在用的网卡</strong>（enp2s0f0）上配 Linux bridge —— 万一配置出错会断 SSH，风险不可控</li>
+<li>其他空闲网卡（enp2s0f1/2/3）<strong>都没插网线</strong>，bridge 建上去是孤岛网络，局域网够不着</li>
+</ul>
+<p>最终方案是组合拳：</p>
+<ol>
+<li><strong>libvirt macvlan</strong>（macvtap，<code>type=direct</code> bridge 模式）直接挂 <code>enp2s0f0</code> —— 完全不动宿主网卡配置，零断网风险，LAN 可达 VM</li>
+<li>macvlan 的代价：<strong>宿主机 ↔ VM 互不可达</strong>（物理网卡不接收 guest MAC 的帧）</li>
+<li>用 <strong>VSOCK</strong>（virtio-vsock，cid=3）补上宿主机 → VM 的专属 SSH 通道</li>
+</ol>
+<h2 id="guan-jian-ren-zhi-xian-gao-dong-zai-dong-shou">关键认知（先搞懂再动手）</h2>
+<table><thead><tr><th>事实</th><th>说明</th></tr></thead><tbody>
+<tr><td>macvtap bridge 模式</td><td>guest 帧直接进出物理网卡，<strong>LAN 可达 guest</strong>；但宿主 NIC 不收 guest MAC 帧 → <strong>宿主↔guest 不通</strong>，这是硬限制，不是配置错误</td></tr>
+<tr><td>sshd 不监听 AF_VSOCK</td><td>sshd 只绑 TCP :22；VSOCK 是独立地址族，需要 guest 内 <strong>socat 桥接</strong> <code>VSOCK-LISTEN:22 → 127.0.0.1:22</code></td></tr>
+<tr><td>/dev/vsock 要模块</td><td>宿主需 <code>vsock</code> + <code>vmw_vsock_virtio_transport</code>（<code>/dev/vsock</code> 才会出现）；QEMU aarch64 的 vhost-vsock-pci 可用</td></tr>
+<tr><td>用系统 libvirtd</td><td>session 模式（<code>qemu:///session</code>）用户进程没 CAP_NET_ADMIN，<strong>建不了 macvtap</strong>；用 <code>qemu:///system</code>（root libvirtd）</td></tr>
+<tr><td>镜像架构</td><td>aarch64 宿主只能跑 arm64 guest，amd64 ISO 装上也是全模拟、慢到没法用</td></tr>
+<tr><td>macvlan 网络定义 ≠ 连接定义</td><td><code>&lt;forward mode='bridge'&gt;&lt;interface dev='...'/&gt;&lt;/forward&gt;</code> 只是声明"哪些物理网卡可用于 macvtap 直连"的资源池，net-start 不创建任何设备、不加 iptables/DHCP/DNS；type='direct' 网卡上的 dev/mode 才是真正创建 macvtap 的参数（macvtap 的 bridge/vepa/private/passthrough 模式是每条网卡自己的属性），所以两处都要写</td></tr>
+<tr><td>NoCloud seed</td><td>cloud-init 首次启动自动挂载卷标 <code>cidata</code> 的 CDROM（seed.iso），读 <code>user-data</code>/<code>meta-data</code>/<code>network-config</code> 完成无人值守初始化（建用户/注入密钥/主机名/runcmd），相当于安装应答文件，初始化完即可弹出</td></tr>
+</tbody></table>
+<h2 id="bu-zou">步骤</h2>
+<h3 id="0-an-zhuang-yi-lai-su-zhu-ji">0. 安装依赖（宿主机）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo apt install -y cloud-image-utils virtinst qemu-utils socat whois
+# cloud-localds（cloud-image-utils）&#x2F; virt-install &#x2F; qemu-img &#x2F; ssh ProxyCommand 的 socat &#x2F; mkpasswd（whois）
+</code></pre>
+<h3 id="1-ding-yi-macvlan-wang-luo-macvtap-zhi-lian">1. 定义 macvlan 网络（macvtap 直连）</h3>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;!-- macvlan0.xml --&gt;
+&lt;network&gt;
+  &lt;name&gt;macvlan0&lt;&#x2F;name&gt;
+  &lt;forward mode=&quot;bridge&quot;&gt;
+    &lt;interface dev=&quot;enp2s0f0&quot;&#x2F;&gt;
+  &lt;&#x2F;forward&gt;
+&lt;&#x2F;network&gt;
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virsh net-define macvlan0.xml &amp;&amp; virsh net-start macvlan0 &amp;&amp; virsh net-autostart macvlan0
+</code></pre>
+<p>VM 网卡最终是 <code>type='direct'</code> + <code>mode='bridge'</code>，直接挂物理网卡：</p>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;interface type=&#x27;direct&#x27;&gt;
+  &lt;source network=&#x27;macvlan0&#x27; dev=&#x27;enp2s0f0&#x27; mode=&#x27;bridge&#x27;&#x2F;&gt;
+  &lt;model type=&#x27;virtio&#x27;&#x2F;&gt;
+&lt;&#x2F;interface&gt;
+</code></pre>
+<blockquote>
+<p>为什么网络里已声明 <code>dev='enp2s0f0'</code>，网卡上还要再写一遍 dev/mode？网络 XML 只是"可用物理网卡池"（net-start 不创建设备），macvtap 模式是每条网卡自己的属性，type='direct' 网卡是自包含的连接定义，libvirt 不会从网络定义里替你填参数。想省事可改用 <code>&lt;interface type='network'&gt;&lt;source network='macvlan0'/&gt;&lt;/interface&gt;</code> 让 libvirt 自动从池里选网卡并默认 bridge 模式，但单网卡时两者等价。</p>
+</blockquote>
+<h3 id="2-jing-xiang-yu-seed">2. 镜像与 seed</h3>
+<p><strong>seed.iso 的作用</strong>：Ubuntu cloud 镜像出厂不带用户/密码，首次启动时 cloud-init 自动查找卷标 <code>cidata</code> 的可挂载卷（即 seed.iso），读里面的 <code>user-data</code>/<code>meta-data</code>/<code>network-config</code> 完成无人值守初始化——建用户、注入 SSH 公钥、设密码、主机名、执行 runcmd。相当于"安装应答文件"，初始化完成后即可弹出。<code>cloud-localds</code> 只是把 YAML 打包成 ISO 的工具（来自 cloud-image-utils 包），seed.iso 不需要下载。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># arm64 cloud 镜像（~590MB）
+wget -O &#x2F;data&#x2F;vm&#x2F;noble-server-cloudimg-arm64.img \
+  https:&#x2F;&#x2F;cloud-images.ubuntu.com&#x2F;noble&#x2F;current&#x2F;noble-server-cloudimg-arm64.img
+qemu-img convert -f qcow2 -O qcow2 noble-server-cloudimg-arm64.img u24.qcow2
+qemu-img resize u24.qcow2 50G
+</code></pre>
+<p>seed 由 1 个必建文件 + 2 个可选文件组成，全部放在 /data/vm 下：</p>
+<p><strong>seed.yaml（必建）</strong>：用户/密钥/开机动作（DHCP 默认，无需 network 配置）：</p>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">#cloud-config
+hostname: u24
+users:
+  - name: smyl
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: &#x2F;bin&#x2F;bash
+    lock_passwd: false
+    passwd: &lt;mkpasswd -m sha-512 生成的密码哈希&gt;
+    ssh_authorized_keys:
+      - &lt;宿主公钥，cat ~&#x2F;.ssh&#x2F;id_ed25519.pub 的内容&gt;
+ssh_pwauth: true
+runcmd:
+  - modprobe vsock_virtio || true
+  - apt-get update -qq &amp;&amp; apt-get install -y -qq qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent
+</code></pre>
+<p><strong>meta-data（可选，不建则 cloud-localds 自动生成）</strong>：</p>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">instance-id: u24-001
+local-hostname: u24
+</code></pre>
+<p><strong>network-config.yaml（可选，DHCP 场景不需要）</strong>：</p>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">version: 2
+ethernets:
+  all:
+    match:
+      name: &quot;en*&quot;
+    dhcp4: true
+    dhcp6: true
+</code></pre>
+<p>生成 ISO 并验证（注意 passwd 必须是 sha-512 哈希，不能写明文）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cd &#x2F;data&#x2F;vm
+cloud-localds &#x2F;data&#x2F;vm&#x2F;seed.iso seed.yaml
+# 完整三件套：cloud-localds -v --network-config network-config.yaml seed.iso seed.yaml meta-data
+isoinfo -f -i &#x2F;data&#x2F;vm&#x2F;seed.iso   # 验证：应列出 &#x2F;user-data &#x2F;meta-data（&#x2F;network-config 可选）
+</code></pre>
+<h3 id="3-jian-vm">3. 建 VM</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virt-install --connect qemu:&#x2F;&#x2F;&#x2F;system \
+  --name u24 --memory 4096 --vcpus 4 \
+  --disk path=&#x2F;data&#x2F;vm&#x2F;u24.qcow2,format=qcow2,bus=virtio \
+  --disk path=&#x2F;data&#x2F;vm&#x2F;seed.iso,device=cdrom \
+  --network network=macvlan0,model=virtio \
+  --os-variant ubuntu22.04 --import --graphics none --noautoconsole
+</code></pre>
+<h3 id="4-gua-vsock-she-bei-cid-3">4. 挂 VSOCK 设备（cid=3）</h3>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;!-- vsock.xml --&gt;
+&lt;vsock&gt;
+  &lt;cid auto=&quot;no&quot; address=&quot;3&quot;&#x2F;&gt;
+&lt;&#x2F;vsock&gt;
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virsh attach-device --config u24 vsock.xml   # 注意 --config 只写配置，需重启 VM 才生效
+virsh start u24
+</code></pre>
+<p><strong>cid 是什么</strong>：Context Identifier，AF_VSOCK 地址族里的节点地址，作用相当于 IP——VSOCK 通信用 <code>(cid, port)</code> 二元组寻址（类比 TCP 的 <code>(IP, 端口)</code>），cid 在整台宿主机上全局唯一（所有 VM 共享一个 VSOCK 地址空间）。保留值（<code>linux/vm_sockets.h</code>）：</p>
+<table><thead><tr><th>cid</th><th>含义</th></tr></thead><tbody>
+<tr><td>0xFFFFFFFF</td><td><code>VMADDR_CID_ANY</code>（通配）</td></tr>
+<tr><td>0</td><td><code>VMADDR_CID_HYPERVISOR</code>（虚拟化层）</td></tr>
+<tr><td>1</td><td><code>VMADDR_CID_LOCAL</code>（本机进程间）</td></tr>
+<tr><td>2</td><td><code>VMADDR_CID_HOST</code>（宿主机，固定不变）</td></tr>
+<tr><td>≥3</td><td>各 guest 自行分配</td></tr>
+</tbody></table>
+<p><strong>cid=3 没有特殊语义</strong>——QEMU 规定 guest cid 最小为 3（2 及以下全被保留），所以 3 是合法的最小值，第一个 VM 惯例上就用它（libvirt <code>&lt;cid auto='yes'&gt;</code> 自动分配时也从 3 开始），之后每个 VM 换个不重复的数字（4、5…）。对应到本文：宿主连 <code>VSOCK-CONNECT:3:22</code> 就是"连 u24 这台机器"；反过来 guest 要连宿主机则固定用 cid=2。</p>
+<p>guest-agent channel 不需要手动挂，virt-install 自动加了 <code>org.qemu.guest_agent.0</code>。</p>
+<h3 id="5-guest-nei-zuo-vsock-tcp-qiao-jie">5. guest 内做 VSOCK → TCP 桥接</h3>
+<p>sshd 不监听 AF_VSOCK，需要 socat 转发（VM 内）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">apt install -y socat
+cat &gt; &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;vsock-sshd.service &lt;&lt;&#x27;EOF&#x27;
+[Unit]
+Description=VSOCK to TCP sshd bridge
+After=network.target
+
+[Service]
+ExecStart=&#x2F;usr&#x2F;bin&#x2F;socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload &amp;&amp; systemctl enable --now vsock-sshd.service
+</code></pre>
+<h3 id="6-su-zhu-ce-ssh-bie-ming">6. 宿主侧 ssh 别名</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># ~&#x2F;.ssh&#x2F;config
+Host u24
+    HostName localhost
+    ProxyCommand socat - VSOCK-CONNECT:3:22
+    User smyl
+    HostKeyAlias u24
+    ServerAliveInterval 30
+</code></pre>
+<p>首次连接需 <code>ssh -o StrictHostKeyChecking=accept-new u24</code> 记录 host key（HostKeyAlias 保证存到 <code>u24</code> 名下，hostname 无所谓）。</p>
+<h3 id="7-chi-jiu-hua-su-zhu-zhong-qi-hou-zi-dong-hui-fu">7. 持久化（宿主重启后自动恢复）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">echo -e &quot;vsock\nvmw_vsock_virtio_transport&quot; | sudo tee &#x2F;etc&#x2F;modules-load.d&#x2F;vsock.conf
+virsh net-autostart macvlan0   # 网络自启
+virsh autostart u24            # VM 自启
+</code></pre>
+<h2 id="yan-zheng">验证</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># LAN 直连（其他机器也能这样访问 VM）
+ssh smyl@192.168.5.193        # DHCP 分配的 IP
+
+# 宿主机走 VSOCK（不依赖网络，网卡挂了也能连）
+ssh u24
+</code></pre>
+<p>VM 的 DHCP IP 通过 guest-agent 查询（macvtap 下宿主 ARP 表看不到 guest，<code>domifaddr --source arp</code> 不灵）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virsh qemu-agent-command u24 &#x27;{&quot;execute&quot;:&quot;guest-network-get-interfaces&quot;}&#x27;
+</code></pre>
+<h2 id="cai-guo-de-keng">踩过的坑</h2>
+<ul>
+<li><strong>amd64 ISO 装不上 aarch64</strong>：qemu-system-aarch64 只能跑 arm64 guest，x86 镜像要么换 emulator 要么全模拟慢到没法用</li>
+<li><strong><code>virsh qemu-agent-command</code> 不支持 <code>--file</code></strong>：JSON 只能内联传参，命令长时用 base64 传递避免转义地狱</li>
+<li><strong><code>ssh u24</code> 报 Host key verification failed</strong>：之前用临时 <code>UserKnownHostsFile</code> 连接过，默认 known_hosts 里没有，<code>accept-new</code> 一次即可</li>
+<li><strong>macvtap 下 <code>domifaddr --source arp</code> 拿不到 IP</strong>：宿主与 guest 不通，ARP 表里没有 guest；靠 guest-agent 或 vsock 查</li>
+</ul>
+<h2 id="zong-jie">总结</h2>
+<ul>
+<li>局域网直连优先考虑 macvlan/macvtap：<strong>不动宿主网卡、零断网风险</strong>，代价是宿主↔guest 不通</li>
+<li>VSOCK 是补这个坑的干净通道：guest 内一条 socat systemd 服务即可，SSH 完全复用，不依赖 IP</li>
+<li>aarch64 宿主记得核对 guest 镜像架构，cloud 镜像 + cloud-init seed 可以全自动落地</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/09/libvirt-usb-device-hotplug/">&#8249; libvirt USB 设备直通虚拟机：在线热插拔，不硬编码 domain XML</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/"> sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#libvirt-macvlan-vsock-ju-yu-wang-zhi-lian-xu-ni-ji-su-zhu-ling-duan-wang-feng-xian">libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险</a>
+        </div>
+        <div class="hpad">
+          <a href="#bei-jing"><small>- 背景</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-ren-zhi-xian-gao-dong-zai-dong-shou"><small>- 关键认知（先搞懂再动手）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#bu-zou"><small>- 步骤</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#0-an-zhuang-yi-lai-su-zhu-ji"><small>· 0. 安装依赖（宿主机）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-ding-yi-macvlan-wang-luo-macvtap-zhi-lian"><small>· 1. 定义 macvlan 网络（macvtap 直连）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-jing-xiang-yu-seed"><small>· 2. 镜像与 seed</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-jian-vm"><small>· 3. 建 VM</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-gua-vsock-she-bei-cid-3"><small>· 4. 挂 VSOCK 设备（cid=3）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-guest-nei-zuo-vsock-tcp-qiao-jie"><small>· 5. guest 内做 VSOCK → TCP 桥接</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-su-zhu-ce-ssh-bie-ming"><small>· 6. 宿主侧 ssh 别名</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#7-chi-jiu-hua-su-zhu-zhong-qi-hou-zi-dong-hui-fu"><small>· 7. 持久化（宿主重启后自动恢复）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-zheng"><small>- 验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cai-guo-de-keng"><small>- 踩过的坑</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

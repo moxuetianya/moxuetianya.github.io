@@ -1,0 +1,447 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - virtualization</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/virtualization/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-31T19:02:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/virtualization/atom.xml</id>
+    <entry xml:lang="en">
+        <title>libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险</title>
+        <published>2026-08-31T19:02:16+08:00</published>
+        <updated>2026-08-31T19:02:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/"/>
+        <id>https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/libvirt-macvlan-vsock-ssh/">&lt;h1 id=&quot;libvirt-macvlan-vsock-ju-yu-wang-zhi-lian-xu-ni-ji-su-zhu-ling-duan-wang-feng-xian&quot;&gt;libvirt macvlan + VSOCK：局域网直连虚拟机，宿主零断网风险&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;给一台 aarch64 宿主（192.168.6.8，KVM）上的新虚拟机做&lt;strong&gt;局域网直连&lt;&#x2F;strong&gt;（局域网其他机器能直接访问 VM），但有两个顾虑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;不想在宿主&lt;strong&gt;在用的网卡&lt;&#x2F;strong&gt;（enp2s0f0）上配 Linux bridge —— 万一配置出错会断 SSH，风险不可控&lt;&#x2F;li&gt;
+&lt;li&gt;其他空闲网卡（enp2s0f1&#x2F;2&#x2F;3）&lt;strong&gt;都没插网线&lt;&#x2F;strong&gt;，bridge 建上去是孤岛网络，局域网够不着&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;最终方案是组合拳：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;libvirt macvlan&lt;&#x2F;strong&gt;（macvtap，&lt;code&gt;type=direct&lt;&#x2F;code&gt; bridge 模式）直接挂 &lt;code&gt;enp2s0f0&lt;&#x2F;code&gt; —— 完全不动宿主网卡配置，零断网风险，LAN 可达 VM&lt;&#x2F;li&gt;
+&lt;li&gt;macvlan 的代价：&lt;strong&gt;宿主机 ↔ VM 互不可达&lt;&#x2F;strong&gt;（物理网卡不接收 guest MAC 的帧）&lt;&#x2F;li&gt;
+&lt;li&gt;用 &lt;strong&gt;VSOCK&lt;&#x2F;strong&gt;（virtio-vsock，cid=3）补上宿主机 → VM 的专属 SSH 通道&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;guan-jian-ren-zhi-xian-gao-dong-zai-dong-shou&quot;&gt;关键认知（先搞懂再动手）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;事实&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;macvtap bridge 模式&lt;&#x2F;td&gt;&lt;td&gt;guest 帧直接进出物理网卡，&lt;strong&gt;LAN 可达 guest&lt;&#x2F;strong&gt;；但宿主 NIC 不收 guest MAC 帧 → &lt;strong&gt;宿主↔guest 不通&lt;&#x2F;strong&gt;，这是硬限制，不是配置错误&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;sshd 不监听 AF_VSOCK&lt;&#x2F;td&gt;&lt;td&gt;sshd 只绑 TCP :22；VSOCK 是独立地址族，需要 guest 内 &lt;strong&gt;socat 桥接&lt;&#x2F;strong&gt; &lt;code&gt;VSOCK-LISTEN:22 → 127.0.0.1:22&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&#x2F;dev&#x2F;vsock 要模块&lt;&#x2F;td&gt;&lt;td&gt;宿主需 &lt;code&gt;vsock&lt;&#x2F;code&gt; + &lt;code&gt;vmw_vsock_virtio_transport&lt;&#x2F;code&gt;（&lt;code&gt;&#x2F;dev&#x2F;vsock&lt;&#x2F;code&gt; 才会出现）；QEMU aarch64 的 vhost-vsock-pci 可用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用系统 libvirtd&lt;&#x2F;td&gt;&lt;td&gt;session 模式（&lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;session&lt;&#x2F;code&gt;）用户进程没 CAP_NET_ADMIN，&lt;strong&gt;建不了 macvtap&lt;&#x2F;strong&gt;；用 &lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;system&lt;&#x2F;code&gt;（root libvirtd）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;镜像架构&lt;&#x2F;td&gt;&lt;td&gt;aarch64 宿主只能跑 arm64 guest，amd64 ISO 装上也是全模拟、慢到没法用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;macvlan 网络定义 ≠ 连接定义&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;&amp;lt;forward mode=&#x27;bridge&#x27;&amp;gt;&amp;lt;interface dev=&#x27;...&#x27;&#x2F;&amp;gt;&amp;lt;&#x2F;forward&amp;gt;&lt;&#x2F;code&gt; 只是声明&quot;哪些物理网卡可用于 macvtap 直连&quot;的资源池，net-start 不创建任何设备、不加 iptables&#x2F;DHCP&#x2F;DNS；type=&#x27;direct&#x27; 网卡上的 dev&#x2F;mode 才是真正创建 macvtap 的参数（macvtap 的 bridge&#x2F;vepa&#x2F;private&#x2F;passthrough 模式是每条网卡自己的属性），所以两处都要写&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;NoCloud seed&lt;&#x2F;td&gt;&lt;td&gt;cloud-init 首次启动自动挂载卷标 &lt;code&gt;cidata&lt;&#x2F;code&gt; 的 CDROM（seed.iso），读 &lt;code&gt;user-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;meta-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;network-config&lt;&#x2F;code&gt; 完成无人值守初始化（建用户&#x2F;注入密钥&#x2F;主机名&#x2F;runcmd），相当于安装应答文件，初始化完即可弹出&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;bu-zou&quot;&gt;步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;0-an-zhuang-yi-lai-su-zhu-ji&quot;&gt;0. 安装依赖（宿主机）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install -y cloud-image-utils virtinst qemu-utils socat whois
+# cloud-localds（cloud-image-utils）&amp;#x2F; virt-install &amp;#x2F; qemu-img &amp;#x2F; ssh ProxyCommand 的 socat &amp;#x2F; mkpasswd（whois）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;1-ding-yi-macvlan-wang-luo-macvtap-zhi-lian&quot;&gt;1. 定义 macvlan 网络（macvtap 直连）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- macvlan0.xml --&amp;gt;
+&amp;lt;network&amp;gt;
+  &amp;lt;name&amp;gt;macvlan0&amp;lt;&amp;#x2F;name&amp;gt;
+  &amp;lt;forward mode=&amp;quot;bridge&amp;quot;&amp;gt;
+    &amp;lt;interface dev=&amp;quot;enp2s0f0&amp;quot;&amp;#x2F;&amp;gt;
+  &amp;lt;&amp;#x2F;forward&amp;gt;
+&amp;lt;&amp;#x2F;network&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh net-define macvlan0.xml &amp;amp;&amp;amp; virsh net-start macvlan0 &amp;amp;&amp;amp; virsh net-autostart macvlan0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 网卡最终是 &lt;code&gt;type=&#x27;direct&#x27;&lt;&#x2F;code&gt; + &lt;code&gt;mode=&#x27;bridge&#x27;&lt;&#x2F;code&gt;，直接挂物理网卡：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;interface type=&amp;#x27;direct&amp;#x27;&amp;gt;
+  &amp;lt;source network=&amp;#x27;macvlan0&amp;#x27; dev=&amp;#x27;enp2s0f0&amp;#x27; mode=&amp;#x27;bridge&amp;#x27;&amp;#x2F;&amp;gt;
+  &amp;lt;model type=&amp;#x27;virtio&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;interface&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;为什么网络里已声明 &lt;code&gt;dev=&#x27;enp2s0f0&#x27;&lt;&#x2F;code&gt;，网卡上还要再写一遍 dev&#x2F;mode？网络 XML 只是&quot;可用物理网卡池&quot;（net-start 不创建设备），macvtap 模式是每条网卡自己的属性，type=&#x27;direct&#x27; 网卡是自包含的连接定义，libvirt 不会从网络定义里替你填参数。想省事可改用 &lt;code&gt;&amp;lt;interface type=&#x27;network&#x27;&amp;gt;&amp;lt;source network=&#x27;macvlan0&#x27;&#x2F;&amp;gt;&amp;lt;&#x2F;interface&amp;gt;&lt;&#x2F;code&gt; 让 libvirt 自动从池里选网卡并默认 bridge 模式，但单网卡时两者等价。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;2-jing-xiang-yu-seed&quot;&gt;2. 镜像与 seed&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;seed.iso 的作用&lt;&#x2F;strong&gt;：Ubuntu cloud 镜像出厂不带用户&#x2F;密码，首次启动时 cloud-init 自动查找卷标 &lt;code&gt;cidata&lt;&#x2F;code&gt; 的可挂载卷（即 seed.iso），读里面的 &lt;code&gt;user-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;meta-data&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;network-config&lt;&#x2F;code&gt; 完成无人值守初始化——建用户、注入 SSH 公钥、设密码、主机名、执行 runcmd。相当于&quot;安装应答文件&quot;，初始化完成后即可弹出。&lt;code&gt;cloud-localds&lt;&#x2F;code&gt; 只是把 YAML 打包成 ISO 的工具（来自 cloud-image-utils 包），seed.iso 不需要下载。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# arm64 cloud 镜像（~590MB）
+wget -O &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;noble-server-cloudimg-arm64.img \
+  https:&amp;#x2F;&amp;#x2F;cloud-images.ubuntu.com&amp;#x2F;noble&amp;#x2F;current&amp;#x2F;noble-server-cloudimg-arm64.img
+qemu-img convert -f qcow2 -O qcow2 noble-server-cloudimg-arm64.img u24.qcow2
+qemu-img resize u24.qcow2 50G
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;seed 由 1 个必建文件 + 2 个可选文件组成，全部放在 &#x2F;data&#x2F;vm 下：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;seed.yaml（必建）&lt;&#x2F;strong&gt;：用户&#x2F;密钥&#x2F;开机动作（DHCP 默认，无需 network 配置）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;#cloud-config
+hostname: u24
+users:
+  - name: smyl
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: &amp;#x2F;bin&amp;#x2F;bash
+    lock_passwd: false
+    passwd: &amp;lt;mkpasswd -m sha-512 生成的密码哈希&amp;gt;
+    ssh_authorized_keys:
+      - &amp;lt;宿主公钥，cat ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519.pub 的内容&amp;gt;
+ssh_pwauth: true
+runcmd:
+  - modprobe vsock_virtio || true
+  - apt-get update -qq &amp;amp;&amp;amp; apt-get install -y -qq qemu-guest-agent
+  - systemctl enable --now qemu-guest-agent
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;meta-data（可选，不建则 cloud-localds 自动生成）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;instance-id: u24-001
+local-hostname: u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;network-config.yaml（可选，DHCP 场景不需要）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;version: 2
+ethernets:
+  all:
+    match:
+      name: &amp;quot;en*&amp;quot;
+    dhcp4: true
+    dhcp6: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成 ISO 并验证（注意 passwd 必须是 sha-512 哈希，不能写明文）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;data&amp;#x2F;vm
+cloud-localds &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso seed.yaml
+# 完整三件套：cloud-localds -v --network-config network-config.yaml seed.iso seed.yaml meta-data
+isoinfo -f -i &amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso   # 验证：应列出 &amp;#x2F;user-data &amp;#x2F;meta-data（&amp;#x2F;network-config 可选）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-jian-vm&quot;&gt;3. 建 VM&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virt-install --connect qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system \
+  --name u24 --memory 4096 --vcpus 4 \
+  --disk path=&amp;#x2F;data&amp;#x2F;vm&amp;#x2F;u24.qcow2,format=qcow2,bus=virtio \
+  --disk path=&amp;#x2F;data&amp;#x2F;vm&amp;#x2F;seed.iso,device=cdrom \
+  --network network=macvlan0,model=virtio \
+  --os-variant ubuntu22.04 --import --graphics none --noautoconsole
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-gua-vsock-she-bei-cid-3&quot;&gt;4. 挂 VSOCK 设备（cid=3）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- vsock.xml --&amp;gt;
+&amp;lt;vsock&amp;gt;
+  &amp;lt;cid auto=&amp;quot;no&amp;quot; address=&amp;quot;3&amp;quot;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;vsock&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh attach-device --config u24 vsock.xml   # 注意 --config 只写配置，需重启 VM 才生效
+virsh start u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;cid 是什么&lt;&#x2F;strong&gt;：Context Identifier，AF_VSOCK 地址族里的节点地址，作用相当于 IP——VSOCK 通信用 &lt;code&gt;(cid, port)&lt;&#x2F;code&gt; 二元组寻址（类比 TCP 的 &lt;code&gt;(IP, 端口)&lt;&#x2F;code&gt;），cid 在整台宿主机上全局唯一（所有 VM 共享一个 VSOCK 地址空间）。保留值（&lt;code&gt;linux&#x2F;vm_sockets.h&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;cid&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;0xFFFFFFFF&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_ANY&lt;&#x2F;code&gt;（通配）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;0&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_HYPERVISOR&lt;&#x2F;code&gt;（虚拟化层）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_LOCAL&lt;&#x2F;code&gt;（本机进程间）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;VMADDR_CID_HOST&lt;&#x2F;code&gt;（宿主机，固定不变）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;≥3&lt;&#x2F;td&gt;&lt;td&gt;各 guest 自行分配&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;cid=3 没有特殊语义&lt;&#x2F;strong&gt;——QEMU 规定 guest cid 最小为 3（2 及以下全被保留），所以 3 是合法的最小值，第一个 VM 惯例上就用它（libvirt &lt;code&gt;&amp;lt;cid auto=&#x27;yes&#x27;&amp;gt;&lt;&#x2F;code&gt; 自动分配时也从 3 开始），之后每个 VM 换个不重复的数字（4、5…）。对应到本文：宿主连 &lt;code&gt;VSOCK-CONNECT:3:22&lt;&#x2F;code&gt; 就是&quot;连 u24 这台机器&quot;；反过来 guest 要连宿主机则固定用 cid=2。&lt;&#x2F;p&gt;
+&lt;p&gt;guest-agent channel 不需要手动挂，virt-install 自动加了 &lt;code&gt;org.qemu.guest_agent.0&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-guest-nei-zuo-vsock-tcp-qiao-jie&quot;&gt;5. guest 内做 VSOCK → TCP 桥接&lt;&#x2F;h3&gt;
+&lt;p&gt;sshd 不监听 AF_VSOCK，需要 socat 转发（VM 内）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install -y socat
+cat &amp;gt; &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;vsock-sshd.service &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+[Unit]
+Description=VSOCK to TCP sshd bridge
+After=network.target
+
+[Service]
+ExecStart=&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;socat VSOCK-LISTEN:22,fork,reuseaddr TCP:127.0.0.1:22
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload &amp;amp;&amp;amp; systemctl enable --now vsock-sshd.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-su-zhu-ce-ssh-bie-ming&quot;&gt;6. 宿主侧 ssh 别名&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ~&amp;#x2F;.ssh&amp;#x2F;config
+Host u24
+    HostName localhost
+    ProxyCommand socat - VSOCK-CONNECT:3:22
+    User smyl
+    HostKeyAlias u24
+    ServerAliveInterval 30
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首次连接需 &lt;code&gt;ssh -o StrictHostKeyChecking=accept-new u24&lt;&#x2F;code&gt; 记录 host key（HostKeyAlias 保证存到 &lt;code&gt;u24&lt;&#x2F;code&gt; 名下，hostname 无所谓）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;7-chi-jiu-hua-su-zhu-zhong-qi-hou-zi-dong-hui-fu&quot;&gt;7. 持久化（宿主重启后自动恢复）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo -e &amp;quot;vsock\nvmw_vsock_virtio_transport&amp;quot; | sudo tee &amp;#x2F;etc&amp;#x2F;modules-load.d&amp;#x2F;vsock.conf
+virsh net-autostart macvlan0   # 网络自启
+virsh autostart u24            # VM 自启
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# LAN 直连（其他机器也能这样访问 VM）
+ssh smyl@192.168.5.193        # DHCP 分配的 IP
+
+# 宿主机走 VSOCK（不依赖网络，网卡挂了也能连）
+ssh u24
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;VM 的 DHCP IP 通过 guest-agent 查询（macvtap 下宿主 ARP 表看不到 guest，&lt;code&gt;domifaddr --source arp&lt;&#x2F;code&gt; 不灵）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh qemu-agent-command u24 &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-network-get-interfaces&amp;quot;}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cai-guo-de-keng&quot;&gt;踩过的坑&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;amd64 ISO 装不上 aarch64&lt;&#x2F;strong&gt;：qemu-system-aarch64 只能跑 arm64 guest，x86 镜像要么换 emulator 要么全模拟慢到没法用&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;virsh qemu-agent-command&lt;&#x2F;code&gt; 不支持 &lt;code&gt;--file&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：JSON 只能内联传参，命令长时用 base64 传递避免转义地狱&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;ssh u24&lt;&#x2F;code&gt; 报 Host key verification failed&lt;&#x2F;strong&gt;：之前用临时 &lt;code&gt;UserKnownHostsFile&lt;&#x2F;code&gt; 连接过，默认 known_hosts 里没有，&lt;code&gt;accept-new&lt;&#x2F;code&gt; 一次即可&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;macvtap 下 &lt;code&gt;domifaddr --source arp&lt;&#x2F;code&gt; 拿不到 IP&lt;&#x2F;strong&gt;：宿主与 guest 不通，ARP 表里没有 guest；靠 guest-agent 或 vsock 查&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;局域网直连优先考虑 macvlan&#x2F;macvtap：&lt;strong&gt;不动宿主网卡、零断网风险&lt;&#x2F;strong&gt;，代价是宿主↔guest 不通&lt;&#x2F;li&gt;
+&lt;li&gt;VSOCK 是补这个坑的干净通道：guest 内一条 socat systemd 服务即可，SSH 完全复用，不依赖 IP&lt;&#x2F;li&gt;
+&lt;li&gt;aarch64 宿主记得核对 guest 镜像架构，cloud 镜像 + cloud-init seed 可以全自动落地&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>虚拟化技术</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/virtualization/"/>
+        <id>https://moxuetianya.github.io/2025/07/virtualization/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/virtualization/">&lt;h1 id=&quot;xu-ni-hua-ji-shu&quot;&gt;虚拟化技术&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;kvm-huan-jing-jian-cha&quot;&gt;KVM 环境检查&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Intel CPU
+grep &amp;quot;vmx&amp;quot; &amp;#x2F;proc&amp;#x2F;cpuinfo
+
+# AMD CPU
+grep &amp;quot;svm&amp;quot; &amp;#x2F;proc&amp;#x2F;cpuinfo
+
+# 检查 kvm 模块
+lsmod | grep kvm
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;KVM 环境目录：&lt;code&gt;&#x2F;etc&#x2F;libvirt&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xu-ni-ji-ci-pan-guan-li&quot;&gt;虚拟机磁盘管理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;chuang-jian-xu-ni-ci-pan&quot;&gt;创建虚拟磁盘&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 文件方式
+qemu-img create -f qcow2 &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;vm.qcow2 10G
+
+# libvirt 存储池方式
+virsh vol-create-as vmfspool vm.img 10G --format qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;kuo-suo-rong&quot;&gt;扩缩容&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img resize &amp;#x2F;path&amp;#x2F;vm.qcow2 +10G
+qemu-img check &amp;#x2F;path&amp;#x2F;vm.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;re-tian-jia-yi-chu-ci-pan&quot;&gt;热添加&#x2F;移除磁盘&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh attach-disk VM1 &amp;#x2F;data&amp;#x2F;vmfs&amp;#x2F;disk.qcow2 vdb --subdriver=qcow2
+virsh detach-disk VM1 &amp;#x2F;data&amp;#x2F;vmfs&amp;#x2F;disk.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;若报 &lt;code&gt;No more available PCI slots&lt;&#x2F;code&gt;：&lt;code&gt;pc-i440fx&lt;&#x2F;code&gt; 机器 PCI 槽位有限（31 个），每个 virtio-blk 设备占 1 个，需通过 PCI bridge 扩展。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jing-xiang-ge-shi-dui-bi&quot;&gt;镜像格式对比&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;格式&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;raw&lt;&#x2F;td&gt;&lt;td&gt;裸格式，无元数据，不支持快照&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;qcow2&lt;&#x2F;td&gt;&lt;td&gt;主流格式，支持 COW、多快照、zlib 压缩、AES 加密&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;zeng-liang-jing-xiang&quot;&gt;增量镜像&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img create -b base.qcow2 -f qcow2 child.qcow2  # 基于 base 创建 overlay
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ge-shi-zhuan-huan&quot;&gt;格式转换&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-img convert -f raw -O qcow2 vm.raw vm.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cun-chu-chi-guan-li&quot;&gt;存储池管理&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 创建本地目录存储池
+virsh pool-define-as vmfspool --type dir --target &amp;#x2F;data&amp;#x2F;vmfs
+virsh pool-build vmfspool
+virsh pool-start vmfspool
+virsh pool-autostart vmfspool
+
+# 查看
+virsh pool-list --all
+virsh pool-info vmfspool
+
+# 删除（先 destroy 再 undefine）
+virsh pool-destroy vmfspool
+virsh pool-undefine vmfspool
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xu-ni-ji-guan-li&quot;&gt;虚拟机管理&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh list --all                # 列出所有虚拟机
+virsh start VM1                 # 启动
+virsh suspend VM1               # 挂起
+virsh resume VM1                # 恢复
+virsh destroy VM1               # 强制关机
+virsh dumpxml VM1               # 导出配置
+virsh edit VM1                  # 编辑配置
+
+# 克隆
+virt-clone -o VM1 -n vm-clone --auto-clone
+
+# 快照
+virsh snapshot-create-as VM1 snap1
+virsh snapshot-revert VM1 snap1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;退出 virsh console：&lt;code&gt;Ctrl+]&lt;&#x2F;code&gt;（英文键盘 &lt;code&gt;Ctrl+Shift+]&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;headless-xu-ni-ji-wu-gui-an-zhuang-yu-pei-zhi&quot;&gt;headless 虚拟机（无 GUI 安装与配置）&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;an-zhuang-qian-ti-yong-hu-quan-xian&quot;&gt;安装前提：用户权限&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo usermod -aG kvm peter      # virt-install 以用户身份探测 &amp;#x2F;dev&amp;#x2F;kvm，需在 kvm 组
+# polkit 授权（SSH 会话无图形代理，virsh 连 qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system 会报
+# &amp;quot;身份验证不可用：没有可以验证操作 &amp;#x27;org.libvirt.unix.manage&amp;#x27; 的 polkit 代理&amp;quot;）
+# &amp;#x2F;etc&amp;#x2F;polkit-1&amp;#x2F;rules.d&amp;#x2F;49-libvirt.rules：
+polkit.addRule(function(action, subject) {
+  if (action.id == &amp;quot;org.libvirt.unix.manage&amp;quot; &amp;amp;&amp;amp; subject.user == &amp;quot;peter&amp;quot;) {
+    return polkit.Result.YES;
+  }
+});
+sudo systemctl restart polkit.service
+
+# 非 root 用户 virt-install 默认走 qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;session（找不到 default 网络），务必指定：
+export LIBVIRT_DEFAULT_URI=qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;preseed-zi-dong-an-zhuang-chuan-kou-wu-jiao-hu&quot;&gt;preseed 自动安装（串口无交互）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 提取 d-i 内核（注意 Debian netinst ISO 布局是 install.amd，不是 install.amd64）
+sudo mount -o loop,ro debian-13.6.0-amd64-netinst.iso &amp;#x2F;mnt&amp;#x2F;iso-loop
+mkdir -p &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;install.amd64
+cp &amp;#x2F;mnt&amp;#x2F;iso-loop&amp;#x2F;install.amd&amp;#x2F;{vmlinuz,initrd.gz} &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;install.amd64&amp;#x2F;
+
+# HTTP 分发 preseed（比 --initrd-inject 可靠：HTTP 日志可确认 d-i 确实取到了文件）
+python3 -m http.server 8000 --directory &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso --bind 0.0.0.0 &amp;amp;
+
+virt-install \
+  --name debian13-vm --memory 4096 --vcpus 4 \
+  --disk path=&amp;#x2F;dev&amp;#x2F;nvme0n1p8,bus=virtio,format=raw \
+  --network network=default,model=virtio \
+  --graphics none \
+  --console pty,target_type=serial \
+  --channel unix,target_type=virtio,name=org.qemu.guest_agent \
+  --location &amp;#x2F;mnt&amp;#x2F;nvme0n1p10&amp;#x2F;vm-iso&amp;#x2F;debian-13.6.0-amd64-netinst.iso \
+  --os-variant debiantrixie \
+  --extra-args &amp;quot;auto console=ttyS0,115200n8 preseed&amp;#x2F;url=http:&amp;#x2F;&amp;#x2F;192.168.122.1:8000&amp;#x2F;preseed.cfg&amp;quot; \
+  --force --noautoconsole
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;preseed 踩坑：键盘问题没答全会&lt;strong&gt;卡在交互主菜单&lt;&#x2F;strong&gt;（&lt;code&gt;console-setup&#x2F;ask_detect false&lt;&#x2F;code&gt; + &lt;code&gt;console-setup&#x2F;layoutcode us&lt;&#x2F;code&gt; + &lt;code&gt;keyboard-configuration&#x2F;xkb-keymap us&lt;&#x2F;code&gt; 三件套都要）；&lt;code&gt;--extra-args&lt;&#x2F;code&gt; 只支持 &lt;code&gt;--location&lt;&#x2F;code&gt;（&lt;code&gt;--cdrom&lt;&#x2F;code&gt; 会报 &quot;Kernel arguments are only supported with location&quot;）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chuan-kou-console-deng-lu&quot;&gt;串口 console 登录&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub：
+GRUB_CMDLINE_LINUX=&amp;quot;console=ttyS0,115200n8&amp;quot;
+GRUB_TERMINAL=serial
+GRUB_SERIAL_COMMAND=&amp;quot;serial --speed=115200 --unit=0 --word=8 --parity=no --stop=1&amp;quot;
+sudo update-grub
+sudo systemctl enable serial-getty@ttyS0   # 有 console=ttyS0 时 getty-generator 也会自动生成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;virsh console &amp;lt;vm&amp;gt;&lt;&#x2F;code&gt; 出现 &lt;code&gt;debian login:&lt;&#x2F;code&gt;。注意 pty 属 root，非交互抓取要 sudo；&lt;code&gt;virsh console&lt;&#x2F;code&gt; 只显示连接后的输出，登录提示是静态的。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chi-xian-xiu-gai-jing-xiang-virt-customize-wu-xu-ke-hu-ji-mi-ma&quot;&gt;离线修改镜像（virt-customize，无需客户机密码）&lt;&#x2F;h3&gt;
+&lt;p&gt;忘记&#x2F;没有客户机密码时，关机后在宿主机直接改 qcow2：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install libguestfs-tools
+sudo virt-customize -a &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;debian.qcow2 \
+  --run-command &amp;quot;usermod -aG sudo peter&amp;quot; \
+  --run-command &amp;quot;apt-get install -y qemu-guest-agent&amp;quot; \
+  --run-command &amp;quot;systemctl enable qemu-guest-agent&amp;quot; \
+  --upload &amp;#x2F;tmp&amp;#x2F;vm-grub:&amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub \
+  --run-command &amp;quot;update-grub&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;踩坑：&lt;code&gt;--run &quot;bash file&quot;&lt;&#x2F;code&gt; 报文件不存在（上传与执行环境问题），用 &lt;code&gt;--run-command&lt;&#x2F;code&gt; 逐个执行；命令含引号会被命令行层吃掉（&lt;code&gt;GRUB_SERIAL_COMMAND=&quot;serial --speed...&quot;&lt;&#x2F;code&gt; 需整体 --upload 覆盖 &#x2F;etc&#x2F;default&#x2F;grub）；DVD 安装的镜像 sources.list 只有 cdrom 源，先换成网络源才能装包。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;qemu-guest-agent&quot;&gt;qemu-guest-agent&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-ping&amp;quot;}&amp;#x27;
+virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-network-get-interfaces&amp;quot;}&amp;#x27;
+virsh qemu-agent-command debian &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-get-osinfo&amp;quot;}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;wi-fi-su-zhu-de-vm-wang-luo-macvtap-shi-bai-proxy-arp-lu-you-fang-an-2026-08-16-wan-zheng-pai-cha&quot;&gt;Wi-Fi 宿主的 VM 网络：macvtap 失败 → proxy-ARP 路由方案（2026-08-16 完整排查）&lt;&#x2F;h3&gt;
+&lt;p&gt;场景：宿主 Debian 笔记本（Wi-Fi 接入家用路由器），VM 需要成为局域网成员，让&lt;strong&gt;有线侧&lt;&#x2F;strong&gt;设备能 &lt;code&gt;ssh&lt;&#x2F;code&gt; 直达。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;die-dai-yi-macvtap-bridge-zhi-lian-jia-yang-xing-xian-jing&quot;&gt;迭代一：macvtap bridge 直连 —— 假阳性陷阱&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo modprobe macvtap
+# &amp;lt;interface type=&amp;#x27;direct&amp;#x27;&amp;gt;&amp;lt;source dev=&amp;#x27;wlan0&amp;#x27; mode=&amp;#x27;bridge&amp;#x27;&amp;#x2F;&amp;gt;&amp;lt;model type=&amp;#x27;virtio&amp;#x27;&amp;#x2F;&amp;gt;&amp;lt;&amp;#x2F;interface&amp;gt;
+virsh attach-device debian &amp;#x2F;tmp&amp;#x2F;macvtap-iface.xml --live --config
+# 踩坑：virsh attach-interface ... --source-mode bridge 报&amp;quot;无效的源模式&amp;quot;（所有 mode 值都被拒），
+#       必须走 attach-device + XML；Wi-Fi 上 DHCP 无响应（路由器只给关联客户端发 offer），需静态 IP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;给 VM 配静态 IP &lt;code&gt;192.168.2.200&lt;&#x2F;code&gt; 后测试&quot;成功&quot;——ping 通、SSH 通。但仔细一看：SSH 返回的 hostname 是 &lt;code&gt;xiao&lt;&#x2F;code&gt;、还带着 tailscale IP（100.64.0.2）——&lt;strong&gt;那是占着 .200 的另一台设备！&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训一（假阳性陷阱）&lt;&#x2F;strong&gt;：配置静态 IP 前必须扫描占用；验证连通性时核对 hostname&#x2F;SSH 指纹，不能只看&quot;通了&quot;——IP 冲突时你连的可能是别人。本案例里 VM 从一开始就没被局域网访问到过，后续所有&quot;冲突导致封锁&quot;的猜测都建立在这个假阳性上。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;die-dai-er-huan-ip-huan-mac-reng-ran-bu-tong&quot;&gt;迭代二：换 IP &#x2F; 换 MAC —— 仍然不通&lt;&#x2F;h4&gt;
+&lt;p&gt;把 VM 改成 &lt;code&gt;192.168.2.160&lt;&#x2F;code&gt;，再换 VM 的 MAC（&lt;code&gt;52:54:00:aa:bb:01&lt;&#x2F;code&gt; → &lt;code&gt;.02&lt;&#x2F;code&gt;，需 destroy + start 才会重载域定义），均不通。由此排除&quot;冲突触发的 AP 临时封锁&quot;（与 VM 的 MAC&#x2F;IP 无关）。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;shuang-duan-zhua-bao-ding-wei-guan-jian-fang-fa-lun&quot;&gt;双端抓包定位（关键方法论）&lt;&#x2F;h4&gt;
+&lt;p&gt;同时在&lt;strong&gt;两端&lt;&#x2F;strong&gt;抓包，一次实验看清全貌：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;观测点&lt;&#x2F;th&gt;&lt;th&gt;实测结果&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主 &lt;code&gt;tcpdump -i wlan0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;本机(.100)的 ARP 广播&lt;strong&gt;到达&lt;&#x2F;strong&gt;，VM &lt;strong&gt;应答&lt;&#x2F;strong&gt;（request+reply 完整交互）&lt;&#x2F;td&gt;&lt;td&gt;出方向正常，广播能进来&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本机 &lt;code&gt;tcpdump -i vmbr0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;只看到自己发出的 ARP 请求，&lt;strong&gt;应答从未到达&lt;&#x2F;strong&gt;；同时刻其他设备的 ARP 全部正常&lt;&#x2F;td&gt;&lt;td&gt;丢包发生在两者之间&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;对照：.150（另一无线设备）的 ARP 广播&lt;&#x2F;td&gt;&lt;td&gt;宿主 wlan0 能收到&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;广播转发本身没问题&lt;&#x2F;strong&gt;，排除&quot;AP 封锁宿主站点&quot;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VM 内 &lt;code&gt;ip neigh&lt;&#x2F;code&gt;（guest-exec 执行）&lt;&#x2F;td&gt;&lt;td&gt;能解析出本机和网关的 MAC（STALE）&lt;&#x2F;td&gt;&lt;td&gt;VM 出方向的广播 ARP 被转发、回包也到了&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;中间被证伪的两个错误理论&lt;&#x2F;strong&gt;（记录备查）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&quot;包到了宿主被本机配置丢弃&quot;&lt;&#x2F;strong&gt;——wlan0 抓包证明 ARP 请求到达了宿主，VM 的应答在宿主侧也正常发出；丢的是返回方向。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&quot;AP 封锁了宿主的无线站点&quot;&lt;&#x2F;strong&gt;——对照实验发现其他无线设备的广播能到达宿主，广播转发是通的；且换 VM MAC 后依旧，封锁与 VM MAC 无关。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;gen-yin-802-11-wu-4-address-mo-shi-ap-diu-qi-zhan-dian-dai-fa-de-wai-lai-yuan-mac-dan-bo&quot;&gt;根因：802.11 无 4-address 模式，AP 丢弃站点代发的&quot;外来源 MAC&quot;单播&lt;&#x2F;h4&gt;
+&lt;p&gt;双端证据闭环：&lt;strong&gt;VM 的单播应答在宿主的 wlan0 上发出（TX 抓到），但从未出现在本机的网卡上（RX 抓到）&lt;&#x2F;strong&gt;；同时刻其他所有设备的单播交互都正常。&lt;&#x2F;p&gt;
+&lt;p&gt;原理（802.11 帧结构）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;空中 802.11 数据帧：
+┌──────────────┬──────────────┬──────────────┬──────────────────────┐
+│ 地址1 RA      │ 地址2 TA      │ 地址3 SA&amp;#x2F;DA   │ 帧体：封装的以太网帧    │
+│ (AP 的 MAC)   │ (宿主站点 MAC)│              │ 以太网头：源=VM 的 MAC  │
+└──────────────┴──────────────┴──────────────┴──────────────────────┘
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;802.11 头里的地址 2（TA）是&quot;物理发射者&quot;身份，硬件写死为站点自己的 MAC；&lt;strong&gt;VM 的 MAC 只存在于帧体内的以太网头&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;AP 拆掉 802.11 头后按以太网源 MAC 做转发决策：VM 的 MAC 在&quot;已关联客户端表&quot;里查无此站 → &lt;strong&gt;单播帧丢弃&lt;&#x2F;strong&gt;；广播帧不校验源 MAC，所以 VM 的广播 ARP 能出去&lt;&#x2F;li&gt;
+&lt;li&gt;宿主自己回包正常，是因为它的帧&quot;源 MAC = 自己关联的 MAC&quot;，身份一致&lt;&#x2F;li&gt;
+&lt;li&gt;解决之道是 &lt;strong&gt;WDS&#x2F;4-address 模式&lt;&#x2F;strong&gt;（802.11 头加地址 4 承载原始源 MAC），家用路由器基本不支持&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;die-dai-san-ipvlan-si-lu-proxy-arp-lu-you-zui-zhong-fang-an&quot;&gt;迭代三：ipvlan 思路 → proxy-ARP + 路由（最终方案）&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;思路&lt;&#x2F;strong&gt;：VM 不能用 ipvlan 设备（QEMU 需要独立 virtio MAC，ipvlan 是主机侧 L3 设备）。但 ipvlan 的核心——&quot;共享宿主机 MAC&quot;——可以等价实现：&lt;strong&gt;让 VM 的所有流量经宿主的 L3 协议栈转发&lt;&#x2F;strong&gt;，出站帧的源 MAC 一律是宿主的，AP 校验必然通过。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;VM (enp1s0: 192.168.122.160&amp;#x2F;24 + 192.168.2.160&amp;#x2F;32)
+   │ 默认路由 via 192.168.122.1
+   ▼
+宿主 ──virbr0── (L3 转发) ──wlan0── AP ── 局域网
+   ▲                                    │
+   └─ proxy_arp 应答&amp;quot;谁是 .160&amp;quot;（用 wlan0 的 MAC）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;VM 侧配置&lt;&#x2F;strong&gt;（NM 配置直接写 &lt;code&gt;.nmconnection&lt;&#x2F;code&gt; 文件，绕开 nmcli 参数转义；需 &lt;code&gt;chmod 600&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[ipv4]
+method=manual
+address1=192.168.122.160&amp;#x2F;24,192.168.122.1
+address2=192.168.2.160&amp;#x2F;32,
+dns=192.168.122.1;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;宿主侧配置&lt;&#x2F;strong&gt;（持久化：&lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-vm-proxy-arp.conf&lt;&#x2F;code&gt; + NM dispatcher 脚本）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 路由：把 .160 引到 VM（经 virbr0）
+ip route add 192.168.2.160&amp;#x2F;32 via 192.168.122.160 dev virbr0
+# proxy_arp：局域网问&amp;quot;谁是 .160&amp;quot;时宿主用自己 wlan0 的 MAC 应答
+echo 1 | tee &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;net&amp;#x2F;ipv4&amp;#x2F;conf&amp;#x2F;wlan0&amp;#x2F;proxy_arp
+# iptables：libvirt 的 FORWARD 链只放行 192.168.122.0&amp;#x2F;24，.160 会被 REJECT(icmp-port-unreachable)
+iptables -I LIBVIRT_FWI 1 -d 192.168.2.160 -o virbr0 -j ACCEPT
+iptables -I LIBVIRT_FWO 1 -s 192.168.2.160 -i virbr0 -j ACCEPT
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;ARP 流程&lt;&#x2F;strong&gt;（核心，理解了就理解整个方案）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;局域网 → VM&lt;&#x2F;strong&gt;：本机广播&quot;谁是 .160&quot; → AP 转发广播 → 宿主 wlan0 收到 → 宿主查路由（有 &lt;code&gt;&#x2F;32 via 192.168.122.160&lt;&#x2F;code&gt;）→ &lt;strong&gt;proxy-ARP 替答&lt;&#x2F;strong&gt;&quot;is-at &amp;lt;宿主 wlan0 MAC&amp;gt;&quot; → 本机把包填宿主 MAC 发出 → 宿主路由到 virbr0 → ARP .122.160 → VM 应答 → 送达&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VM → 局域网&lt;&#x2F;strong&gt;：VM 只有 .160&#x2F;32 是本机，其余走默认路由 via 192.168.122.1 → 宿主收到（源 IP .160）→ 以&lt;strong&gt;自己身份&lt;&#x2F;strong&gt;在 wlan0 上 ARP 目标 → 转发，&lt;strong&gt;L2 源 MAC 重写为宿主自己的&lt;&#x2F;strong&gt; → 本机收到&quot;来自 .160、MAC 是宿主&quot;的包，回包按 .160→宿主 MAC 的 ARP 表项走&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;验证&lt;&#x2F;strong&gt;：&lt;code&gt;ping 192.168.2.160&lt;&#x2F;code&gt; 通（ttl 63，经宿主路由）；&lt;code&gt;ssh peter@192.168.2.160&lt;&#x2F;code&gt; 直达 VM。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;边界情况&lt;&#x2F;strong&gt;：VM 关机时宿主仍会替 .160 应答 ARP（路由还在），virbr0 上 ARP .122.160 失败导致包在宿主丢弃（表现&quot;ARP 能通但无响应&quot;）；VM 改 IP 需同步更新宿主路由和 iptables；IPv6 需另行配置 NDP 代理。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ben-ci-jiao-xun&quot;&gt;本次教训&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;假阳性陷阱&lt;&#x2F;strong&gt;：验证连通性必须核对 hostname&#x2F;指纹，IP 冲突场景下&quot;通了&quot;可能是别人的机器&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;双端抓包方法论&lt;&#x2F;strong&gt;：丢包定位要在路径两端同时抓，配合&quot;同时刻其他设备流量正常&quot;的对照组，才能把丢包点钉死在某个区间（这次是宿主的 TX 抓到、本机的 RX 抓不到，锁死 AP）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;让用户参与质疑有价值&lt;&#x2F;strong&gt;：两轮&quot;AP 封锁&#x2F;宿主丢包&quot;的错误理论都是被用户的追问逼着做对照实验推翻的，避免了一条道走到黑&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Wi-Fi 桥接的限制&lt;&#x2F;strong&gt;：普通 AP 上别指望 macvtap&#x2F;网桥能让 VM 以独立 MAC 出现在局域网，除非路由器支持 WDS&#x2F;4-address；&quot;共享宿主 MAC + L3 转发&quot;是通用出路&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;qemu-yong-hu-tai-vs-xi-tong-ji-mo-ni&quot;&gt;QEMU 用户态 vs 系统级模拟&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;qemu-riscv64&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;qemu-system-riscv64&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;模式&lt;&#x2F;td&gt;&lt;td&gt;用户态模拟（User mode）&lt;&#x2F;td&gt;&lt;td&gt;系统级模拟（System mode）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;功能&lt;&#x2F;td&gt;&lt;td&gt;运行单个可执行 ELF&lt;&#x2F;td&gt;&lt;td&gt;模拟完整裸机系统&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;系统调用&lt;&#x2F;td&gt;&lt;td&gt;转换为宿主系统调用&lt;&#x2F;td&gt;&lt;td&gt;需要运行完整内核&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;用户态模拟通过将 RISC-V Linux 系统调用转换为 x86-64 系统调用来执行单个应用。&lt;&#x2F;p&gt;
+&lt;p&gt;JOS 相关内容（IDT&#x2F;GDT&#x2F;LDT、PLT&#x2F;GOT、内核调试、页表与 CR3、汇编器语法）已拆分为独立文章：&lt;a href=&quot;&#x2F;2026&#x2F;08&#x2F;jos-learning-notes&#x2F;&quot;&gt;JOS 学习笔记&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

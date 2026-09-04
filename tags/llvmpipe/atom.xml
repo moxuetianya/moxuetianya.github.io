@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - llvmpipe</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/llvmpipe/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-27T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/llvmpipe/atom.xml</id>
+    <entry xml:lang="en">
+        <title>waypipe 报 Iris kernel too old 排查：被『客户端没有 GPU 节点』带偏的过程</title>
+        <published>2026-08-09T22:25:32+08:00</published>
+        <updated>2026-08-27T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/waypipe-iris-kernel-too-old-diagnosis/">&lt;h1 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h1&gt;
+&lt;p&gt;客户端机器通过 waypipe 连到服务器跑图形程序：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh workpc
+weston-dnd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果终端刷出报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;error: Kernel is too old (4.16+ required) or unusable for Iris.
+Check your dmesg logs for loading failures.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;偶发还伴随 waypipe 的 dmabuf 报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;S607565: 60.485827 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键对照：&lt;code&gt;waypipe --no-gpu ssh workpc&lt;&#x2F;code&gt; 后执行 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt; &lt;strong&gt;完全正常&lt;&#x2F;strong&gt;。显然问题在 waypipe 的 GPU 通道（dmabuf 直传）。&lt;&#x2F;p&gt;
+&lt;p&gt;本文如实记录一次&lt;strong&gt;被错误怀疑带偏的排查&lt;&#x2F;strong&gt;——错误的焦点反复落在&quot;服务端&#x2F;客户端到底谁没有 renderD128&quot;上，而真相在另一个层面。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-lun-wu-pan-huai-yi-fu-wu-duan-fu-wu-qi-que-renderd128&quot;&gt;第一轮误判：怀疑服务端（服务器）缺 renderD128&lt;&#x2F;h1&gt;
+&lt;p&gt;初始推断很自然：报错里有 &lt;code&gt;Failed to open drm fd for &#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，dmabuf 直传要求两端都能打开渲染节点，于是先怀疑&lt;strong&gt;服务器&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;在服务器上查证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;          # card0-4 + renderD128，存在
+uname -r              # 7.0.0-28-generic
+getfacl &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128   # user:peter:rw-, mask rw-
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;服务器有 renderD128、ACL 正常、python 实测 &lt;code&gt;open()&lt;&#x2F;code&gt; 成功、&lt;code&gt;gbm_create_device()&lt;&#x2F;code&gt; 成功。&lt;strong&gt;服务器侧完全正常&lt;&#x2F;strong&gt;，排除。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-lun-wu-pan-huai-yi-ke-hu-duan-mei-you-gpu-jie-dian&quot;&gt;第二轮误判：怀疑客户端没有 GPU 节点&lt;&#x2F;h1&gt;
+&lt;p&gt;服务器没问题，那按&quot;两端缺一不可&quot;的逻辑，报错应该发生在&lt;strong&gt;客户端&lt;&#x2F;strong&gt;——客户端 waypipe 进程要打开它自己那台机器的 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;。于是推断&quot;客户端机器有显卡但驱动没加载 render 节点&quot;（比如 NVIDIA 没开 &lt;code&gt;modeset=1&lt;&#x2F;code&gt;、i915 模块被禁用等）。&lt;&#x2F;p&gt;
+&lt;p&gt;但用户明确说：&lt;strong&gt;客户端是有 GPU 的&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;而且注意一个拓扑干扰项：SSH 连接里看到的对端 IP &lt;code&gt;192.168.4.148&lt;&#x2F;code&gt; 其实是 &lt;strong&gt;WireGuard 服务器&lt;&#x2F;strong&gt;（中间转发），不是客户端真机——这又增加了&quot;客户端到底在哪&quot;的混乱。实际上真正做 waypipe 客户端的机器是用户面前的物理机。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zhuan-xiang-shi-ce-bao-cuo-dao-di-lai-zi-na-yi-duan&quot;&gt;转向实测：报错到底来自哪一端&lt;&#x2F;h1&gt;
+&lt;p&gt;靠猜没用，直接实验定位报错来源。把两端 stderr 分开：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh workpc &amp;#x27;weston-dnd 2&amp;gt;&amp;#x2F;tmp&amp;#x2F;wp-server-err.log&amp;#x27; 2&amp;gt;&amp;#x2F;tmp&amp;#x2F;wp-client-err.log
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;服务器端&lt;&#x2F;strong&gt; &lt;code&gt;&#x2F;tmp&#x2F;wp-server-err.log&lt;&#x2F;code&gt;：&lt;strong&gt;空&lt;&#x2F;strong&gt;（weston-dnd 在服务器上没报任何错）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;客户端端&lt;&#x2F;strong&gt; &lt;code&gt;&#x2F;tmp&#x2F;wp-client-err.log&lt;&#x2F;code&gt;：正是那两行 Iris 报错&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;报错文本来自客户端 waypipe 进程自身&lt;&#x2F;strong&gt;，不是服务器，也不是 weston-dnd。第一轮&quot;服务器缺 GPU&quot;彻底排除，且&quot;客户端没有 renderD128&quot;也被推翻了——因为客户端明明有：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;    # card0 + renderD128
+lspci           # Intel UHD 770 (Raptor Lake-S)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jue-ding-xing-yi-bu-ke-hu-duan-mesa-qi-shi-quan-zai-ruan-xuan-ran&quot;&gt;决定性一步：客户端 Mesa 其实全在软渲染&lt;&#x2F;h1&gt;
+&lt;p&gt;客户端 GPU 节点存在，但 iris 驱动本身可能有问题。用 &lt;code&gt;glxinfo&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;eglinfo&lt;&#x2F;code&gt; 看客户端 Mesa 实际用的渲染器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;glxinfo -B | grep -i renderer
+# OpenGL renderer string: llvmpipe (LLVM 19.1.7, 256 bits)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;关键发现：客户端所有 OpenGL 都是 llvmpipe（软件渲染），根本没有用 i915 硬件加速！&lt;&#x2F;strong&gt; 连 gnome-shell 桌面都在软渲染。&lt;&#x2F;p&gt;
+&lt;p&gt;本地直接测 &lt;code&gt;gbm_create_device()&lt;&#x2F;code&gt; 也能复现那两行 Iris 报错（与 waypipe 无关）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;python3 -c &amp;quot;import os,ctypes; ...gbm_create_device(os.open(&amp;#x27;&amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128&amp;#x27;, os.O_RDWR))&amp;quot;
+# error: Kernel is too old (4.16+ required) or unusable for Iris.
+# gbm_create_device: OK     ← 回退到 llvmpipe 后仍能创建设备
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这说明：&lt;strong&gt;不是&quot;没有 GPU 节点&quot;，而是&quot;iris 驱动加载失败，Mesa 静默回退到 llvmpipe&quot;&lt;&#x2F;strong&gt;。waypipe 的 GPU 通道坚持用 iris，失败后就把报错打出来。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zhen-zheng-gen-yin-i915-guc-gu-jian-que-shi-gpu-wedged&quot;&gt;真正根因：i915 GuC 固件缺失，GPU wedged&lt;&#x2F;h1&gt;
+&lt;p&gt;报错提示 &quot;Check your dmesg logs&quot;，用 sudo 看内核日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo dmesg | grep -iE &amp;#x27;i915|xe|drm&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;i915 0000:00:02.0: firmware: failed to load i915&amp;#x2F;tgl_guc_70.1.1.bin (-2)
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC firmware i915&amp;#x2F;tgl_guc_70.bin: fetch failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: GuC initialization failed -ENOENT
+i915 0000:00:02.0: [drm] *ERROR* GT0: Failed to initialize GPU, declaring it wedged!
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;根因锁定：客户端的 i915 驱动因为缺 GuC 固件初始化失败，GPU 被内核标记为 wedged（不可用）。&lt;&#x2F;strong&gt; 于是 Mesa 的 iris 驱动初始化失败 → 报 &lt;code&gt;Kernel is too old (4.16+ required) or unusable for Iris&lt;&#x2F;code&gt; → 回退 llvmpipe。&lt;&#x2F;p&gt;
+&lt;p&gt;检查固件目录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;lib&amp;#x2F;firmware&amp;#x2F;i915&amp;#x2F;        # 只有 dg2_dmc_ver2_07.bin，无 tgl_guc*
+apt-file search tgl_guc       # 属于 firmware-intel-graphics 包
+apt-cache policy firmware-intel-graphics   # 未安装
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jie-jue-an-zhuang-gu-jian-bao-zhong-qi&quot;&gt;解决：安装固件包 + 重启&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install firmware-intel-graphics
+sudo reboot    # i915 被 Wayland 桌面会话占用，无法热卸载，必须重启
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证固件进入 initramfs（确保重启后能加载）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-$(uname -r) | grep tgl_guc
+# usr&amp;#x2F;lib&amp;#x2F;firmware&amp;#x2F;i915&amp;#x2F;tgl_guc_70.bin ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启后预期：&lt;code&gt;glxinfo -B&lt;&#x2F;code&gt; 渲染器从 &lt;code&gt;llvmpipe&lt;&#x2F;code&gt; 变成 &lt;code&gt;Mesa Intel(R) Raptor Lake-S&lt;&#x2F;code&gt;，waypipe GPU 通道不再报错。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fu-pan-zhe-ci-pai-cha-wei-shen-me-bei-dai-pian&quot;&gt;复盘：这次排查为什么被带偏&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;报错文本双来源混淆&lt;&#x2F;strong&gt;。&lt;code&gt;Failed to open drm fd&lt;&#x2F;code&gt; 是 waypipe 的，&lt;code&gt;Kernel is too old for Iris&lt;&#x2F;code&gt; 是 Mesa 的——两者都指向&quot;GPU 不可用&quot;，但一个让人联想到&quot;缺节点&#x2F;权限&quot;，一个让人联想到&quot;内核太旧&quot;。真正原因（GPU wedged）藏在 dmesg 里，不靠日志只看表象必然误判。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;&quot;两端缺一不可&quot;的框架太粗糙&lt;&#x2F;strong&gt;。渲染节点存在 ≠ 驱动可用。客户端明明有 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt;，却因 iris 初始化失败实际不可用——&lt;code&gt;ls &#x2F;dev&#x2F;dri&lt;&#x2F;code&gt; 根本看不出 GPU 是好的。&lt;strong&gt;判断 GPU 是否可用要看 Mesa 实际用什么渲染器（&lt;code&gt;glxinfo -B&lt;&#x2F;code&gt;）和内核日志（&lt;code&gt;dmesg&lt;&#x2F;code&gt;），而不是只看有没有节点文件。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;网络拓扑干扰&lt;&#x2F;strong&gt;。WireGuard 中转让 SSH 对端 IP 显示为 WG 服务器而非客户端真机，一度让人纠结&quot;客户端到底是哪台&quot;。先厘清拓扑，再谈哪一端。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;先分离两端 stderr 再下结论&lt;&#x2F;strong&gt;。&lt;code&gt;waypipe ssh host &#x27;cmd 2&amp;gt;server.log&#x27; 2&amp;gt;client.log&lt;&#x2F;code&gt; 一次性把&quot;报错来自客户端还是服务端&quot;定死，避免了来回猜。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;pai-cha-gong-ju-su-cha&quot;&gt;排查工具速查&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;想确认什么&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;报错来自哪端&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;waypipe ssh h &#x27;cmd 2&amp;gt;s.log&#x27; 2&amp;gt;c.log&lt;&#x2F;code&gt; 分别看两端&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GPU 是否真可用&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;glxinfo -B | grep -i renderer&lt;&#x2F;code&gt;（llvmpipe = 软渲染，坏）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;内核驱动状态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sudo dmesg | grep -iE &#x27;i915|xe|drm&#x27;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;渲染节点归属&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;readlink &#x2F;sys&#x2F;class&#x2F;drm&#x2F;renderD128&#x2F;device&#x2F;driver&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;固件是否齐全&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;lib&#x2F;firmware&#x2F;i915&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;apt-file search tgl_guc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;固件是否进 initrd&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lsinitramfs &#x2F;boot&#x2F;initrd.img-$(uname -r) | grep tgl_guc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-16-fu-fa-bu-chong-zhe-ci-bu-shi-mei-zhuang-gu-jian-shi-mei-zhong-qi-liang-duan-du-yao-jia-render-zu&quot;&gt;2026-08-16 复发补充：这次不是没装固件，是没重启 + 两端都要加 render 组&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;8 月 16 日同款症状再次出现（&lt;code&gt;waypipe ssh huawei-vm yad&lt;&#x2F;code&gt; 报 Iris + dmabuf 报错），
+但这次排查方向完全不同，记录两个 08-09 版本没覆盖的坑。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zheng-zhuang&quot;&gt;症状&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;error: Kernel is too old (4.16+ required) or unusable for Iris.
+S20933:  0.007984 [src&amp;#x2F;dmabuf.c:129] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: Permission denied
+(yad:20929): Gdk-CRITICAL **: ... gdk_x11_window_get_xid: assertion &amp;#x27;GDK_IS_X11_WINDOW (window)&amp;#x27; failed
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 dmabuf 报错从 &lt;code&gt;No such file or directory&lt;&#x2F;code&gt;（08-09）变成了 &lt;strong&gt;&lt;code&gt;Permission denied&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——上一轮修完的机器已无此问题，
+本次报错来自&lt;strong&gt;另一台机器&lt;&#x2F;strong&gt;（waypipe 客户端，192.168.2.100）。照旧先分离两端 stderr 定位来源：
+&lt;code&gt;waypipe ssh huawei-vm &#x27;yad 2&amp;gt;&#x2F;tmp&#x2F;wp-server-err.log&#x27; 2&amp;gt;&#x2F;tmp&#x2F;wp-client-err.log&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;keng-yi-gu-jian-zhuang-liao-sheng-xiao-wedged-zhuang-tai-zhi-neng-zhong-qi-hui-fu&quot;&gt;坑一：固件装了 ≠ 生效，wedged 状态只能重启恢复&lt;&#x2F;h3&gt;
+&lt;p&gt;客户端 dmesg 明明是 8 月 7 日开机时 &lt;code&gt;tgl_guc_70.bin: fetch failed -ENOENT&lt;&#x2F;code&gt;、GPU wedged，
+但 &lt;code&gt;firmware-intel-graphics&lt;&#x2F;code&gt; &lt;strong&gt;8 月 9 日已装好&lt;&#x2F;strong&gt;、&lt;code&gt;lsinitramfs&lt;&#x2F;code&gt; 也确认 &lt;code&gt;tgl_guc_70.bin&lt;&#x2F;code&gt; 已在 initrd 里——&lt;&#x2F;p&gt;
+&lt;p&gt;对比时间线发现：开机（08-07 21:44）→ 装固件 + 重建 initramfs（08-09 22:16）→ &lt;strong&gt;之后一直没重启&lt;&#x2F;strong&gt;。
+i915 被 Wayland 桌面会话占用无法热卸载，wedged 状态从开机起就固定了，装再多固件也不影响已加载的驱动。
+&lt;strong&gt;判断 GPU 是否真修好必须看当前会话的 &lt;code&gt;glxinfo -B&lt;&#x2F;code&gt;（llvmpipe = 还是坏的），而不是看 initrd 里有没有固件。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;keng-er-liang-duan-du-yao-you-render-zu-quan-xian-vm-nei-ye-yao-jia&quot;&gt;坑二：两端都要有 render 组权限，VM 内也要加&lt;&#x2F;h3&gt;
+&lt;p&gt;修复 Iris 后 dmabuf 报错仍在（&lt;code&gt;Permission denied&lt;&#x2F;code&gt;），客户端 &lt;code&gt;usermod -aG render peter&lt;&#x2F;code&gt; 后
+报错消失一半——剩 &lt;code&gt;Permission denied&lt;&#x2F;code&gt; 转到了&lt;strong&gt;服务端 huawei-vm&lt;&#x2F;strong&gt;（VM 内 peter 只有 &lt;code&gt;video&lt;&#x2F;code&gt; 组，
+&lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;renderD128&lt;&#x2F;code&gt; 属组是 &lt;code&gt;render&lt;&#x2F;code&gt;）。VM 内同样要加：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# VM 内（或经 qemu-guest-agent 以 root 执行）
+usermod -aG render peter
+# 组变更不作用于已登录会话，重新 ssh 即可；客户端侧同理
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;keng-san-yad-de-gdk-critical-shi-wayland-xia-de-wu-hai-duan-yan&quot;&gt;坑三：yad 的 Gdk-CRITICAL 是 wayland 下的无害断言&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;gdk_x11_window_get_xid: assertion &#x27;GDK_IS_X11_WINDOW&#x27; failed&lt;&#x2F;code&gt; 是 yad（GTK3）内部获取
+X11 窗口 ID 的代码路径在 wayland 后端下触发的断言——窗口仍能正常弹出，&lt;strong&gt;忽略即可&lt;&#x2F;strong&gt;，不属于故障。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;ben-ci-wan-zheng-lian-lu-xiao-jie&quot;&gt;本次完整链路小结&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Iris 报错（客户端）→ 固件在 initrd 里但没重启 → 重启
+dmabuf Permission denied（客户端）→ usermod -aG render
+dmabuf Permission denied（服务端 VM）→ VM 内同样 usermod -aG render
+Gdk-CRITICAL → 无害，忽略
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-26-fu-fa-bu-chong-di-san-chong-xing-tai-fu-wu-duan-jiu-shi-qxl-yong-yuan-mei-you-renderd128&quot;&gt;2026-08-26 复发补充：第三种形态——服务端就是 QXL，永远没有 renderD128&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;8 月 26 日同款报错再次出现（&lt;code&gt;cat ~&#x2F;.ssh&#x2F;id_ed25519.pub | clipcopy&lt;&#x2F;code&gt; 后终端刷出），
+但与前两次排雷方向都不同：&lt;strong&gt;这一次没任何 GPU 问题是可修的，纯粹是拓扑+参数问题&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zheng-zhuang-1&quot;&gt;症状&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;blog % cat ~&amp;#x2F;.ssh&amp;#x2F;id_ed25519.pub | clipcopy
+S45742: 56.574026 [src&amp;#x2F;dmabuf.c:125] Failed to open drm fd for &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;和前两次的关键区别：报错文本是 &lt;strong&gt;&lt;code&gt;No such file or directory&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（08-09 同款文本），
+而不是 08-16 的 &lt;code&gt;Permission denied&lt;&#x2F;code&gt;——这次不是&quot;有节点但权限不足&quot;，而是&lt;strong&gt;节点本身不存在&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;ding-wei-fu-wu-duan-mu-biao-ji-shi-qxl-xu-ni-xian-qia-wu-xuan-ran-jie-dian&quot;&gt;定位：服务端（目标机）是 QXL 虚拟显卡，无渲染节点&lt;&#x2F;h3&gt;
+&lt;p&gt;报错来自 waypipe 服务端，即本次 SSH 的目标机（his-host，192.168.2.156 虚拟机）。查：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;
+# crw-rw---- 1 root video 226,  1 ... card1      ← 只有显示节点
+#                                无 renderD128       ← 没有渲染节点
+lspci | grep -i vga
+# 00:01.0 VGA compatible controller: Red Hat, Inc. QXL paravirtual graphic card
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;QXL 是纯 2D 的哑虚拟显卡（CPU 描画、无 3D 硬件），内核驱动&lt;strong&gt;本来就不注册渲染节点&lt;&#x2F;strong&gt;，
+与 08-09&#x2F;08-16 里&quot;客户端机器有 renderD128 但驱动坏了&#x2F;没权限&quot;完全是两码事——&lt;strong&gt;这台机器永远不会有 renderD128&lt;&#x2F;strong&gt;，
+再怎么装固件、加 render 组都没用（芯片没这功能）。CHANGELOG 里的待办&quot;QXL → virtio-gpu 3D（virgl）&quot;
+就是给虚拟显卡模拟 3D 后，renderD128 才会出现。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fu-fa-de-zhi-jie-yuan-yin-hui-hua-mei-dai-no-gpu&quot;&gt;复发的直接原因：会话没带 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;08-09 的修复约定是&lt;strong&gt;客户端&lt;&#x2F;strong&gt; &lt;code&gt;waypipe --no-gpu ssh&lt;&#x2F;code&gt;（禁用 GPU 协议、改走共享内存），
+只要带了，即使服务端没渲染节点也不报错。但本次的 waypipe server 进程是 &lt;strong&gt;8&#x2F;21 重建的会话&lt;&#x2F;strong&gt;，
+看进程 cmdline 就知道客户端当时没用 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;（若带了，server 侧命令会带 &lt;code&gt;-n&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe -c lz4 --login-shell --unlink-socket -s &amp;#x2F;tmp waypipe-server-...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;于是剪贴板复制时服务端照样尝试 dmabuf 直传 → 打开 &#x2F;dev&#x2F;dri&#x2F;renderD128 → No such file。&lt;&#x2F;p&gt;
+&lt;p&gt;repo 里两份&quot;入口文档&quot;仍写着&lt;strong&gt;不带 --no-gpu 的旧命令&lt;&#x2F;strong&gt;，这正是复发温床：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;dotfiles&#x2F;.cheat&#x2F;waypipe.&lt;&#x2F;code&gt;：&lt;code&gt;waypipe ssh -o controlpath=none peter@&amp;lt;旧IP&amp;gt;&lt;&#x2F;code&gt;（无 --no-gpu，IP 还是 192.168.7.99）&lt;&#x2F;li&gt;
+&lt;li&gt;IP 也已变（192.168.7.99 → 192.168.2.156），旧会话是照着旧 cheat 连的&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;san-chong-xing-tai-pan-bie-su-cha&quot;&gt;三种形态判别速查&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;报错文本&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;No such file or directory&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;打开 renderD128 时节点不存在&lt;&#x2F;td&gt;&lt;td&gt;该端是 2D-only 卡（QXL&#x2F;virtio-gpu 2D&#x2F;bochs），只能 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Permission denied&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;节点存在但用户无权限&lt;&#x2F;td&gt;&lt;td&gt;该端 &lt;code&gt;usermod -aG render&lt;&#x2F;code&gt;（重新 ssh 生效）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Kernel is too old ... for Iris&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;设备存在但驱动初始化失败（GPU wedged）&lt;&#x2F;td&gt;&lt;td&gt;查 dmesg：装固件 + 重启&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;ben-ci-xiu-fu&quot;&gt;本次修复&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;客户端重连会话，用 &lt;code&gt;waypipe --no-gpu ssh -o controlpath=none peter@192.168.2.156&lt;&#x2F;code&gt;（连着旧会话的窗口重开）&lt;&#x2F;li&gt;
+&lt;li&gt;顺手更新 &lt;code&gt;dotfiles&#x2F;.cheat&#x2F;waypipe.&lt;&#x2F;code&gt; 为带 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt; 的新命令&lt;&#x2F;li&gt;
+&lt;li&gt;长期：VM 升级 virgl（virtio-gpu 3D）后 renderD128 出现，届时才可去掉 &lt;code&gt;--no-gpu&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>
