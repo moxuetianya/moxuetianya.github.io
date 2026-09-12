@@ -1,0 +1,1595 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - sing-box</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/sing-box/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-31T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/sing-box/atom.xml</id>
+    <entry xml:lang="en">
+        <title>sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证</title>
+        <published>2026-08-26T22:37:16+08:00</published>
+        <updated>2026-08-31T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/"/>
+        <id>https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;自己 VPS（机房 IP）上跑 sing-box 代理，访问 ChatGPT 时经常弹出 Cloudflare 的&quot;确认你是真人&quot;验证页（Turnstile）。换不同节点偶有缓解，但始终频繁。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h1&gt;
+&lt;p&gt;ChatGPT 背后是 Cloudflare 的 WAF + DDoS 防护。Cloudflare 会对每个访问 IP 评估信誉度，而 VPS 的机房 IP（ASN 类型为 Hosting&#x2F;Data Center）天然处于低信誉档：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;机房 IP 连坐&lt;&#x2F;strong&gt;：大量爬虫、自动化脚本都从机房 IP 发出，同一个 IP 段里的&quot;坏邻居&quot;会拉低整个段的信誉；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;地理行为突变&lt;&#x2F;strong&gt;：账号短时间内跨多个国家 IP 登录，会触发风控。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以对 Cloudflare 来说，机房 IP 访问 ChatGPT ≈ 疑似机器人 → 弹验证。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;si-lu-rang-chatgpt-liu-liang-zou-warp-chu-kou&quot;&gt;思路：让 ChatGPT 流量走 WARP 出口&lt;&#x2F;h1&gt;
+&lt;p&gt;与其反复换 VPS 的 IP（不一定干净，还可能收费），不如用 Cloudflare 官方的 &lt;strong&gt;WARP&lt;&#x2F;strong&gt; 作为 ChatGPT 流量的出口。&lt;&#x2F;p&gt;
+&lt;p&gt;WARP 是 Cloudflare 官方出品的网络客户端（本质是基于 WireGuard 协议的隧道），它的出口 IP 由 Cloudflare 管理，信誉度远高于普通机房 IP。社区普遍反馈：WARP 出口访问 ChatGPT 基本不弹验证。&lt;&#x2F;p&gt;
+&lt;p&gt;关键决策：&lt;strong&gt;不要把整个 VPS 全局走 WARP&lt;&#x2F;strong&gt;（会连带 SSH、更新、其他服务全部改出口，还容易踩路由循环），而是把 WARP 注册成 sing-box 的一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound，只让 OpenAI 相关域名走它。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;客户端 → sing-box(VPS)
+          ├── direct ─────────→ VPS 原生 IP（其余流量）
+          └── wireguard:warp ─→ Cloudflare WARP → ChatGPT（openai.com 等）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cheng-qing-bu-shi-cloudflared-ye-bu-shi-warp-cli-quan-ju&quot;&gt;澄清：不是 cloudflared，也不是 warp-cli 全局&lt;&#x2F;h1&gt;
+&lt;p&gt;先区分三个容易混淆的东西：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;程序&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;cloudflared&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;入站&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare Tunnel，把外部请求带进你的服务器（反向代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;warp-cli&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;出站全局&lt;&#x2F;td&gt;&lt;td&gt;系统级客户端，默认把整台机器的流量都走 WARP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WARP WireGuard 参数&lt;&#x2F;td&gt;&lt;td&gt;出站按需&lt;&#x2F;td&gt;&lt;td&gt;直接把 WARP 当作一个 WireGuard 端点，由 sing-box 按规则选用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;前两种都不适合&quot;只让 ChatGPT 流量走 WARP&quot;这个目标。我们只需要拿到 WARP 的 WireGuard 连接参数，交给 sing-box 即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-yong-wgcf-zhu-ce-na-dao-wireguard-can-shu&quot;&gt;第一步：用 wgcf 注册，拿到 WireGuard 参数&lt;&#x2F;h1&gt;
+&lt;p&gt;WARP 底层就是 WireGuard，但参数不能随便编：&lt;code&gt;private_key&lt;&#x2F;code&gt;、&lt;code&gt;local_address&lt;&#x2F;code&gt;（WARP 分配的 172.16.x.x &#x2F; fd01:5ca1:ab1e 段）、&lt;code&gt;peer_public_key&lt;&#x2F;code&gt;（WARP 服务端公钥）、&lt;code&gt;reserved&lt;&#x2F;code&gt;（WARP 特有字段）都来自 Cloudflare 的注册流程。&lt;&#x2F;p&gt;
+&lt;p&gt;社区标准做法是用 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ViRb3&#x2F;wgcf&quot;&gt;wgcf&lt;&#x2F;a&gt; 模拟注册，在 VPS 上执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -L -o wgcf https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;ViRb3&amp;#x2F;wgcf&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.2.22&amp;#x2F;wgcf_2.2.22_linux_amd64
+chmod +x wgcf
+.&amp;#x2F;wgcf register --accept-tos   # 生成 wgcf-account.toml
+.&amp;#x2F;wgcf generate                # 生成 wgcf-profile.conf
+cat wgcf-profile.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成的 &lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 类似：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Interface]
+PrivateKey = &amp;lt;WARP_PRIVATE_KEY&amp;gt;
+Address = 172.16.0.2&amp;#x2F;32, fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128
+DNS = 1.1.1.1, 2606:4700:4700::1111
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0&amp;#x2F;0, ::&amp;#x2F;0
+Endpoint = 162.159.192.1:2408
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 里没有 &lt;code&gt;reserved&lt;&#x2F;code&gt;，但 WARP 的握手必须带 reserved 字段。sing-box 支持配置，生成方法见下文。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-bu-sing-box-pei-zhi-warp-outbound&quot;&gt;第二步：sing-box 配置 WARP outbound&lt;&#x2F;h1&gt;
+&lt;p&gt;把上面的参数填进 sing-box 的 &lt;code&gt;outbounds&lt;&#x2F;code&gt;（&lt;code&gt;config.json&lt;&#x2F;code&gt; 里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;wireguard&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;warp&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;162.159.192.1&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 2408,
+      &amp;quot;local_address&amp;quot;: [
+        &amp;quot;172.16.0.2&amp;#x2F;32&amp;quot;,
+        &amp;quot;fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128&amp;quot;
+      ],
+      &amp;quot;private_key&amp;quot;: &amp;quot;WARP_PRIVATE_KEY&amp;quot;,
+      &amp;quot;peer_public_key&amp;quot;: &amp;quot;bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=&amp;quot;,
+      &amp;quot;reserved&amp;quot;: [0, 0, 0],
+      &amp;quot;mtu&amp;quot;: 1280
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;peer_public_key&lt;&#x2F;code&gt; 是 WARP 的固定公钥 &lt;code&gt;bmXOC+F1FxEMF9dyiK2H5&#x2F;1SUtzH0JuVo51h2wPfgyo=&lt;&#x2F;code&gt;，人人相同；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;reserved&lt;&#x2F;code&gt; 是 WARP 三字节保留位，wgcf 生成配置后可用 &lt;code&gt;.&#x2F;wgcf generate --profile &amp;lt;(cat wgcf-account.toml) --reserved&lt;&#x2F;code&gt; 打印实际值，或直接尝试 &lt;code&gt;[0, 0, 0]&lt;&#x2F;code&gt;（多数情况下可用）；&lt;&#x2F;li&gt;
+&lt;li&gt;免费版 WARP 注册即可用，无需 license key（WARP+ 才需要）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-san-bu-lu-you-gui-ze-zhi-rang-openai-yu-ming-zou-warp&quot;&gt;第三步：路由规则，只让 OpenAI 域名走 WARP&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;domain_suffix&amp;quot;: [
+          &amp;quot;chatgpt.com&amp;quot;,
+          &amp;quot;openai.com&amp;quot;,
+          &amp;quot;oaistatic.com&amp;quot;,
+          &amp;quot;oaiusercontent.com&amp;quot;,
+          &amp;quot;auth0.com&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;warp&amp;quot;
+      }
+    ]
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;ChatGPT 实际涉及的域名不止 &lt;code&gt;chatgpt.com&lt;&#x2F;code&gt;：登录走 &lt;code&gt;auth.openai.com&lt;&#x2F;code&gt;（auth0），静态资源走 &lt;code&gt;oaistatic.com&lt;&#x2F;code&gt;，图片走 &lt;code&gt;oaiusercontent.com&lt;&#x2F;code&gt;。上面的列表覆盖了主要部分。&lt;&#x2F;p&gt;
+&lt;p&gt;改完 &lt;code&gt;config.json&lt;&#x2F;code&gt; 重启 sing-box：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl restart sing-box
+journalctl -u sing-box -f   # 看有没有报错
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口确认&lt;&#x2F;strong&gt;：让 sing-box 的 DNS&#x2F;测试流量走 warp 后，检查出口：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 在客户端通过代理访问
+curl https:&amp;#x2F;&amp;#x2F;www.cloudflare.com&amp;#x2F;cdn-cgi&amp;#x2F;trace
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出里 &lt;code&gt;warp=on&lt;&#x2F;code&gt; 说明确实从 WARP 出口出去：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ip=&amp;lt;WARP出口IP&amp;gt;
+warp=on
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;对比验证频率&lt;&#x2F;strong&gt;：分别用 direct 出口和 warp 出口访问 ChatGPT，观察验证页出现频率。多刷新几次、退出登录状态再试，才更接近真实风控场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;其余流量不受影响&lt;&#x2F;strong&gt;：&lt;code&gt;curl ifconfig.me&lt;&#x2F;code&gt; 看到的应该是 VPS 原生 IP，说明只有 OpenAI 域名走了 WARP。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zhu-yi-shi-xiang&quot;&gt;注意事项&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;WARP 不是保证&lt;&#x2F;strong&gt;：WARP 出口 IP 同样可能被大量用户共享，只是信誉比机房 IP 好得多，能大幅减少但未必 100% 消除验证；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口 IP ≠ Cloudflare CDN IP&lt;&#x2F;strong&gt;：Cloudflare 不公开 WARP 出口地址池，它和 Worker 禁止 &lt;code&gt;connect()&lt;&#x2F;code&gt; 的 CDN IP ranges 是两回事。WARP 用户访问套了 Cloudflare CDN 的网站是官方支持的正常路径，不会&quot;循环丢弃&quot;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别全局开 warp-cli&lt;&#x2F;strong&gt;：系统级全局 WARP 会改变 VPS 上所有出站流量的出口（SSH 回程、apt 更新、Docker 等都可能受影响），排查问题更难。sing-box outbound 方式完全不动系统路由，SSH 和其余服务照旧；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;免费 WARP 出口不固定&lt;&#x2F;strong&gt;：免费版出口 IP 可能变化；WARP+（付费）有固定 IP 支持，一般没必要。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shi-ce-geng-xin-2026-08-28-warp-chu-kou-duan-bei-openai-feng-jin-de-qing-kuang&quot;&gt;实测更新（2026-08-28）：WARP 出口段被 OpenAI 封禁的情况&lt;&#x2F;h1&gt;
+&lt;p&gt;用官方 &lt;code&gt;cloudflare-warp&lt;&#x2F;code&gt; 客户端（warp-svc + &lt;code&gt;warp-cli mode proxy&lt;&#x2F;code&gt;，SOCKS5 &lt;code&gt;127.0.0.1:40000&lt;&#x2F;code&gt;）在 VPS 上部署后，把 sing-box 的 OpenAI 域名分流指向它。路由规则确认生效（服务端日志 &lt;code&gt;inbound&#x2F;vless → outbound&#x2F;socks[warp]&lt;&#x2F;code&gt;），但实测结果是&lt;strong&gt;完全打不开&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;chatgpt.com        → 403 Unable to load site [IP:104.28.215.69 | Ray ID:...]
+openai.com         → 403
+auth.openai.com    → 403
+platform.openai.com→ 403
+api.openai.com     → 403
+google.com（对照）   → 200（隧道本身健康）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查过程摘要：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;原生 VPS IP（UCloud 香港机房）、WARP IPv4 出口（&lt;code&gt;104.28.215.69&lt;&#x2F;code&gt;）、WARP IPv6 出口（&lt;code&gt;2a09:bac1::&lt;&#x2F;code&gt; &#x2F; 重连换段后 &lt;code&gt;2a09:bac5::&lt;&#x2F;code&gt;）&lt;strong&gt;全部 403&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;强制 IPv4&#x2F;IPv6 目标、带浏览器 UA、重连换出口段，均无效；&lt;&#x2F;li&gt;
+&lt;li&gt;错误页是 Cloudflare WAF 的&lt;strong&gt;自定义错误页&lt;&#x2F;strong&gt;（&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; + Ray ID），不是本文主场景的 Turnstile 真人验证页。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：这属于 &lt;strong&gt;OpenAI WAF 对 WARP 出口段（&lt;code&gt;104.28.x.x&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;2a09:bacx::&lt;&#x2F;code&gt;）的 IP 级封禁&lt;&#x2F;strong&gt;（社区已知现象，WARP 用户访问 ChatGPT 普遍报此错误），与本文&quot;机房低信誉→弹验证&quot;是两个不同的失败模式：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;失败模式&lt;&#x2F;th&gt;&lt;th&gt;页面表现&lt;&#x2F;th&gt;&lt;th&gt;WARP 是否有效&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;IP 信誉低（机房段）&lt;&#x2F;td&gt;&lt;td&gt;频繁弹 Turnstile 真人验证&lt;&#x2F;td&gt;&lt;td&gt;有效，大幅减少验证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;IP 被拉黑（WARP 出口段）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; 自定义错误页&lt;&#x2F;td&gt;&lt;td&gt;无效，换段也没用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;经验&lt;&#x2F;strong&gt;：部署前先确认目标站点在候选出口上的可用性（&lt;code&gt;curl --socks5-hostname &amp;lt;出口&amp;gt; https:&#x2F;&#x2F;chatgpt.com&lt;&#x2F;code&gt; 看是验证页还是错误页），避免白部署；若 WARP 出口被封，只能换 VPS 商家&#x2F;机场节点碰运气拿干净 IP，或家庭宽带直连。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;机房 IP 访问 ChatGPT 频繁弹 Cloudflare 验证，根因是 IP 信誉，不是账号或浏览器问题。用 wgcf 把 WARP 注册成 WireGuard 参数、在 sing-box 里加一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound、按域名分流 OpenAI 流量——改动小、不动系统路由，是当前成本最低且有效的方案。如果 WARP 后仍频繁验证，再考虑换原生 IP（ISP 类型）的 VPS 商家，但这是最后一步。注意 2026-08-28 实测补充：WARP 出口段本身可能已被 OpenAI 封禁，部署前务必先验证出口可用性。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>开启 TCP BBR 实测：代理隧道发送端才有收益</title>
+        <published>2026-08-21T16:28:09+08:00</published>
+        <updated>2026-08-24T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/"/>
+        <id>https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/learn/bbr-speedup-test/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;sing-box 代理链路（本机客户端 → 服务端 → 目标站）部署完成后，常听说「服务端开 TCP BBR 可以提速」。是否属实、在哪个环节有效，用内网测试拓扑实测一把：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;本机为客户端（mixed 入站 127.0.0.1:2080），内网一台测试机为服务端（VLESS + Reality，回源握手走 amazon.com）&lt;&#x2F;li&gt;
+&lt;li&gt;只测国内站点：清华镜像 3.3GB ISO 下载吞吐 + baidu&#x2F;bilibili 页面可达性&lt;&#x2F;li&gt;
+&lt;li&gt;两端系统参数基线为 &lt;code&gt;cubic&lt;&#x2F;code&gt; + &lt;code&gt;fq_codel&lt;&#x2F;code&gt;，开启后为 &lt;code&gt;bbr&lt;&#x2F;code&gt; + &lt;code&gt;fq&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;交错 A&#x2F;B 对比（cubic&#x2F;bbr 交替各 3 轮），每轮 30s 窗口取平均下载速率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;ji-zhi-bbr-shi-fa-song-duan-yong-sai-kong-zhi&quot;&gt;机制：BBR 是发送端拥塞控制&lt;&#x2F;h1&gt;
+&lt;p&gt;TCP 拥塞控制由&lt;strong&gt;数据发送方&lt;&#x2F;strong&gt;决定。下载场景下发送方是目标站（如镜像站），本机&#x2F;代理服务端是接收方——&lt;strong&gt;接收方内核开不开 BBR，对下载吞吐没有直接影响&lt;&#x2F;strong&gt;。BBR 的收益体现在：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;发送方（你自己）→ 接收方的路径：如代理服务端把数据发给客户端（VPS → 本机）&lt;&#x2F;li&gt;
+&lt;li&gt;高带宽时延积 + 有丢包的路径：cubic 遇丢包就线性退避，BBR 不因丢包降速&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;shi-ce-shu-ju&quot;&gt;实测数据&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-zhi-lian-guo-nei-zhan-dian-fa-song-fang-jing-xiang-zhan&quot;&gt;1. 直连国内站点（发送方 = 镜像站）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;轮次&lt;&#x2F;th&gt;&lt;th&gt;cubic&lt;&#x2F;th&gt;&lt;th&gt;bbr&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;3.82 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;0.43 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;3.50 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;4.88 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;3&lt;&#x2F;td&gt;&lt;td&gt;0.21 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;0.38 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;两者无稳定差异（第三轮是路径整体拥塞，双双掉底）。本机是接收方，本地开 BBR 与直连下载速度无关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-fu-wu-duan-jing-xiang-zhan-fu-wu-duan-wei-jie-shou-fang&quot;&gt;2. 服务端 → 镜像站（服务端为接收方）&lt;&#x2F;h2&gt;
+&lt;p&gt;cubic 0.5~3.4 MB&#x2F;s，bbr 0.3~3.7 MB&#x2F;s，同样无差异——再次印证接收方 CC 无关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-jing-lian-quan-lian-lu-ben-ji-fu-wu-duan-jing-xiang-zhan&quot;&gt;3. 经链全链路（本机 → 服务端 → 镜像站）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;轮次&lt;&#x2F;th&gt;&lt;th&gt;cubic（两端）&lt;&#x2F;th&gt;&lt;th&gt;bbr（两端）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;2.23 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;3.01 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;1.22 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;4.14 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;3&lt;&#x2F;td&gt;&lt;td&gt;1.33 MB&#x2F;s&lt;&#x2F;td&gt;&lt;td&gt;3.42 MB&#x2F;s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;bbr 稳定 3.0~4.1 MB&#x2F;s 不掉底，cubic 掉底到 1.2~1.8 MB&#x2F;s。进一步拆分确认：&lt;strong&gt;只有服务端（隧道发送端）开 BBR 有效&lt;&#x2F;strong&gt;——&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;本机 cubic + 服务端 bbr（发送端 BBR）&lt;&#x2F;td&gt;&lt;td&gt;3.86 &#x2F; 4.18 &#x2F; 2.78 MB&#x2F;s，稳定&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本机 bbr + 服务端 cubic（接收端 BBR）&lt;&#x2F;td&gt;&lt;td&gt;0.26 &#x2F; 4.01 &#x2F; 1.77 MB&#x2F;s，掉底&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;4-chun-nei-wang-sui-dao-duan-dui-zhao&quot;&gt;4. 纯内网隧道段对照&lt;&#x2F;h2&gt;
+&lt;p&gt;服务端本地起 HTTP 服务（1GB 文件）走隧道下载：cubic 与 bbr 均为 117 MB&#x2F;s 满速——内网段本身无丢包，CC 无差异，问题出在跨网路径。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jie-lun&quot;&gt;结论&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;直连国内站点&lt;&#x2F;strong&gt;：本机（接收方）开 BBR 没有收益，开启与否不影响下载速度&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;经链场景&lt;&#x2F;strong&gt;：&lt;strong&gt;服务端（隧道发送端）开 BBR 有收益&lt;&#x2F;strong&gt;——实测吞吐更稳、不掉底；这正是境外 VPS 部署的对应位置：VPS 是隧道发送端，跨境链路丢包率高，是 BBR 的典型受益场景，建议开启&lt;&#x2F;li&gt;
+&lt;li&gt;本机开 BBR 无副作用；唯一的本机受益场景是&lt;strong&gt;上传&lt;&#x2F;strong&gt;（本机为发送方时）&lt;&#x2F;li&gt;
+&lt;li&gt;内网测试无法完全复现跨境长路径的丢包特征，收益方向明确，幅度随路径而异&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;shi-ji-bu-shu-vps&quot;&gt;实际部署（VPS）&lt;&#x2F;h1&gt;
+&lt;p&gt;按上述结论在 VPS（隧道发送端）上实际开启并持久化：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;开启前基线：内核 6.1 cloud 镜像，&lt;code&gt;cubic&lt;&#x2F;code&gt; + &lt;code&gt;fq_codel&lt;&#x2F;code&gt;，&lt;code&gt;tcp_bbr&lt;&#x2F;code&gt; 模块未加载（&lt;code&gt;tcp_available_congestion_control&lt;&#x2F;code&gt; 只有 reno&#x2F;cubic）&lt;&#x2F;li&gt;
+&lt;li&gt;三条命令落地（模块加载 → 立即生效 → 持久化）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo modprobe tcp_bbr
+sudo sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+printf &amp;quot;net.core.default_qdisc=fq\nnet.ipv4.tcp_congestion_control=bbr\n&amp;quot; | sudo tee &amp;#x2F;etc&amp;#x2F;sysctl.d&amp;#x2F;99-bbr.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证输出：&lt;code&gt;net.ipv4.tcp_congestion_control = bbr&lt;&#x2F;code&gt;、&lt;code&gt;net.core.default_qdisc = fq&lt;&#x2F;code&gt;，&lt;code&gt;&#x2F;sys&#x2F;module&#x2F;tcp_bbr&lt;&#x2F;code&gt; 存在。&lt;&#x2F;p&gt;
+&lt;p&gt;两点注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;sysctl -w&lt;&#x2F;code&gt; 只影响&lt;strong&gt;新建立的连接&lt;&#x2F;strong&gt;，存量 TCP 不受扰动——在线服务无需重启，对既有连接零影响&lt;&#x2F;li&gt;
+&lt;li&gt;部署后若客户端日志出现个别连接异常（如读响应 &lt;code&gt;unexpected EOF&lt;&#x2F;code&gt;），不要直接归因 BBR：实测链路正常时多为客户端 keep-alive 连接复用问题，先用 curl 复现再下结论&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;kai-qi-ming-ling&quot;&gt;开启命令&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;modprobe tcp_bbr
+sysctl -w net.ipv4.tcp_congestion_control=bbr net.core.default_qdisc=fq
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;持久化（&lt;code&gt;&#x2F;etc&#x2F;sysctl.d&#x2F;99-bbr.conf&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;net.core.default_qdisc=fq
+net.ipv4.tcp_congestion_control=bbr
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sysctl net.ipv4.tcp_congestion_control   # 应输出 bbr
+ls &amp;#x2F;sys&amp;#x2F;module&amp;#x2F;tcp_bbr                   # 模块已加载
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>sing-box 手动配置</title>
+        <published>2025-11-12T23:10:15+08:00</published>
+        <updated>2026-08-21T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/learn/sing-box 手动配置(deb安装)/"/>
+        <id>https://moxuetianya.github.io/2025/11/learn/sing-box 手动配置(deb安装)/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/learn/sing-box 手动配置(deb安装)/">&lt;h1 id=&quot;an-zhuang-sing-box-deb-cang-ku-install-sh-github-xia-zai&quot;&gt;安装sing-box（deb 仓库 &#x2F; install.sh &#x2F; GitHub 下载）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;guan-fang-deb-cang-ku-an-zhuang&quot;&gt;官方 deb 仓库安装&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo mkdir -p &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings &amp;amp;&amp;amp;
+   sudo curl -fsSL https:&amp;#x2F;&amp;#x2F;sing-box.app&amp;#x2F;gpg.key -o &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;sagernet.asc &amp;amp;&amp;amp;
+   sudo chmod a+r &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;sagernet.asc &amp;amp;&amp;amp;
+   echo &amp;#x27;
+Types: deb
+URIs: https:&amp;#x2F;&amp;#x2F;deb.sagernet.org&amp;#x2F;
+Suites: *
+Components: *
+Enabled: yes
+Signed-By: &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;sagernet.asc
+&amp;#x27; | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;sagernet.sources &amp;amp;&amp;amp;
+   sudo apt-get update &amp;amp;&amp;amp;
+   sudo apt-get install sing-box # or sing-box-beta
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;guan-fang-install-sh-jiao-ben&quot;&gt;官方 install.sh 脚本&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -fsSL https:&amp;#x2F;&amp;#x2F;sing-box.app&amp;#x2F;install.sh | sh
+curl -fsSL https:&amp;#x2F;&amp;#x2F;sing-box.app&amp;#x2F;install.sh | sh -s -- --version 1.12.12
+sudo mkdir -p &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;sing-box&amp;#x2F; &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;
+sudo systemctl start sing-box
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;github-xia-zai-an-zhuang-zhi-ding-ban-ben-ke-zi-ding-yi-mu-lu&quot;&gt;GitHub 下载安装（指定版本，可自定义目录）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 服务端：安装到 &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;
+sudo mkdir -p &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;conf
+wget https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;SagerNet&amp;#x2F;sing-box&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v1.12.9&amp;#x2F;sing-box-1.12.9-linux-amd64.tar.gz 
+sudo tar xvzf sing-box-1.12.9-linux-amd64.tar.gz -C &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;
+sudo cp &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;sing-box-1.12.9-linux-amd64&amp;#x2F;sing-box &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;sing-box
+
+# 客户端：安装到用户目录 ~&amp;#x2F;.proxy&amp;#x2F;
+mkdir -p ~&amp;#x2F;.proxy&amp;#x2F;conf
+wget https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;SagerNet&amp;#x2F;sing-box&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v1.12.9&amp;#x2F;sing-box-1.12.9-linux-amd64.tar.gz 
+tar xvzf sing-box-1.12.9-linux-amd64.tar.gz -C ~&amp;#x2F;.proxy&amp;#x2F;
+cp ~&amp;#x2F;.proxy&amp;#x2F;sing-box-1.12.9-linux-amd64&amp;#x2F;sing-box ~&amp;#x2F;.proxy&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;使用 233boy 脚本生成配置时遇到了 systemd-unit 冲突，修改了 233boy 脚本中的 unit 位置为 &#x2F;etc&#x2F;（&#x2F;etc&#x2F;sing-box&#x2F;sh&#x2F;src&#x2F;systemd.sh）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;yuan-li-dai-li-xie-yi-x-chuan-shu-fang-shi-x-chuan-shu-an-quan&quot;&gt;原理：代理协议 × 传输方式 × 传输安全&lt;&#x2F;h1&gt;
+&lt;p&gt;其实可以把处理需要代理的数据分成三个部分:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;最上层的第一个部分就是我们熟知的各种代理协议，比如 ss、vmess、vless、trojan、socks、anytls 等等&lt;&#x2F;li&gt;
+&lt;li&gt;第二部分是传输方式，也就是上层经过代理协议处理的数据用什么方式传输，比如 raw 原始状态、ws、kcp、grpc、xhttp、httpupgrade、meek 等等
+我们熟悉的 vmess+ws，就是将上层 vmess 处理后的数据通过 ws 传输，这层一般不对数据进行加密，要么是在第一层就通过代理协议加密了，要么是交给第三层的传输安全来处理&lt;&#x2F;li&gt;
+&lt;li&gt;最底层也就是我们熟知的 tls 以及 reality&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;images&#x2F;anytls-reality.png&quot; alt=&quot;anytls-reality&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;通过这个图我们就可以实现任意协议组合任意传输，比如我可以搭建普通的 vmess 节点，也可以搭建 ss+ws 的节点，或者 ss+grpc+reality
+还可以将原本的协议组合打乱，比如 trojan 协议默认情况下就是套了 tls，我们可以给她换成 reality 或者直接脱掉 tls 让她裸奔
+anytls 也是类似，协议默认设计成了套 tls，但我们可以给他套上 reality，也就变成了 anyreality 了&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;sheng-cheng-mi-yao-cai-liao&quot;&gt;生成密钥材料&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sing-box generate uuid
+sing-box generate reality-keypair   # 输出 PrivateKey&amp;#x2F;PublicKey 各一行，对应服务端&amp;#x2F;客户端
+sing-box generate rand 8 --hex      # 生成 short_id
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;anytls-reality-pei-zhi&quot;&gt;anytls-reality 配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;anytls-reality-server-pei-zhi&quot;&gt;anytls-reality server 配置&lt;&#x2F;h2&gt;
+&lt;p&gt;修改 password private_key short_id&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;anytls-reality.json 
+{
+    &amp;quot;inbounds&amp;quot;: [
+        {
+            &amp;quot;type&amp;quot;: &amp;quot;anytls&amp;quot;,
+            &amp;quot;listen&amp;quot;: &amp;quot;::&amp;quot;,
+            &amp;quot;listen_port&amp;quot;: 56443,
+            &amp;quot;users&amp;quot;: [
+                {
+                    &amp;quot;name&amp;quot;: &amp;quot;user&amp;quot;,
+                    &amp;quot;password&amp;quot;: &amp;quot;123456&amp;quot;
+                }
+            ],
+            &amp;quot;padding_scheme&amp;quot;: [
+                &amp;quot;stop=8&amp;quot;,
+                &amp;quot;0=30-30&amp;quot;,
+                &amp;quot;1=100-400&amp;quot;,
+                &amp;quot;2=400-500,c,500-1000,c,500-1000,c,500-1000,c,500-1000&amp;quot;,
+                &amp;quot;3=9-9,500-1000&amp;quot;,
+                &amp;quot;4=500-1000&amp;quot;,
+                &amp;quot;5=500-1000&amp;quot;,
+                &amp;quot;6=500-1000&amp;quot;,
+                &amp;quot;7=500-1000&amp;quot;
+            ],
+            &amp;quot;tls&amp;quot;: {
+                &amp;quot;enabled&amp;quot;: true,
+                &amp;quot;server_name&amp;quot;: &amp;quot;yahoo.com&amp;quot;,
+                &amp;quot;reality&amp;quot;: {
+                    &amp;quot;enabled&amp;quot;: true,
+                    &amp;quot;handshake&amp;quot;: {
+                        &amp;quot;server&amp;quot;: &amp;quot;yahoo.com&amp;quot;,
+                        &amp;quot;server_port&amp;quot;: 443
+                    },
+                    &amp;quot;private_key&amp;quot;: &amp;quot;eO3B3EMGXrYfGOe87NkUVusaeUxtLB4vxiqjVXqb9GU&amp;quot;,
+                    &amp;quot;short_id&amp;quot;: &amp;quot;0123456789abcdef&amp;quot;
+                }
+            }
+        }
+    ]
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;anytls-reality-client-pei-zhi&quot;&gt;anytls-reality client 配置&lt;&#x2F;h2&gt;
+&lt;p&gt;修改 server password public_key short_id&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;client-anytls-reality.json &amp;lt;&amp;lt;EOF
+{
+    &amp;quot;outbounds&amp;quot;: [
+        {
+            &amp;quot;type&amp;quot;: &amp;quot;anytls&amp;quot;,
+            &amp;quot;tag&amp;quot;: &amp;quot;anytls-out&amp;quot;,
+            &amp;quot;server&amp;quot;: &amp;quot;192.0.2.1&amp;quot;,
+            &amp;quot;server_port&amp;quot;: 56443,
+            &amp;quot;password&amp;quot;: &amp;quot;123456&amp;quot;,
+            &amp;quot;idle_session_check_interval&amp;quot;: &amp;quot;30s&amp;quot;,
+            &amp;quot;idle_session_timeout&amp;quot;: &amp;quot;30s&amp;quot;,
+            &amp;quot;min_idle_session&amp;quot;: 5,
+            &amp;quot;tls&amp;quot;: {
+                &amp;quot;enabled&amp;quot;: true,
+                &amp;quot;disable_sni&amp;quot;: false,
+                &amp;quot;server_name&amp;quot;: &amp;quot;yahoo.com&amp;quot;,
+                &amp;quot;insecure&amp;quot;: false,
+                &amp;quot;utls&amp;quot;: {
+                    &amp;quot;enabled&amp;quot;: true,
+                    &amp;quot;fingerprint&amp;quot;: &amp;quot;chrome&amp;quot;
+                },
+                &amp;quot;reality&amp;quot;: {
+                    &amp;quot;enabled&amp;quot;: true,
+                    &amp;quot;public_key&amp;quot;: &amp;quot;u4v3a_-uhIXPE2RoGaNy9_W5EK5UYV_hVN4Vpei75lM&amp;quot;,
+                    &amp;quot;short_id&amp;quot;: &amp;quot;0123456789abcdef&amp;quot;
+                }
+            }
+        }
+    ]
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;vless-reality-pei-zhi&quot;&gt;vless-reality 配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;vless-reality-server-pei-zhi&quot;&gt;vless-reality server 配置&lt;&#x2F;h2&gt;
+&lt;p&gt;修改 uuid private_key short_id&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;vless-reality.json 
+{
+    &amp;quot;inbounds&amp;quot;: [
+    {
+      &amp;quot;tag&amp;quot;: &amp;quot;VLESS-REALITY-33584.json&amp;quot;,
+      &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+      &amp;quot;listen&amp;quot;: &amp;quot;::&amp;quot;,
+      &amp;quot;listen_port&amp;quot;: 33584,
+      &amp;quot;users&amp;quot;: [
+        {
+          &amp;quot;flow&amp;quot;: &amp;quot;xtls-rprx-vision&amp;quot;,
+          &amp;quot;uuid&amp;quot;: &amp;quot;xxxxxxxx-cbef-4811-a3f0-d10733e669cd&amp;quot;
+        }
+      ],
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;server_name&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+        &amp;quot;reality&amp;quot;: {
+          &amp;quot;enabled&amp;quot;: true,
+          &amp;quot;handshake&amp;quot;: {
+            &amp;quot;server&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+            &amp;quot;server_port&amp;quot;: 443
+          },
+          &amp;quot;private_key&amp;quot;: &amp;quot;xxxxxxxx_GoOG9l7xvyT_zJuh4wyHyacXGdUWiuhJGg&amp;quot;,
+          &amp;quot;short_id&amp;quot;: [
+            &amp;quot;&amp;quot;
+          ]
+        }
+      }
+    }
+  ]
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ke-xuan-bian-ti-multiplex-brutal-dai-kuan-qiang-zhan&quot;&gt;可选变体：multiplex + brutal（带宽抢占）&lt;&#x2F;h3&gt;
+&lt;p&gt;在 vless-reality 入站上叠加 multiplex（含 padding）与 brutal 拥塞控制，适合抢占带宽场景：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+    &amp;quot;tag&amp;quot;: &amp;quot;VLESS-Vision-Reality&amp;quot;,
+    &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+    &amp;quot;listen&amp;quot;: &amp;quot;::&amp;quot;,
+    &amp;quot;listen_port&amp;quot;: 443,
+    &amp;quot;users&amp;quot;: [
+        {
+            &amp;quot;uuid&amp;quot;: &amp;quot;625a08bb-d372-4f7c-a2d4-6a50ca3393ce&amp;quot;,
+            &amp;quot;flow&amp;quot;: &amp;quot;xtls-rprx-vision&amp;quot;
+        }
+    ],
+    &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;server_name&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+        &amp;quot;reality&amp;quot;: {
+            &amp;quot;enabled&amp;quot;: true,
+            &amp;quot;handshake&amp;quot;: {
+                &amp;quot;server&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+                &amp;quot;server_port&amp;quot;: 443
+            },
+            &amp;quot;private_key&amp;quot;: &amp;quot;mAQVEs96AtDg1V_b2POFVP8n-Uu6hBe0_1Zt-DtRzGE&amp;quot;,
+            &amp;quot;short_id&amp;quot;: [
+                &amp;quot;a118b9425a7e2dc5&amp;quot;
+            ]
+        }
+    },
+    &amp;quot;multiplex&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;padding&amp;quot;: true,
+        &amp;quot;brutal&amp;quot;: {
+            &amp;quot;enabled&amp;quot;: true,
+            &amp;quot;up_mbps&amp;quot;: 800,
+            &amp;quot;down_mbps&amp;quot;: 100
+        }
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;vless-reality-client-duan-ji-chu-pei-zhi&quot;&gt;vless reality client 端基础配置&lt;&#x2F;h2&gt;
+&lt;p&gt;修改 uuid public_key&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;client-vless-reality.json &amp;lt;&amp;lt;EOF
+{
+    &amp;quot;outbounds&amp;quot;: [
+        {
+            &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+            &amp;quot;tag&amp;quot;: &amp;quot;vless-out&amp;quot;,
+            &amp;quot;server&amp;quot;: &amp;quot;192.0.2.2&amp;quot;,
+            &amp;quot;server_port&amp;quot;: 13584,
+            &amp;quot;uuid&amp;quot;: &amp;quot;211d952d-cbef-4811-a3f0-xxxxxxxxxxxx&amp;quot;,
+            &amp;quot;flow&amp;quot;: &amp;quot;xtls-rprx-vision&amp;quot;,
+            &amp;quot;network&amp;quot;: &amp;quot;tcp&amp;quot;,
+            &amp;quot;tls&amp;quot;: {
+                &amp;quot;enabled&amp;quot;: true,
+                &amp;quot;disable_sni&amp;quot;: false,
+                &amp;quot;server_name&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+                &amp;quot;utls&amp;quot;: {
+                &amp;quot;enabled&amp;quot;: true,
+                &amp;quot;fingerprint&amp;quot;: &amp;quot;chrome&amp;quot;
+                },
+                &amp;quot;reality&amp;quot;: {
+                &amp;quot;enabled&amp;quot;: true,
+                &amp;quot;public_key&amp;quot;: &amp;quot;xxxxxx-3J5ReO_EpOBSix7PYhFOzaor0r8xQtEUdjS8&amp;quot;,
+                &amp;quot;short_id&amp;quot;: &amp;quot;&amp;quot;
+                }
+            }
+        }
+    ]
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;reality-ke-hu-duan-utls-zhi-wen-bi-xu-pei-zhi-2026-08-shi-ce&quot;&gt;Reality 客户端 uTLS 指纹：必须配置（2026-08 实测）&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Reality 客户端强制要求 uTLS 指纹&lt;&#x2F;strong&gt;：删除 &lt;code&gt;utls&lt;&#x2F;code&gt; 块或 &lt;code&gt;&quot;enabled&quot;: false&lt;&#x2F;code&gt; 时配置直接无法启动，&lt;code&gt;sing-box check&lt;&#x2F;code&gt; 报错 &lt;code&gt;FATAL initialize outbound[0]: uTLS is required by reality client&lt;&#x2F;code&gt;（v1.12.x 实测），比「断连」更严格——连进程都起不来&lt;&#x2F;li&gt;
+&lt;li&gt;指纹不限于 chrome：换 &lt;code&gt;firefox&lt;&#x2F;code&gt; 等任意 uTLS 指纹均正常（实测可达 200），&lt;code&gt;chrome&lt;&#x2F;code&gt; 只是最通用的选择&lt;&#x2F;li&gt;
+&lt;li&gt;Cloudflare 场景澄清：
+&lt;ul&gt;
+&lt;li&gt;目的站挂在 Cloudflare CDN 后面时，Cloudflare 会做 TLS 指纹识别（JA3&#x2F;JA4），非浏览器指纹（Go 原生 TLS）的连接会被拦截&#x2F;重置——这才是配置 chrome 指纹的现实意义&lt;&#x2F;li&gt;
+&lt;li&gt;若「cloudflare dns」指用 1.1.1.1 做 DNS 服务器（UDP 53），与 TLS 指纹完全无关，不会因此断连&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;tao-cloudflare-cdn-shi-de-chuan-shu-ceng-xuan-ze-2026-08-shi-ce-cha-zheng&quot;&gt;套 Cloudflare CDN 时的传输层选择（2026-08 实测&#x2F;查证）&lt;&#x2F;h1&gt;
+&lt;p&gt;把服务端放到 Cloudflare CDN 后面时（隐藏 VPS IP &#x2F; 优选 IP），传输层兼容性如下：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;传输&lt;&#x2F;th&gt;&lt;th&gt;过 CF&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;ws&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;CF 官方支持（WebSocket）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;grpc&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;CF 官方支持（面板需开 gRPC 开关）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;httpupgrade&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;与 ws 同属 HTTP Upgrade 机制，CF 透传 101，实测可用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;http（HTTP&#x2F;1.1 CONNECT）&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;CONNECT 方法 CF 不透传&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;h2（HTTP&#x2F;2 extended CONNECT）&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;xray 旧版 h2 传输依赖的 RFC 8441 extended CONNECT，CF 无此特殊回源支持&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;sing-box 没有独立的 &quot;h2&quot; 传输类型（1.12.x 实测 &lt;code&gt;unknown transport type: h2&lt;&#x2F;code&gt;），&quot;vless+h2+tls&quot; 是 xray 旧版术语；sing-box 的 HTTP 族传输是 http &#x2F; httpupgrade &#x2F; ws &#x2F; grpc&lt;&#x2F;li&gt;
+&lt;li&gt;CF 只对 WS、gRPC 有特殊回源支持，其它 HTTP 流量按普通网页处理，因此基于 CONNECT 的传输（http &#x2F; h2）无法承载代理数据流&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Reality 不能过 CF&lt;&#x2F;strong&gt;：TLS 在 CF 边缘终结，客户端拿到的是 CF 证书，Reality 镜像握手机制失效；套 CF 需自有域名 + CF 托管证书，传输层配普通 TLS&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shadowsocks-pei-zhi&quot;&gt;shadowsocks 配置&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;quot;inbounds&amp;quot;: [
+    {
+        &amp;quot;tag&amp;quot;: &amp;quot;SS&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;shadowsocks&amp;quot;,
+        &amp;quot;listen&amp;quot;: &amp;quot;::&amp;quot;,
+        &amp;quot;listen_port&amp;quot;: 80,
+        &amp;quot;method&amp;quot;: &amp;quot;2022-blake3-aes-128-gcm&amp;quot;, &amp;#x2F;&amp;#x2F; aes-128-gcm 密钥无限制
+        &amp;quot;password&amp;quot;: &amp;quot;hztQCU1ZB8CAuPMVFJiCJw==&amp;quot;, &amp;#x2F;&amp;#x2F; 密钥长度16，执行 sing-box generate rand --base64 16 生成
+        &amp;quot;multiplex&amp;quot;: {
+            &amp;quot;enabled&amp;quot;: true
+        }
+    }
+]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;hysteria2-pei-zhi&quot;&gt;hysteria2 配置&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;hysteria2-server-pei-zhi&quot;&gt;hysteria2 server 配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;inbounds&amp;quot;: [
+    {
+      &amp;quot;tag&amp;quot;: &amp;quot;Hysteria2-55003.json&amp;quot;,
+      &amp;quot;type&amp;quot;: &amp;quot;hysteria2&amp;quot;,
+      &amp;quot;listen&amp;quot;: &amp;quot;::&amp;quot;,
+      &amp;quot;listen_port&amp;quot;: 55003,
+      &amp;quot;users&amp;quot;: [
+        {
+          &amp;quot;password&amp;quot;: &amp;quot;xxxxxxxx-c295-4b16-a518-b721343e7d1c&amp;quot;
+        }
+      ],
+      &amp;quot;obfs&amp;quot;: {
+        &amp;quot;type&amp;quot;: &amp;quot;salamander&amp;quot;,
+        &amp;quot;password&amp;quot;: &amp;quot;xxxxxxxx-ee95-44f9-97f2-3fefe254f223&amp;quot; &amp;#x2F;&amp;#x2F; 执行 sing-box generate uuid 生成作为密码即可
+      },
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;alpn&amp;quot;: [
+          &amp;quot;h3&amp;quot;
+        ],
+        &amp;quot;key_path&amp;quot;: &amp;quot;&amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;bin&amp;#x2F;tls.key&amp;quot;,
+        &amp;quot;certificate_path&amp;quot;: &amp;quot;&amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;bin&amp;#x2F;tls.cer&amp;quot;
+      }
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;hysteria2-client-pei-zhi&quot;&gt;hysteria2 client 配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;hysteria2&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;192.0.2.1&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 55003,
+      &amp;quot;up_mbps&amp;quot;: 100,
+      &amp;quot;down_mbps&amp;quot;: 100,
+      &amp;quot;password&amp;quot;: &amp;quot;xxxxxxxx-c295-4b16-a518-b721343e7d1c&amp;quot;,
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;insecure&amp;quot;: true
+      }
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;httpupgrade-pei-zhi-vless-httpupgrade-tls&quot;&gt;httpupgrade 配置（vless + httpupgrade + tls）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fu-wu-duan-pei-zhi&quot;&gt;服务端配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;client-xhttp-tls.json &amp;lt;&amp;lt;EOF
+{
+  &amp;quot;inbounds&amp;quot;: [
+    {
+      &amp;quot;tag&amp;quot;: &amp;quot;VLESS-HTTPUpgrade-TLS.json&amp;quot;,
+      &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+      &amp;quot;listen&amp;quot;: &amp;quot;0.0.0.0&amp;quot;,
+      &amp;quot;listen_port&amp;quot;: 443,
+      &amp;quot;users&amp;quot;: [
+        {
+          &amp;quot;uuid&amp;quot;: &amp;quot;a1b9a65d-e65a-409c-92e3-c038dd808642&amp;quot;
+        }
+      ],
+      &amp;quot;transport&amp;quot;: {
+        &amp;quot;type&amp;quot;: &amp;quot;httpupgrade&amp;quot;,
+        &amp;quot;path&amp;quot;: &amp;quot;&amp;#x2F;xxxxxxxx-e65a-409c-92e3-c038dd808642&amp;quot;,
+        &amp;quot;headers&amp;quot;: {
+          &amp;quot;host&amp;quot;: &amp;quot;demo.com&amp;quot;
+        }
+      },
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;server_name&amp;quot;: &amp;quot;demo.com&amp;quot;,
+        &amp;quot;alpn&amp;quot;: [&amp;quot;h2&amp;quot;]
+      }
+    }
+  ]
+}
+
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ke-hu-duan-pei-zhi&quot;&gt;客户端配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;client-xhttp-tls.json &amp;lt;&amp;lt;EOF
+{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;server&amp;quot;: &amp;quot;www.visa.com&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 443,
+      &amp;quot;uuid&amp;quot;: &amp;quot;xxxxxxxx-e65a-409c-92e3-c038dd808642&amp;quot;,
+      &amp;quot;packet_encoding&amp;quot;: &amp;quot;xudp&amp;quot;,
+      &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;proxy&amp;quot;,
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;server_name&amp;quot;: &amp;quot;demo.com&amp;quot;,
+        &amp;quot;insecure&amp;quot;: false
+      },
+      &amp;quot;transport&amp;quot;: {
+        &amp;quot;type&amp;quot;: &amp;quot;httpupgrade&amp;quot;,
+        &amp;quot;host&amp;quot;: &amp;quot;demo.com&amp;quot;,
+        &amp;quot;path&amp;quot;: &amp;quot;&amp;#x2F;xxxxxxxx-e65a-409c-92e3-c038dd808642&amp;quot;
+      }
+    }
+  ]
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;systemd-fu-wu-hua&quot;&gt;systemd 服务化&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;fu-wu-duan-xi-tong-ji-ke-jia-zai-conf-mu-lu-he-bing-pei-zhi&quot;&gt;服务端（系统级，可加载 conf 目录合并配置）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo loginctl enable-linger user
+sudo loginctl show-user user
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果您希望为所有用户启用 linger，可以编辑 &#x2F;etc&#x2F;systemd&#x2F;logind.conf 文件，并将 LingerDefault 选项设置为 yes，然后重启 systemd-logind&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo mkdir -p &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;conf
+cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;sing-box-manual.service
+[Unit]
+Description=sing-box Service
+Documentation=https:&amp;#x2F;&amp;#x2F;sing-box.sagernet.org&amp;#x2F;
+After=network.target nss-lookup.target
+[Service]
+User=user
+ExecStart=&amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;sing-box run -c &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;config.json -C &amp;#x2F;opt&amp;#x2F;sing-box&amp;#x2F;conf
+Restart=on-failure
+RestartPreventExitStatus=23
+RestartSec=10s
+LimitNPROC=10000
+LimitNOFILE=1048576
+PrivateTmp=true
+ProtectSystem=full
+#CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+#AmbientCapabilities=CAP_NET_ADMIN CAP_NET_BIND_SERVICE
+[Install]
+WantedBy=multi-user.target
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;后续需要添加新的 outbounds 可以直接添加在 &#x2F;opt&#x2F;sing-box&#x2F;conf&#x2F; 中，sing-box 会自动 merge；主配置在 config.json 中&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;ke-hu-duan-yong-hu-ji-systemd&quot;&gt;客户端（用户级 systemd）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir -p ~&amp;#x2F;.proxy&amp;#x2F;conf
+cat &amp;lt;&amp;lt;EOF &amp;gt; ~&amp;#x2F;.config&amp;#x2F;systemd&amp;#x2F;user&amp;#x2F;sing-box-manual.service
+[Unit]
+Description=sing-box Service
+Documentation=https:&amp;#x2F;&amp;#x2F;sing-box.sagernet.org&amp;#x2F;
+After=network.target nss-lookup.target
+[Service]
+ExecStart=&amp;#x2F;home&amp;#x2F;user&amp;#x2F;.proxy&amp;#x2F;sing-box run -c &amp;#x2F;home&amp;#x2F;user&amp;#x2F;.proxy&amp;#x2F;config.json -C &amp;#x2F;home&amp;#x2F;user&amp;#x2F;.proxy&amp;#x2F;conf
+Restart=on-failure
+RestartSec=10s
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user daemon-reload
+systemctl --user start sing-box-manual.service
+systemctl --user show-environment
+journalctl --user -ex -u sing-box-manual.service 
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;client-ji-chu-pei-zhi&quot;&gt;client 基础配置&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F;client-config.json &amp;lt;&amp;lt;EOF
+{
+  &amp;quot;log&amp;quot;: {
+    &amp;quot;disabled&amp;quot;: false,
+    &amp;quot;level&amp;quot;: &amp;quot;debug&amp;quot;,
+    &amp;quot;output&amp;quot;: &amp;quot;&amp;quot;,
+    &amp;quot;timestamp&amp;quot;: true
+  },
+  &amp;quot;experimental&amp;quot;: {
+    &amp;quot;clash_api&amp;quot;: {
+      &amp;quot;external_controller&amp;quot;: &amp;quot;127.0.0.1:10807&amp;quot;,
+      &amp;quot;external_ui&amp;quot;: &amp;quot;ui&amp;quot;,
+      &amp;quot;external_ui_download_url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;MetaCubeX&amp;#x2F;metacubexd&amp;#x2F;archive&amp;#x2F;gh-pages.zip&amp;quot;,
+      &amp;quot;external_ui_download_detour&amp;quot;: &amp;quot;vless-out&amp;quot;,
+      &amp;quot;default_mode&amp;quot;: &amp;quot;rule&amp;quot;,
+      &amp;quot;access_control_allow_origin&amp;quot;: [ &amp;quot;*&amp;quot; ],
+      &amp;quot;access_control_allow_private_network&amp;quot;: false
+    },
+    &amp;quot;cache_file&amp;quot;: {
+      &amp;quot;enabled&amp;quot;: true,
+      &amp;quot;path&amp;quot;: &amp;quot;cache.db&amp;quot;,
+      &amp;quot;cache_id&amp;quot;: &amp;quot;&amp;quot;,
+      &amp;quot;store_fakeip&amp;quot;: true,
+      &amp;quot;store_rdrc&amp;quot;: true,
+      &amp;quot;rdrc_timeout&amp;quot;: &amp;quot;7d&amp;quot;
+    }
+  },
+  &amp;quot;inbounds&amp;quot;: [
+    {
+      &amp;quot;address&amp;quot;: [&amp;quot;172.18.0.1&amp;#x2F;30&amp;quot;, &amp;quot;fdfe:dcba:9876::1&amp;#x2F;126&amp;quot;],
+      &amp;quot;route_address&amp;quot;: [&amp;quot;0.0.0.0&amp;#x2F;1&amp;quot;, &amp;quot;128.0.0.0&amp;#x2F;1&amp;quot;, &amp;quot;::&amp;#x2F;1&amp;quot;, &amp;quot;8000::&amp;#x2F;1&amp;quot;],
+      &amp;quot;route_exclude_address&amp;quot;: [
+        &amp;quot;192.168.0.0&amp;#x2F;16&amp;quot;,
+        &amp;quot;10.0.0.0&amp;#x2F;8&amp;quot;,
+        &amp;quot;172.16.0.0&amp;#x2F;12&amp;quot;,
+        &amp;quot;fc00::&amp;#x2F;7&amp;quot;
+      ],
+      &amp;quot;auto_route&amp;quot;: true,
+      &amp;quot;strict_route&amp;quot;: true,
+      &amp;quot;type&amp;quot;: &amp;quot;tun&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;mixed&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;mixed-in&amp;quot;,
+      &amp;quot;listen&amp;quot;: &amp;quot;127.0.0.1&amp;quot;,
+      &amp;quot;listen_port&amp;quot;: 10806,
+      &amp;quot;tcp_fast_open&amp;quot;: false,
+      &amp;quot;tcp_multi_path&amp;quot;: false,
+      &amp;quot;udp_fragment&amp;quot;: false
+    }
+  ],
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;vless-out&amp;quot;,
+        &amp;quot;🎈 Auto&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;urltest&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🎈 Auto&amp;quot;,
+      &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;www.gstatic.com&amp;#x2F;generate_204&amp;quot;,
+      &amp;quot;interval&amp;quot;: &amp;quot;3m&amp;quot;,
+      &amp;quot;tolerance&amp;quot;: 150,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;vless-out&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🐟 Fallback&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;🎯 Direct&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;GLOBAL&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;🎈 Auto&amp;quot;,
+        &amp;quot;🎯 Direct&amp;quot;,
+        &amp;quot;🐟 Fallback&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;vless-out&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;192.0.2.2&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 13584,
+      &amp;quot;uuid&amp;quot;: &amp;quot;211d952d-cbef-4811-a3f0-xxxxxxxxxxxx&amp;quot;,
+      &amp;quot;flow&amp;quot;: &amp;quot;xtls-rprx-vision&amp;quot;,
+      &amp;quot;network&amp;quot;: &amp;quot;tcp&amp;quot;,
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;disable_sni&amp;quot;: false,
+        &amp;quot;server_name&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+        &amp;quot;utls&amp;quot;: {
+          &amp;quot;enabled&amp;quot;: true,
+          &amp;quot;fingerprint&amp;quot;: &amp;quot;chrome&amp;quot;
+        },
+        &amp;quot;reality&amp;quot;: {
+          &amp;quot;enabled&amp;quot;: true,
+          &amp;quot;public_key&amp;quot;: &amp;quot;xxxxxx-3J5ReO_EpOBSix7PYhFOzaor0r8xQtEUdjS8&amp;quot;,
+          &amp;quot;short_id&amp;quot;: &amp;quot;&amp;quot;
+        }
+      }
+    }
+  ],
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;hijack-dns&amp;quot;,
+        &amp;quot;protocol&amp;quot;: &amp;quot;dns&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;direct&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;global&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;GLOBAL&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;network&amp;quot;: &amp;quot;icmp&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;reject&amp;quot;,
+        &amp;quot;protocol&amp;quot;: &amp;quot;quic&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;reject&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;Category-Ads&amp;quot;
+        ]
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-Private&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoIP-Private&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoIP-CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoLocation-!CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🚀 Select&amp;quot;
+      }
+    ],
+    &amp;quot;rule_set&amp;quot;: [
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Category-Ads&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;category-ads-all.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoIP-Private&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geoip&amp;#x2F;private.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoSite-Private&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;private.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoIP-CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geoip&amp;#x2F;cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoSite-CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoLocation-!CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;geolocation-!cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      }
+    ],
+    &amp;quot;auto_detect_interface&amp;quot;: true,
+    &amp;quot;final&amp;quot;: &amp;quot;🐟 Fallback&amp;quot;,
+    &amp;quot;default_domain_resolver&amp;quot;: {
+      &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+    }
+  },
+  &amp;quot;dns&amp;quot;: {
+    &amp;quot;servers&amp;quot;: [
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Local-DNS&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;https&amp;quot;,
+        &amp;quot;domain_resolver&amp;quot;: &amp;quot;Local-DNS-Resolver&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 443,
+        &amp;quot;server&amp;quot;: &amp;quot;223.5.5.5&amp;quot;,
+        &amp;quot;path&amp;quot;: &amp;quot;&amp;#x2F;dns-query&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Local-DNS-Resolver&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;udp&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 53,
+        &amp;quot;server&amp;quot;: &amp;quot;223.5.5.5&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Remote-DNS&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;tls&amp;quot;,
+        &amp;quot;detour&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;domain_resolver&amp;quot;: &amp;quot;Remote-DNS-Resolver&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 853,
+        &amp;quot;server&amp;quot;: &amp;quot;8.8.8.8&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Remote-DNS-Resolver&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;udp&amp;quot;,
+        &amp;quot;detour&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 53,
+        &amp;quot;server&amp;quot;: &amp;quot;8.8.8.8&amp;quot;
+      }
+    ],
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;direct&amp;quot;,
+        &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;global&amp;quot;,
+        &amp;quot;server&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-CN&amp;quot;
+        ],
+        &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoLocation-!CN&amp;quot;
+        ],
+        &amp;quot;server&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+      }
+    ],
+    &amp;quot;disable_cache&amp;quot;: false,
+    &amp;quot;disable_expire&amp;quot;: false,
+    &amp;quot;independent_cache&amp;quot;: false,
+    &amp;quot;final&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+  }
+}
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;android-ban-ben-shi-yong&quot;&gt;Android 版本使用&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;log&amp;quot;: {
+    &amp;quot;disabled&amp;quot;: false,
+    &amp;quot;level&amp;quot;: &amp;quot;debug&amp;quot;,
+    &amp;quot;output&amp;quot;: &amp;quot;&amp;quot;,
+    &amp;quot;timestamp&amp;quot;: true
+  },
+  &amp;quot;inbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;tun&amp;quot;,
+      &amp;quot;address&amp;quot;: [&amp;quot;172.19.0.1&amp;#x2F;30&amp;quot;],
+      &amp;quot;auto_route&amp;quot;: true,
+      &amp;#x2F;&amp;#x2F; &amp;quot;auto_redirect&amp;quot;: true, &amp;#x2F;&amp;#x2F; On linux
+      &amp;quot;strict_route&amp;quot;: true
+    }
+  ],
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;vless-out&amp;quot;,
+        &amp;quot;🎈 Auto&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;urltest&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🎈 Auto&amp;quot;,
+      &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;www.gstatic.com&amp;#x2F;generate_204&amp;quot;,
+      &amp;quot;interval&amp;quot;: &amp;quot;3m&amp;quot;,
+      &amp;quot;tolerance&amp;quot;: 150,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;vless-out&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;🐟 Fallback&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;🎯 Direct&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;selector&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;GLOBAL&amp;quot;,
+      &amp;quot;interrupt_exist_connections&amp;quot;: true,
+      &amp;quot;outbounds&amp;quot;: [
+        &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;🎈 Auto&amp;quot;,
+        &amp;quot;🎯 Direct&amp;quot;,
+        &amp;quot;🐟 Fallback&amp;quot;
+      ]
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;vless&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;vless-out&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;192.0.2.2&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 13584,
+      &amp;quot;uuid&amp;quot;: &amp;quot;211d952d-cbef-4811-a3f0-xxxxxxxxxxxx&amp;quot;,
+      &amp;quot;flow&amp;quot;: &amp;quot;xtls-rprx-vision&amp;quot;,
+      &amp;quot;network&amp;quot;: &amp;quot;tcp&amp;quot;,
+      &amp;quot;tls&amp;quot;: {
+        &amp;quot;enabled&amp;quot;: true,
+        &amp;quot;disable_sni&amp;quot;: false,
+        &amp;quot;server_name&amp;quot;: &amp;quot;aws.amazon.com&amp;quot;,
+        &amp;quot;utls&amp;quot;: {
+          &amp;quot;enabled&amp;quot;: true,
+          &amp;quot;fingerprint&amp;quot;: &amp;quot;chrome&amp;quot;
+        },
+        &amp;quot;reality&amp;quot;: {
+          &amp;quot;enabled&amp;quot;: true,
+          &amp;quot;public_key&amp;quot;: &amp;quot;Uqr4g5-3J5ReO_EpOBSix7PYhxxxxxxxxxxxxxxxxxx&amp;quot;,
+          &amp;quot;short_id&amp;quot;: &amp;quot;&amp;quot;
+        }
+      }
+    }
+  ],
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;hijack-dns&amp;quot;,
+        &amp;quot;protocol&amp;quot;: &amp;quot;dns&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;direct&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;global&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;GLOBAL&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;network&amp;quot;: &amp;quot;icmp&amp;quot;,
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;reject&amp;quot;,
+        &amp;quot;protocol&amp;quot;: &amp;quot;quic&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;reject&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;Category-Ads&amp;quot;
+        ]
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-Private&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoIP-Private&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoIP-CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoLocation-!CN&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;🚀 Select&amp;quot;
+      }
+    ],
+    &amp;quot;rule_set&amp;quot;: [
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Category-Ads&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;category-ads-all.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoIP-Private&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geoip&amp;#x2F;private.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoSite-Private&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;private.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoIP-CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geoip&amp;#x2F;cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoSite-CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;GeoLocation-!CN&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;remote&amp;quot;,
+        &amp;quot;url&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;testingcf.jsdelivr.net&amp;#x2F;gh&amp;#x2F;MetaCubeX&amp;#x2F;meta-rules-dat@sing&amp;#x2F;geo&amp;#x2F;geosite&amp;#x2F;geolocation-!cn.srs&amp;quot;,
+        &amp;quot;format&amp;quot;: &amp;quot;binary&amp;quot;,
+        &amp;quot;download_detour&amp;quot;: &amp;quot;🎯 Direct&amp;quot;
+      }
+    ],
+    &amp;quot;auto_detect_interface&amp;quot;: true,
+    &amp;quot;final&amp;quot;: &amp;quot;🐟 Fallback&amp;quot;,
+    &amp;quot;default_domain_resolver&amp;quot;: {
+      &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+    }
+  },
+  &amp;quot;dns&amp;quot;: {
+    &amp;quot;servers&amp;quot;: [
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Local-DNS&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;https&amp;quot;,
+        &amp;quot;domain_resolver&amp;quot;: &amp;quot;Local-DNS-Resolver&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 443,
+        &amp;quot;server&amp;quot;: &amp;quot;223.5.5.5&amp;quot;,
+        &amp;quot;path&amp;quot;: &amp;quot;&amp;#x2F;dns-query&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Local-DNS-Resolver&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;udp&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 53,
+        &amp;quot;server&amp;quot;: &amp;quot;223.5.5.5&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Remote-DNS&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;tls&amp;quot;,
+        &amp;quot;detour&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;domain_resolver&amp;quot;: &amp;quot;Remote-DNS-Resolver&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 853,
+        &amp;quot;server&amp;quot;: &amp;quot;8.8.8.8&amp;quot;
+      },
+      {
+        &amp;quot;tag&amp;quot;: &amp;quot;Remote-DNS-Resolver&amp;quot;,
+        &amp;quot;type&amp;quot;: &amp;quot;udp&amp;quot;,
+        &amp;quot;detour&amp;quot;: &amp;quot;🚀 Select&amp;quot;,
+        &amp;quot;server_port&amp;quot;: 53,
+        &amp;quot;server&amp;quot;: &amp;quot;8.8.8.8&amp;quot;
+      }
+    ],
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;direct&amp;quot;,
+        &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;clash_mode&amp;quot;: &amp;quot;global&amp;quot;,
+        &amp;quot;server&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoSite-CN&amp;quot;
+        ],
+        &amp;quot;server&amp;quot;: &amp;quot;Local-DNS&amp;quot;
+      },
+      {
+        &amp;quot;action&amp;quot;: &amp;quot;route&amp;quot;,
+        &amp;quot;rule_set&amp;quot;: [
+          &amp;quot;GeoLocation-!CN&amp;quot;
+        ],
+        &amp;quot;server&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+      }
+    ],
+    &amp;quot;disable_cache&amp;quot;: false,
+    &amp;quot;disable_expire&amp;quot;: false,
+    &amp;quot;independent_cache&amp;quot;: false,
+    &amp;quot;final&amp;quot;: &amp;quot;Remote-DNS&amp;quot;
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;合并已有配置到主配置：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;sing-box -C &amp;#x2F;etc&amp;#x2F;sing-box&amp;#x2F; merge ~&amp;#x2F;.tmp&amp;#x2F;sing-box.merge.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xiang-guan-wen-zhang&quot;&gt;相关文章&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;BBR 开启与代理场景提速实测：&lt;a href=&quot;..&#x2F;..&#x2F;2026&#x2F;08&#x2F;learn&#x2F;bbr-speedup-test&#x2F;&quot;&gt;开启 TCP BBR 实测：代理隧道发送端才有收益&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;抓包排查：[tcpdump 抓包sing-box流量](..&#x2F;..&#x2F;08&#x2F;learn&#x2F;tcpdump 抓包sing-box流量&#x2F;)&lt;&#x2F;li&gt;
+&lt;li&gt;客户端配合：[clash verge 与 233boy sing-box 配合使用](..&#x2F;..&#x2F;10&#x2F;clash verge 与 233boy sing-box 配合使用&#x2F;)&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>clash verge 与 233boy sing-box 配合使用</title>
+        <published>2025-10-06T16:44:12+08:00</published>
+        <updated>2025-10-06T16:44:12+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/clash verge 与 233boy sing-box 配合使用/"/>
+        <id>https://moxuetianya.github.io/2025/10/clash verge 与 233boy sing-box 配合使用/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/clash verge 与 233boy sing-box 配合使用/">&lt;h1 id=&quot;sing-box-fu-wu-duan-pei-zhi&quot;&gt;sing-box 服务端配置&lt;&#x2F;h1&gt;
+&lt;p&gt;在vps 上配置一个代理节点&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;bash &amp;lt;(wget -qO- -o- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;sing-box&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+sing-box
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;an-zhuang-clash-verge-ke-hu-duan&quot;&gt;安装clash verge 客户端&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;
+wget https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;clash-verge-rev&amp;#x2F;clash-verge-rev&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.4.2&amp;#x2F;Clash.Verge_2.4.2_amd64.deb
+sudo apt install .&amp;#x2F;Clash.Verge_2.4.2_amd64.deb
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-clash-verge-tian-jia-zi-jian-jie-dian&quot;&gt;配置clash verge 添加自建节点&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;在clash的订阅页面新建一个local本地配置,文件可以置空
+&lt;img src=&quot;&#x2F;images&#x2F;2025-10-06-16-52-57-clash-verge.png&quot; alt=&quot;clash verge sub&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;右击编译本地配置文件
+&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.clashverge.dev&#x2F;guide&#x2F;config.html&quot;&gt;配置模板&lt;&#x2F;a&gt;
+&lt;img src=&quot;&#x2F;images&#x2F;2025-10-06-17-05-03-clash-verge-config.png&quot; alt=&quot;clash-config&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;右击编辑本地节点
+将服务端的配置复制进来即可
+复制【链接（RUL）】&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看服务端配置
+sb info
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;images&#x2F;2025-10-06-17-09-02-vless-config.png&quot; alt=&quot;vless-config&quot; &#x2F;&gt;
+&lt;img src=&quot;&#x2F;images&#x2F;2025-10-06-17-12-00-clash-proxy-node.png&quot; alt=&quot;clash-node-config&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>233boy 代理脚本使用</title>
+        <published>2025-10-06T14:02:52+08:00</published>
+        <updated>2025-10-06T14:02:52+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/learn/233boy 代理脚本使用/"/>
+        <id>https://moxuetianya.github.io/2025/10/learn/233boy 代理脚本使用/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/learn/233boy 代理脚本使用/">&lt;h1 id=&quot;ming-ling-xing-guan-li-he-an-zhuang-sing-box-huo-xray&quot;&gt;命令行管理和安装sing-box 或 xray&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;bash &amp;lt;(wget -qO- -o- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;sing-box&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+sing-box
+sb
+
+bash &amp;lt;(wget -qO- -o- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;xray&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+xray
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;web-ui-mian-ban&quot;&gt;web ui 面板&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;vaxilu&amp;#x2F;x-ui.git
+bash &amp;lt;(curl -Ls https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;mhsanaei&amp;#x2F;3x-ui&amp;#x2F;master&amp;#x2F;install.sh)
+x-ui   # tui config
+# https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;alireza0&amp;#x2F;s-ui.git
+bash &amp;lt;(curl -Ls https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;alireza0&amp;#x2F;s-ui&amp;#x2F;master&amp;#x2F;install.sh)
+s-ui
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>sing-box手动配置（已合并）</title>
+        <published>2025-10-05T22:28:01+08:00</published>
+        <updated>2026-08-21T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/learn/sing-box手动配置/"/>
+        <id>https://moxuetianya.github.io/2025/10/learn/sing-box手动配置/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/learn/sing-box手动配置/">&lt;meta http-equiv=&quot;refresh&quot; content=&quot;0; url=&#x2F;2025&#x2F;11&#x2F;learn&#x2F;sing-box%20手动配置(deb安装)&#x2F;&quot;&gt;
+&lt;p&gt;已合并至 &lt;a href=&quot;&#x2F;2025&#x2F;11&#x2F;learn&#x2F;sing-box%20%E6%89%8B%E5%8A%A8%E9%85%8D%E7%BD%AE(deb%E5%AE%89%E8%A3%85)&#x2F;&quot;&gt;sing-box 手动配置&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>tcpdump 抓包sing-box流量</title>
+        <published>2025-08-13T16:03:07+08:00</published>
+        <updated>2025-08-13T16:03:07+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/08/learn/tcpdump 抓包sing-box流量/"/>
+        <id>https://moxuetianya.github.io/2025/08/learn/tcpdump 抓包sing-box流量/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/08/learn/tcpdump 抓包sing-box流量/">&lt;h1 id=&quot;shi-yong-de-sing-boxdai-ma&quot;&gt;使用的sing-box代码&lt;&#x2F;h1&gt;
+&lt;p&gt;下载并编译&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git clone git@github.com:moxuetianya&amp;#x2F;sing-box.git
+cd sing-box
+go build -v .&amp;#x2F;cmd&amp;#x2F;sing-box&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qi-dong-sing-box-vless-jie-dian&quot;&gt;启动sing-box vless 节点&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;.&amp;#x2F;sing-box run -c release&amp;#x2F;config&amp;#x2F;vless-config-client.json 
+.&amp;#x2F;sing-box run -c release&amp;#x2F;config&amp;#x2F;vless-config.json 
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jin-yong-ipv6&quot;&gt;禁用ipv6&lt;&#x2F;h1&gt;
+&lt;p&gt;发现本地的网络出口不支持ipv6
+直接使用上面的命令启动后， 代理访问目的服务可能使用ipv6地址&lt;&#x2F;p&gt;
+&lt;p&gt;如 www.baidu.com, 使用了ipv6地址, 但是本地网络提供商没有提供ipv6服务，导致超时报错&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -X5 -x socks5:&amp;#x2F;&amp;#x2F;127.0.0.1:1080 www.baidu.com
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;粗暴点，直接禁用接口的ipv6&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+curl -X5 -x socks5:&amp;#x2F;&amp;#x2F;127.0.0.1:1080 www.baidu.com
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;zhua-bao&quot;&gt;抓包&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tcpdump -i lo port 50000 -w &amp;#x2F;tmp&amp;#x2F;vless.pcap -nnvv
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>代理协议与网络穿透</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/07/proxy-network/"/>
+        <id>https://moxuetianya.github.io/2025/07/proxy-network/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/07/proxy-network/">&lt;h1 id=&quot;dai-li-xie-yi-yu-wang-luo-chuan-tou&quot;&gt;代理协议与网络穿透&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;dai-li-xie-yi-dui-bi&quot;&gt;代理协议对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ji-chu-dai-li-xie-yi&quot;&gt;基础代理协议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;th&gt;现状&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Shadowsocks&lt;&#x2F;td&gt;&lt;td&gt;经典加密代理&lt;&#x2F;td&gt;&lt;td&gt;极易被识别封禁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMess + WebSocket&lt;&#x2F;td&gt;&lt;td&gt;伪装 HTTP 流量&lt;&#x2F;td&gt;&lt;td&gt;端口被封频繁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision&lt;&#x2F;td&gt;&lt;td&gt;消除 TLS in TLS 特征&lt;&#x2F;td&gt;&lt;td&gt;须配合有效证书域名&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision + REALITY&lt;&#x2F;td&gt;&lt;td&gt;偷取大厂 TLS 证书&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;当前最稳定&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;tls-wei-zhuang-xie-yi-yan-jin&quot;&gt;TLS 伪装协议演进&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;shadow-tls&lt;&#x2F;strong&gt;：偷白名单域名证书，仅支持 TLS 1.3，不处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;restls&lt;&#x2F;strong&gt;：支持 TLS 1.2&#x2F;1.3，处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：使用 ECDHE 算法，即使客户端配置泄露也不影响数据安全。ShadowTLS 使用对称 PSK，配置泄露可能导致流量解密&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;anytls&lt;&#x2F;strong&gt;：消除 TLS in TLS 特征，支持自定义填充包数量和长度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xtls-he-xin-ji-shu&quot;&gt;XTLS 核心技术&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;XTLS splice&lt;&#x2F;strong&gt;：将内层 TLS 数据直接嵌入外层 TLS 流，减少重复加解密，降低 CPU 开销&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VISION&lt;&#x2F;strong&gt;：模拟时延与消息交换顺序，抹平 多层TLS 握手的不自然时序特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：在 TLS 握手阶段返回真网站的证书，使连接与普通 HTTPS 访问外观一致&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;XHTTP&lt;&#x2F;strong&gt;：在应用层进一步伪装，上行拆分为多个 POST 请求，下行伪装为流式下载或 SSE，消除&quot;稳定长时间加密流&quot;的特征&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xie-yi-an-quan-ping-gu&quot;&gt;协议安全评估&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;SS 节点搭建后次日即可能被封 IP&lt;&#x2F;li&gt;
+&lt;li&gt;VMess+WS 易被封端口（非封 IP）&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision 目前稳定，需关注域名是否被阻断&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision+REALITY 堪称最稳方案&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cloudflare-dai-li&quot;&gt;Cloudflare 代理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhi-chi-de-duan-kou&quot;&gt;支持的端口&lt;&#x2F;h3&gt;
+&lt;p&gt;HTTP 端口：80, 8080, 8880, 2052, 2082, 2086, 2095&lt;&#x2F;p&gt;
+&lt;p&gt;HTTPS 端口：443, 2053, 2083, 2087, 2096, 8443&lt;&#x2F;p&gt;
+&lt;p&gt;仅 80 和 443 支持缓存、Cloudflare Apps、中国网络等全部功能。通过 WAF 规则可阻止非 80&#x2F;443 端口的流量。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cloudflare-ip-duan&quot;&gt;Cloudflare IP 段&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;173.245.48.0&amp;#x2F;20, 103.21.244.0&amp;#x2F;22, 103.22.200.0&amp;#x2F;22, 103.31.4.0&amp;#x2F;22
+141.101.64.0&amp;#x2F;18, 108.162.192.0&amp;#x2F;18, 190.93.240.0&amp;#x2F;20, 188.114.96.0&amp;#x2F;20
+197.234.240.0&amp;#x2F;22, 198.41.128.0&amp;#x2F;17, 162.158.0.0&amp;#x2F;15, 104.16.0.0&amp;#x2F;13
+104.24.0.0&amp;#x2F;14, 172.64.0.0&amp;#x2F;13, 131.0.72.0&amp;#x2F;22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;cf-worker-vless-proxyip-yuan-li&quot;&gt;CF Worker VLESS proxyIP 原理&lt;&#x2F;h3&gt;
+&lt;p&gt;CF Worker 不能直接访问 Cloudflare 自家的 IP 地址（&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;workers&#x2F;runtime-apis&#x2F;tcp-sockets&#x2F;#considerations&quot;&gt;官方确认&lt;&#x2F;a&gt;）。当远程 TCP 无数据返回时触发 &lt;code&gt;retry()&lt;&#x2F;code&gt;，通过 proxyIP（&quot;神奇的 IP&quot;）中转数据包到 CF 目的 IP。&lt;&#x2F;p&gt;
+&lt;p&gt;这不是每次转发都用，只作 failsafe。非 Cloudflare 部署的网站（如 AWS Cloudfront、Google）可直接访问，不经过 proxyIP。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;proxyIP 的隐患&lt;&#x2F;strong&gt;：安全性（数据转给第三方）、速度受限于单个 IP、可用性不确定。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fan-dai-cf-ip&quot;&gt;反代 CF IP&lt;&#x2F;h3&gt;
+&lt;p&gt;链路：用户 → 自己的 VPS → Cloudflare CDN → 源站&lt;&#x2F;p&gt;
+&lt;p&gt;通过 iptables 将 VPS 端口转发到 Cloudflare 对应端口，实现加速的同时享受 CF 的防护功能。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 使用 arloor 的 iptables 转发脚本
+# 原理：将 VPS 的 80 端口流量转发到 Cloudflare CDN IP:80
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;sing-box-xray-v2ray-bu-shu&quot;&gt;sing-box &#x2F; Xray &#x2F; v2ray 部署&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fu-wu-duan-an-zhuang&quot;&gt;服务端安装&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# sing-box
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;sing-box&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+
+# Xray
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;xray&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;mian-ban-guan-li&quot;&gt;面板管理&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 3x-ui（Xray 管理面板）
+bash &amp;lt;(curl -Ls https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;MHSanaei&amp;#x2F;3x-ui&amp;#x2F;refs&amp;#x2F;tags&amp;#x2F;v2.6.0&amp;#x2F;install.sh)
+x-ui  # TUI 配置界面
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ding-yue-zhuan-huan&quot;&gt;订阅转换&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 不直接兼容大多数机场的订阅格式，需 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;Toperlock&#x2F;sing-box-subscribe&quot;&gt;sing-box-subscribe&lt;&#x2F;a&gt; 转换：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;URL&amp;gt;&amp;#x2F;url=&amp;lt;subscription_url&amp;gt;&amp;#x2F;&amp;amp;file=&amp;lt;sing-box_template_url&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;clash-api-jian-rong&quot;&gt;Clash API 兼容&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 兼容 Clash API，可使用 metacubexd dashboard：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;experimental&amp;quot;: {
+    &amp;quot;clash_api&amp;quot;: {
+      &amp;quot;external_controller&amp;quot;: &amp;quot;0.0.0.0:9090&amp;quot;,
+      &amp;quot;external_ui&amp;quot;: &amp;quot;metacubexd&amp;quot;,
+      &amp;quot;default_mode&amp;quot;: &amp;quot;rule&amp;quot;
+    }
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ke-hu-duan-ruan-jian&quot;&gt;客户端软件&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;mihomo&lt;&#x2F;strong&gt; &#x2F; &lt;strong&gt;clash verge&lt;&#x2F;strong&gt; — Clash 系客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2rayN&lt;&#x2F;strong&gt; — Windows 客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2raya&lt;&#x2F;strong&gt; — 透明代理&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;hiddify-app&lt;&#x2F;strong&gt; — sing-box 前端&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tou-ming-wang-guan&quot;&gt;透明网关&lt;&#x2F;h3&gt;
+&lt;p&gt;在网关上运行 sing-box，其他机器将网关指向该机器即可智能分流。注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;其他机器的 DNS 必须是公网 DNS&lt;&#x2F;li&gt;
+&lt;li&gt;或配置特定入站端口接管 DNS 请求&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-dai-li-pei-zhi&quot;&gt;Nginx 代理配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;proxy-set-header-host&quot;&gt;proxy_set_header Host&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;nginx&quot; class=&quot;language-nginx &quot;&gt;&lt;code class=&quot;language-nginx&quot; data-lang=&quot;nginx&quot;&gt;proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $remote_addr;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;$proxy_host&lt;&#x2F;code&gt;：upstream 服务器的 IP&#x2F;域名（默认值）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时取虚拟主机名（推荐）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$http_host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时为空&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;$host&lt;&#x2F;code&gt; 避免 Host 头部丢失的情况。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;x-forwarded-for&quot;&gt;X-Forwarded-For&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;X-Forwarded-For: client, proxy1, proxy2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每经过一层代理，将请求来源 IP 追加到右侧。最左边的 IP 是原始客户端。该字段易被伪造，应谨慎使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-ju-yu-can-kao&quot;&gt;工具与参考&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Cloudflare 优选 IP：&lt;code&gt;CloudflareSpeedTest&lt;&#x2F;code&gt;、&lt;code&gt;better-cloudflare-ip&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;CF 中转 IP 获取：&lt;code&gt;zip.baipiao.eu.org&lt;&#x2F;code&gt;、电报 &lt;code&gt;@cf_push&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;IP 纯净度查询：&lt;code&gt;scamalytics.com&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在线测速：&lt;code&gt;speedtest.net&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;FOFA 搜索 CF IP：&lt;code&gt;server=&quot;cloudflare&quot; &amp;amp;&amp;amp; country=&quot;US&quot; &amp;amp;&amp;amp; port=&quot;443&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

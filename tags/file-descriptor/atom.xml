@@ -1,0 +1,324 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - file-descriptor</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/file-descriptor/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-13T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/file-descriptor/atom.xml</id>
+    <entry xml:lang="en">
+        <title>virtiofs ENFILE 问题排查手册</title>
+        <published>2026-06-13T12:00:00+08:00</published>
+        <updated>2026-08-13T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/">&lt;h1 id=&quot;virtiofs-enfile-wen-ti-pai-cha-shou-ce&quot;&gt;virtiofs ENFILE 问题排查手册&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;2026-08-07 重要更正&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;本文 2026-06-13 首发时把根因错误归为「&lt;code&gt;fs.file-max = INT64_MAX&lt;&#x2F;code&gt; 触发内核 fd table 整数溢出」。
+2026-08-07 故障复发后，对照 virtiofsd 1.13.2 源码逐行核实，&lt;strong&gt;该结论是错的&lt;&#x2F;strong&gt;：
+ENFILE 来自 virtiofsd 内部的 guest fd 信号量耗尽（&lt;code&gt;src&#x2F;passthrough&#x2F;guest_fd_limit.rs&lt;&#x2F;code&gt;），
+与宿主内核 &lt;code&gt;file-max&lt;&#x2F;code&gt; 无关。
+原文的错误分析没有删除，压缩保留在文末「曾经的错误结论（勿再犯）」一节，防止误信或重复踩坑。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h2&gt;
+&lt;p&gt;VM 内对 virtiofs 挂载点执行文件操作时报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ls: 无法打开目录 &amp;#x27;.&amp;#x27;: 系统中打开的文件过多
+# 对应系统错误: ENFILE (Too many open files in system)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;特点：整棵挂载树所有读写（cat &#x2F; ls &#x2F; 新建文件 &#x2F; python os.listdir）全部报错，
+本地磁盘正常；持续存在、不会自动恢复（除非触发句柄释放）。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;pai-cha-bu-zou&quot;&gt;排查步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-xi-tong-ji-wen-jian-ju-bing-zhuang-tai&quot;&gt;1. 系统级文件句柄状态&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr
+# 输出格式: &amp;lt;已分配数量&amp;gt; &amp;lt;空闲数量&amp;gt; &amp;lt;最大限制&amp;gt;
+# 注意: 现代内核（≥2.6.27）第 2 列恒为 0，不代表文件表耗尽！
+
+cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-max
+cat &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;nr_open
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-ding-wei-virtiofsd-jin-cheng&quot;&gt;2. 定位 virtiofsd 进程&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pgrep -a virtiofsd
+
+ps -o pid,ppid,user,etime,rss,args -p $(pgrep -d&amp;#x27;,&amp;#x27; virtiofsd)
+# rss: 内存占用  etime: 运行时长
+# 注意: virtiofsd RSS 很大（几十 GB）是 vhost-user 映射了 guest RAM，属正常现象
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-jian-cha-virtiofsd-fd-shu-liang-he-xin-zhi-biao&quot;&gt;3. 检查 virtiofsd fd 数量（核心指标）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd | wc -l
+# 对比 guest fd 池上限: rlimit_nofile - 610（默认 = 1,000,000 - 610 = 999,390）
+# 接近上限 ≈ 池子即将耗尽，就是 ENFILE 的前兆
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-cha-kan-fd-lei-xing-fen-bu&quot;&gt;4. 查看 fd 类型分布&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | awk &amp;#x27;{
+  target=$NF
+  if (target ~ &amp;#x2F;^socket:&amp;#x2F;)       type=&amp;quot;socket&amp;quot;
+  else if (target ~ &amp;#x2F;^pipe:&amp;#x2F;)    type=&amp;quot;pipe&amp;quot;
+  else if (target ~ &amp;#x2F;^anon_inode:&amp;#x2F;) type=&amp;quot;anon_inode&amp;quot;
+  else if (target ~ &amp;#x2F;\(deleted\)$&amp;#x2F;) type=&amp;quot;deleted_file&amp;quot;
+  else if (target ~ &amp;#x2F;^\&amp;#x2F;&amp;#x2F;)       type=&amp;quot;regular_file&amp;quot;
+  else if (target ~ &amp;#x2F;^\&amp;#x2F;dev\&amp;#x2F;&amp;#x2F;)  type=&amp;quot;dev&amp;quot;
+  else                           type=&amp;quot;other&amp;quot;
+  count[type]++
+} END { for(t in count) print count[t], t }&amp;#x27; | sort -rn
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;5-cha-kan-fd-zhi-xiang-na-xie-mu-lu&quot;&gt;5. 查看 fd 指向哪些目录&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | awk &amp;#x27;{print $NF}&amp;#x27; | \
+  sed &amp;#x27;s|&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project||&amp;#x27; | \
+  awk -F&amp;#x27;&amp;#x2F;&amp;#x27; &amp;#x27;{print $1&amp;quot;&amp;#x2F;&amp;quot;$2&amp;quot;&amp;#x2F;&amp;quot;$3&amp;quot;&amp;#x2F;&amp;quot;$4}&amp;#x27; | \
+  sort | uniq -c | sort -rn | head -30
+# virtiofsd 的 fd 目标路径是相对共享目录的 guest 视角路径（如 &amp;#x2F;agent-code&amp;#x2F;... 对应宿主 &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;agent-code&amp;#x2F;...）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-cai-yang-cha-kan-fd-ju-ti-nei-rong&quot;&gt;6. 采样查看 fd 具体内容&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 前 40 个
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | head -40
+
+# 中间段
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | sed -n &amp;#x27;5000,5020p&amp;#x27;
+
+# 末尾
+sudo ls -la &amp;#x2F;proc&amp;#x2F;&amp;lt;PID&amp;gt;&amp;#x2F;fd&amp;#x2F; | tail -20
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;7-jian-cha-virtiofsd-zi-yuan-xian-zhi&quot;&gt;7. 检查 virtiofsd 资源限制&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;for pid in &amp;lt;PID_LIST&amp;gt;; do
+  echo &amp;quot;=== PID $pid ===&amp;quot;
+  cat &amp;#x2F;proc&amp;#x2F;$pid&amp;#x2F;limits | grep -E &amp;quot;open files|processes&amp;quot;
+  cat &amp;#x2F;proc&amp;#x2F;$pid&amp;#x2F;status | grep -E &amp;quot;VmRSS|VmSize|Threads&amp;quot;
+done
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;8-jian-cha-su-zhu-nei-he-shi-fou-zhen-de-zhuang-guo-file-max&quot;&gt;8. 检查宿主内核是否真的撞过 file-max&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 环形缓冲覆盖故障窗口的前提下，出现该警告 = 宿主 file-max 真被撞到（另一种墙）
+sudo dmesg | grep -i &amp;quot;file-max&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;9-quan-xi-tong-fd-tong-ji&quot;&gt;9. 全系统 fd 统计&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;total=0
+for p in &amp;#x2F;proc&amp;#x2F;[0-9]*&amp;#x2F;fd&amp;#x2F;; do
+  total=$((total + $(ls &amp;quot;$p&amp;quot; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | wc -l)))
+done
+echo &amp;quot;用户可见: $total&amp;quot;
+echo &amp;quot;系统分配: $(awk &amp;#x27;{print $1}&amp;#x27; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr)&amp;quot;
+echo &amp;quot;差值(root): $(( $(awk &amp;#x27;{print $1}&amp;#x27; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;file-nr) - total ))&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;gen-yin-fen-xi-2026-08-07-geng-zheng-hou-jie-lun&quot;&gt;根因分析（2026-08-07 更正后结论）&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhen-zheng-gen-yin-virtiofsd-de-guest-fd-chi-hao-jin&quot;&gt;真正根因：virtiofsd 的 guest fd 池耗尽&lt;&#x2F;h3&gt;
+&lt;p&gt;virtiofsd 1.13（Rust 版）为了确保自己内部总有 fd 可用，给 guest 分配 fd 时
+走一个信号量（&lt;code&gt;GuestFdSemaphore&lt;&#x2F;code&gt;），上限是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;guest_fd_limit = RLIMIT_NOFILE - internal_fd_reserve
+               = 1,000,000 - (509 + 100 + 1)   &amp;#x2F;&amp;#x2F; MAX_MEM_SLOTS + 100 + thread_pool_size
+               = 999,390
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;触发链：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;guest 内 find &amp;#x2F; grep -rl 递归扫描数十万文件
+  → 每个 lookup&amp;#x2F;open&amp;#x2F;readdir 的 inode，virtiofsd 通过 GuestFdSemaphore::allocate()
+    分配一个 O_PATH fd（src&amp;#x2F;passthrough&amp;#x2F;mod.rs:880&amp;#x2F;961&amp;#x2F;1281&amp;#x2F;1782）
+  → 这些句柄在 guest dcache 驱逐 inode（FUSE_FORGET）之前不释放
+  → 扫描几十万文件后池子归零
+  → 池空后任何 virtiofs 操作（哪怕 cat 已缓存文件）都拿不到新 fd
+  → allocate() 返回 ENFILE（guest_fd_limit.rs:72）
+  → guest 所有 virtiofs 系统调用报 ENFILE，整棵挂载树不可用
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键源码（virtiofsd 1.13.2）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;passthrough&#x2F;guest_fd_limit.rs:72&lt;&#x2F;code&gt;&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&amp;#x2F;&amp;#x2F; Since this error is likely returned to the guest (and not logged), prefer an
+&amp;#x2F;&amp;#x2F; error with a reasonable errno number over a useful error message.
+io::Error::from_raw_os_error(libc::ENFILE)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;main.rs:51&#x2F;791-793&lt;&#x2F;code&gt; — 池子上限计算&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;src&#x2F;limits.rs:50-64&lt;&#x2F;code&gt; — &lt;code&gt;--rlimit-nofile&lt;&#x2F;code&gt; 默认取 &lt;code&gt;min(1_000_000, nr_open)&lt;&#x2F;code&gt;；若继承的软限已 ≥ 1M 则沿用继承值&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;旁证（为什么排除宿主 file-max）：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;宿主 &lt;code&gt;dmesg&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;journalctl&lt;&#x2F;code&gt; 中没有任何 &lt;code&gt;VFS: file-max limit reached&lt;&#x2F;code&gt; 警告
+（环形缓冲覆盖了整个故障窗口，可信）&lt;&#x2F;li&gt;
+&lt;li&gt;6&#x2F;13 实测宿主 &lt;code&gt;file-nr = 1,015,480&lt;&#x2F;code&gt; ≈ 999,390（池子）+ 系统其他 fd，严丝合缝&lt;&#x2F;li&gt;
+&lt;li&gt;故障期间宿主 &lt;code&gt;file-max = INT64_MAX&lt;&#x2F;code&gt;——按内核源码（&lt;code&gt;fs&#x2F;file_table.c&lt;&#x2F;code&gt; 的
+&lt;code&gt;alloc_empty_file&lt;&#x2F;code&gt;），该值下比较 &lt;code&gt;nr_files &amp;gt;= max_files&lt;&#x2F;code&gt; 永远为假，不可能返回 ENFILE&lt;&#x2F;li&gt;
+&lt;li&gt;症状&quot;持续不恢复&quot;符合句柄滞留模型：恢复只能靠 guest 缓存逐出（FUSE_FORGET）
+或重启 virtiofsd&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;pan-duan-biao-zhun-geng-zheng-ban&quot;&gt;判断标准（更正版）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;症状&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd fd 数接近 rlimit（默认 999,390 池）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;guest fd 池即将&#x2F;已经耗尽 ← 核心指标&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;宿主 dmesg 有 &lt;code&gt;VFS: file-max limit reached&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;宿主 file-max 真被撞到（另一种、更罕见的墙）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd fd 99% 为 O_PATH 常规文件&lt;&#x2F;td&gt;&lt;td&gt;guest 在遍历文件系统&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;fd 集中在 &lt;code&gt;target&#x2F;debug&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&lt;&#x2F;code&gt;、&lt;code&gt;build&#x2F;cache&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;构建工具 &#x2F; IDE &#x2F; 搜索扫描&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;file-max = INT64_MAX&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;无碍&lt;&#x2F;strong&gt;（曾误判为根因，见文末）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;file-nr&lt;&#x2F;code&gt; 第 2 列 = 0&lt;&#x2F;td&gt;&lt;td&gt;无意义（现代内核恒为 0）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd RSS 数十 GB&lt;&#x2F;td&gt;&lt;td&gt;正常（guest RAM 映射），非泄漏&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;xiu-fu-fang-an&quot;&gt;修复方案&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-kuo-da-guest-fd-chi-zhi-ben&quot;&gt;1. 扩大 guest fd 池（治本）&lt;&#x2F;h3&gt;
+&lt;p&gt;virtiofsd 由 libvirtd 派生，继承其 soft rlimit。把 libvirtd 的系统服务限额调大即可
+（virtiofsd 启动时若继承的软限 ≥ 1M 会直接沿用，见 &lt;code&gt;limits.rs:60-63&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl edit libvirtd
+# [Service]
+# LimitNOFILE=4194304
+sudo systemctl restart libvirtd   # 会断开所有 VM 的 virtiofs，需重启域
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;池子变成 ≈ 4,194,304 - 610。&lt;strong&gt;注意与宿主 &lt;code&gt;file-max&lt;&#x2F;code&gt; 配平&lt;&#x2F;strong&gt;：
+若 &lt;code&gt;file-max&lt;&#x2F;code&gt; 设为真实值，必须 &lt;code&gt;file-max ≥ 池子上限 + 余量&lt;&#x2F;code&gt;（如 file-max=8M &#x2F; 池子=4M），
+否则宿主内核会变成更矮的墙（届时 dmesg 会真的出现 VFS 警告）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;宿主内存成本&lt;&#x2F;strong&gt;（只有池子实际用满时才发生，设上限本身零成本）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;资源&lt;&#x2F;th&gt;&lt;th&gt;4M 全占用量&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;内核 slab（struct file，本机实测 192B&#x2F;个）&lt;&#x2F;td&gt;&lt;td&gt;≈ 768 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd 进程 fd 表（8B&#x2F;项）&lt;&#x2F;td&gt;&lt;td&gt;≈ 32 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;2-gen-ben-jiang-hao-gai-yong-file-handle-dai-ti-o-path-fd-tui-jian&quot;&gt;2. 根本降耗：改用 file handle 代替 O_PATH fd（推荐）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# virtiofsd 1.13+ 支持 --inode-file-handles=prefer
+# 用 name_to_handle_at &amp;#x2F; open_by_handle_at 引用 inode，句柄不再消耗 fd
+&amp;#x2F;usr&amp;#x2F;libexec&amp;#x2F;virtiofsd --inode-file-handles=prefer --shared-dir &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project ...
+# 要求宿主文件系统支持 file handle（ext4 支持；virtiofsd 以 root 运行，具备所需能力）
+# 注意: 当前 libvirt 的 &amp;lt;binary&amp;gt; XML 元素可能不暴露该参数，需验证或走 hook
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-vm-nei-jia-su-ju-bing-shi-fang-zhi-biao&quot;&gt;3. VM 内加速句柄释放（治标）&lt;&#x2F;h3&gt;
+&lt;p&gt;句柄在 guest dcache 驱逐 inode（FUSE_FORGET）时才释放，而 &lt;strong&gt;dcache 驱逐只由内存压力
+驱动、没有时间老化&lt;&#x2F;strong&gt;——guest 内存充足时（本机实测 26GB 内存、空闲 12GB），扫描留下的
+近百万 dentry 会永久驻留，FUSE_FORGET 一个都不发，故障&quot;持续不恢复&quot;是符合设计的必然。&lt;&#x2F;p&gt;
+&lt;p&gt;所以真正有效的主动手段是定时 &lt;code&gt;drop_caches&lt;&#x2F;code&gt;；&lt;code&gt;vfs_cache_pressure&lt;&#x2F;code&gt; 只是回收发生时的
+权重系数，&lt;strong&gt;没有内存压力时它什么都不做&lt;&#x2F;strong&gt;，仅作可选加速：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 故障中立即恢复（主动杠杆，几秒内恢复）
+sudo sh -c &amp;#x27;echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches&amp;#x27;
+
+# 长期: 定时执行 drop_caches，把故障窗口压到 ≤ 定时周期
+cat &amp;gt; &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh &amp;lt;&amp;lt; &amp;#x27;EOF&amp;#x27;
+#!&amp;#x2F;bin&amp;#x2F;bash
+CACHED_MB=$(free -m | awk &amp;#x27;&amp;#x2F;^Mem:&amp;#x2F; {print $6}&amp;#x27;)
+if [ $CACHED_MB -gt 4096 ]; then
+    sync
+    echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches
+fi
+EOF
+chmod +x &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh
+# crontab: *&amp;#x2F;30 * * * * &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;bin&amp;#x2F;manage_virtiofs_cache.sh
+
+# 可选加速（非必须）: 让碰巧发生的自然回收优先清 dentry 而非 page cache
+echo 1000 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;vfs_cache_pressure
+echo 1000 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;dirty_writeback_centisecs
+
+# 持久化
+cat &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;sysctl.conf &amp;lt;&amp;lt; EOF
+vm.vfs_cache_pressure=1000
+vm.dirty_writeback_centisecs=1000
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：&lt;code&gt;vfs_cache_pressure&lt;&#x2F;code&gt; 不是定时器，没有内存压力时它不会触发任何回收，
+单独设置它无法解决句柄滞留；真正起作用的是定时 &lt;code&gt;drop_caches&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;4-bi-mian-da-fan-wei-di-gui-sao-miao-virtiofs-gua-zai&quot;&gt;4. 避免大范围递归扫描 virtiofs 挂载&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;find&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;grep -rl&lt;&#x2F;code&gt; 大范围扫描会快速耗尽池子（每个 touched inode 都占一个槽）&lt;&#x2F;li&gt;
+&lt;li&gt;大扫描尽量在宿主侧直接执行，或限制范围（&lt;code&gt;-prune&lt;&#x2F;code&gt; 掉 &lt;code&gt;target&#x2F;debug&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&lt;&#x2F;code&gt; 等）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;5-ying-ji-hui-fu&quot;&gt;5. 应急恢复&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# guest 内立即 drop_caches（最快，几秒内恢复）
+sudo sh -c &amp;#x27;echo 3 &amp;gt; &amp;#x2F;proc&amp;#x2F;sys&amp;#x2F;vm&amp;#x2F;drop_caches&amp;#x27;
+
+# 或重启 virtiofsd &amp;#x2F; 重启 VM（挂载会短暂断开）
+# 注意: kill -HUP 对 Rust 版 virtiofsd 不一定有效，可靠做法是重启域
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2026-08-13-shi-shi-yu-yan-zheng-ji-lu&quot;&gt;2026-08-13 实施与验证记录&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;前面的「修复方案」只是建议；本节记录 2026-08-13 实际落地方式、踩到的坑与压测结果。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;shi-ji-fang-an-a-kuo-chi-b-file-handle-shuang-bao-xian&quot;&gt;实际方案（A 扩池 + B file handle 双保险）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;A. 用 &lt;code&gt;&amp;lt;openfiles max&amp;gt;&lt;&#x2F;code&gt; 扩池&lt;&#x2F;strong&gt;——libvirt 11.3 原生支持，比上文改 &lt;code&gt;libvirtd LimitNOFILE&lt;&#x2F;code&gt; 更精准（只影响本域）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- debian13.xml 的 &amp;lt;filesystem&amp;gt; 段 --&amp;gt;
+&amp;lt;binary path=&amp;#x27;&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles&amp;#x27; xattr=&amp;#x27;on&amp;#x27;&amp;gt;
+  &amp;lt;openfiles max=&amp;#x27;4194304&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;binary&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;&amp;lt;openfiles max=&#x27;N&#x27;&#x2F;&amp;gt;&lt;&#x2F;code&gt; 被 libvirt 映射为 &lt;code&gt;--rlimit-nofile=N&lt;&#x2F;code&gt;（&lt;code&gt;libvirt_driver_qemu.so&lt;&#x2F;code&gt; 里有 &lt;code&gt;--rlimit-nofile=%llu&lt;&#x2F;code&gt;）。池上限从 999,390 提到 ≈ 4,193,694，作兜底。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;B. &lt;code&gt;--inode-file-handles=prefer&lt;&#x2F;code&gt; 经 wrapper 传入&lt;&#x2F;strong&gt;——libvirt 的 &lt;code&gt;&amp;lt;binary&amp;gt;&lt;&#x2F;code&gt; 没有 &lt;code&gt;inode-file-handles&lt;&#x2F;code&gt; 元素（schema 查无），只能包一层：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles（root:root 0755）
+#!&amp;#x2F;bin&amp;#x2F;bash
+exec &amp;#x2F;usr&amp;#x2F;libexec&amp;#x2F;virtiofsd --inode-file-handles=prefer &amp;quot;$@&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;keng-libvirtd-de-apparmor-profile-ju-jue-zhi-xing-wrapper&quot;&gt;坑：libvirtd 的 AppArmor profile 拒绝执行 wrapper&lt;&#x2F;h3&gt;
+&lt;p&gt;第一次 &lt;code&gt;virsh start&lt;&#x2F;code&gt; 直接失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;error: 内部错误：子进程（&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles --print-capabilities）意外 退出状态 126: ... 无法执行二进制文件 ...: 权限不够
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;dmesg 定位到 &lt;code&gt;apparmor=&quot;DENIED&quot; operation=&quot;exec&quot; profile=&quot;libvirtd&quot; name=&quot;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;virtiofsd-inode-handles&quot;&lt;&#x2F;code&gt;。
+libvirtd 的 profile 默认只白名单 &lt;code&gt;&#x2F;usr&#x2F;{lib,lib64,lib&#x2F;qemu,libexec}&#x2F;virtiofsd PUx&lt;&#x2F;code&gt;，新路径被拒。&lt;&#x2F;p&gt;
+&lt;p&gt;解法写在 site 级 override（随 libvirtd 升级不丢）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;echo &amp;#x27;&amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;virtiofsd-inode-handles PUx,&amp;#x27; &amp;gt;&amp;gt; &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;local&amp;#x2F;usr.sbin.libvirtd
+apparmor_parser -r &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;usr.sbin.libvirtd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yan-zheng-jie-guo-quan-shu-find-ya-ce-dui-bi&quot;&gt;验证结果（全树 &lt;code&gt;find&lt;&#x2F;code&gt; 压测对比）&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;指标&lt;&#x2F;th&gt;&lt;th&gt;修复前&lt;&#x2F;th&gt;&lt;th&gt;修复后&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;virtiofsd worker fd&lt;&#x2F;td&gt;&lt;td&gt;999,410（池满→ENFILE）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;22&lt;&#x2F;strong&gt;（几乎不涨）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;宿主 &lt;code&gt;file-nr&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1,023,072&lt;&#x2F;td&gt;&lt;td&gt;~24,200（持平）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;guest &lt;code&gt;find&lt;&#x2F;code&gt; 全树&lt;&#x2F;td&gt;&lt;td&gt;报 ENFILE&lt;&#x2F;td&gt;&lt;td&gt;正常（agent-code 152,380 文件）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;wei-shen-me-file-handle-neng-xiao-chu-fd-zhan-yong&quot;&gt;为什么 file handle 能消除 fd 占用&lt;&#x2F;h3&gt;
+&lt;p&gt;默认 &lt;code&gt;never&lt;&#x2F;code&gt; 模式，virtiofsd 用 &lt;strong&gt;O_PATH fd&lt;&#x2F;strong&gt; 去「记住」guest 触碰过的每个 inode：O_PATH fd 虽不读内容，但照样占 fd 表一个槽位、计入 &lt;code&gt;rlimit_nofile&lt;&#x2F;code&gt;（默认 1M）。扫 N 个文件就占 N 个 fd，池子被吃光。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;prefer&lt;&#x2F;code&gt; 模式改用内核 file handle 接口：&lt;code&gt;name_to_handle_at&lt;&#x2F;code&gt; 给 inode 生成「文件句柄」（一段内存字节，含 inode 号+代次+文件系统 id），需要时 &lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 转回临时 fd。句柄只占内存、不占 fd 槽——「记住一百万 inode」从消耗 fd 变成消耗内存，fd 池不再是瓶颈。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;wei-shen-me-mo-ren-bu-kai-qi-file-handle-de-que-dian&quot;&gt;为什么默认不开启（file handle 的缺点）&lt;&#x2F;h3&gt;
+&lt;p&gt;既然省 fd，virtiofsd 为何默认 &lt;code&gt;never&lt;&#x2F;code&gt; 而不是 &lt;code&gt;prefer&lt;&#x2F;code&gt;？几个正确性&#x2F;可移植性代价：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;句柄不 pin 住 inode&lt;&#x2F;strong&gt;（最大的坑）：O_PATH fd 持有 inode 引用，文件被 unlink 后 fd 仍有效、inode 延迟回收；file handle 只是一段「inode 号+代次+文件系统 id」字节、不持引用，文件删除后 &lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 可能返回 &lt;code&gt;ESTALE&lt;&#x2F;code&gt;，且 inode 号+代次理论上可复用。所以 &lt;code&gt;prefer&lt;&#x2F;code&gt; 对删不掉&#x2F;无句柄的文件仍要回退 O_PATH fd。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;open_by_handle_at&lt;&#x2F;code&gt; 需要 &lt;code&gt;CAP_DAC_READ_SEARCH&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：按 inode 直接打开、绕过路径权限检查，是特权操作；virtiofsd 以 root 跑才有此能力，若未来降权&#x2F;沙箱即失效。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;文件系统支持不普遍&lt;&#x2F;strong&gt;：不少文件系统不支持 file handle（&lt;code&gt;name_to_handle_at&lt;&#x2F;code&gt; 返回 &lt;code&gt;EOPNOTSUPP&lt;&#x2F;code&gt;），如部分 FUSE&#x2F;网络文件系统、overlayfs 某些场景，默认开启会直接坏掉。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;两套路径都要维护&lt;&#x2F;strong&gt;：&lt;code&gt;prefer&lt;&#x2F;code&gt; 是「能用就用、不能则回退」，O_PATH fd 逻辑一点不能删，复杂度不减反增。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;迁移&#x2F;快照序列化更难&lt;&#x2F;strong&gt;：句柄是 opaque 数字、跨主机（不同文件系统实例）无效，需额外重建路径（上文日志里的 &lt;code&gt;preserialization::proc_paths&lt;&#x2F;code&gt; 告警即此类）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;一句话：O_PATH fd = 简单、永远正确、费 fd 槽；file handle = 省 fd、但有删除&#x2F;复用&#x2F;可移植性边角。所以 &lt;code&gt;never&lt;&#x2F;code&gt; 是保守默认，&lt;code&gt;prefer&lt;&#x2F;code&gt; 留给确定支持的场景显式开启——本机（共享目录固定在 ext4、virtiofsd 以 root 跑）恰好覆盖了这些边角。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;hong-fa-yuan-geng-zheng&quot;&gt;触发源更正&lt;&#x2F;h3&gt;
+&lt;p&gt;实测复现的触发是 &lt;code&gt;du -sh *&#x2F;&lt;&#x2F;code&gt; 这类对挂载树的递归遍历。此前怀疑的两者其实都&lt;strong&gt;不是&lt;&#x2F;strong&gt;主要触发源：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ncdu -x &#x2F;home&#x2F;peter&#x2F;&lt;&#x2F;code&gt;：&lt;code&gt;-x&lt;&#x2F;code&gt; 不跨文件系统，根本没进 virtiofs 挂载；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;localsearch-3&lt;&#x2F;code&gt;（GNOME tracker 文件索引器，tracker-miners 更名）：默认 &lt;code&gt;index-single-directories=$HOME&lt;&#x2F;code&gt; 只索引单层不递归，实测仅 88 个文件。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;ceng-jing-de-cuo-wu-jie-lun-bao-liu-bei-cha-wu-zai-fan&quot;&gt;曾经的错误结论（保留备查，勿再犯）&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;以下为 2026-06-13 初版的错误分析。保留它不是为了参考，而是为了记住为什么错。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;错误结论：&lt;&#x2F;strong&gt; &lt;code&gt;fs.file-max&lt;&#x2F;code&gt; 被设为 &lt;code&gt;9223372036854775807&lt;&#x2F;code&gt;（INT64_MAX）导致内核
+fd table 扩容公式 &lt;code&gt;n = last * 2 + 1&lt;&#x2F;code&gt; 整数溢出 → &lt;code&gt;kvmalloc&lt;&#x2F;code&gt; 分配巨大数组失败 → 返回 ENFILE。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;为什么错（2026-08-07 对照内核 6.12 源码核实）：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;内核 fd table 扩容（&lt;code&gt;fs&#x2F;file.c&lt;&#x2F;code&gt;）的硬上限是 &lt;code&gt;sysctl_nr_open&lt;&#x2F;code&gt;（即 &lt;code&gt;fs.nr_open&lt;&#x2F;code&gt;），
+超了返回 &lt;strong&gt;EMFILE(24)&lt;&#x2F;strong&gt;，整个 &lt;code&gt;fs&#x2F;file.c&lt;&#x2F;code&gt; 中根本不存在 &lt;code&gt;files_stat.max_files&lt;&#x2F;code&gt; 的引用——
+扩容与 &lt;code&gt;file-max&lt;&#x2F;code&gt; 零关系&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;file-max&lt;&#x2F;code&gt; 唯一出现在 &lt;code&gt;fs&#x2F;file_table.c&lt;&#x2F;code&gt; 的 &lt;code&gt;alloc_empty_file()&lt;&#x2F;code&gt;：
+&lt;code&gt;nr_files &amp;gt;= max_files&lt;&#x2F;code&gt; 才返回 ENFILE(23)。&lt;code&gt;INT64_MAX&lt;&#x2F;code&gt; 下该比较永远为假，
+恰恰&lt;strong&gt;不可能&lt;&#x2F;strong&gt;产生 ENFILE&lt;&#x2F;li&gt;
+&lt;li&gt;当时&quot;修复&quot;（把 file-max 设为 2097152）与根因无关；真正让系统恢复的是
+扫描结束 &#x2F; 缓存逐出 &#x2F; virtiofsd 重启等并发因素&lt;&#x2F;li&gt;
+&lt;li&gt;复发时宿主 dmesg 无 VFS 警告，最终在 virtiofsd 1.13.2 源码
+&lt;code&gt;guest_fd_limit.rs:72&lt;&#x2F;code&gt; 找到真正的 ENFILE 出处&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;教训：&lt;&#x2F;strong&gt; ① 症状（ENFILE）不一定来自最显眼的配置（file-max），先找 ENFILE 的
+唯一内核出口，再顺着代码追；② 排查&quot;大值参数&quot;时要先确认内核里它到底被谁引用；
+③ 实测 dmesg 环形缓冲覆盖窗口内的&quot;无警告&quot;是有效证据。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;he-xin-pai-cha-luo-ji&quot;&gt;核心排查逻辑&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;guest 内 virtiofs 操作报 ENFILE
+  → 宿主 dmesg 有无 &amp;quot;VFS: file-max limit reached&amp;quot;？（区分两种墙）
+  → ps 找 virtiofsd → sudo ls &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;fd | wc -l
+  → 对比 guest fd 池上限（rlimit - 610，默认 999,390）
+  → 池满 → 看 fd 指向（O_PATH、guest 相对路径）→ 定位 guest 内扫描进程
+  → guest 内 drop_caches（主动）&amp;#x2F; 定时 cron 防复发
+  → 根治: 扩池子（libvirtd LimitNOFILE）&amp;#x2F; --inode-file-handles=prefer
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

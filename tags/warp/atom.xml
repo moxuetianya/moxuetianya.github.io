@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - warp</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/warp/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-31T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/warp/atom.xml</id>
+    <entry xml:lang="en">
+        <title>sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证</title>
+        <published>2026-08-26T22:37:16+08:00</published>
+        <updated>2026-08-31T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/"/>
+        <id>https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/cloudflare-warp-singbox-outbound/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;自己 VPS（机房 IP）上跑 sing-box 代理，访问 ChatGPT 时经常弹出 Cloudflare 的&quot;确认你是真人&quot;验证页（Turnstile）。换不同节点偶有缓解，但始终频繁。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h1&gt;
+&lt;p&gt;ChatGPT 背后是 Cloudflare 的 WAF + DDoS 防护。Cloudflare 会对每个访问 IP 评估信誉度，而 VPS 的机房 IP（ASN 类型为 Hosting&#x2F;Data Center）天然处于低信誉档：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;机房 IP 连坐&lt;&#x2F;strong&gt;：大量爬虫、自动化脚本都从机房 IP 发出，同一个 IP 段里的&quot;坏邻居&quot;会拉低整个段的信誉；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;地理行为突变&lt;&#x2F;strong&gt;：账号短时间内跨多个国家 IP 登录，会触发风控。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以对 Cloudflare 来说，机房 IP 访问 ChatGPT ≈ 疑似机器人 → 弹验证。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;si-lu-rang-chatgpt-liu-liang-zou-warp-chu-kou&quot;&gt;思路：让 ChatGPT 流量走 WARP 出口&lt;&#x2F;h1&gt;
+&lt;p&gt;与其反复换 VPS 的 IP（不一定干净，还可能收费），不如用 Cloudflare 官方的 &lt;strong&gt;WARP&lt;&#x2F;strong&gt; 作为 ChatGPT 流量的出口。&lt;&#x2F;p&gt;
+&lt;p&gt;WARP 是 Cloudflare 官方出品的网络客户端（本质是基于 WireGuard 协议的隧道），它的出口 IP 由 Cloudflare 管理，信誉度远高于普通机房 IP。社区普遍反馈：WARP 出口访问 ChatGPT 基本不弹验证。&lt;&#x2F;p&gt;
+&lt;p&gt;关键决策：&lt;strong&gt;不要把整个 VPS 全局走 WARP&lt;&#x2F;strong&gt;（会连带 SSH、更新、其他服务全部改出口，还容易踩路由循环），而是把 WARP 注册成 sing-box 的一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound，只让 OpenAI 相关域名走它。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;客户端 → sing-box(VPS)
+          ├── direct ─────────→ VPS 原生 IP（其余流量）
+          └── wireguard:warp ─→ Cloudflare WARP → ChatGPT（openai.com 等）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cheng-qing-bu-shi-cloudflared-ye-bu-shi-warp-cli-quan-ju&quot;&gt;澄清：不是 cloudflared，也不是 warp-cli 全局&lt;&#x2F;h1&gt;
+&lt;p&gt;先区分三个容易混淆的东西：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;程序&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;cloudflared&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;入站&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare Tunnel，把外部请求带进你的服务器（反向代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;warp-cli&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;出站全局&lt;&#x2F;td&gt;&lt;td&gt;系统级客户端，默认把整台机器的流量都走 WARP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WARP WireGuard 参数&lt;&#x2F;td&gt;&lt;td&gt;出站按需&lt;&#x2F;td&gt;&lt;td&gt;直接把 WARP 当作一个 WireGuard 端点，由 sing-box 按规则选用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;前两种都不适合&quot;只让 ChatGPT 流量走 WARP&quot;这个目标。我们只需要拿到 WARP 的 WireGuard 连接参数，交给 sing-box 即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-yong-wgcf-zhu-ce-na-dao-wireguard-can-shu&quot;&gt;第一步：用 wgcf 注册，拿到 WireGuard 参数&lt;&#x2F;h1&gt;
+&lt;p&gt;WARP 底层就是 WireGuard，但参数不能随便编：&lt;code&gt;private_key&lt;&#x2F;code&gt;、&lt;code&gt;local_address&lt;&#x2F;code&gt;（WARP 分配的 172.16.x.x &#x2F; fd01:5ca1:ab1e 段）、&lt;code&gt;peer_public_key&lt;&#x2F;code&gt;（WARP 服务端公钥）、&lt;code&gt;reserved&lt;&#x2F;code&gt;（WARP 特有字段）都来自 Cloudflare 的注册流程。&lt;&#x2F;p&gt;
+&lt;p&gt;社区标准做法是用 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ViRb3&#x2F;wgcf&quot;&gt;wgcf&lt;&#x2F;a&gt; 模拟注册，在 VPS 上执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -L -o wgcf https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;ViRb3&amp;#x2F;wgcf&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.2.22&amp;#x2F;wgcf_2.2.22_linux_amd64
+chmod +x wgcf
+.&amp;#x2F;wgcf register --accept-tos   # 生成 wgcf-account.toml
+.&amp;#x2F;wgcf generate                # 生成 wgcf-profile.conf
+cat wgcf-profile.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成的 &lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 类似：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Interface]
+PrivateKey = &amp;lt;WARP_PRIVATE_KEY&amp;gt;
+Address = 172.16.0.2&amp;#x2F;32, fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128
+DNS = 1.1.1.1, 2606:4700:4700::1111
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0&amp;#x2F;0, ::&amp;#x2F;0
+Endpoint = 162.159.192.1:2408
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 里没有 &lt;code&gt;reserved&lt;&#x2F;code&gt;，但 WARP 的握手必须带 reserved 字段。sing-box 支持配置，生成方法见下文。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-bu-sing-box-pei-zhi-warp-outbound&quot;&gt;第二步：sing-box 配置 WARP outbound&lt;&#x2F;h1&gt;
+&lt;p&gt;把上面的参数填进 sing-box 的 &lt;code&gt;outbounds&lt;&#x2F;code&gt;（&lt;code&gt;config.json&lt;&#x2F;code&gt; 里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;wireguard&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;warp&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;162.159.192.1&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 2408,
+      &amp;quot;local_address&amp;quot;: [
+        &amp;quot;172.16.0.2&amp;#x2F;32&amp;quot;,
+        &amp;quot;fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128&amp;quot;
+      ],
+      &amp;quot;private_key&amp;quot;: &amp;quot;WARP_PRIVATE_KEY&amp;quot;,
+      &amp;quot;peer_public_key&amp;quot;: &amp;quot;bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=&amp;quot;,
+      &amp;quot;reserved&amp;quot;: [0, 0, 0],
+      &amp;quot;mtu&amp;quot;: 1280
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;peer_public_key&lt;&#x2F;code&gt; 是 WARP 的固定公钥 &lt;code&gt;bmXOC+F1FxEMF9dyiK2H5&#x2F;1SUtzH0JuVo51h2wPfgyo=&lt;&#x2F;code&gt;，人人相同；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;reserved&lt;&#x2F;code&gt; 是 WARP 三字节保留位，wgcf 生成配置后可用 &lt;code&gt;.&#x2F;wgcf generate --profile &amp;lt;(cat wgcf-account.toml) --reserved&lt;&#x2F;code&gt; 打印实际值，或直接尝试 &lt;code&gt;[0, 0, 0]&lt;&#x2F;code&gt;（多数情况下可用）；&lt;&#x2F;li&gt;
+&lt;li&gt;免费版 WARP 注册即可用，无需 license key（WARP+ 才需要）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-san-bu-lu-you-gui-ze-zhi-rang-openai-yu-ming-zou-warp&quot;&gt;第三步：路由规则，只让 OpenAI 域名走 WARP&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;domain_suffix&amp;quot;: [
+          &amp;quot;chatgpt.com&amp;quot;,
+          &amp;quot;openai.com&amp;quot;,
+          &amp;quot;oaistatic.com&amp;quot;,
+          &amp;quot;oaiusercontent.com&amp;quot;,
+          &amp;quot;auth0.com&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;warp&amp;quot;
+      }
+    ]
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;ChatGPT 实际涉及的域名不止 &lt;code&gt;chatgpt.com&lt;&#x2F;code&gt;：登录走 &lt;code&gt;auth.openai.com&lt;&#x2F;code&gt;（auth0），静态资源走 &lt;code&gt;oaistatic.com&lt;&#x2F;code&gt;，图片走 &lt;code&gt;oaiusercontent.com&lt;&#x2F;code&gt;。上面的列表覆盖了主要部分。&lt;&#x2F;p&gt;
+&lt;p&gt;改完 &lt;code&gt;config.json&lt;&#x2F;code&gt; 重启 sing-box：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl restart sing-box
+journalctl -u sing-box -f   # 看有没有报错
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口确认&lt;&#x2F;strong&gt;：让 sing-box 的 DNS&#x2F;测试流量走 warp 后，检查出口：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 在客户端通过代理访问
+curl https:&amp;#x2F;&amp;#x2F;www.cloudflare.com&amp;#x2F;cdn-cgi&amp;#x2F;trace
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出里 &lt;code&gt;warp=on&lt;&#x2F;code&gt; 说明确实从 WARP 出口出去：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ip=&amp;lt;WARP出口IP&amp;gt;
+warp=on
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;对比验证频率&lt;&#x2F;strong&gt;：分别用 direct 出口和 warp 出口访问 ChatGPT，观察验证页出现频率。多刷新几次、退出登录状态再试，才更接近真实风控场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;其余流量不受影响&lt;&#x2F;strong&gt;：&lt;code&gt;curl ifconfig.me&lt;&#x2F;code&gt; 看到的应该是 VPS 原生 IP，说明只有 OpenAI 域名走了 WARP。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zhu-yi-shi-xiang&quot;&gt;注意事项&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;WARP 不是保证&lt;&#x2F;strong&gt;：WARP 出口 IP 同样可能被大量用户共享，只是信誉比机房 IP 好得多，能大幅减少但未必 100% 消除验证；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口 IP ≠ Cloudflare CDN IP&lt;&#x2F;strong&gt;：Cloudflare 不公开 WARP 出口地址池，它和 Worker 禁止 &lt;code&gt;connect()&lt;&#x2F;code&gt; 的 CDN IP ranges 是两回事。WARP 用户访问套了 Cloudflare CDN 的网站是官方支持的正常路径，不会&quot;循环丢弃&quot;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别全局开 warp-cli&lt;&#x2F;strong&gt;：系统级全局 WARP 会改变 VPS 上所有出站流量的出口（SSH 回程、apt 更新、Docker 等都可能受影响），排查问题更难。sing-box outbound 方式完全不动系统路由，SSH 和其余服务照旧；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;免费 WARP 出口不固定&lt;&#x2F;strong&gt;：免费版出口 IP 可能变化；WARP+（付费）有固定 IP 支持，一般没必要。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shi-ce-geng-xin-2026-08-28-warp-chu-kou-duan-bei-openai-feng-jin-de-qing-kuang&quot;&gt;实测更新（2026-08-28）：WARP 出口段被 OpenAI 封禁的情况&lt;&#x2F;h1&gt;
+&lt;p&gt;用官方 &lt;code&gt;cloudflare-warp&lt;&#x2F;code&gt; 客户端（warp-svc + &lt;code&gt;warp-cli mode proxy&lt;&#x2F;code&gt;，SOCKS5 &lt;code&gt;127.0.0.1:40000&lt;&#x2F;code&gt;）在 VPS 上部署后，把 sing-box 的 OpenAI 域名分流指向它。路由规则确认生效（服务端日志 &lt;code&gt;inbound&#x2F;vless → outbound&#x2F;socks[warp]&lt;&#x2F;code&gt;），但实测结果是&lt;strong&gt;完全打不开&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;chatgpt.com        → 403 Unable to load site [IP:104.28.215.69 | Ray ID:...]
+openai.com         → 403
+auth.openai.com    → 403
+platform.openai.com→ 403
+api.openai.com     → 403
+google.com（对照）   → 200（隧道本身健康）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查过程摘要：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;原生 VPS IP（UCloud 香港机房）、WARP IPv4 出口（&lt;code&gt;104.28.215.69&lt;&#x2F;code&gt;）、WARP IPv6 出口（&lt;code&gt;2a09:bac1::&lt;&#x2F;code&gt; &#x2F; 重连换段后 &lt;code&gt;2a09:bac5::&lt;&#x2F;code&gt;）&lt;strong&gt;全部 403&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;强制 IPv4&#x2F;IPv6 目标、带浏览器 UA、重连换出口段，均无效；&lt;&#x2F;li&gt;
+&lt;li&gt;错误页是 Cloudflare WAF 的&lt;strong&gt;自定义错误页&lt;&#x2F;strong&gt;（&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; + Ray ID），不是本文主场景的 Turnstile 真人验证页。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：这属于 &lt;strong&gt;OpenAI WAF 对 WARP 出口段（&lt;code&gt;104.28.x.x&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;2a09:bacx::&lt;&#x2F;code&gt;）的 IP 级封禁&lt;&#x2F;strong&gt;（社区已知现象，WARP 用户访问 ChatGPT 普遍报此错误），与本文&quot;机房低信誉→弹验证&quot;是两个不同的失败模式：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;失败模式&lt;&#x2F;th&gt;&lt;th&gt;页面表现&lt;&#x2F;th&gt;&lt;th&gt;WARP 是否有效&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;IP 信誉低（机房段）&lt;&#x2F;td&gt;&lt;td&gt;频繁弹 Turnstile 真人验证&lt;&#x2F;td&gt;&lt;td&gt;有效，大幅减少验证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;IP 被拉黑（WARP 出口段）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; 自定义错误页&lt;&#x2F;td&gt;&lt;td&gt;无效，换段也没用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;经验&lt;&#x2F;strong&gt;：部署前先确认目标站点在候选出口上的可用性（&lt;code&gt;curl --socks5-hostname &amp;lt;出口&amp;gt; https:&#x2F;&#x2F;chatgpt.com&lt;&#x2F;code&gt; 看是验证页还是错误页），避免白部署；若 WARP 出口被封，只能换 VPS 商家&#x2F;机场节点碰运气拿干净 IP，或家庭宽带直连。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;机房 IP 访问 ChatGPT 频繁弹 Cloudflare 验证，根因是 IP 信誉，不是账号或浏览器问题。用 wgcf 把 WARP 注册成 WireGuard 参数、在 sing-box 里加一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound、按域名分流 OpenAI 流量——改动小、不动系统路由，是当前成本最低且有效的方案。如果 WARP 后仍频繁验证，再考虑换原生 IP（ISP 类型）的 VPS 商家，但这是最后一步。注意 2026-08-28 实测补充：WARP 出口段本身可能已被 OpenAI 封禁，部署前务必先验证出口可用性。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

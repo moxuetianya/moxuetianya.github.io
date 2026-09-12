@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - gpu-manager</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/gpu-manager/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-12T23:15:55+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/gpu-manager/atom.xml</id>
+    <entry xml:lang="en">
+        <title>systemctl restart gdm3 卡住排查：gpu-manager 阻塞在 QXL 的 drm_master_open</title>
+        <published>2026-09-12T23:15:55+08:00</published>
+        <updated>2026-09-12T23:15:55+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/gdm3-restart-hang-gpu-manager/"/>
+        <id>https://moxuetianya.github.io/2026/09/gdm3-restart-hang-gpu-manager/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/gdm3-restart-hang-gpu-manager/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;本机（Ubuntu 24.04 虚拟机，QEMU&#x2F;KVM + QXL 虚拟显卡）执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl restart gdm3
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;命令长时间不返回，终端像卡死；Ctrl-C 之后重跑还是卡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-jian-xian-qia-zai-gpu-manager-bu-shi-gdm3&quot;&gt;时间线：卡在 gpu-manager，不是 gdm3&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;journalctl -u gdm3&lt;&#x2F;code&gt; 把两次 restart 的时间线拉出来：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;22:14:13 systemd[1]: Stopping gdm3.service - LSB: GNOME Display Manager...
+22:14:33 systemd[1]: Stopped gdm3.service - LSB: GNOME Display Manager.    ← stop 花了 20s
+22:14:33 systemd[1]: Starting gpu-manager.service - Detect the available GPUs...
+22:16:36 systemd[1]: Finished gpu-manager.service - Detect the available GPUs...
+22:16:36 systemd[1]: Starting gdm3.service - LSB: GNOME Display Manager...  ← 等 gpu-manager 结束才开始
+22:16:36 systemd[1]: Started gdm3.service - LSB: GNOME Display Manager.     ← gdm3 本身瞬间完成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;第二次同样：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;22:20:58 Stopped gdm3.service
+22:22:30 Finished gpu-manager.service    ← 1m32s
+22:22:30 Started gdm3.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;耗时几乎全部花在 &lt;code&gt;gpu-manager.service&lt;&#x2F;code&gt; 上：&lt;strong&gt;gdm3 的启动在等它跑完&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带一个容易误判的点：Ctrl-C 只会结束 &lt;code&gt;systemctl&lt;&#x2F;code&gt; 客户端进程，systemd 里的 job 仍在继续。本机第一次 restart 的客户端进程在 22:16:22 就退出了，而 job 到 22:16:36 才真正完成——所以&quot;Ctrl-C 没反应&quot;只是假象，实际是 job 还没跑完。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yi-lai-lian-restart-gdm3-wei-shen-me-hui-la-qi-gpu-manager&quot;&gt;依赖链：restart gdm3 为什么会拉起 gpu-manager&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;gpu-manager.service&lt;&#x2F;code&gt; 由 Ubuntu 的 ubuntu-drivers-common 提供（检测 GPU 变化、处理显卡驱动切换），它的单元声明：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;gpu-manager.service
+[Unit]
+Before=display-manager.service
+...
+[Install]
+WantedBy=display-manager.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;而 &lt;code&gt;display-manager.service&lt;&#x2F;code&gt; 在本机是指向 gdm3 的别名，安装时生成的 wants 链接把它绑进了 display-manager 的启动事务：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ls &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;display-manager.service.wants&amp;#x2F;
+gpu-manager.service -&amp;gt; &amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;gpu-manager.service
+
+$ systemctl show gdm3 -p Wants,After
+Wants=gpu-manager.service
+After=... gpu-manager.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;于是每次 start&#x2F;restart gdm3：systemd 先按依赖拉起 gpu-manager，又因为 &lt;code&gt;Before=display-manager.service&lt;&#x2F;code&gt;，gdm3 的启动必须排在它后面——gpu-manager 不结束，gdm3 就不会开始。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-chui-dan-pao-gpu-manager-ye-qia-qia-zai-nei-he-drm-master-open&quot;&gt;实锤：单跑 gpu-manager 也卡，卡在内核 drm_master_open&lt;&#x2F;h1&gt;
+&lt;p&gt;单独跑 gpu-manager，同样不返回：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ time timeout 40 &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;gpu-manager --log &amp;#x2F;tmp&amp;#x2F;gm-test.log
+real    0m48.337s
+user    0m0.042s      ← 几乎不耗 CPU
+sys     0m0.033s
+rc=124                ← 被 timeout 杀掉
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;CPU 只有 0.04 秒，说明它在&lt;strong&gt;等&lt;&#x2F;strong&gt;而不是在算。抓卡住时的进程状态与内核栈：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ grep State &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;status
+State:  D (disk sleep)      ← 不可中断睡眠
+
+$ cat &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;wchan
+drm_master_open
+
+$ cat &amp;#x2F;proc&amp;#x2F;&amp;lt;pid&amp;gt;&amp;#x2F;stack
+[&amp;lt;0&amp;gt;] drm_master_open+0x2b&amp;#x2F;0xc0
+[&amp;lt;0&amp;gt;] drm_open_helper+0x109&amp;#x2F;0x130
+[&amp;lt;0&amp;gt;] drm_open+0x76&amp;#x2F;0x130
+[&amp;lt;0&amp;gt;] drm_stub_open+0xb3&amp;#x2F;0xf0
+[&amp;lt;0&amp;gt;] chrdev_open+0xcf&amp;#x2F;0x250
+[&amp;lt;0&amp;gt;] do_dentry_open+0x21d&amp;#x2F;0x570
+[&amp;lt;0&amp;gt;] vfs_open+0x33&amp;#x2F;0x50
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;gpu-manager 在打开 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;card1&lt;&#x2F;code&gt;（QXL 显卡的 DRM 设备）时阻塞在内核 &lt;code&gt;drm_master_open&lt;&#x2F;code&gt;：进程处于 D 状态（不可中断），信号也打不断。它的业务逻辑其实已经跑完（日志里 &lt;code&gt;Skipping &#x2F;dev&#x2F;dri&#x2F;card1, driven by qxl&lt;&#x2F;code&gt; → &lt;code&gt;Single card detected&lt;&#x2F;code&gt;），卡的只是这次 open 系统调用。约 1.5~2 分钟后自行解除（两次实测 2m03s &#x2F; 1m32s），具体是谁持有内核锁没有继续深挖——定位到这一步，修复方向已经清楚。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ben-ji-te-li-gdm3-qi-shi-yi-jing-bu-cun-zai&quot;&gt;本机特例：gdm3 其实已经不存在&lt;&#x2F;h1&gt;
+&lt;p&gt;这台机器上 gdm3 包早已被移除（&lt;code&gt;dpkg -l gdm3&lt;&#x2F;code&gt; 状态为 &lt;code&gt;rc&lt;&#x2F;code&gt;，只剩配置文件），&lt;code&gt;&#x2F;usr&#x2F;sbin&#x2F;gdm3&lt;&#x2F;code&gt; 不存在；残留的 &lt;code&gt;&#x2F;etc&#x2F;init.d&#x2F;gdm3&lt;&#x2F;code&gt; 被 systemd 生成成 &lt;code&gt;gdm3.service&lt;&#x2F;code&gt;，而脚本开头是：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;sh&quot; class=&quot;language-sh &quot;&gt;&lt;code class=&quot;language-sh&quot; data-lang=&quot;sh&quot;&gt;DAEMON=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;gdm3
+test -x $DAEMON || exit 0     ← 二进制不存在，start 直接退出 0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所以等完 gpu-manager 那 2 分钟，GDM 也不会真的启动——unit 显示 &lt;code&gt;Started&lt;&#x2F;code&gt; 只是 init 脚本空转退出 0。这个 restart 除了等 2 分钟之外什么也没发生。&lt;&#x2F;p&gt;
+&lt;p&gt;（这也说明判断&quot;服务起没起&quot;不能只看 &lt;code&gt;systemctl status&lt;&#x2F;code&gt; 的 Active 状态，要看进程是否真的存在。）&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;2026-09-13 更新：本节记录的是当时的残留状态。桌面栈已重装（起因见文末「背景补记」），gdm3 现在是原生 &lt;code&gt;gdm.service&lt;&#x2F;code&gt;，这个特例已不存在。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;xiu-fu-fang-an-2026-09-13-shi-ce-fang-an-1-sheng-xiao&quot;&gt;修复方案（2026-09-13 实测：方案 1 生效）&lt;&#x2F;h1&gt;
+&lt;p&gt;按场景选：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;还在用 GDM&lt;&#x2F;strong&gt;：屏蔽 gpu-manager 即可——&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl mask gpu-manager.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;QXL 虚拟机上 gpu-manager 没有用途（它服务于 NVIDIA&#x2F;AMD 专有驱动切换）；mask 后 &lt;code&gt;Wants&lt;&#x2F;code&gt; 依赖会立即失败，gdm3 照常启动（Wants 非强制）。需要时 &lt;code&gt;systemctl unmask&lt;&#x2F;code&gt; 恢复。本机 2026-09-13 实测：mask 后安装&#x2F;启动 gdm3 均无卡顿，2 分钟等待消失。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;不用 GDM&lt;&#x2F;strong&gt;：清掉残留，避免再踩——&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt purge gdm3          # 清 &amp;#x2F;etc&amp;#x2F;init.d&amp;#x2F;gdm3 + &amp;#x2F;etc&amp;#x2F;X11&amp;#x2F;default-display-manager
+sudo systemctl daemon-reload
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;只想命令别卡&lt;&#x2F;strong&gt;：&lt;code&gt;systemctl restart gdm3 --no-block&lt;&#x2F;code&gt;（立即返回，但实际启动仍要等 gpu-manager）。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;也可用 drop-in 摘掉依赖，但不如 mask 直接。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;2026-09-13-hou-xu-zhuo-mian-zhan-zhong-zhuang-qxl-xian-cun-hao-jin&quot;&gt;2026-09-13 后续：桌面栈重装、QXL 显存耗尽&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bei-jing-bu-ji-zhuo-mian-zhan-wei-shen-me-yi-jing-bu-cun-zai&quot;&gt;背景补记：桌面栈为什么&quot;已经不存在&quot;&lt;&#x2F;h2&gt;
+&lt;p&gt;07-24 的一次清理是起因：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;Commandline: apt purge --autoremove snapd libsnapd-glib-2-1
+Purge: ... ubuntu-desktop, ubuntu-desktop-minimal, gnome-shell, gdm3, ubuntu-session, gnome-remote-desktop, gnome-control-center ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;ubuntu-desktop&lt;&#x2F;code&gt; 依赖的 firefox&#x2F;thunderbird 是 snap 过渡包，过渡包依赖 snapd——&lt;code&gt;--autoremove&lt;&#x2F;code&gt; 顺着依赖链把整个桌面栈连坐了。表现：&lt;code&gt;dpkg -l&lt;&#x2F;code&gt; 里 gnome-shell&#x2F;gdm3 全是 &lt;code&gt;rc&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;usr&#x2F;share&#x2F;xsessions&lt;&#x2F;code&gt; 消失、控制台只剩 tty1 文本登录。&lt;&#x2F;p&gt;
+&lt;p&gt;重装（在 mask gpu-manager 之后执行）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt-get update &amp;amp;&amp;amp; sudo apt-get install -y gdm3
+# 79 新装 + 28 升级，含 gnome-shell&amp;#x2F;ubuntu-session&amp;#x2F;gnome-remote-desktop&amp;#x2F;gnome-control-center
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;教训：&lt;code&gt;apt purge --autoremove&lt;&#x2F;code&gt; 删基础包（如 snapd）前先 &lt;code&gt;apt-get -s&lt;&#x2F;code&gt; 模拟看 Remove 列表；snap 过渡包会把删除面放大成桌面级事故。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xin-keng-qxl-xian-cun-bo-hao-jin-greeter-qi-liao-dan-hua-bu-chu-lai&quot;&gt;新坑：QXL 显存 BO 耗尽，greeter 起了但画不出来&lt;&#x2F;h2&gt;
+&lt;p&gt;重装后 &lt;code&gt;gdm.service&lt;&#x2F;code&gt; active、&lt;code&gt;gnome-shell&lt;&#x2F;code&gt; 进程也在（日志已到 &lt;code&gt;Registering session with GDM&lt;&#x2F;code&gt;），但 VM 控制台仍是 tty1 文本。内核日志在刷：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;[drm:qxl_alloc_bo_reserved [qxl]] *ERROR* failed to allocate VRAM BO
+[TTM] Buffer eviction failed
+qxl 0000:00:01.0: object_init failed for (4096, 0x00000001)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每 ~15 秒一次，且从当天 17:55 就开始（远早于重装）——QXL 显存被更早的某次图形操作耗尽后状态粘住，&lt;strong&gt;重启 VM 复位后 GDM 登录界面正常渲染&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;至此这台机器的 QXL 集齐了三种形态：&lt;code&gt;drm_master_open&lt;&#x2F;code&gt; 阻塞（gpu-manager）、没有 renderD128（纯 2D 卡）、显存 BO 耗尽（本次）。最终按 &lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;08&#x2F;wayland-migration-toolchain&#x2F;&quot;&gt;工具链迁移 Wayland&lt;&#x2F;a&gt; 一文的实测方案把显卡换成 &lt;code&gt;virtio-vga-gl&lt;&#x2F;code&gt;，QXL 相关问题整体消失。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;systemctl restart gdm3&lt;&#x2F;code&gt; 卡住 ≠ gdm3 卡住：是 &lt;code&gt;gpu-manager.service&lt;&#x2F;code&gt; 被 &lt;code&gt;display-manager.service.wants&lt;&#x2F;code&gt; 拉进事务，且 &lt;code&gt;Before=display-manager.service&lt;&#x2F;code&gt;，gdm3 的启动全程等它；&lt;&#x2F;li&gt;
+&lt;li&gt;gpu-manager 卡在内核 &lt;code&gt;drm_master_open&lt;&#x2F;code&gt;（打开 QXL 的 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;card1&lt;&#x2F;code&gt;，D 状态，约 2 分钟后自行解除），单跑可复现，与 gdm3 无关；&lt;&#x2F;li&gt;
+&lt;li&gt;Ctrl-C 杀不掉卡住的 restart：只结束 systemctl 客户端，systemd 的 job 照跑；&lt;&#x2F;li&gt;
+&lt;li&gt;排查套路：journal 时间线定位&quot;谁在等谁&quot;→ 单元依赖（&lt;code&gt;systemctl show -p Wants,After&lt;&#x2F;code&gt;）→ 单跑复现 → &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;wchan&lt;&#x2F;code&gt; + &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;stack&lt;&#x2F;code&gt; 拿内核栈；&lt;&#x2F;li&gt;
+&lt;li&gt;本机 gdm3 曾 remove（rc）、init 脚本 &lt;code&gt;test -x&lt;&#x2F;code&gt; 空转（2026-09-13 已重装为原生 &lt;code&gt;gdm.service&lt;&#x2F;code&gt;）；mask gpu-manager 实测生效；&lt;&#x2F;li&gt;
+&lt;li&gt;后续新坑：桌面栈被 &lt;code&gt;apt purge --autoremove snapd&lt;&#x2F;code&gt; 连坐移除；QXL 显存 BO 耗尽会让 greeter&quot;起了但画不出&quot;，重启复位；根治是换 &lt;code&gt;virtio-vga-gl&lt;&#x2F;code&gt;（实测见「工具链迁移 Wayland」那篇）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;pai-cha-ming-ling-su-cha&quot;&gt;排查命令速查&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;目的&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;看 restart 卡在哪个阶段&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;journalctl -u gdm3 --since &quot;5 min ago&quot; -o short-precise&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;看单元依赖（谁拉起谁、谁等谁）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;systemctl show &amp;lt;unit&amp;gt; -p Wants,After,Before&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;看依赖安装链接&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ls &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;display-manager.service.wants&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;单跑复现 + 计时&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;time timeout 40 &#x2F;usr&#x2F;bin&#x2F;gpu-manager --log &#x2F;tmp&#x2F;gm.log&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;卡住进程的内核栈&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;cat &#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;wchan; cat &#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;stack&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;看 systemd 当前 job&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;systemctl list-jobs&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+</feed>

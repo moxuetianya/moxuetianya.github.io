@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - pam</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/pam/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-11T10:23:55+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/pam/atom.xml</id>
+    <entry xml:lang="en">
+        <title>让 agent 执行 sudo 的公钥认证：pam_ssh_agent_auth + 确认门</title>
+        <published>2026-08-11T10:23:55+08:00</published>
+        <updated>2026-08-11T10:23:55+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/"/>
+        <id>https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/sudo-pam-ssh-agent-auth-confirm-gate/">&lt;h1 id=&quot;xu-qiu-bei-jing&quot;&gt;需求背景&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;08&#x2F;sudo-pam-ssh-agent-auth-confirm-gate&#x2F;2026&#x2F;08&#x2F;sudo-askpass-pass-and-gpg-agent&quot;&gt;上一篇文章&lt;&#x2F;a&gt; 用 &lt;code&gt;sudo -A&lt;&#x2F;code&gt; + askpass(pass + gpg-agent + yad)让 agent 执行 sudo 时弹窗授权:回车=允许、Esc=取消、免打字。这套方案解决了&quot;未经同意静默 sudo&quot;的问题,但有一个结构性残余风险:&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;任何人(或任何进程、任何 agent)只要绕过限制,执行 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt;,就能拿到我的口令。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;本文讨论这个风险到底有多真实、sudo 能否改用公钥体系认证(像 SSH 用 gpg-agent 里的带口令密钥认证那样),并最终给出一个可行的落地配置。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;jiu-fang-an-de-can-yu-feng-xian&quot;&gt;旧方案的残余风险&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;feng-xian-de-zhen-shi-bian-jie&quot;&gt;风险的真实边界&lt;&#x2F;h2&gt;
+&lt;p&gt;先纠正一个常见误解:&lt;strong&gt;gpg-agent 缓存的不是 sudo 密码,而是 GPG 私钥的 passphrase&lt;&#x2F;strong&gt;。sudo 密码以密文形式躺在 &lt;code&gt;~&#x2F;.password-store&#x2F;sudo.gpg&lt;&#x2F;code&gt; 里,askpass 每次调用时临时解密一次,明文只短暂存在于 helper 的 stdout→sudo 管道中,不进上下文、不落盘。&lt;&#x2F;p&gt;
+&lt;p&gt;但&quot;泄露&quot;的现实前提没那么难:&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;窗口期&lt;&#x2F;strong&gt;:gpg-agent 配置了 &lt;code&gt;default-cache-ttl 86400&lt;&#x2F;code&gt;(1 天),私钥解锁状态下,任何进程一条 &lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 就静默解出明文,不弹任何提示。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;deny 规则只保护 opencode 一个 agent&lt;&#x2F;strong&gt;:&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;opencode.jsonc&lt;&#x2F;code&gt; 里的 deny 规则管的是 opencode 自己的工具调用。换一个 agent(Claude Code、Cursor、任何有 shell 的脚本)规则完全不存在。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;字符串匹配本身有缝&lt;&#x2F;strong&gt;:&lt;code&gt;printf &#x27;pass show sudo&#x27; | bash&lt;&#x2F;code&gt;、&lt;code&gt;gpg --output - --decrypt ~&#x2F;.password-store&#x2F;sudo.gpg&lt;&#x2F;code&gt; 这类变体可能不命中。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;所以&quot;密码在磁盘上、且能被程序恢复出来&quot;是真实存在的性质。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-gou-xing-shi-shi-tong-yi-ge-yong-hu-tong-yi-quan-xian&quot;&gt;结构性事实:同一个用户 = 同一权限&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;pass show sudo&lt;&#x2F;code&gt; 能拿明文,是因为 gpg-agent 里私钥已解锁,&lt;strong&gt;任何以你身份运行的进程都能静默解密&lt;&#x2F;strong&gt;。你没法造一个&quot;我的合法 agent 能读、恶意进程不能读&quot;的秘密——它们在同一个用户下权限相同。规则、守卫只能抬高门槛,抬不掉&quot;明文可提取&quot;这个性质。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;liang-ge-wei-xie-yao-fen-kai&quot;&gt;两个威胁要分开&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;威胁&lt;&#x2F;th&gt;&lt;th&gt;对话框门防不防&lt;&#x2F;th&gt;&lt;th&gt;根子&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;agent 未经你同意静默 sudo&lt;&#x2F;td&gt;&lt;td&gt;✅ 防(Enter&#x2F;Esc)&lt;&#x2F;td&gt;&lt;td&gt;这是门存在的意义&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;恶意进程偷走可复用密码&lt;&#x2F;td&gt;&lt;td&gt;❌ 不防&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;密码本身可被提取&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;对话框门解决的是第一类;第二类唯一的解是&lt;strong&gt;让密码根本不存在&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;sudo-you-mei-you-gong-yao-ren-zheng&quot;&gt;sudo 有没有公钥认证?&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;strong&gt;没有。&lt;&#x2F;strong&gt; sudo 的认证因子就是账户密码(PAM 密码认证),协议层没有像 SSH 那样的签名交换。要消除&quot;账户密码&quot;这个秘密,只能靠 PAM 模块把认证因子换成别的,主要是两条路:&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;口令是否可被程序恢复&lt;&#x2F;th&gt;&lt;th&gt;每命令人工门&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;pass + askpass(现状)&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;是&lt;&#x2F;strong&gt;,磁盘上存在可解密的账户密码&lt;&#x2F;td&gt;&lt;td&gt;✅ 有(Enter&#x2F;Esc)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_ssh_agent_auth&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;否&lt;&#x2F;strong&gt;,agent 是签名器,密钥不可提取&lt;&#x2F;td&gt;&lt;td&gt;❌ 无&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;否&lt;&#x2F;strong&gt;,密钥永不离 token&lt;&#x2F;td&gt;&lt;td&gt;✅ 有(物理按键)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键区别在&quot;无密码&quot;那一列:&lt;strong&gt;SSH 那套的精华是把私钥放在 agent 里,agent 只做签名,密钥材料不可提取&lt;&#x2F;strong&gt;——哪怕拿到 agent 的全部字节也恢复不出私钥。而 pass 方案是&quot;存密码、用密码&quot;,性质完全不同。这就是为什么最开始的直觉(gpg-agent + 带口令 SSH 密钥认证)方向是对的。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wei-shen-me-pam-ssh-agent-auth-nan-jia-ren-gong-men&quot;&gt;为什么 pam_ssh_agent_auth 难加人工门&lt;&#x2F;h1&gt;
+&lt;p&gt;你可能会想:那就在 pam_ssh_agent_auth 上叠一个人工确认门,每次 sudo 都弹个框。&lt;strong&gt;技术上可行,但门放哪才不被绕过才是症结&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;包一层 wrapper 无效&lt;&#x2F;strong&gt;:密钥已解锁时,&lt;code&gt;sudo&lt;&#x2F;code&gt; 直接走 PAM 认证成功,根本不会经过 wrapper;进程绕过 wrapper 直接执行 &lt;code&gt;sudo&lt;&#x2F;code&gt; 就行,门形同虚设。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;agent 是共享签名器,签名成功时没有提示点&lt;&#x2F;strong&gt;:任何进程都能请 agent 签名,agent 无从区分&quot;人批准的&quot;和&quot;进程自发的&quot;。sudo 又没有&quot;按 y 确认&quot;这种概念——它唯一的门就是认证提示。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pam_ssh_agent_auth 内部没有&quot;必须确认&quot;选项&lt;&#x2F;strong&gt;:它只在 agent 无匹配密钥时才回退到密码对话(此时要的门是反向的)。&lt;code&gt;ssh-add -c&lt;&#x2F;code&gt; 的确认约束也只对 OpenSSH 的 ssh-agent 生效,gpg-agent 不实现。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zhen-neng-zai-pam-ceng-gei-chu-ren-gong-men-de-san-chong-fang-shi&quot;&gt;真能在 PAM 层给出人工门的三种方式&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;门是什么&lt;&#x2F;th&gt;&lt;th&gt;能否绕过&lt;&#x2F;th&gt;&lt;th&gt;代价&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;gpg-agent &lt;code&gt;default-cache-ttl-ssh 0&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;每次签名弹 pinentry 重输密钥口令&lt;&#x2F;td&gt;&lt;td&gt;不能(agent 拒绝无口令签名)&lt;&#x2F;td&gt;&lt;td&gt;每次都要敲口令,且影响所有 SSH 签名(含 ssh 登录)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;自写 PAM 模块 &#x2F; &lt;code&gt;pam_exec&lt;&#x2F;code&gt; 弹窗&lt;&#x2F;td&gt;&lt;td&gt;弹 yad 确认框&lt;&#x2F;td&gt;&lt;td&gt;可被注入 Enter 伪造(软件&quot;声称有人确认&quot;)&lt;&#x2F;td&gt;&lt;td&gt;对话框对&quot;人的 sudo&quot;也生效,要处理显示路由&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;td&gt;&lt;td&gt;物理按键,由硬件验证&lt;&#x2F;td&gt;&lt;td&gt;不能&lt;&#x2F;td&gt;&lt;td&gt;需硬件,远程&#x2F;waypipe 场景别扭&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;dan-chuang-men-vs-u2f-jiao-hu-deng-jia-xing-zhi-bu-tong&quot;&gt;弹窗门 vs U2F:交互等价,性质不同&lt;&#x2F;h2&gt;
+&lt;p&gt;交互上两者都是&quot;每次 sudo 要人做一个物理动作&quot;。区别在&lt;strong&gt;谁能验证&quot;这是人做的&quot;&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;弹窗 Enter:恶意进程可以用 &lt;code&gt;ydotool&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;wtype&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;xdotool&lt;&#x2F;code&gt; 注入按键,sudo 收到的只是&quot;一次按键事件&quot;,分不清是人按的还是程序按的。门是&lt;strong&gt;软件声称有人确认了&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;U2F 触摸:FIDO2 的&quot;用户在场&quot;检查发生在硬件 token 内部,没按实体键 token 就拒绝签名,user-presence 位由硬件置位,软件注入任何事件都无效。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以差异不在交互,而在**&quot;人&quot;这个字的验证方是软件还是硬件**。如果你的威胁模型是&quot;机器上可能有恶意进程&#x2F;被攻陷的 agent 会自己批准对话框&quot;,只有 U2F 这种硬件验证才算真门;如果只是&quot;合法 agent 需要我每次确认&quot;,弹窗门够了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;she-qu-zen-me-kan-pam-ssh-agent-auth&quot;&gt;社区怎么看 pam_ssh_agent_auth&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;本质是&quot;密钥持有的免密 sudo&quot;,设计意图是&quot;能用 SSH 密钥登录就有权 sudo&quot;(自动化&#x2F;Ansible 场景),不是&quot;每命令确认&quot;。多数安全向讨论把它归入与 NOPASSWD 同类,属便捷而非安全机制。&lt;&#x2F;li&gt;
+&lt;li&gt;固有弱点:agent 是共享签名器,同一会话任何进程(包括被攻陷的模型)都能请它签名。&lt;&#x2F;li&gt;
+&lt;li&gt;真正需要&quot;每命令人工批准 + 无秘密落盘&quot;的场景,社区的落地方案就是 askpass 对话框 + 密码保管库(pass&#x2F;1Password&#x2F;KeePass),或 FIDO2 硬件。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zui-zhong-fang-an-pam-ssh-agent-auth-pam-exec-que-ren-men&quot;&gt;最终方案:pam_ssh_agent_auth + pam_exec 确认门&lt;&#x2F;h1&gt;
+&lt;p&gt;结合需求与可行性,选定:&lt;strong&gt;PAM 栈里在 &lt;code&gt;pam_ssh_agent_auth&lt;&#x2F;code&gt; 前面叠一个 &lt;code&gt;pam_exec&lt;&#x2F;code&gt; 确认门&lt;&#x2F;strong&gt;。不写 C 模块、不换 agent(gpg-agent 继续当唯一的 ssh-agent),并用 &lt;code&gt;SUDO_ASKPASS&lt;&#x2F;code&gt; 环境变量区分 agent 调用和人工终端调用,人工的 sudo 保持原有密码体验。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jia-gou&quot;&gt;架构&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;sudo(agent) ──&amp;gt; PAM
+   ① pam_exec 确认门(仅当 SUDO_ASKPASS 已设置 → 弹 yad:Enter=放行&amp;#x2F;Esc=拒绝)
+   ② pam_ssh_agent_auth(gpg-agent 里的 auth 子钥签名;密钥不可提取)
+   ③ common-auth 密码回退(仅人工终端 sudo 走这里,密钥缺省时兜底)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;密钥路径下 &lt;strong&gt;pass 里的 sudo 密码整个移除&lt;&#x2F;strong&gt;,磁盘上没有任何可恢复口令;账户密码只留在 &lt;code&gt;&#x2F;etc&#x2F;shadow&lt;&#x2F;code&gt;(哈希,不可恢复)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ju-ti-pei-zhi&quot;&gt;具体配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-an-zhuang-mo-kuai&quot;&gt;1. 安装模块&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install libpam-ssh-agent-auth
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-deng-ji-shou-quan-gong-yao-yong-gpg-agent-li-xian-you-de-auth-zi-yao&quot;&gt;2. 登记授权公钥(用 gpg-agent 里现有的 auth 子钥)&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh-add -L                        # 从 gpg-agent 列出 ssh 公钥
+sudo mkdir -p &amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d
+sudo install -m 644 &amp;lt;上面列出的公钥&amp;gt; &amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d&amp;#x2F;peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-etc-pam-d-sudo-zai-include-common-auth-qian-cha-ru-liang-xing&quot;&gt;3. &lt;code&gt;&#x2F;etc&#x2F;pam.d&#x2F;sudo&lt;&#x2F;code&gt;(在 &lt;code&gt;@include common-auth&lt;&#x2F;code&gt; 前插入两行)&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;auth    required     pam_exec.so quiet &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;libexec&amp;#x2F;sudo-confirm
+auth    sufficient   pam_ssh_agent_auth.so file=&amp;#x2F;etc&amp;#x2F;pam_ssh_agent_auth.d&amp;#x2F;$USER
+@include common-auth
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-etc-sudoers-d-ssh-agent-auth-rang-zhe-xie-huan-jing-bian-liang-jin-pam&quot;&gt;4. &lt;code&gt;&#x2F;etc&#x2F;sudoers.d&#x2F;ssh-agent-auth&lt;&#x2F;code&gt;(让这些环境变量进 PAM)&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;Defaults env_keep += &amp;quot;SSH_AUTH_SOCK SUDO_ASKPASS DISPLAY WAYLAND_DISPLAY XAUTHORITY XDG_RUNTIME_DIR&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;5-que-ren-men-jiao-ben-usr-local-libexec-sudo-confirm&quot;&gt;5. 确认门脚本 &lt;code&gt;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-confirm&lt;&#x2F;code&gt;&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;sh
+# 只有 agent 路径(SUDO_ASKPASS 已设置)才弹确认框;人工终端 sudo 直接放行
+[ -n &amp;quot;$SUDO_ASKPASS&amp;quot; ] || exit 0
+
+if &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;yad --title=&amp;quot;sudo 授权请求 [$(hostname)]&amp;quot; \
+       --text=&amp;quot;确认授权本次 sudo 操作？&amp;quot; \
+       --button=&amp;quot;允许:0&amp;quot; --button=&amp;quot;取消:1&amp;quot; --center 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null; then
+    exit 0
+else
+    exit 1
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-dou-di-du-si-pass-xie-lou-lu-jing&quot;&gt;6. 兜底:堵死 pass 泄漏路径&lt;&#x2F;h3&gt;
+&lt;p&gt;把 &lt;code&gt;&#x2F;usr&#x2F;local&#x2F;libexec&#x2F;sudo-askpass&lt;&#x2F;code&gt; 改成&quot;永不输出密码&quot;(密钥路径下 askpass 根本不会被调用,这里只是防止密钥缺失时兜底回退到 pass):&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;sh
+exit 1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;可选再加 &lt;code&gt;pass rm sudo&lt;&#x2F;code&gt; 删掉口令,双保险。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xing-wei-yan-zheng&quot;&gt;行为验证&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;行为&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;人工终端 &lt;code&gt;sudo ...&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;无弹窗,密码提示,5 分钟缓存照旧&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;agent &lt;code&gt;SUDO_ASKPASS=... sudo -A -k ...&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;每次弹确认框,Enter 放行 &#x2F; Esc 拒绝&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;密钥未加载时 agent sudo&lt;&#x2F;td&gt;&lt;td&gt;确认框后 pam_ssh_agent_auth 失败→askpass 拒绝→sudo 失败(fail-closed)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;luo-di-qian-yao-shi-ce-de-liang-ge-dian&quot;&gt;落地前要实测的两个点&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;yad 以 root 跑在用户显示上&lt;&#x2F;strong&gt;:&lt;code&gt;pam_exec&lt;&#x2F;code&gt; 默认以 root 运行,Wayland&#x2F;X 的 socket root 一般能连,但要在机器上实测一次。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;file=...$USER&lt;&#x2F;code&gt; 展开&lt;&#x2F;strong&gt;:若模块版本不展开变量,改成硬编码路径 &lt;code&gt;&#x2F;etc&#x2F;pam_ssh_agent_auth.d&#x2F;peter&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;yuan-cheng-waypipe-chang-jing&quot;&gt;远程(waypipe)场景&lt;&#x2F;h2&gt;
+&lt;p&gt;远程机的 PAM 栈需要拿到本地的 agent:&lt;code&gt;waypipe --no-gpu ssh -A -t server &#x27;env SUDO_ASKPASS=... sudo -A cmd&#x27;&lt;&#x2F;code&gt;——&lt;code&gt;-A&lt;&#x2F;code&gt; 做 agent 转发,远程签名请求回到本地 gpg-agent,确认框经转发的显示弹在本地屏幕。注意:agent 转发也意味着远程机能用你的密钥,按需权衡。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bei-xuan-fang-an&quot;&gt;备选方案&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;gpg-agent &lt;code&gt;default-cache-ttl-ssh 0&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;:零新增文件,但每次 SSH 签名(包括 ssh 登录)都要重输口令,全局影响。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;pam_u2f(FIDO2 硬件)&lt;&#x2F;strong&gt;:密钥永不离 token、物理按键由硬件验证,是&quot;非绕过人工门&quot;的终极答案;代价是需硬件,远程场景 token 要在目标机上或做 U2F 转发。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;旧 pass 方案的残余风险是真实的:&lt;strong&gt;口令在磁盘上、能被程序恢复&lt;&#x2F;strong&gt;,deny 规则只是 opencode 层的保护且可绕过;结构性原因是&quot;同一用户 = 同一权限&quot;,无法造&quot;自己能读、恶意进程不能读&quot;的秘密。&lt;&#x2F;li&gt;
+&lt;li&gt;两个威胁要分开:对话框门防&quot;未同意静默 sudo&quot;,防不了&quot;偷走可复用密码&quot;;后者只能靠&lt;strong&gt;无密码&lt;&#x2F;strong&gt;——签名器(pam_ssh_agent_auth)或硬件(pam_u2f)。&lt;&#x2F;li&gt;
+&lt;li&gt;sudo 没有原生公钥认证,只能靠 PAM 模块换认证因子。&lt;&#x2F;li&gt;
+&lt;li&gt;pam_ssh_agent_auth 加人工门技术上可行,但 agent 是共享签名器、无提示点,弹窗门可被注入按键伪造;要&quot;非绕过门&quot;只能靠 U2F 硬件。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;最终方案&lt;&#x2F;strong&gt;:&lt;code&gt;pam_exec&lt;&#x2F;code&gt; 确认门 + &lt;code&gt;pam_ssh_agent_auth&lt;&#x2F;code&gt;,用 &lt;code&gt;SUDO_ASKPASS&lt;&#x2F;code&gt; 区分 agent 与人工路径,密钥不可提取、每次 agent 的 sudo 都弹确认框,并移除 pass 里的 sudo 口令。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>linux 安全认证框架</title>
+        <published>2025-10-02T20:23:46+08:00</published>
+        <updated>2025-10-02T20:23:46+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/linux 安全认证框架/"/>
+        <id>https://moxuetianya.github.io/2025/10/linux 安全认证框架/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/linux 安全认证框架/">&lt;ul&gt;
+&lt;li&gt;NSS &#x2F; SSSD &#x2F; systemd-homed → 负责用户 身份信息来源与存储&lt;&#x2F;li&gt;
+&lt;li&gt;PAM → 负责 认证（确认身份）&lt;&#x2F;li&gt;
+&lt;li&gt;Polkit → 负责 授权（能不能做某件事，需要不要再认证）&lt;&#x2F;li&gt;
+&lt;li&gt;SELinux &#x2F; AppArmor → 负责 强制控制（内核级别，防止越权访问）&lt;&#x2F;li&gt;
+&lt;li&gt;LSM &#x2F; seccomp &#x2F; capabilities &#x2F; namespaces → 提供内核安全机制&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

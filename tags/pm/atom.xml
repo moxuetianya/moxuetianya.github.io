@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - pm</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/pm/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-16T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/pm/atom.xml</id>
+    <entry xml:lang="en">
+        <title>linux电源管理</title>
+        <published>2025-10-18T15:08:53+08:00</published>
+        <updated>2026-08-16T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/linux电源管理/"/>
+        <id>https://moxuetianya.github.io/2025/10/linux电源管理/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/linux电源管理/">&lt;h1 id=&quot;cha-kan-suspendxiu-mian-pei-zhi-mo-shi&quot;&gt;查看suspend休眠配置模式&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;sys&amp;#x2F;power&amp;#x2F;mem_sleep
+echo deep | sudo tee &amp;#x2F;sys&amp;#x2F;power&amp;#x2F;mem_sleep
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-hibernatexiu-mian&quot;&gt;配置hibernate休眠&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;etc&amp;#x2F;fstab
+swapon --show
+sudo swapoff -a
+sudo dd if=&amp;#x2F;dev&amp;#x2F;zero of=&amp;#x2F;swapfile bs=1G count=17
+sudo swapon &amp;#x2F;swapfile
+
+# 获取swap文件的offset
+sudo filefrag -v &amp;#x2F;swapfile | awk &amp;#x27;{if($1==&amp;quot;0:&amp;quot;) print $4}&amp;#x27;
+# 查看根分区 UUID
+findmnt -no UUID -T &amp;#x2F;
+
+sudo vim &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub
+# GRUB_CMDLINE_LINUX_DEFAULT=&amp;quot;quiet splash mem_sleep_default=deep resume=UUID=&amp;lt;磁盘分区UUID&amp;gt; resume_offset=&amp;lt;swap文件偏移量&amp;gt;&amp;quot;
+sudo update-grub
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-dian-yuan-guan-li&quot;&gt;配置电源管理&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;lt;&amp;lt;EOF &amp;gt; &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;sleep.conf.d&amp;#x2F;enable-sleep.conf
+AllowSuspend=yes
+AllowHibernation=yes
+HibernateMode=platform shutdown
+HibernateState=disk
+AllowSuspendThenHibernate=yes
+AllowHybridSleep=yes
+SuspendState=mem standby freeze
+EOF
+
+sudo mkdir &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;logind.conf.d
+cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;logind.conf.d&amp;#x2F;override.conf
+[Login]
+HandlePowerKey=suspend-then-hibernate
+HandleRebootKey=reboot
+HandleRebootKeyLongPress=poweroff
+HandleSuspendKey=suspend
+HandleSuspendKeyLongPress=hibernate
+IdleAction=suspend-then-hibernate
+IdleActionSec=30min
+EOF
+
+systemd-analyze cat-config systemd&amp;#x2F;sleep.conf
+systemd-analyze cat-config systemd&amp;#x2F;logind.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;fang-xiu-mian-rang-ji-qi-sui-shi-ke-lian&quot;&gt;防休眠（让机器随时可连）&lt;&#x2F;h1&gt;
+&lt;p&gt;场景：远程机（笔记本、服务器）需要 7x24 可 SSH 连接，不能自动睡。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-yi-mask-xiu-mian-mu-biao-jian-dan-cu-bao&quot;&gt;方案一：mask 休眠目标（简单粗暴）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 屏蔽所有休眠途径：空闲挂起、合盖、电源键、手动 suspend 全部失效
+sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+# 验证（显示 masked）
+systemctl list-units --type=target --all | grep -Ei &amp;quot;suspend|sleep|hibernate&amp;quot;
+# 恢复
+sudo systemctl unmask sleep.target suspend.target hibernate.target hybrid-sleep.target suspend-then-hibernate.target
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;缺点（太重）&lt;&#x2F;strong&gt;：手动 &lt;code&gt;systemctl suspend&lt;&#x2F;code&gt;、按电源键、合盖全部静默失败；电池模式下也无法省电；无法区分 AC&#x2F;电池策略。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-er-gnome-dian-yuan-guan-li-tui-jian-li-du-xi&quot;&gt;方案二：GNOME 电源管理（推荐，粒度细）&lt;&#x2F;h2&gt;
+&lt;p&gt;原理：&lt;code&gt;gsd-power&lt;&#x2F;code&gt; 持有 sleep &lt;code&gt;block&lt;&#x2F;code&gt; 抑制剂（&lt;code&gt;systemd-inhibit --list&lt;&#x2F;code&gt; 可查），logind 执行 IdleAction 时被抑制剂挡住，机器不会因空闲挂起，但&lt;strong&gt;手动挂起&#x2F;电源键仍然可用&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 空闲自动挂起：AC&amp;#x2F;电池 均设为 nothing（不挂起）
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type nothing
+gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type nothing
+gsettings get org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type   # 验证
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;he-gai-xing-wei-logind-drop-in-bi-xu-dai-login-duan-tou-yi-cai-keng&quot;&gt;合盖行为：logind drop-in 必须带 [Login] 段头（易踩坑）&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;症状&lt;&#x2F;strong&gt;：&lt;code&gt;&#x2F;etc&#x2F;systemd&#x2F;logind.conf.d&#x2F;override.conf&lt;&#x2F;code&gt; 写了 &lt;code&gt;HandleLidSwitch=ignore&lt;&#x2F;code&gt;，&lt;code&gt;systemd-analyze cat-config&lt;&#x2F;code&gt; 也显示已合并，但 logind 生效值仍是 &lt;code&gt;suspend&lt;&#x2F;code&gt;，合盖照样挂起。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;：drop-in 文件漏了 &lt;code&gt;[Login]&lt;&#x2F;code&gt; 段头——systemd 配置解析要求键必须属于某个 section，没有段头整行被忽略。日志可见（需 root 读 journal）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;systemd-logind: &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;logind.conf.d&amp;#x2F;override.conf:1: Assignment outside of section. Ignoring.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;systemd-analyze cat-config&lt;&#x2F;code&gt; 只拼接文件内容、不做 section 校验，所以看起来一切正常——别被它骗了。&lt;&#x2F;p&gt;
+&lt;p&gt;（旧版曾误判为&quot;gsd-power 在会话启动时用 SetLidSwitchBehavior 覆盖 logind 配置&quot;：实际 systemd ≥257 已移除该方法，logind 合盖行为完全由配置决定，不存在运行时覆盖；D-Bus 监听也证实无任何调用。误判源于对 &lt;code&gt;HandleLidSwitch&lt;&#x2F;code&gt; 属性值的错误解读——它如实反映配置，配置只是没生效而已。）&lt;&#x2F;p&gt;
+&lt;p&gt;排查&#x2F;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 看 logind 当前生效的合盖行为
+busctl get-property org.freedesktop.login1 &amp;#x2F;org&amp;#x2F;freedesktop&amp;#x2F;login1 org.freedesktop.login1.Manager HandleLidSwitch
+
+# drop-in 未生效时，root 查看被忽略的原因
+sudo journalctl -u systemd-logind -n 20 | grep -i &amp;quot;outside of section&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;修复（改完 &lt;code&gt;systemctl restart systemd-logind&lt;&#x2F;code&gt; 立即生效；会登出图形会话，对纯服务器无影响）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;logind.conf.d&amp;#x2F;override.conf &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+[Login]
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+EOF
+sudo systemctl restart systemd-logind
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;he-gai-ignore-zhi-hou-ping-mu-bu-hui-zi-dong-xi-ping-sheng-dian-que-ren-fang-fa&quot;&gt;合盖 ignore 之后：屏幕不会自动息屏（省电确认方法）&lt;&#x2F;h3&gt;
+&lt;p&gt;合盖不挂起后，OS 层面对 lid 事件不再做任何动作，&lt;strong&gt;屏幕也不会自动熄灭&lt;&#x2F;strong&gt;：背光保持原亮度、GPU 继续渲染、eDP 供电不断。是否真省电取决于笔记本 EC 固件是否在硬件层切断面板供电（系统内无法直接确认，多数笔记本 EC 会断，但别默认）。&lt;&#x2F;p&gt;
+&lt;p&gt;确认屏幕当前是否在省电状态：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 背光设定值（0 = 软件层已熄屏；非 0 = 还亮着）
+cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;backlight&amp;#x2F;*&amp;#x2F;actual_brightness &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;backlight&amp;#x2F;*&amp;#x2F;max_brightness
+
+# GPU 渲染管道是否还活动（有 &amp;quot;1920x1080&amp;quot; 这样的帧缓冲 = 还在渲染）
+sudo cat &amp;#x2F;sys&amp;#x2F;kernel&amp;#x2F;debug&amp;#x2F;dri&amp;#x2F;0&amp;#x2F;state | grep &amp;quot;crtc-pos&amp;quot;
+
+# eDP 数据通道供电（PORT_DDI_LANES_A = 1 说明还在供电）
+sudo cat &amp;#x2F;sys&amp;#x2F;kernel&amp;#x2F;debug&amp;#x2F;dri&amp;#x2F;0&amp;#x2F;i915_power_domain_info | grep &amp;quot;PORT_DDI_LANES_A&amp;quot;
+
+# 功耗对比（最可靠；需拔电源用电池，合盖前后各读一次）
+awk &amp;#x27;{print &amp;quot;放电功率(W):&amp;quot;, $1*$2&amp;#x2F;1e12}&amp;#x27; \
+  &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;power_supply&amp;#x2F;BAT1&amp;#x2F;current_now &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;power_supply&amp;#x2F;BAT1&amp;#x2F;voltage_now
+# 或者最直接：开一条缝看屏幕
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;真正省电靠 &lt;strong&gt;idle 息屏&lt;&#x2F;strong&gt;：GNOME &lt;code&gt;org.gnome.desktop.session idle-delay&lt;&#x2F;code&gt;（默认 300s）闲置后屏幕熄灭（背光归 0），与合盖无关；&lt;code&gt;0&lt;&#x2F;code&gt; = 永不自动息屏。注意&lt;strong&gt;登录页（gdm greeter）状态下的息屏由 greeter 决定，未必生效&lt;&#x2F;strong&gt;——要确保息屏先登录回图形会话。合盖 ignore 不影响手动 &lt;code&gt;systemctl suspend&lt;&#x2F;code&gt;（需要时仍可手动挂起省电）。&lt;&#x2F;p&gt;
+&lt;p&gt;SSH 会话里 &lt;code&gt;gsettings get&#x2F;set&lt;&#x2F;code&gt; 直接可用（dconf 写用户库，无需会话 DBus）；但 &lt;code&gt;gdbus&#x2F;busctl&lt;&#x2F;code&gt; 调图形会话接口（息屏&#x2F;锁屏，见下文）需借用图形会话的 DBus（&lt;code&gt;DBUS_SESSION_BUS_ADDRESS&lt;&#x2F;code&gt; 从 gnome-shell 进程 environ 取）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-yuan-cheng-ji-ssh-duan-lian&quot;&gt;排查：远程机 SSH 断连&lt;&#x2F;h1&gt;
+&lt;p&gt;场景症状 &lt;code&gt;ssh: connect to host ... No route to host&lt;&#x2F;code&gt;，先分清是「机器挂了」还是「换 IP 了」：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ping -c2 &amp;lt;host&amp;gt;                    # 不通：机器挂起&amp;#x2F;关机，或 IP 已变
+uptime -p; last reboot -2          # suspend 不重置 uptime；last reboot 区分挂起 vs 重启
+cat &amp;#x2F;proc&amp;#x2F;acpi&amp;#x2F;button&amp;#x2F;lid&amp;#x2F;*&amp;#x2F;state  # 合盖挂起的机器：开盖自动恢复（SSH 又通了就是合盖挂起）
+nmap -sn -T4 192.168.2.0&amp;#x2F;24 | grep report   # IP 变了：扫存活主机，用 hostname 对上目标
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;&#x2F;etc&#x2F;hosts&lt;&#x2F;code&gt; 静态条目过期是常见原因（机器在线但换 DHCP IP）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-fang-fa-lun-he-gai-gua-qi-shi-zhan-jiao-xun&quot;&gt;排查方法论（合盖挂起实战教训）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;认错机器&lt;&#x2F;strong&gt;：主机离线时 nmap 扫到活机，先核对 &lt;code&gt;hostname&lt;&#x2F;code&gt;、&lt;code&gt;cat &#x2F;sys&#x2F;class&#x2F;dmi&#x2F;id&#x2F;product_name&lt;&#x2F;code&gt;、系统版本再当目标——局域网可能有多台相似机器（本案例把 .147 的 H3C MegaBook 当成 .63 的华为 MateBook 配置了一下午，改错了对象）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;journal 组权限坑&lt;&#x2F;strong&gt;：非 root 且不在 &lt;code&gt;adm&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;systemd-journal&lt;&#x2F;code&gt; 组时，&lt;code&gt;journalctl&lt;&#x2F;code&gt; 只显示本人会话的消息，系统消息（logind 等）全被隐藏——&lt;strong&gt;grep 不到 ≠ 没有日志&lt;&#x2F;strong&gt;。排查 systemd 行为一律 &lt;code&gt;sudo journalctl -u &amp;lt;unit&amp;gt; -n 20&lt;&#x2F;code&gt;。本案例 drop-in 被忽略的 &lt;code&gt;Assignment outside of section&lt;&#x2F;code&gt; 警告就是加了 sudo 才看到的。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;抓 D-Bus 调用方&lt;&#x2F;strong&gt;：&lt;code&gt;dbus-monitor --system &quot;type=method_call,member=&amp;lt;方法名&amp;gt;&quot;&lt;&#x2F;code&gt;（非 root 自动降级 eavesdropping，仍能抓到），配合重启服务&#x2F;登录会话重现。本案例用监听证实没有任何会话进程调用 SetLidSwitchBehavior，排除&quot;运行时覆盖&quot;理论，把排查收敛到配置解析本身。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;systemd ≥257 已移除 SetLidSwitchBehavior&lt;&#x2F;strong&gt;：logind 合盖行为完全由配置决定，不存在运行时覆盖——配置&quot;没生效&quot;优先怀疑配置本身（段头&#x2F;文件路径&#x2F;优先级），而不是被谁覆盖。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;wi-fi-bu-duan-xian&quot;&gt;Wi-Fi 不断线&lt;&#x2F;h1&gt;
+&lt;p&gt;笔记本掉线头号元凶是 Wi-Fi 省电（NIC 间歇性休眠），SSH 空闲断连则是 NAT 超时掐线：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 关闭 Wi-Fi 省电（全局 + 单个连接，重启后仍生效）
+sudo nmcli g s wifi.powersave 2
+sudo nmcli con mod &amp;quot;SSID&amp;quot; 802-11-wireless.powersave disable
+sudo nmcli con down &amp;quot;SSID&amp;quot; &amp;amp;&amp;amp; sudo nmcli con up &amp;quot;SSID&amp;quot;   # 重连使连接级配置生效
+sudo iw dev wlan0 get power_save                          # 验证：Power save: off
+
+# sshd 保活：&amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;sshd_config.d&amp;#x2F;keepalive.conf
+ClientAliveInterval 60
+ClientAliveCountMax 3
+sudo systemctl restart ssh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xi-ping-yu-suo-ping&quot;&gt;息屏与锁屏&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;strong&gt;息屏（DPMS）与休眠独立&lt;&#x2F;strong&gt;：息屏只是屏幕进省电状态，系统照常运行、SSH 不掉线；休眠是整机冻结。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 检查&amp;#x2F;关闭自动息屏（GNOME）
+gsettings get org.gnome.desktop.session idle-delay     # 秒；0 = 永不自动息屏
+gsettings set org.gnome.desktop.session idle-delay 0
+gsettings get org.gnome.settings-daemon.plugins.power idle-dim   # 息屏前先变暗
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;远程控制息屏&#x2F;亮屏（&lt;strong&gt;即时动作&lt;&#x2F;strong&gt;；gsettings 只改&quot;空闲多久自动息屏&quot;之类的规则，不是动作，不能替代）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# GNOME Wayland：SSH 会话需借用图形会话的 bus。
+# systemd 用户会话有固定路径 &amp;#x2F;run&amp;#x2F;user&amp;#x2F;&amp;lt;uid&amp;gt;&amp;#x2F;bus，比从 gnome-shell environ 里挖更稳；
+# 跨用户会话（如活动会话是 gdm greeter，属 Debian-gdm）用 sudo -u。
+busctl --user call org.gnome.ScreenSaver &amp;#x2F;org&amp;#x2F;gnome&amp;#x2F;ScreenSaver org.gnome.ScreenSaver SetActive b true   # true=息屏, false=亮屏
+busctl --user call org.gnome.ScreenSaver &amp;#x2F;org&amp;#x2F;gnome&amp;#x2F;ScreenSaver org.gnome.ScreenSaver GetActive          # 查询屏保状态
+
+# GNOME 同时实现了 org.gnome.ScreenSaver 和 org.freedesktop.ScreenSaver 两个名字（实测都可用），
+# 用哪个都行；busctl 比 gdbus 稳（本机实测 gdbus 传 b 类型参数报 &amp;quot;expected value&amp;quot; 解析错误）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;坑与边界（实测）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;greeter 登录页没有 ScreenSaver 服务&lt;&#x2F;strong&gt;（greeter 的 bus 上只有 keyring）——上述 D-Bus 方案、&lt;code&gt;xdg-screensaver&lt;&#x2F;code&gt;、&lt;code&gt;gnome-screensaver-command&lt;&#x2F;code&gt; 在登录页&lt;strong&gt;全部失效&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;兜底方案：直接写背光 sysfs（&lt;code&gt;&#x2F;sys&#x2F;class&#x2F;backlight&#x2F;intel_backlight&#x2F;brightness&lt;&#x2F;code&gt;，0 = 息屏），greeter&#x2F;用户会话都适用；亮屏恢复上次值&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;gnome-screensaver-command&lt;&#x2F;code&gt; 已废弃（现代 GNOME 不安装）；&lt;code&gt;xdg-screensaver activate&lt;&#x2F;code&gt; 实测 exit 0 可用（内部转发到 D-Bus），但同样依赖会话里的 ScreenSaver 服务&lt;&#x2F;li&gt;
+&lt;li&gt;现成脚本（dotfiles &lt;code&gt;~&#x2F;.my_local&#x2F;bin&#x2F;&lt;&#x2F;code&gt;，随仓库部署，SSH 远程直接可用）：&lt;code&gt;screen-state.sh&lt;&#x2F;code&gt;（状态：背光 + 会话屏保）、&lt;code&gt;screen-set.sh off|on&lt;&#x2F;code&gt;（优先 ScreenSaver，无服务时背光兜底，自动定位活动会话并 sudo -u）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# X11 环境有直接工具：xset dpms force off &amp;#x2F; on
+# （旧文曾写 &amp;quot;Wayland 下 xdg-screensaver 已失效&amp;quot;——实测不准：xdg-screensaver 在 Wayland 可用，
+#   失效的只是 xset，它只能操作 Xwayland 窗口，点不亮物理屏幕；wlopm 是 wlroots&amp;#x2F;Sway 系，GNOME 用不了）
+
+# 锁屏：loginctl lock-session &amp;lt;id&amp;gt;（亮屏需密码，不适合远程）
+# 锁屏不会断 Wi-Fi（网络栈与显示会话无关）；真正断网的是休眠
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

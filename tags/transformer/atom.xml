@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - transformer</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/transformer/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-25T16:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/transformer/atom.xml</id>
+    <entry xml:lang="en">
+        <title>多模态大模型（LMM）工程原理深度解析：从架构到推理</title>
+        <published>2026-08-25T16:00:00+08:00</published>
+        <updated>2026-08-25T16:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/"/>
+        <id>https://moxuetianya.github.io/2026/08/lmm-engineering-principles/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/lmm-engineering-principles/">&lt;h1 id=&quot;duo-mo-tai-da-mo-xing-lmm-gong-cheng-yuan-li-shen-du-jie-xi-cong-jia-gou-dao-tui-li&quot;&gt;多模态大模型（LMM）工程原理深度解析：从架构到推理&lt;&#x2F;h1&gt;
+&lt;p&gt;在了解大模型原理之前，很多人会好奇：多模态模型（如 GPT-4o、Qwen-VL）为什么能&quot;看懂&quot;图片？它们和外挂一个 OCR&#x2F;检测模型，把文字描述塞给 LLM 的&quot;外挂识别方案&quot;有什么区别？本文从工程角度拆解 LMM 的底层机制，重点解答&quot;图像向量如何被 LLM 理解&quot;这一核心问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;1-yuan-sheng-duo-mo-tai-vs-wai-gua-shi-bie-ben-zhi-chai-yi&quot;&gt;1. 原生多模态 vs. 外挂识别：本质差异&lt;&#x2F;h2&gt;
+&lt;p&gt;多模态 LLM 和外挂图片识别的 LLM 差别是&lt;strong&gt;本质性&lt;&#x2F;strong&gt;的，核心在于&lt;strong&gt;信息流通的完整性&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;方案类型&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;工作流程&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;信息损失&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;外挂识别方案&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;图像 → 外部模型（OCR&#x2F;检测）→ &lt;strong&gt;文字描述&lt;&#x2F;strong&gt; → LLM&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;信息瓶颈（Information Bottleneck）&lt;&#x2F;strong&gt;。丢失了颜色深浅、光影、精确相对位置等无法用语言穷举的细节。LLM 处理的是&quot;二手信息&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;原生多模态方案&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;图像 → 视觉编码器 → 投影层 → &lt;strong&gt;直接进入 LLM 嵌入空间&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;保留像素级语义&lt;&#x2F;strong&gt;。模型能看到&quot;猫的胡须弧度&quot;，并直接基于原始视觉信号推理，具备&quot;视觉直觉&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;也正因如此，现在的 SOTA 模型（如 GPT-4o、Qwen-VL）均采用原生多模态路线。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-he-xin-jia-gou-san-da-mo-kuai-de-zhi-ze-yu-can-shu&quot;&gt;2. 核心架构：三大模块的职责与参数&lt;&#x2F;h2&gt;
+&lt;p&gt;目前的架构（如 LLaVA、CogVLM）均采用 &lt;strong&gt;&quot;视觉编码器 + 投影层 + 大语言模型&quot;&lt;&#x2F;strong&gt; 的模块化结构：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;模块&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;作用&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;输入&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;输出&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;参数规模参考&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;视觉编码器&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;提取视觉语义特征&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;原始像素 &lt;code&gt;(224x224x3)&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉特征向量 &lt;code&gt;(14x14x768)&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;约 &lt;strong&gt;5B&lt;&#x2F;strong&gt;（如 CogVLM2）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;投影层（关键纽带）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;将视觉特征&quot;翻译&quot;到语言模型空间&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉特征向量&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;视觉嵌入向量（维度与 LLM 词嵌入一致）&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;较小（通常是 MLP）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;大语言模型&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;综合视觉与文本信息，进行推理和生成&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;文本 Token + 视觉嵌入&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;回答文本&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;约 &lt;strong&gt;8B&lt;&#x2F;strong&gt;（如 Llama-3）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;3-mo-tai-dui-qi-de-di-ceng-shu-xue-ji-zhi-mei-you-biao-qian-ru-he-qu-fen&quot;&gt;3. 模态对齐的底层数学机制：没有&quot;标签&quot;如何区分？&lt;&#x2F;h2&gt;
+&lt;p&gt;投影层将图片和文本都映射成了相同维度的向量，模型怎么区分它们？会不会把图片误读成文字？&lt;&#x2F;p&gt;
+&lt;p&gt;这是理解多模态模型最核心、最反直觉的一点。&lt;strong&gt;Transformer 本身并不依赖显式标签区分图片与文本&lt;&#x2F;strong&gt;，但不同模型在&quot;模态边界&quot;这个工程问题上走了&lt;strong&gt;两条路线&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;隐式路线（LLaVA 风格）&lt;&#x2F;strong&gt;：靠输入向量的固有统计差异 + 注意力机制天然区分，见 3.1；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;显式路线（Qwen 风格）&lt;&#x2F;strong&gt;：在序列中保留 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 边界 token，明确框出视觉信息块的起止，见 3.3。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;修正说明：初版文章只写了隐式路线，说法过于简化——它只对 LLaVA 风格的模型成立。下面先保留原分析，再补充显式边界 token 的正确图景（Qwen 的细节来自 tokenizer 配置观察，后续继续求证）。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;3-1-yin-shi-lu-xian-shu-zhi-de-tong-ji-te-zheng-distribution-shift&quot;&gt;3.1 隐式路线：数值的统计特征（Distribution Shift）&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;文本向量（Embedding）&lt;&#x2F;strong&gt;：来自固定的词表查表。经过预训练后，所有文本 Token 的向量**模长（L2 Norm）**通常非常稳定且较小（如均值约为 2.3）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;图片向量（Projection）&lt;&#x2F;strong&gt;：由多层感知机（MLP）对实时像素进行&lt;strong&gt;非线性变换&lt;&#x2F;strong&gt;得到。由于 MLP 的激活函数（如 GELU），输出向量的&lt;strong&gt;模长通常远大于文本&lt;&#x2F;strong&gt;（如均值可达 15.0），且方差极大。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;类比：你不是靠标签去区分一堆&lt;strong&gt;乒乓球（文本）&lt;strong&gt;和&lt;&#x2F;strong&gt;铅球（图片）&lt;&#x2F;strong&gt;，而是因为&lt;strong&gt;质量（向量模长）的巨大差异&lt;&#x2F;strong&gt;，在计算力（Attention）时，它们对网络带来的影响本就不同。模型只需按照矩阵乘法计算，&lt;strong&gt;模长大的图片向量在 Attention 中会天然获得更高的权重&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-2-wei-zhi-bian-ma-yu-mo-tai-wu-guan&quot;&gt;3.2 位置编码与模态无关&lt;&#x2F;h3&gt;
+&lt;p&gt;位置编码&lt;strong&gt;只负责标记&quot;顺序&quot;和&quot;相对坐标&quot;，与模态区分无关&lt;&#x2F;strong&gt;。它解决的是&quot;这句话从左到右的语序&quot;问题，不是&quot;这是图片还是文字&quot;的问题。&lt;&#x2F;p&gt;
+&lt;p&gt;多张图片的交叉处理，靠的是&lt;strong&gt;位置编码提供&quot;身份证&quot;&lt;&#x2F;strong&gt;，让模型知道某个向量属于哪张图；而&lt;strong&gt;文本指令（如&quot;图1&quot;）作为 Query&lt;&#x2F;strong&gt;，通过注意力权重的高分检索，把目标坐标段的向量&quot;拉取&quot;出来。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-3-xian-shi-lu-xian-vision-start-vision-end-bian-jie-token-qwen-feng-ge&quot;&gt;3.3 显式路线：&lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 边界 token（Qwen 风格）&lt;&#x2F;h3&gt;
+&lt;p&gt;Qwen 系列的 tokenizer 中确实存在与视觉相关的特殊 token，且拥有独立 token ID（如 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; = 248053、&lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; = 248054），见 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;huggingface.co&#x2F;Qwen&#x2F;Qwen3.8-27B&#x2F;blob&#x2F;main&#x2F;tokenizer_config.json&quot;&gt;Qwen3.8-27B tokenizer_config.json&lt;&#x2F;a&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;Token&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_start&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_end&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;vision_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;image_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;video_pad&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;与 LLaVA 风格（&lt;code&gt;&amp;lt;image&amp;gt;&lt;&#x2F;code&gt; 占位符在预处理时被物理移除、替换为图像向量）不同，Qwen 的做法是&lt;strong&gt;保留这些边界 token 在输入序列中&lt;&#x2F;strong&gt;，实际排列如：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;|im_start|&amp;gt;user&amp;lt;|im_start|&amp;gt; &amp;lt;|vision_start|&amp;gt; [576个图像向量] &amp;lt;|vision_end|&amp;gt; 请描述这张图 &amp;lt;|im_end|&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;它们的作用：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;结构化标记&lt;&#x2F;strong&gt;：&lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; 和 &lt;code&gt;&amp;lt;|vision_end|&amp;gt;&lt;&#x2F;code&gt; 像一对括号，明确划定了&quot;图像特征向量&quot;的边界，模型在 Self-Attention 中可以据此知道&quot;夹在中间的这些向量是视觉特征，不是文本&quot;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Attention 锚点&lt;&#x2F;strong&gt;：文本 Token（如&quot;请&quot;、&quot;描&quot;、&quot;述&quot;）做 Query 时，可通过 &lt;code&gt;&amp;lt;|vision_start|&amp;gt;&lt;&#x2F;code&gt; 这个 Token 的 Key 精准定位到图像特征的起始位置，比纯靠位置编码推断更明确、更鲁棒。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;区分输入类型&lt;&#x2F;strong&gt;：&lt;code&gt;&amp;lt;|image_pad|&amp;gt;&lt;&#x2F;code&gt; 与 &lt;code&gt;&amp;lt;|video_pad|&amp;gt;&lt;&#x2F;code&gt; 让同一序列中可区分当前填充的是图像还是视频特征（Qwen 同时支持图文和视频输入）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;特性&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;LLaVA 风格&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;Qwen 风格&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;占位符处理&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;code&gt;&amp;lt;image&amp;gt;&lt;&#x2F;code&gt; 在预处理时被移除，替换为图像向量&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;边界标记&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;无显式边界，靠位置编码区分&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;有显式的 start&#x2F;end 边界 token&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;优点&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;序列更短，计算略快&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;边界更明确，多模态类型区分更清晰&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;代表模型&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;LLaVA、早期的 BLIP&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;Qwen-VL、CogVLM、InternVL&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;4-xun-lian-gong-cheng-sun-shi-yan-ma-yu-zhu-yi-li-ji-zhi&quot;&gt;4. 训练工程：损失掩码与注意力机制&lt;&#x2F;h2&gt;
+&lt;p&gt;训练时如何防止模型&quot;乱输出像素&quot;？这跟位置无关，真实的技术原理是 &lt;strong&gt;&quot;注意力掩码（Attention Mask）&quot; + &quot;损失掩码（Loss Mask）&quot;&lt;&#x2F;strong&gt; 的组合。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-1-xun-lian-shi-sun-shi-yan-ma-loss-mask&quot;&gt;4.1 训练时：损失掩码（Loss Mask）&lt;&#x2F;h3&gt;
+&lt;p&gt;在计算交叉熵损失时，代码会显式地将&lt;strong&gt;图片 Token 对应的标签（Label）设为 &lt;code&gt;-100&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（在 PyTorch 中，&lt;code&gt;-100&lt;&#x2F;code&gt; 代表忽略该位置的损失）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;无论这张图出现在序列的第 1 位，还是第 1000 位，只要它是图片向量，&lt;strong&gt;它就不参与&quot;预测下一个字&quot;的误差计算&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;因此，模型不会因为&quot;没预测出图片后面的像素&quot;而受到惩罚。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;4-2-tui-li-shi-yin-guo-zi-zhu-yi-li-causal-self-attention&quot;&gt;4.2 推理时：因果自注意力（Causal Self-Attention）&lt;&#x2F;h3&gt;
+&lt;p&gt;推理阶段没有损失函数，依靠自回归生成机制。模型每次只生成&lt;strong&gt;一个&lt;&#x2F;strong&gt; Token，且&lt;strong&gt;只有序列最后一位的 Token 有资格发起 Query 去预测下一个词&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;前面的图片 Token 早已&quot;躺&quot;在历史缓存（KV Cache）中，只提供记忆，不发起生成请求。&lt;&#x2F;li&gt;
+&lt;li&gt;因此，&lt;strong&gt;推理时不需要显式地屏蔽图片预测&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;5-tui-li-gong-cheng-chun-tu-pian-shu-ru-yu-duo-tu-jiao-hu&quot;&gt;5. 推理工程：纯图片输入与多图交互&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;5-1-tu-pian-token-mei-you-fa-yan-quan-dan-xi-tong-hui-qiang-zhi-pin-jie-qi-shi-fu&quot;&gt;5.1 图片 Token 没有&quot;发言权&quot;，但系统会强制拼接起始符&lt;&#x2F;h3&gt;
+&lt;p&gt;如果输入只有一个图片、没有文本，图片 Token 不能作为 Query，怎么生成输出？&lt;&#x2F;p&gt;
+&lt;p&gt;现实工程中，&lt;strong&gt;根本不会出现&quot;只有图片向量，没有文本 Token&quot;的输入序列&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;系统强制拼接&lt;&#x2F;strong&gt;：当用户没有输入文本时，系统会自动在图片向量&lt;strong&gt;后面&lt;&#x2F;strong&gt;拼接一个特殊的起始文本 Token（如 &lt;code&gt;&amp;lt;BOS&amp;gt;&lt;&#x2F;code&gt; 或 &lt;code&gt;Describe this image&lt;&#x2F;code&gt; 默认提示词）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;启动生成&lt;&#x2F;strong&gt;：第一个字是由这个系统添加的 &lt;code&gt;[BOS]&lt;&#x2F;code&gt; Token 发起 Query 去检索图片信息并生成，而不是由图片 Token 自己发起生成。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：图片 Token 在多模态 LLM 中，只充当&quot;记忆体&quot;和&quot;参考书&quot;，而**&quot;发言权（Query 权限）&quot;永远只交给文本 Token 或起始符**。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-2-duo-zhang-tu-jiao-cha-chu-xian-shi-ru-he-fang-zhi-gan-rao&quot;&gt;5.2 多张图交叉出现时，如何防止干扰？&lt;&#x2F;h3&gt;
+&lt;p&gt;多张图交叉出现时，主流模型&lt;strong&gt;不仅不刻意&quot;防止&quot;图片互相干扰，反而&quot;鼓励&quot;它们互相看见&lt;&#x2F;strong&gt;（如对比&quot;谁更开心&quot;）。真正需要防止的是**&quot;身份混淆&quot;**，即把图 A 的特征安到图 B 上。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;机制&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;是否允许图片互看？&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;核心作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;Self-Attention（自注意力）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;允许&lt;&#x2F;strong&gt;（全连接）&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;实现跨图的对比和全局语义融合（这是好事）。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;RoPE&#x2F;绝对位置编码&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;不限制&lt;&#x2F;strong&gt;，但影响分数&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过绝对距离，让模型知道&quot;向量 A 属于图 1，向量 B 属于图 2&quot;，这是数学上的&quot;身份证&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;边界 token（Qwen 风格）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;不限制&lt;&#x2F;strong&gt;，但锚定检索&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;`&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;文本指代（如&quot;图1&quot;）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;软屏蔽&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;文本 Query 的高分检索，使模型只关注目标坐标段，忽略无关图片。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;6-gong-cheng-shi-jian-tu-pian-shu-liang-de-xian-zhi&quot;&gt;6. 工程实践：图片数量的限制&lt;&#x2F;h2&gt;
+&lt;p&gt;模型训练时，输入中能包含几张图片？有明确限制，且因模型、平台和输入方式而异。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-1-zhu-liu-ping-tai-xian-zhi-yi-lan&quot;&gt;6.1 主流平台限制一览&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;开源&#x2F;学术探索&lt;&#x2F;strong&gt;：如 Emu3 支持最多 &lt;strong&gt;8 张&lt;&#x2F;strong&gt;；Qwen 系列在特定训练场景下支持&lt;strong&gt;最多 8000 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;云服务微调平台&lt;&#x2F;strong&gt;：
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;阿里云 (Qwen)&lt;&#x2F;strong&gt;：列表传入最多 &lt;strong&gt;8000 张&lt;&#x2F;strong&gt;；Base64 编码传入最多 &lt;strong&gt;250 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Microsoft Azure&lt;&#x2F;strong&gt;：每个样本最多 &lt;strong&gt;64 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;OpenAI &#x2F; Together AI&lt;&#x2F;strong&gt;：每个样本最多 &lt;strong&gt;10 张&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;6-2-yin-xing-xian-zhi&quot;&gt;6.2 隐性限制&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Token 总量限制&lt;&#x2F;strong&gt;：所有图片的 Token 数 + 文本 Token 数 ≤ 模型的最大上下文长度。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;显存（VRAM）限制&lt;&#x2F;strong&gt;：图片越多，序列越长，显存消耗呈平方级增长。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;文件大小与格式&lt;&#x2F;strong&gt;：单张图通常限制最大 &lt;strong&gt;10MB&lt;&#x2F;strong&gt;，支持 JPEG、PNG 等格式。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;训练数据总量&lt;&#x2F;strong&gt;：指整个数据集规模，而非单次输入（如 LLaVA 预训练用了约 60 万对图文数据）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;7-zong-jie-yi-zhang-tu-kan-dong-duo-mo-tai-he-xin-gai-nian&quot;&gt;7. 总结：一张图看懂多模态核心概念&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th style=&quot;text-align: left&quot;&gt;核心疑问&lt;&#x2F;th&gt;&lt;th style=&quot;text-align: left&quot;&gt;正确答案&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;模型怎么知道输入里有图片？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;两条路线：&lt;strong&gt;隐式&lt;&#x2F;strong&gt;（LLaVA）靠输入向量&lt;strong&gt;模长、方差等统计特征的巨大差异&lt;&#x2F;strong&gt;，数学上本能区别对待；&lt;strong&gt;显式&lt;&#x2F;strong&gt;（Qwen）靠 `&amp;lt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;图片和文本在底层怎么对齐？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过&lt;strong&gt;投影层（MLP）&lt;&#x2F;strong&gt; 将像素映射到与文本 Token 相同的向量空间，进行数学上的&quot;坐标统一&quot;。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;图片 Token 有没有&quot;发言权&quot;？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;&lt;strong&gt;没有。&lt;&#x2F;strong&gt; 生成任务永远由文本 Token 或起始符 &lt;code&gt;[BOS]&lt;&#x2F;code&gt; 作为 Query 来发动。图片 Token 只作为被检索的 Key&#x2F;Value。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;多张图怎么避免张冠李戴？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;依靠 &lt;strong&gt;RoPE 位置编码&lt;&#x2F;strong&gt;提供绝对坐标作为&quot;身份证&quot;，Qwen 风格模型另有 start&#x2F;end 边界 token 精确定位每张图的区间，并通过文本指令（如&quot;图1&quot;）的 Query 精准检索。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;训练时如何防止模型乱输出像素？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;通过&lt;strong&gt;损失掩码（Loss Mask）&lt;&#x2F;strong&gt;，将图片 Token 位置的标签设为 &lt;code&gt;-100&lt;&#x2F;code&gt;，强制模型忽略图片位置的预测误差。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td style=&quot;text-align: left&quot;&gt;每次最多能传几张图？&lt;&#x2F;td&gt;&lt;td style=&quot;text-align: left&quot;&gt;取决于&lt;strong&gt;模型上下文长度、显存容量和平台 API 限制&lt;&#x2F;strong&gt;，从 10 张到 8000 张不等。&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+</content>
+        
+    </entry>
+</feed>

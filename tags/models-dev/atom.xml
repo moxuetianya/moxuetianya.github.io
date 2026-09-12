@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - models.dev</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/models-dev/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-24T16:41:25+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/models-dev/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 如何判断模型是否支持图片——记一次能力判定排查</title>
+        <published>2026-08-24T16:41:25+08:00</published>
+        <updated>2026-08-24T16:41:25+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/"/>
+        <id>https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/opencode-model-vision-capability/">&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;一次对话中我给模型 &lt;code&gt;deepseek-v4-flash-vision-exp&lt;&#x2F;code&gt; 下结论说「该模型不支持图片」——理由是它不在模型目录里。用户纠正:文件实际上声明了图片支持(&lt;code&gt;attachment = true&lt;&#x2F;code&gt;,&lt;code&gt;modalities.input = [&quot;text&quot;, &quot;image&quot;]&lt;&#x2F;code&gt;)。这促使我完整排查了 opencode 的能力判定链路,结论是:&lt;strong&gt;我最初的推断是错的——该模型确实在目录里,且支持图片&lt;&#x2F;strong&gt;。本文记录这整条排查路径。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;opencode-ru-he-pan-duan-mo-xing-zhi-chi-tu-pian&quot;&gt;opencode 如何判断模型支持图片&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-shu-ju-yuan-models-dev-mu-lu&quot;&gt;1. 数据源:models.dev 目录&lt;&#x2F;h3&gt;
+&lt;p&gt;模型的元数据来自 &lt;code&gt;https:&#x2F;&#x2F;models.dev&lt;&#x2F;code&gt;(可以 &lt;code&gt;OPENCODE_MODELS_URL&lt;&#x2F;code&gt; 换源),opencode 拉取 &lt;code&gt;&#x2F;api.json&lt;&#x2F;code&gt; 快照缓存到本地:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ts&quot; class=&quot;language-ts &quot;&gt;&lt;code class=&quot;language-ts&quot; data-lang=&quot;ts&quot;&gt;&amp;#x2F;&amp;#x2F; packages&amp;#x2F;core&amp;#x2F;src&amp;#x2F;models-dev.ts
+const source = Flag.OPENCODE_MODELS_URL || &amp;quot;https:&amp;#x2F;&amp;#x2F;models.dev&amp;quot;
+const filepath = path.join(
+  Global.Path.cache,
+  source === &amp;quot;https:&amp;#x2F;&amp;#x2F;models.dev&amp;quot; ? &amp;quot;models.json&amp;quot; : `models-${Hash.fast(source)}.json`,
+)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Global.Path.cache&lt;&#x2F;code&gt; = XDG cache 目录(global.ts),Linux 上就是 &lt;code&gt;~&#x2F;.cache&#x2F;opencode&#x2F;models.json&lt;&#x2F;code&gt;(我自己机器上 4.3MB)。这个文件和网上能看到的 models.dev 仓库里每个模型的 &lt;code&gt;*.toml&lt;&#x2F;code&gt; &lt;strong&gt;是同一份数据的两种形态&lt;&#x2F;strong&gt;:TOML 是仓库源文件,本地缓存的是 api.json 生成的 JSON 快照,字段一致(如该模型 &lt;code&gt;attachment: true&lt;&#x2F;code&gt;、&lt;code&gt;modalities.input: [&quot;text&quot;,&quot;image&quot;]&lt;&#x2F;code&gt;),只是序列化格式不同——「为什么网上看到的不一样」的答案就在这。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-gui-yi-hua-jin-provider-model&quot;&gt;2. 归一化进 Provider.Model&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;packages&#x2F;opencode&#x2F;src&#x2F;provider&#x2F;provider.ts&lt;&#x2F;code&gt; 把 models.dev + 配置合并成 &lt;code&gt;Provider.Model&lt;&#x2F;code&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ts&quot; class=&quot;language-ts &quot;&gt;&lt;code class=&quot;language-ts&quot; data-lang=&quot;ts&quot;&gt;capabilities: {
+  temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
+  reasoning:  model.reasoning  ?? existingModel?.capabilities.reasoning  ?? false,
+  attachment: model.attachment ?? existingModel?.capabilities.attachment ?? false,
+  toolcall:   model.tool_call  ?? existingModel?.capabilities.toolcall  ?? true,
+  input: {
+    image: model.modalities?.input?.includes(&amp;quot;image&amp;quot;) ?? existingModel?.capabilities.input.image ?? false,
+    text:  ...,
+    pdf:   ...,
+  },
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意优先级:&lt;strong&gt;配置值 &lt;code&gt;??&lt;&#x2F;code&gt; models.dev 值 &lt;code&gt;??&lt;&#x2F;code&gt; 默认值&lt;&#x2F;strong&gt;——这也是「配置可以只覆盖一部分」的秘密。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-yun-xing-shi-qiang-zhi-unsupportedparts&quot;&gt;3. 运行时强制:unsupportedParts&lt;&#x2F;h3&gt;
+&lt;p&gt;真正干活的是 &lt;code&gt;packages&#x2F;opencode&#x2F;src&#x2F;provider&#x2F;transform.ts&lt;&#x2F;code&gt; 的 &lt;code&gt;unsupportedParts()&lt;&#x2F;code&gt;:把每条 user 消息里的 &lt;code&gt;file&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;image&lt;&#x2F;code&gt; part 按 MIME 映射到 modality,若 &lt;code&gt;model.capabilities.input[modality]&lt;&#x2F;code&gt; 为 false,就把该 part &lt;strong&gt;替换成一条文本错误&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ERROR: Cannot read image (this model does not support image input). Inform the user.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;替换(空 base64 图同理)后&lt;strong&gt;照常发送请求&lt;&#x2F;strong&gt;,模型看到错误文本自行告知用户——所以不支持的类型&lt;strong&gt;不会在 agent 侧直接报错停止&lt;&#x2F;strong&gt;,而是友好降级:媒体不发送、错误送进上下文。调用点:&lt;code&gt;session&#x2F;llm&#x2F;native-runtime.ts&lt;&#x2F;code&gt; 与 &lt;code&gt;session&#x2F;llm.ts&lt;&#x2F;code&gt;。comment 里也印证着这条规则(&lt;code&gt;message-v2.ts&lt;&#x2F;code&gt;):&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Only apply this workaround if the model actually supports that media input - otherwise unsupportedParts() will turn it into a user-visible error.&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;attachment-yu-modalities-de-fen-gong&quot;&gt;attachment 与 modalities 的分工&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;attachment&lt;&#x2F;code&gt; = 粗粒度开关:该模型&lt;strong&gt;能不能带附件&lt;&#x2F;strong&gt;(文件&#x2F;图片),主要作为模型元数据&#x2F;UI 层展示;历史上用于门控附件选择器,当前 TUI&#x2F;App 代码已不读它。GitHub Copilot 插件从微软 &lt;code&gt;&#x2F;models&lt;&#x2F;code&gt; 的 &lt;code&gt;supports.vision + supported_media_types&lt;&#x2F;code&gt; 推断出 &lt;code&gt;attachment: true&lt;&#x2F;code&gt;(&lt;code&gt;packages&#x2F;opencode&#x2F;src&#x2F;plugin&#x2F;github-copilot&#x2F;models.ts&lt;&#x2F;code&gt;),DigitalOcean 直接写死 false。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;modalities.input&lt;&#x2F;code&gt; = 细粒度模态清单(还是 &lt;code&gt;output&lt;&#x2F;code&gt; 同样结构),运行时拦截&lt;strong&gt;以它为准&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论:两个都要对——&lt;code&gt;attachment: true&lt;&#x2F;code&gt; 但 &lt;code&gt;input&lt;&#x2F;code&gt; 漏写 &lt;code&gt;image&lt;&#x2F;code&gt;,图片仍会在运行时被替换成错误;反过来若 models.dev 只给 attachment 不给 modalities,则默认无 image。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pei-zhi-fu-gai-zhi-xie-yao-gai-de-zi-duan&quot;&gt;配置覆盖:只写要改的字段&lt;&#x2F;h2&gt;
+&lt;p&gt;逐字段合并(&lt;code&gt;配置值 ?? models.dev ?? 默认&lt;&#x2F;code&gt;)意味着可以&lt;strong&gt;局部覆盖&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;jsonc&quot; class=&quot;language-jsonc &quot;&gt;&lt;code class=&quot;language-jsonc&quot; data-lang=&quot;jsonc&quot;&gt;&amp;#x2F;&amp;#x2F; ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;opencode.jsonc
+{
+  &amp;quot;provider&amp;quot;: {
+    &amp;quot;deepseek&amp;quot;: {
+      &amp;quot;models&amp;quot;: {
+        &amp;quot;deepseek-v4-flash-vision-exp&amp;quot;: {
+          &amp;quot;reasoning&amp;quot;: false,
+          &amp;quot;limit&amp;quot;: { &amp;quot;context&amp;quot;: 800_000 },
+          &amp;quot;options&amp;quot;: { &amp;quot;max_tokens&amp;quot;: 384000 }
+        }
+      }
+    }
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;provider.&amp;lt;id&amp;gt;.models.&amp;lt;modelID&amp;gt;&lt;&#x2F;code&gt; 对应 &lt;code&gt;ConfigProviderV1.Model&lt;&#x2F;code&gt;(&lt;code&gt;packages&#x2F;core&#x2F;src&#x2F;v1&#x2F;config&#x2F;provider.ts&lt;&#x2F;code&gt;),字段全部可选:可覆盖 &lt;code&gt;attachment&lt;&#x2F;code&gt;、&lt;code&gt;reasoning&lt;&#x2F;code&gt;、&lt;code&gt;temperature&lt;&#x2F;code&gt;、&lt;code&gt;tool_call&lt;&#x2F;code&gt;、&lt;code&gt;interleaved&lt;&#x2F;code&gt;、&lt;code&gt;modalities&lt;&#x2F;code&gt;、&lt;code&gt;limit&lt;&#x2F;code&gt;、&lt;code&gt;cost&lt;&#x2F;code&gt;、&lt;code&gt;status&lt;&#x2F;code&gt;、&lt;code&gt;options&lt;&#x2F;code&gt;、&lt;code&gt;headers&lt;&#x2F;code&gt;、&lt;code&gt;variants&lt;&#x2F;code&gt; 等;provider 级还有 &lt;code&gt;whitelist&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;blacklist&lt;&#x2F;code&gt; 过滤整组模型。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;models-json-de-huan-cun-yu-shua-xin&quot;&gt;models.json 的缓存与刷新&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;启动不联网&lt;&#x2F;strong&gt;:&lt;code&gt;populate&lt;&#x2F;code&gt; 优先 &lt;code&gt;loadFromDisk&lt;&#x2F;code&gt; 读缓存,只有文件缺失&#x2F;损坏才 fetch(或走内置 snapshot &#x2F; &lt;code&gt;OPENCODE_MODELS_PATH&lt;&#x2F;code&gt; 指定快照)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;后台轮询&lt;&#x2F;strong&gt;:启动 fork 一个 fiber,立刻跑一次 &lt;code&gt;refresh()&lt;&#x2F;code&gt;,然后每 &lt;strong&gt;60 分钟&lt;&#x2F;strong&gt;一次(Schedule.spaced + forkScoped)&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;新鲜度判断&lt;&#x2F;strong&gt;:就一条规则——&lt;code&gt;mtime&lt;&#x2F;code&gt; 距今是否超过 5 分钟 TTL(&lt;code&gt;Duration.minutes(5)&lt;&#x2F;code&gt;);过期才 fetch&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;并发安全&lt;&#x2F;strong&gt;:fetch 前拿跨进程 &lt;code&gt;Flock&lt;&#x2F;code&gt;(key 是 &lt;code&gt;models-dev:&amp;lt;path&amp;gt;&lt;&#x2F;code&gt;),锁内&lt;strong&gt;再查一次&lt;&#x2F;strong&gt; fresh,双重检查防止多进程竞态;写盘是 &lt;code&gt;tmp 文件 + rename&lt;&#x2F;code&gt; 原子替换&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;手动&lt;&#x2F;strong&gt;:&lt;code&gt;opencode models --refresh&lt;&#x2F;code&gt;;&lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt; 可永久禁用联网刷新&lt;&#x2F;li&gt;
+&lt;li&gt;顺带发现:目录里躺着 &lt;code&gt;models.json.&amp;lt;pid&amp;gt;.&amp;lt;ts&amp;gt;.tmp&lt;&#x2F;code&gt; 的历史失败残留,正常现象不影响使用&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;因此这个模型在缓存里确实存在(&lt;code&gt;attachment: true&lt;&#x2F;code&gt;,&lt;code&gt;input: [&quot;text&quot;,&quot;image&quot;]&lt;&#x2F;code&gt;),我上一轮&quot;不在 models.dev 所以默认 false&quot;的判断是错的——&lt;strong&gt;元数据判断前先看本地缓存,别凭 ID 猜&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;state-model-json-shi-ling-yi-hui-shi&quot;&gt;state&#x2F;model.json 是另一回事&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.local&#x2F;state&#x2F;opencode&#x2F;model.json&lt;&#x2F;code&gt;(XDG state,&lt;code&gt;Global.Path.state&lt;&#x2F;code&gt;)是用户级 UI 状态,和目录&lt;strong&gt;无关但有存在价值&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;recent&lt;&#x2F;code&gt;:最近用过的模型。&lt;code&gt;opencode.json&lt;&#x2F;code&gt; 没配顶层 &lt;code&gt;model&lt;&#x2F;code&gt; 时,&lt;code&gt;Provider.defaultModel()&lt;&#x2F;code&gt; 会逐条读 recent,取第一个 provider+model 都存在的条目当新会话默认模型&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;favorite&lt;&#x2F;code&gt;:收藏,模型选择器置顶用&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;variant&lt;&#x2F;code&gt;:每个模型记住的变体选择(如 &lt;code&gt;deepseek&#x2F;deepseek-v4-pro: &quot;max&quot;&lt;&#x2F;code&gt;,即 reasoning effort),生成请求时注入对应 options&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cha-kan-mo-xing-ju-ti-pei-zhi&quot;&gt;查看模型具体配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;opencode models --verbose           # 全部模型完整 JSON
+opencode models deepseek --verbose  # 只列 deepseek,含合并后的 capabilities&amp;#x2F;limit&amp;#x2F;cost&amp;#x2F;options
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;--verbose&lt;&#x2F;code&gt; 打印的就是归一化后的 &lt;code&gt;Provider.Model&lt;&#x2F;code&gt;。其中:&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;api-npm-shi-shen-me&quot;&gt;api.npm 是什么&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;api&lt;&#x2F;code&gt; 三元组:&lt;code&gt;id&lt;&#x2F;code&gt;(API 名,用于选项键映射&#x2F;日志)、&lt;code&gt;url&lt;&#x2F;code&gt;(baseURL)、&lt;code&gt;npm&lt;&#x2F;code&gt;(&lt;strong&gt;SDK 实现标识&lt;&#x2F;strong&gt;)。opencode 的 provider 机制是「每个 API 对应一个 AI SDK 实现包」,&lt;code&gt;npm&lt;&#x2F;code&gt; 决定实例化哪个:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;@ai-sdk&#x2F;openai-compatible&lt;&#x2F;code&gt; → &lt;code&gt;packages&#x2F;llm&#x2F;src&#x2F;providers&#x2F;openai-compatible.ts&lt;&#x2F;code&gt;,&lt;code&gt;createOpenAICompatible({ baseURL: api.url })&lt;&#x2F;code&gt;,deepseek 就走这个(&lt;code&gt;url: https:&#x2F;&#x2F;api.deepseek.com&lt;&#x2F;code&gt;)&lt;&#x2F;li&gt;
+&lt;li&gt;它还是大量运行时行为分支的判据:&lt;code&gt;supportsMediaInToolResult&lt;&#x2F;code&gt;(anthropic 支持媒体型 tool 结果、bedrock&#x2F;xai 仅图片)、anthropic system 消息缓存、bedrock cachePoint、&lt;code&gt;sdkKey(npm)&lt;&#x2F;code&gt; 重映射 providerOptions 键、openai&#x2F;azure&#x2F;bedrock-mantle&#x2F;copilot 剥离 itemId 等&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cha-qu-tu-pian-shi-bie-de-liang-tiao-lu&quot;&gt;插曲:图片识别的两条路&lt;&#x2F;h2&gt;
+&lt;p&gt;排查过程中用户让识别一张评测表截图。规划路径是外挂 vision 脚本(&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;skills&#x2F;vision&lt;&#x2F;code&gt;,底层模型无原生视觉时用),但用户指出该模型原生支持图片,改用 Read 直接读图——&lt;strong&gt;成功&lt;&#x2F;strong&gt;,证明模型原生视觉通道可用,无需外挂。两条路都能走通,这也验证了能力判定环节的最终结论:这个模型 &lt;code&gt;attachment: true&lt;&#x2F;code&gt; + &lt;code&gt;input: [&quot;text&quot;, &quot;image&quot;]&lt;&#x2F;code&gt; 在 opencode 里就是&quot;支持图片&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;判定依据是&lt;strong&gt;声明式元数据&lt;&#x2F;strong&gt;(models.dev + 配置),不做能力探测&lt;&#x2F;li&gt;
+&lt;li&gt;运行时以 &lt;code&gt;capabilities.input&lt;&#x2F;code&gt; 为准,不支持的媒体 part 被&lt;strong&gt;替换为错误文本照常发送&lt;&#x2F;strong&gt;,不中断请求&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;attachment&lt;&#x2F;code&gt;(粗,能否带附件)与 &lt;code&gt;modalities&lt;&#x2F;code&gt;(细,具体模态)分工明确,配置层逐字段覆盖 &lt;code&gt;??&lt;&#x2F;code&gt; 合并&lt;&#x2F;li&gt;
+&lt;li&gt;缓存位于 XDG cache,启动读盘、5 分钟 TTL、60 分钟轮询、flock 防止并发&lt;&#x2F;li&gt;
+&lt;li&gt;排查教训:先查本地缓存和配置,再下结论——目录里没有 ≠ 不支持&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

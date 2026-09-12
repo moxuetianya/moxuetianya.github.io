@@ -1,0 +1,490 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>ARM 服务器（鲲鹏 920）让内核日志显示在 VGA：从 console=tty0 实验到 simplefb 点亮 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="IPMI KVM 只见 EFI stub 三行的鲲鹏 920：加载 simplefb 点亮 VGA（sysfb 早已注册设备），initramfs 持久化验证，附绑定机制与 KVM&#x2F;SOL 差异。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/" />
+  <meta property="og:description" content="IPMI KVM 只见 EFI stub 三行的鲲鹏 920：加载 simplefb 点亮 VGA（sysfb 早已注册设备），initramfs 持久化验证，附绑定机制与 KVM&#x2F;SOL 差异。" />
+  <meta name="twitter:description" content="IPMI KVM 只见 EFI stub 三行的鲲鹏 920：加载 simplefb 点亮 VGA（sysfb 早已注册设备），initramfs 持久化验证，附绑定机制与 KVM&#x2F;SOL 差异。" />
+  <meta property="og:title" content="ARM 服务器（鲲鹏 920）让内核日志显示在 VGA：从 console=tty0 实验到 simplefb 点亮 | 墨雪天琊" />
+  <meta name="twitter:title" content="ARM 服务器（鲲鹏 920）让内核日志显示在 VGA：从 console=tty0 实验到 simplefb 点亮 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-09-09" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=84a792a553712780c587"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/">ARM 服务器（鲲鹏 920）让内核日志显示在 VGA：从 console=tty0 实验到 simplefb 点亮</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 九月 09, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>, <a href="https://moxuetianya.github.io/categories/troubleshooting/">troubleshooting</a>] #<a href="https://moxuetianya.github.io/tags/tty0/">tty0</a>  #<a href="https://moxuetianya.github.io/tags/console/">console</a>  #<a href="https://moxuetianya.github.io/tags/vga/">vga</a>  #<a href="https://moxuetianya.github.io/tags/grub/">grub</a>  #<a href="https://moxuetianya.github.io/tags/efifb/">efifb</a>  #<a href="https://moxuetianya.github.io/tags/simplefb/">simplefb</a>  #<a href="https://moxuetianya.github.io/tags/simpledrm/">simpledrm</a>  #<a href="https://moxuetianya.github.io/tags/sysfb/">sysfb</a>  #<a href="https://moxuetianya.github.io/tags/framebuffer/">framebuffer</a>  #<a href="https://moxuetianya.github.io/tags/fbcon/">fbcon</a>  #<a href="https://moxuetianya.github.io/tags/bootfb/">bootfb</a>  #<a href="https://moxuetianya.github.io/tags/earlycon/">earlycon</a>  #<a href="https://moxuetianya.github.io/tags/spcr/">spcr</a>  #<a href="https://moxuetianya.github.io/tags/serial/">serial</a>  #<a href="https://moxuetianya.github.io/tags/ipmi/">ipmi</a>  #<a href="https://moxuetianya.github.io/tags/kvm/">kvm</a>  #<a href="https://moxuetianya.github.io/tags/kunpeng/">kunpeng</a>  #<a href="https://moxuetianya.github.io/tags/hi171x/">hi171x</a>  #<a href="https://moxuetianya.github.io/tags/ascend/">ascend</a>  #<a href="https://moxuetianya.github.io/tags/310p/">310p</a>  #<a href="https://moxuetianya.github.io/tags/arm64/">arm64</a>  #<a href="https://moxuetianya.github.io/tags/telnet-console/">telnet-console</a> </span>
+
+    
+
+
+<h1 id="yi-bei-jing-vga-shang-yong-yuan-zhi-you-efi-stub-san-xing">一、背景：VGA 上永远只有"EFI stub 三行"</h1>
+<p>鲲鹏 920 推理服务器（TaiShan 200 / iBMC 固件 3.03.00.69，昇腾 310P 推理卡）在 IPMI KVM 上观察：</p>
+<pre><code>EFI stub: Booting Linux Kernel...
+EFI stub: Using DTB from configuration table
+EFI stub: Exiting boot services...
+（此后黑屏，再也没有内容）
+</code></pre>
+<p>原因链（详见《2026-09-08-ext4-rootfs-readonly-recovery.md》第四节与第九节）：</p>
+<ol>
+<li>这板子的启动链是 UEFI → shim → grub → 内核；EFI stub 阶段通过 <strong>UEFI GOP</strong> 自绘 → VGA 有字；</li>
+<li>内核接管后，控制台由 <strong>ACPI SPCR</strong>（firmware Console Redirection 表）决定 → <code>console [ttyS0] enabled</code>，日志全走串口；</li>
+<li><code>/proc/cmdline</code> 里<strong>没有 <code>console=</code></strong> → 内核注册了串口，tty0 根本不是 printk 目标。</li>
+</ol>
+<p>于是：<strong>想验证能不能让内核日志同步显示到 VGA/IPMI 画面</strong> → 下面的实验。实验本身成功了（tty0 注册），但当时画面仍黑，第一版结论判为"平台限制、无解"——<strong>本文是续篇：这个结论是错的，VGA 最终被点亮了</strong>（见第四节起）。</p>
+<h1 id="er-shi-yan-console-tty0-de-zhu-ce-di-yi-ci-jin-zheng-ming-ri-zhi-tou-di-cheng-gong">二、实验：console=tty0 的注册（第一次，仅证明"日志投递"成功）</h1>
+<h2 id="2-1-pei-zhi">2.1 配置</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 备份 + 修改 &#x2F;etc&#x2F;default&#x2F;grub
+sudo cp &#x2F;etc&#x2F;default&#x2F;grub &#x2F;etc&#x2F;default&#x2F;grub.bak-tty0
+sudo sed -i &#x27;s&#x2F;^GRUB_CMDLINE_LINUX=.*&#x2F;GRUB_CMDLINE_LINUX=&quot;console=ttyS0,115200 console=tty0&quot;&#x2F;&#x27; &#x2F;etc&#x2F;default&#x2F;grub
+sudo update-grub
+</code></pre>
+<p><strong>为什么写两个 console=</strong>：第一个是主日志通道（串口）；第二个（tty0）追加为辅助通道，同一份 printk 同时打给两者；最后一个 console= 决定 /dev/console。</p>
+<h2 id="2-2-zhong-qi-hou-dmesg-shi-ce-di-yi-ci-shi-yan-nei-he-5-15-0-107">2.2 重启后 dmesg 实测（第一次实验，内核 5.15.0-107）</h2>
+<pre><code>[    0.000211] Console: colour dummy device 80x25
+[    0.000546] printk: console [tty0] enabled      ← ✅ 注册成功（改前没有这行）
+[    0.351424] fbcon: Taking over console           ← ⚠️ 声称接管
+[    0.401209] pci 0000:06:00.0: BAR 0: assigned to efifb  ← ⚠️ 此行的解读后来被修正（见 4.3）
+[    0.774270] printk: console [ttyS0] enabled      ← ✅ 串口照常
+</code></pre>
+<p>但画面仍然失败：<code>/dev/fb0</code> 不存在、<code>/sys/class/graphics/</code> 只有 fbcon、<code>vtcon0</code> 是 <code>(S) dummy device</code>、显卡是 <code>Huawei Hi171x [iBMC ... w/VGA support]</code>（PCI 06:00.0，BAR0 = 32MB @ e4000000，BAR1 = 2MB @ e7200000）。</p>
+<h1 id="san-dang-shi-de-jie-lun-2026-09-09-shang-wu-yi-bei-xia-wu-de-pai-cha-tui-fan">三、当时的结论（2026-09-09 上午）——已被下午的排查推翻</h1>
+<p>当时判定为<strong>平台限制</strong>，链条是：</p>
+<ol>
+<li>efifb "试图接管"（"BAR 0: assigned to efifb"）但没有 GOP screen_info 提供真实帧缓冲描述 → 未注册 fb0；</li>
+<li>DRM 侧也是空的（华为未提供该芯片开源驱动）；</li>
+<li>fbcon 挂的是 dummy device → 内核日志投给 tty0 后无处可画。</li>
+</ol>
+<p><strong>纠错说明（为什么错，防止重复踩坑）</strong>：</p>
+<ul>
+<li>① "无 GOP screen_info" 是<strong>误读</strong>——screen_info 一直有效，物证见第四节 <code>BOOTFB</code> 区段；</li>
+<li>② 把 "BAR 0: assigned to efifb" 当成 "efifb 驱动在工作" 是<strong>误读</strong>——该行出现在 PCI 资源归属日志里，而本配置下 efifb 驱动（<code>FB_EFI=y</code> 内置）<strong>根本没有可绑定的平台设备</strong>（见 4.3），谈不上"拿到 BAR 后放弃"；</li>
+<li>③ 漏查了 <strong>sysfb 已把 GOP 帧缓冲注册成 <code>simple-framebuffer</code> 平台设备</strong>这一步——缺的不是"硬件驱动不存在"，而是"驱动模块存在但没加载、且不能自动绑定"。</li>
+<li>教训：查显示问题不能只看 fb0/efifb/drm 这几个名字，还要查 <code>/sys/bus/platform/devices/</code> 有没有等驱动的显示设备、<code>/proc/iomem</code> 里帧缓冲区段是谁预留的。</li>
+</ul>
+<h1 id="si-ji-xu-pai-cha-sysfb-zao-yi-ba-lu-pu-hao-que-de-zhi-shi-qu-dong">四、继续排查：sysfb 早已把路铺好，缺的只是驱动</h1>
+<h2 id="4-1-xin-zheng-ju-yi-proc-iomem-li-de-bootfb">4.1 新证据一：/proc/iomem 里的 BOOTFB</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cat &#x2F;proc&#x2F;iomem | grep -B2 -A2 BOOTFB
+e4000000-e5ffffff : PCI Bus 0000:06
+  e4000000-e5ffffff : 0000:06:00.0
+    e4000000-e412bfff : BOOTFB          ← 起点恰是 Hi171x BAR0 基址
+</code></pre>
+<p><code>e412bfff - e4000000 + 1 = 0x12c000 = 1,228,800 B = 640×480×32</code>——<strong>正好是一个 GOP 帧缓冲</strong>。也就是说：固件把 GOP 画面画在 Hi171x 显存窗口（BAR0 = e4000000）的起始处，这块内存在内核侧被预留为 <code>BOOTFB</code>，而 <strong>iBMC 的物理 VGA/HDMI 与 IPMI KVM 采集的就是这个显存窗口</strong>（UEFI 有字、内核黑屏的边界 = 谁在往这块内存写）。</p>
+<h2 id="4-2-xin-zheng-ju-er-simple-framebuffer-0-ping-tai-she-bei-zai-deng-qu-dong">4.2 新证据二：simple-framebuffer.0 平台设备在等驱动</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ls &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;devices&#x2F; | grep framebuffer
+simple-framebuffer.0          ← 已注册，但 driver 目录不存在 = 没有驱动绑定
+
+$ grep -E &quot;^CONFIG_(SYSFB|SYSFB_SIMPLEFB|FB_EFI|FB_SIMPLE|DRM_SIMPLEDRM)&quot; &#x2F;boot&#x2F;config-$(uname -r)
+CONFIG_SYSFB=y
+CONFIG_SYSFB_SIMPLEFB=y
+CONFIG_FB_EFI=y            # efifb 驱动内置
+CONFIG_FB_SIMPLE=m         # fbdev simplefb 驱动是模块
+CONFIG_DRM_SIMPLEDRM=m     # DRM simpledrm 驱动是模块
+</code></pre>
+<p>解读：内核启动早期（sysfb）根据 <strong>screen_info（来自 EFI stub 登记的 GOP 信息）</strong> 生成了一个平台设备 <code>simple-framebuffer.0</code>（这台是 ACPI 机器、无 device tree，所以该设备只能来自 sysfb）。屏幕信息不是没有，是<strong>转换成了 simple-framebuffer 形态在等 fb 驱动</strong>。</p>
+<h2 id="4-3-xiu-zheng-efifb-wei-shen-me-mei-gan-huo-ta-ya-gen-mei-you-she-bei">4.3 修正：efifb 为什么"没干活"——它压根没有设备</h2>
+<p><code>CONFIG_SYSFB_SIMPLEFB=y</code> 的含义：sysfb 把 GOP 帧缓冲注册成 <strong><code>simple-framebuffer</code></strong> 平台设备（供 simplefb/simpledrm 绑定），而<strong>不再注册 <code>efifb</code> 平台设备</strong>。efifb 驱动（<code>FB_EFI=y</code> 内置）需要名为 <code>efifb</code> 的设备才会 probe——它永远等不到。所以：</p>
+<ul>
+<li>之前看到的 <code>pci 0000:06:00.0: BAR 0: assigned to efifb</code> 与 <code>BOOTFB</code> 都是<strong>早期资源预留/归属日志</strong>，不是 efifb 驱动工作的痕迹；</li>
+<li>真正缺的一环是：<strong>加载并绑定一个能认 <code>simple-framebuffer</code> 设备的 fb 驱动</strong>。</li>
+</ul>
+<h2 id="4-4-guan-jian-chai-yi-107-yu-186-nei-he-de-mo-kuai-ku-cun">4.4 关键差异：107 与 186 内核的模块库存</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 当前运行 5.15.0-107（内核包被 apt hold，且没有 linux-modules-extra-107）
+$ ls &#x2F;usr&#x2F;lib&#x2F;modules&#x2F;5.15.0-107-generic&#x2F;kernel&#x2F;drivers&#x2F;gpu&#x2F;drm&#x2F;tiny&#x2F;   # 不存在
+$ find &#x2F;usr&#x2F;lib&#x2F;modules&#x2F;5.15.0-107-generic&#x2F;kernel -name &quot;*simple*&quot;
+...&#x2F;kernel&#x2F;drivers&#x2F;video&#x2F;fbdev&#x2F;simplefb.ko     # 只有 simplefb
+
+# 5.15.0-186（linux-modules-extra 已装）
+$ ls &#x2F;usr&#x2F;lib&#x2F;modules&#x2F;5.15.0-186-generic&#x2F;kernel&#x2F;drivers&#x2F;gpu&#x2F;drm&#x2F;tiny&#x2F;
+simpledrm.ko
+</code></pre>
+<ul>
+<li><strong>simplefb（fbdev）</strong> 与 <strong>simpledrm（DRM）</strong> 的平台驱动名都叫 <strong><code>simple-framebuffer</code></strong>（与 sysfb 设备同名，simpledrm 源码注释直接写着 <code>/* connect to sysfb */</code>）→ 走 platform bus 的<strong>名字回退匹配</strong>即可绑定，<strong>不需要 DT 节点、也不需要 driver_override</strong>（这一点初稿判断错了，见第五节弯路记录）；</li>
+<li>两者的 <code>MODULE_DEVICE_TABLE</code> 都只有 <code>of:N...simple-framebuffer</code>（of_match_table），<strong>没有 <code>platform:simple-framebuffer</code> 别名</strong> → udev 冷插时按设备 modalias（<code>platform:simple-framebuffer</code>）找不到任何模块，<strong>不会自动加载</strong>——真正缺的一环只是"把模块加载进来"：模块一加载，driver_register 的 attach 循环立刻按名字把设备绑上；</li>
+<li>simpledrm 只在 186 内核存在（107 缺 linux-modules-extra）。</li>
+</ul>
+<p>这决定了修复路线（见第五、七节）。</p>
+<h1 id="wu-dian-liang-modprobe-simplefb-ji-zi-dong-bang-ding-ling-zhong-qi-xian-chang-xiu-fu">五、点亮：modprobe simplefb 即自动绑定，零重启现场修复</h1>
+<p>107 内核上没有 simpledrm，先用 simplefb 验证（不需要重启）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo modprobe simplefb      # 模块加载 → driver_register → attach 循环 → 名字匹配 → probe，一步到位
+</code></pre>
+<p>dmesg 实测输出：</p>
+<pre><code>[ 4055.198726] simple-framebuffer simple-framebuffer.0: framebuffer at 0xe4000000, 0x12c000 bytes
+[ 4055.198735] simple-framebuffer simple-framebuffer.0: format=a8r8g8b8, mode=640x480x32, linelength=2560
+[ 4055.198932] Console: switching to colour frame buffer device 80x30
+[ 4055.203598] simple-framebuffer simple-framebuffer.0: fb0: simplefb registered!
+</code></pre>
+<p>验证结果：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ls &#x2F;sys&#x2F;class&#x2F;graphics&#x2F;          # fbcon → fb0 + fbcon
+$ cat &#x2F;sys&#x2F;class&#x2F;vtconsole&#x2F;vtcon0&#x2F;name   # (S) dummy device（VT0 仍哑）
+$ cat &#x2F;sys&#x2F;class&#x2F;vtconsole&#x2F;vtcon1&#x2F;name   # (M) frame buffer device ← fbcon 绑定真设备
+</code></pre>
+<p><strong>VGA/HDMI 与 web IPMI 上出现文本终端（TTY 登录界面），"EFI stub 三行后黑屏"结束</strong>。fb0 参数：640×480×32，stride 2560（= 640×4），即 UEFI GOP 模式本身（BMC 会做缩放）。probe 的宽高/格式来自 sysfb 附在平台设备上的 <strong>platform_data</strong>（<code>simplefb_parse_pd</code>，由 screen_info 解析而来）——又一次证明无 DT 也能拿到显示参数。</p>
+<h3 id="5-1-wan-lu-ji-lu-driver-override-yu-simplefb-mu-lu-chu-gao-de-cuo-yi-xiu-zheng">5.1 弯路记录：driver_override 与 "simplefb" 目录（初稿的错，已修正）</h3>
+<p>初版排查时误以为 simplefb 是 DT-only、必须 <code>driver_override</code> 强绑，实际是<strong>多此一举</strong>，还原过程：</p>
+<ol>
+<li>先 <code>modprobe simplefb</code> —— <strong>这一刻绑定就已发生</strong>（dmesg 单条 probe 记录）；</li>
+<li>随后写入 <code>driver_override=simplefb</code> —— 绑定已完成后写入，无任何作用；且该残留值其实<strong>有害</strong>：override 会让未来只有名为 <code>simplefb</code> 的驱动能绑这个设备，而真实驱动名是 <code>simple-framebuffer</code> → 解绑后将无法重绑（已清空）；</li>
+<li>手动 bind 报 <code>drivers/simplefb/bind: Directory nonexistent</code> —— 因为驱动目录真实名字是 <strong><code>drivers/simple-framebuffer</code></strong>（驱动名≠模块名），不是 <code>simplefb</code>；</li>
+<li>决定性实验：清掉 override → 解绑 → <strong>不带 override 手动 bind</strong> → probe 成功、fb0 回来（见第十一节命令）。绑定机制 = platform bus 名字回退匹配。</li>
+</ol>
+<blockquote>
+<p>注：此修复已通过 107 initramfs 持久化并重启验证（见 7.3）——VGA 从 initramfs 阶段起有画面。</p>
+</blockquote>
+<h1 id="liu-ji-zhi-bu-ke-fbcon-framebuffer-dev-fb0-de-guan-xi">六、机制补课：fbcon / framebuffer / /dev/fb0 的关系</h1>
+<p>刚踩完坑，顺手把这三层关系理清（排查显示问题必须懂的结构）：</p>
+<pre><code>printk → console[tty0] → VT 子系统 → vtconN 绑定 → fbcon → fb_info → 显存 → 扫描输出
+</code></pre>
+<ul>
+<li><strong>显示驱动</strong>（simplefb / simpledrm / efifb）：拥有显存、提供画点/填充/位块搬运原语。调用 <code>register_framebuffer()</code> 注册一个 <code>fb_info</code> 后，fbdev 核心（fbmem.c）才生成 <code>/dev/fb0</code>。</li>
+<li><strong><code>/dev/fb0</code></strong>：用户态访问同一个 <code>fb_info</code> 的窗口（open/mmap/ioctl 直接读写像素，如 <code>fbset</code>、截图）。<strong>内核控制台文字不走它</strong>。</li>
+<li><strong>fbcon</strong>（framebuffer console）：VT 子系统的"显示后端"。VT 把字符交给 fbcon，fbcon 把字符点阵画进 <code>fb_info</code> 的显存。<code>/sys/class/vtconsole/vtcon1/name</code> 从 <code>(S) dummy device</code> 变 <code>(M) frame buffer device</code> = fbcon 绑定成功。</li>
+<li><strong>DRM 时代等价物</strong>：simpledrm 是 DRM 驱动，靠 <code>DRM_FBDEV_EMULATION=y</code> 的模拟层同样生成 /dev/fb0 供 fbcon 挂（另外提供 /dev/dri/card0 给现代 GUI）。186 内核走的就是这条路。</li>
+</ul>
+<p>所以回头看第一节说的"三个开关"，第三格要修正：<strong>不是"硬件没有显示驱动"，而是"驱动存在（<code>FB_EFI=y</code>/<code>FB_SIMPLE=m</code>/<code>DRM_SIMPLEDRM=m</code>），但模块没加载、且内置的 efifb 因 SYSFB_SIMPLEFB=y 永远等不到设备"</strong>。</p>
+<h2 id="6-1-platform-bus-pi-pei-gui-ze-wei-shen-me-simplefb-neng-zi-dong-bang-shang-sysfb-she-bei">6.1 platform bus 匹配规则：为什么 simplefb 能自动绑上 sysfb 设备</h2>
+<p>platform bus 匹配 设备↔驱动 按序尝试 4 条规则（drivers/base/platform.c <code>platform_match</code>）：</p>
+<ol>
+<li><code>of_driver_match_device</code>：设备带 DT 节点且 compatible 命中驱动的 <code>of_match_table</code>（DT 匹配）</li>
+<li><code>acpi_driver_match_device</code>：ACPI 匹配</li>
+<li>驱动 <code>id_table</code> 命中设备名</li>
+<li><strong>兜底：<code>strcmp(pdev-&gt;name, drv-&gt;name)</code>——设备名 == 驱动名直接绑定</strong></li>
+</ol>
+<p>simplefb/simpledrm 走的就是规则 4：它们的 <code>platform_driver.driver.name</code> 都叫 <strong><code>simple-framebuffer</code></strong>（与 sysfb 设备同名；simpledrm 源码注释直白写着 <code>/* connect to sysfb */</code>）。<strong>不需要 DT 节点、不需要 driver_override</strong>——当初以为"DT-only 必须强绑"是误判（5.1 弯路记录）。</p>
+<p><strong>查看 DT 配置的方法</strong>：</p>
+<ul>
+<li>是否 DT 启动：<code>ls /proc/device-tree</code>（存在 = DT 启动；本机是 ACPI 机，只有 /sys/firmware/acpi）</li>
+<li>某设备是否有 DT 节点：<code>ls -la /sys/bus/platform/devices/&lt;设备&gt;/of_node</code>（本机 simple-framebuffer.0 无 of_node）</li>
+<li>DT 机上浏览结构：<code>ls /proc/device-tree/</code>（目录=节点、文件=属性），如 <code>cat /proc/device-tree/chosen/stdout-path</code>、<code>ls /proc/device-tree/ | grep -i fb</code></li>
+<li>设备 modalias：<code>cat .../modalias</code>——udev 靠它查模块（本机为 <code>platform:simple-framebuffer</code>）</li>
+</ul>
+<h2 id="6-2-simplefb-vs-simpledrm-fbdev-lao-jiang-vs-drm-ji-ren-zhe">6.2 simplefb vs simpledrm：fbdev 老将 vs DRM 继任者</h2>
+<table><thead><tr><th></th><th>simplefb</th><th>simpledrm</th></tr></thead><tbody>
+<tr><td>出身</td><td>2013 年 fbdev 时代（ARM DT simple-framebuffer）</td><td>5.14 加入的 DRM 化重写（源码注释 <code>connect to sysfb</code>）</td></tr>
+<tr><td>API</td><td>老 fbdev：register_framebuffer → /dev/fb0</td><td>现代 DRM：/dev/dri/card0（KMS/atomic/damage）</td></tr>
+<tr><td>fbcon 怎么用</td><td>直接提供 fb0</td><td><code>DRM_FBDEV_EMULATION=y</code> 模拟层生成 fb0</td></tr>
+<tr><td>附带能力</td><td>仅画</td><td>格式转换、damage 刷新、标准 modeset 接口（GUI 可用）</td></tr>
+<tr><td>本机</td><td>107/186 都有</td><td>仅 186（在 linux-modules-extra）</td></tr>
+</tbody></table>
+<p>是<strong>官方路线上的迭代取代</strong>（fbdev→DRM 迁移，6.x 后老 fbdev 驱动陆续 obsolete），但同内核共存、绑定机制完全相同（都靠驱动名=设备名）。选型：只要控制台日志→两者等价；要 GUI 后路（/dev/dri）→simpledrm。</p>
+<h2 id="6-3-modprobe-jiu-chuang-jian-liao-dev-fb0-yi-tiao-jian-jie-lian-lu">6.3 "modprobe 就创建了 /dev/fb0"？——一条间接链路</h2>
+<p><code>modprobe simplefb</code> 并不直接创建设备，链路是：</p>
+<pre><code>modprobe simplefb → driver_register → platform bus 对已有无驱动设备跑 attach 循环
+  → 规则 4 名字匹配 → probe() → 读 sysfb 附带的 platform_data（640×480×32 等参数）
+  → register_framebuffer() → fbdev 核心注册 fb_info → devtmpfs 自动生成 &#x2F;dev&#x2F;fb0（c 29:0）
+</code></pre>
+<p>所以<strong>真正起作用的只有"加载模块"一步</strong>；绑定、fb0、fbcon 接管都是内核自动完成的。</p>
+<h1 id="qi-wei-shen-me-zao-qi-nei-he-ri-zhi-kan-bu-dao-fb-qu-dong-de-jia-zai-shi-ji-mang-qu">七、为什么早期内核日志看不到？——fb 驱动的加载时机盲区</h1>
+<h2 id="7-1-wen-ti-ben-zhi">7.1 问题本质</h2>
+<p>fb 驱动若是<strong>模块</strong>（=m），要等根文件系统挂载、udev 运行（约开机 1 秒后）才加载；更早的内核日志（EFI stub 之后到 initramfs/udev 之前）已经只进了串口和 dmesg ring buffer，<strong>fbcon 接管时不会"回放"启动日志</strong>（最多重画当前 VT 屏存的最后一屏）。所以即使修好了，VGA 也只能看到"驱动加载之后"的输出。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 验证&quot;最后接入点&quot;：dmesg 中 fb0 注册的时间戳（4055s = 运行中手动加载；重启后则是 initramfs&#x2F;udev 阶段）
+</code></pre>
+<h2 id="7-2-rang-fb-qu-dong-ti-qian-initramfs-built-in">7.2 让 fb 驱动提前：initramfs / built-in</h2>
+<table><thead><tr><th>方案</th><th>生效时机</th><th>代价</th></tr></thead><tbody>
+<tr><td>udev 规则（根系统）</td><td>~1s 后（udev 阶段）</td><td>简单，但早期日志仍缺</td></tr>
+<tr><td><strong>initramfs 提前加载</strong>（<code>/etc/initramfs-tools/modules</code>）</td><td>initramfs 阶段起（约 1s，比 udev 早，根挂载前 fb0 就绪）</td><td>需重建 initrd；模块一加载即自动绑定（见下）</td></tr>
+<tr><td>驱动编译为 built-in (=y)</td><td>开机 ~0.4s（驱动先注册，sysfb 设备一出现即绑）</td><td>本发行版 FB_SIMPLE/DRM_SIMPLEDRM 都是 =m，需自编/换内核</td></tr>
+</tbody></table>
+<p>关键机制（初稿在此处判错过，修正）：<strong>simplefb 与 simpledrm 加载后都会立刻按名字自动绑定</strong>（驱动名 = <code>simple-framebuffer</code> = 设备名），所以塞进 initramfs/模块列表都有效，<strong>不需要任何 udev 规则或 override</strong>。自动加载（autoload）盲区只在"没有任何加载动作"时存在：两个模块都只导出 <code>of:N...</code> 别名、没有 <code>platform:simple-framebuffer</code> 别名，udev 按设备 modalias 找不到可加载的模块——但只要 initramfs <code>/etc/initramfs-tools/modules</code> 或根系统 <code>modules-load.d</code> 显式 modprobe，绑定即刻发生。</p>
+<h2 id="7-3-ben-ji-yi-zuo-de-pei-zhi-186-nei-he-dai-zhong-qi-yan-zheng">7.3 本机已做的配置（186 内核，待重启验证）</h2>
+<p>107 没有 simpledrm，所以 initramfs 方案绑定 186（选择 simpledrm 而非 simplefb 的理由：simpledrm 额外提供 <code>/dev/dri/card0</code>，为将来跑 GUI 留路；纯日志目标两者等价）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># &#x2F;etc&#x2F;initramfs-tools&#x2F;modules 追加（先备份）
+sudo cp -n &#x2F;etc&#x2F;initramfs-tools&#x2F;modules &#x2F;etc&#x2F;initramfs-tools&#x2F;modules.bak-20260909
+echo simpledrm | sudo tee -a &#x2F;etc&#x2F;initramfs-tools&#x2F;modules
+
+sudo update-initramfs -u -k 5.15.0-186-generic
+# 验证模块与依赖确实进了 initrd（simpledrm 依赖 drm&#x2F;drm_kms_helper&#x2F;fb_sys_fops&#x2F;syscopyarea&#x2F;sysfillrect&#x2F;sysimgblt&#x2F;cec&#x2F;rc-core 共 9 个 ko）
+lsinitramfs &#x2F;boot&#x2F;initrd.img-5.15.0-186-generic | grep -E &quot;simpledrm|drm_kms_helper|fb_sys_fops|sysimgblt&quot;
+</code></pre>
+<blockquote>
+<p>107 已按同法处理并<strong>重启验证通过</strong>（2026-09-09）：<code>/etc/initramfs-tools/modules</code> 改为 <code>simplefb</code>（107/186 模块集都有它；186 的 initrd 此前已按 simpledrm 生成，两内核各自生效、互不影响）。重启后实测时间轴（这台机器启动很慢，内核设备初始化 ~11s 才 Run /init）：</p>
+<pre><code>[ 0.78s] Freeing initrd memory
+[10.82s] Run &#x2F;init as init process        ← initramfs 开始
+[17.70s] simple-framebuffer.0: fb0: simplefb registered!   ← initramfs 阶段绑定
+[19.14s] EXT4-fs (sda2): mounted          ← 根挂载（之后才轮到真实 udev）
+[19.31s] systemd[1]: systemd 249 ... running
+</code></pre>
+<p>fb0 在根挂载前就绪 → <strong>VGA 显示覆盖 initramfs 阶段起的全部内容</strong>。若日后 186 想从 simpledrm 换回/换用 simplefb：编辑 modules 文件（先加载者先绑设备）并 <code>update-initramfs -u -k 5.15.0-186-generic</code>。</p>
+</blockquote>
+<p>重启验证用<strong>单次引导</strong>（NPU 驱动挑内核的疑虑未消除前不固化默认内核，见第九节）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo systemctl stop libvirtd        # 上次重启因 libvirt 保存 VM 的 inhibitor 卡 20 分钟
+sudo grub-reboot &quot;Advanced options for Ubuntu&gt;Ubuntu, with Linux 5.15.0-186-generic&quot;   # 仅下一次启动生效
+sudo systemctl reboot
+# 期望：dmesg 早期出现 simple-framebuffer fb0 &#x2F; simpledrm 注册，VGA 从 initramfs 阶段起有字
+</code></pre>
+<blockquote>
+<p>为何不直接换默认内核：107 被 hold 是因为查到华为 NPU 驱动（昇腾 310P）在高版本内核可能有问题（待确认）。186 与 107 同属 5.15 大版本、仅 SRU 点版本差异，风险理论很低，但仍用 grub-reboot 单次验证，出问题重启即回 107（GRUB 默认仍指向 107）。</p>
+</blockquote>
+<h1 id="ba-graphical-target-zhi-mi-wei-shen-me-shi-tui-er-bu-shi-gui">八、graphical.target 之谜：为什么是 TUI 而不是 GUI？</h1>
+<p>排查中发现 <code>systemctl get-default</code> 是 <code>graphical.target</code>，但 VGA/HDMI 上始终是 TTY——查证结果：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ systemctl get-default
+graphical.target
+$ ls &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;display-manager.service   # 不存在
+$ dpkg -l | grep -E &quot;gdm3|lightdm|sddm|gnome-shell&quot;  # 什么都没装
+</code></pre>
+<p>结论：</p>
+<ol>
+<li><strong>graphical.target 只是 systemd 开关</strong>，唯一实质动作是拉起 <code>display-manager.service</code>；机器上根本没装任何显示管理器（连服务软链都不存在），所以 graphical.target 与 multi-user.target 效果完全一样——没有 DM 就没有进程画 GUI，屏幕只能是 fbcon 文本终端。多半是装 plymouth 或某组件时被顺手设的，无害但无意义。</li>
+<li><strong>GUI 也依赖 fb/DRM</strong>：fb/DRM 是地基、GUI 是房子。没有 fb0/DRM 时显示服务器（Xorg/Wayland）根本无法启动（没有 scanout 目标）。所以"先让 fb 工作"是 GUI 的前提，与 target 无关——这也是为什么过去 graphical.target 挂着、VGA 却一直黑屏。</li>
+<li><strong>HDMI 与 web IPMI 看到同一份画面</strong>是正常的：这台机器物理 VGA/HDMI 和 IPMI KVM 视频都来自 iBMC 对同一显存窗口（Hi171x BAR0 = e4000000）的采集。</li>
+<li>若将来要跑真 GUI：simplefb 是纯 fbdev（无 /dev/dri），只能 Xorg+fbdev 老模式；现代 GNOME/Wayland 需要 DRM 设备——186 + simpledrm 才有 <code>/dev/dri/card0</code>（simpledrm 同时提供 /dev/fb0）。</li>
+</ol>
+<h1 id="jiu-dui-zhao-chuan-kou-wei-shen-me-neng-kan-quan-qi-dong-ri-zhi-earlycon-console-ji-zhi">九、对照：串口为什么能看全启动日志？（earlycon / console 机制）</h1>
+<p>VGA 看不全早期日志，串口却能——这正好引出一段经常混淆的机制（排查时对照本机 SPCR 输出很有用）。</p>
+<h2 id="9-1-console-ttys0-yu-earlycon-shi-liang-hui-shi">9.1 console=ttyS0 与 earlycon 是两回事</h2>
+<ul>
+<li><code>console=ttyS0,115200</code>：走正常 console 框架（printk → console 子系统 → serial8250 console → UART）。<strong>console 注册和 tty 驱动初始化路径不同</strong>：console 在 start_kernel 早期就能注册并开始输出，而 <code>/dev/ttyS0</code> 是之后 serial 驱动 probe 才诞生的设备节点——console 输出不依赖 /dev/ttyS0 存在。</li>
+<li><code>earlycon=...</code>：真正的"驱动框架还没初始化"之前的输出。内核直接按参数给的<strong>类型 + 地址</strong>操作寄存器，不经过任何设备模型。例如 <code>earlycon=uart8250,io,0x3f8,115200</code>：内核知道这是 8250/16550 兼容 UART，用固定寄存器布局（THR=+0、IER=+1、LCR=+3、LSR=+5…），轮询 LSR 的 THRE 位后直接写 THR。</li>
+</ul>
+<h2 id="9-2-ying-jian-di-zhi-cong-na-lai">9.2 硬件地址从哪来？</h2>
+<table><thead><tr><th>平台</th><th>earlycon/console 如何知道 UART 在哪</th></tr></thead><tbody>
+<tr><td>传统 x86</td><td>固定 legacy 地址：ttyS0=COM1@0x3f8、ttyS1=COM2@0x2f8、ttyS2=COM3@0x3e8、ttyS3=COM4@0x2e8（注意：ACPI 时代 ttyS0 编号由枚举顺序决定，不再保证等于 COM1）</td></tr>
+<tr><td>ARM/ARM64（DT）</td><td>device tree：<code>stdout-path = "serial0:115200n8"</code> 或 earlycon 无参时读 DT</td></tr>
+<tr><td>ACPI 机器</td><td><strong>ACPI SPCR 表</strong>：固件声明"控制台 UART 的类型/地址/波特率"。本机 dmesg：<code>ACPI: SPCR: console: uart,mmio,0x3f00002f8,115200</code> → 于是 <code>console [ttyS0] enabled</code></td></tr>
+<tr><td>EFI stub 阶段</td><td>根本不是内核在输出——是 <strong>UEFI Simple Text Output（ConOut）</strong>，走 GOP 画面/串口/SOL 由固件配置决定。本机"EFI stub 三行"= 固件通过 GOP 画到 VGA</td></tr>
+</tbody></table>
+<h2 id="9-3-wei-shen-me-bu-shi-suo-you-chuan-kou-du-neng-earlycon">9.3 为什么"不是所有串口都能 earlycon"？</h2>
+<p>PCI 串口（需要先枚举 PCI、找 BAR）无法用于最早期输出；传统固定 I/O 端口（0x3f8 类）和 ARM SoC 固定 MMIO UART 最容易做 earlycon。ARM64 上还有 EFI 引导时会话：SPCR 常与"固件串口重定向"配套，即使内核参数里没写 console=，SPCR 也能让日志落到串口（这正是本机最初"无 console= 时日志全走串口"的原因）。</p>
+<h2 id="9-4-yu-ben-ji-xian-xiang-dui-qi-lai">9.4 与本机现象对起来</h2>
+<pre><code>串口（面板 &#x2F; SOL &#x2F; telnet）：EFI 阶段有 → earlycon&#x2F;SPCR → console [ttyS0] → 全程可见
+VGA（HDMI &#x2F; IPMI KVM）：EFI stub 三行（固件 GOP）→ 内核阶段：tty0 注册了但 fbcon 挂 dummy
+     → fb 驱动加载后：fbcon 接管，从加载时刻起可见（早期日志缺失）
+</code></pre>
+<p>一句话：<strong>串口通道在"内核刚醒来"就有 SPCR/earlycon 兜底，VGA 通道要等 fb 驱动出现才有画面来源</strong>——两个通道的"最早可见时刻"不同，不是同一个机制。</p>
+<h2 id="9-5-zhui-wen-wei-shen-me-kvm-kan-dao-de-bi-sol-shao-na-me-duo-gu-jian-diao-shi-kou-vs-conout-printk-hui-fang">9.5 追问：为什么 KVM 看到的比 SOL 少那么多？（固件调试口 vs ConOut，printk 回放）</h2>
+<p>对比同一台机器 SOL 与 web IPMI KVM 的实际输出，差异分三段，全部是机制使然：</p>
+<p><strong>① 固件阶段（<code>SasBase=...</code>、<code>Initialize PCIe RAS</code>、<code>[Bds]Booting ubuntu</code>、<code>XHCI HC reset</code>、<code>IPMI ExitBootService Event</code>、<code>BIOS boot completed</code>）——SOL 有、KVM 无：</strong></p>
+<ul>
+<li>SOL 拿到的是 BIOS 的<strong>串口调试日志</strong>（serial debug console）——华为 BIOS 几乎所有阶段文本都只写这个口，从不经过显示设备；</li>
+<li>KVM/VGA 只能看到 **UEFI ConOut（GOP 图形文本）**真正画出来的内容（本机即"EFI stub 三行"）。<code>SmiGraphicsOutputQueryMode</code> 这类 VGA 驱动查模式的日志也是串口调试输出，不上屏。</li>
+<li>固件阶段"调试日志 ≠ 显示输出"，两套通道内容源不同。</li>
+</ul>
+<p><strong>② 内核早期（<code>Booting Linux on physical CPU 0x...</code> 到 ACPI RSDP 等几百行）——SOL 全量、KVM 全无：</strong></p>
+<ul>
+<li>此时 printk 控制台尚未就绪：<code>console [tty0]</code> 0.0005s 注册但无 fb 驱动可画（dummy，不产生像素）；<code>console [ttyS0]</code> 0.774s 才注册；</li>
+<li>printk 输出先进<strong>环形缓冲</strong>（dmesg），第一个 console 注册时<strong>整体回放</strong> → 0.774s ttyS0 一注册就把从第一行起的全部日志吐到串口 → SOL 完整；</li>
+<li>VGA 侧没有驱动就没有画面来源，等 fb0（本机 initramfs ~17.7s）出现时<strong>不会重放 ring buffer</strong> → 早期日志只存在于 SOL/dmesg。</li>
+</ul>
+<p><strong>③ fb0 之后（initramfs 起）——"屏幕" vs "终端流"：</strong></p>
+<ul>
+<li>KVM 只显示<strong>当前一屏</strong>（本机 640×480 → fbcon 80×30 字符 ≈ 30 行），新输出顶掉旧行；SOL 是终端流，客户端保留全部历史可回滚；</li>
+<li>userspace 阶段 journald 收日志，console 上只剩内核消息 + getty → KVM 长时间静止的登录界面，观感差距更大。</li>
+</ul>
+<p><strong>结论</strong>：SOL = 全量日志流（固件调试口 + printk 回放 + 终端滚动），KVM = 实时屏幕（ConOut + fbcon 当前屏，无历史无回放）。从头看日志用 SOL/dmesg；KVM 只看"此刻画面"——与 fb 修复无关，是通道设计差异。</p>
+<h1 id="shi-xian-zhuang-yu-dai-ban">十、现状与待办</h1>
+<ul>
+<li><input disabled="" type="checkbox" checked=""/>
+console=tty0 注册（实验，无副作用，配置保留）</li>
+<li><input disabled="" type="checkbox" checked=""/>
+确认 screen_info/GOP 有效（BOOTFB + simple-framebuffer.0 证据）</li>
+<li><input disabled="" type="checkbox" checked=""/>
+107 现场点亮 VGA（modprobe simplefb 即自动绑定）</li>
+<li><input disabled="" type="checkbox" checked=""/>
+澄清绑定机制：驱动名=设备名（simple-framebuffer），DT/override 都不需要（5.1 弯路记录）</li>
+<li><input disabled="" type="checkbox" checked=""/>
+186 initrd 打入 simpledrm（update-initramfs + lsinitramfs 验证依赖齐全）</li>
+<li><input disabled="" type="checkbox" checked=""/>
+<strong>107 initramfs 持久化 + 重启验证</strong>（simplefb 入 107 initrd；重启后 fb0 于 initramfs 阶段绑定，[17.7s] &lt; 根挂载 [19.1s]，见 7.3）</li>
+<li><input disabled="" type="checkbox"/>
+重启进 186 验证 initramfs 方案（grub-reboot 单次引导，见 7.3）</li>
+<li><input disabled="" type="checkbox"/>
+确认华为 NPU 驱动在 186 上的兼容性（107 hold 的原始顾虑）</li>
+<li><input disabled="" type="checkbox"/>
+（可选）确认 640×480 GOP 模式能否调大 / 是否需要</li>
+</ul>
+<p>回退方法（与旧文一致）：<code>sudo cp /etc/default/grub.bak-tty0 /etc/default/grub &amp;&amp; sudo update-grub</code> 可整体还原命令行；<code>console=ttyS0,115200 console=tty0</code> 保留本身无副作用（tty0 挂不上 fb 时只是哑设备）。</p>
+<h1 id="shi-yi-pai-cha-ming-ling-qing-dan-fu-yong">十一、排查命令清单（复用）</h1>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cat &#x2F;proc&#x2F;cmdline                                  # 看有没有 console=
+cat &#x2F;proc&#x2F;iomem | grep -B3 -A3 BOOTFB              # GOP 帧缓冲区段（尺寸可反推分辨率：0x12c000=640×480×32）
+ls &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;devices&#x2F; | grep -i framebuffer  # sysfb 是否已注册 simple-framebuffer 设备（有没有驱动在等）
+ls &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;devices&#x2F;simple-framebuffer.0&#x2F;driver 2&gt;&amp;1  # 空 = 没绑定
+grep -E &quot;^CONFIG_(SYSFB|SYSFB_SIMPLEFB|FB_EFI|FB_SIMPLE|DRM_SIMPLEDRM)&quot; &#x2F;boot&#x2F;config-$(uname -r)
+find &#x2F;usr&#x2F;lib&#x2F;modules&#x2F;$(uname -r)&#x2F;kernel -name &quot;*.ko*&quot; | grep -iE &quot;simple|efifb&quot;  # 模块库存
+sudo modprobe simplefb                            # 加载即自动绑定（驱动名=simple-framebuffer）
+# 手动解绑&#x2F;重绑（注意驱动目录名是 simple-framebuffer，不是 simplefb）：
+#   echo simple-framebuffer.0 &gt; &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;drivers&#x2F;simple-framebuffer&#x2F;unbind
+#   echo simple-framebuffer.0 &gt; &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;drivers&#x2F;simple-framebuffer&#x2F;bind
+sudo dmesg | grep -E &quot;simple-framebuffer|Console: switching|fb[0-9]:&quot;
+ls &#x2F;sys&#x2F;class&#x2F;graphics&#x2F; &amp;&amp; cat &#x2F;sys&#x2F;class&#x2F;vtconsole&#x2F;vtcon*&#x2F;name
+sudo fbset -i                                   # fb0 分辨率&#x2F;位深（无 fbset 可读 virtual_size&#x2F;bits_per_pixel）
+# initramfs 方案（simplefb&#x2F;simpledrm 均可，加载即绑定；无需 udev 规则&#x2F;override）
+echo simpledrm | sudo tee -a &#x2F;etc&#x2F;initramfs-tools&#x2F;modules
+sudo update-initramfs -u -k 5.15.0-186-generic
+lsinitramfs &#x2F;boot&#x2F;initrd.img-5.15.0-186-generic | grep -E &quot;simpledrm|drm_kms_helper|fb_sys_fops&quot;
+# 单次引导测试内核
+sudo grub-reboot &quot;Advanced options for Ubuntu&gt;Ubuntu, with Linux 5.15.0-186-generic&quot;
+# 串口机制对照
+sudo dmesg | grep -E &quot;SPCR|earlycon|console \[tty&quot;   # SPCR&#x2F;earlycon&#x2F;console 注册链
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/">&#8249; 把 pi/Hermes 关进 OpenShell 沙箱：rootless Podman 与凭证不落地</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/"> 昇腾服务器根分区只读故障：ext4 日志中止 → 远程 fsck + IPMI 全程修复记录 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-bei-jing-vga-shang-yong-yuan-zhi-you-efi-stub-san-xing">一、背景：VGA 上永远只有&quot;EFI stub 三行&quot;</a>
+        </div>
+        <div>
+          <a href="#er-shi-yan-console-tty0-de-zhu-ce-di-yi-ci-jin-zheng-ming-ri-zhi-tou-di-cheng-gong">二、实验：console=tty0 的注册（第一次，仅证明&quot;日志投递&quot;成功）</a>
+        </div>
+        <div class="hpad">
+          <a href="#2-1-pei-zhi"><small>- 2.1 配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-2-zhong-qi-hou-dmesg-shi-ce-di-yi-ci-shi-yan-nei-he-5-15-0-107"><small>- 2.2 重启后 dmesg 实测（第一次实验，内核 5.15.0-107）</small></a>
+        </div>
+        <div>
+          <a href="#san-dang-shi-de-jie-lun-2026-09-09-shang-wu-yi-bei-xia-wu-de-pai-cha-tui-fan">三、当时的结论（2026-09-09 上午）——已被下午的排查推翻</a>
+        </div>
+        <div>
+          <a href="#si-ji-xu-pai-cha-sysfb-zao-yi-ba-lu-pu-hao-que-de-zhi-shi-qu-dong">四、继续排查：sysfb 早已把路铺好，缺的只是驱动</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-xin-zheng-ju-yi-proc-iomem-li-de-bootfb"><small>- 4.1 新证据一：&#x2F;proc&#x2F;iomem 里的 BOOTFB</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-xin-zheng-ju-er-simple-framebuffer-0-ping-tai-she-bei-zai-deng-qu-dong"><small>- 4.2 新证据二：simple-framebuffer.0 平台设备在等驱动</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-xiu-zheng-efifb-wei-shen-me-mei-gan-huo-ta-ya-gen-mei-you-she-bei"><small>- 4.3 修正：efifb 为什么&quot;没干活&quot;——它压根没有设备</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-4-guan-jian-chai-yi-107-yu-186-nei-he-de-mo-kuai-ku-cun"><small>- 4.4 关键差异：107 与 186 内核的模块库存</small></a>
+        </div>
+        <div>
+          <a href="#wu-dian-liang-modprobe-simplefb-ji-zi-dong-bang-ding-ling-zhong-qi-xian-chang-xiu-fu">五、点亮：modprobe simplefb 即自动绑定，零重启现场修复</a>
+        </div>
+        <div class="hpad">
+          <a href="#5-1-wan-lu-ji-lu-driver-override-yu-simplefb-mu-lu-chu-gao-de-cuo-yi-xiu-zheng"><small>- 5.1 弯路记录：driver_override 与 &quot;simplefb&quot; 目录（初稿的错，已修正）</small></a>
+        </div>
+        <div>
+          <a href="#liu-ji-zhi-bu-ke-fbcon-framebuffer-dev-fb0-de-guan-xi">六、机制补课：fbcon &#x2F; framebuffer &#x2F; &#x2F;dev&#x2F;fb0 的关系</a>
+        </div>
+        <div class="hpad">
+          <a href="#6-1-platform-bus-pi-pei-gui-ze-wei-shen-me-simplefb-neng-zi-dong-bang-shang-sysfb-she-bei"><small>- 6.1 platform bus 匹配规则：为什么 simplefb 能自动绑上 sysfb 设备</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-2-simplefb-vs-simpledrm-fbdev-lao-jiang-vs-drm-ji-ren-zhe"><small>- 6.2 simplefb vs simpledrm：fbdev 老将 vs DRM 继任者</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-3-modprobe-jiu-chuang-jian-liao-dev-fb0-yi-tiao-jian-jie-lian-lu"><small>- 6.3 &quot;modprobe 就创建了 &#x2F;dev&#x2F;fb0&quot;？——一条间接链路</small></a>
+        </div>
+        <div>
+          <a href="#qi-wei-shen-me-zao-qi-nei-he-ri-zhi-kan-bu-dao-fb-qu-dong-de-jia-zai-shi-ji-mang-qu">七、为什么早期内核日志看不到？——fb 驱动的加载时机盲区</a>
+        </div>
+        <div class="hpad">
+          <a href="#7-1-wen-ti-ben-zhi"><small>- 7.1 问题本质</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-2-rang-fb-qu-dong-ti-qian-initramfs-built-in"><small>- 7.2 让 fb 驱动提前：initramfs &#x2F; built-in</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-3-ben-ji-yi-zuo-de-pei-zhi-186-nei-he-dai-zhong-qi-yan-zheng"><small>- 7.3 本机已做的配置（186 内核，待重启验证）</small></a>
+        </div>
+        <div>
+          <a href="#ba-graphical-target-zhi-mi-wei-shen-me-shi-tui-er-bu-shi-gui">八、graphical.target 之谜：为什么是 TUI 而不是 GUI？</a>
+        </div>
+        <div>
+          <a href="#jiu-dui-zhao-chuan-kou-wei-shen-me-neng-kan-quan-qi-dong-ri-zhi-earlycon-console-ji-zhi">九、对照：串口为什么能看全启动日志？（earlycon &#x2F; console 机制）</a>
+        </div>
+        <div class="hpad">
+          <a href="#9-1-console-ttys0-yu-earlycon-shi-liang-hui-shi"><small>- 9.1 console=ttyS0 与 earlycon 是两回事</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#9-2-ying-jian-di-zhi-cong-na-lai"><small>- 9.2 硬件地址从哪来？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#9-3-wei-shen-me-bu-shi-suo-you-chuan-kou-du-neng-earlycon"><small>- 9.3 为什么&quot;不是所有串口都能 earlycon&quot;？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#9-4-yu-ben-ji-xian-xiang-dui-qi-lai"><small>- 9.4 与本机现象对起来</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#9-5-zhui-wen-wei-shen-me-kvm-kan-dao-de-bi-sol-shao-na-me-duo-gu-jian-diao-shi-kou-vs-conout-printk-hui-fang"><small>- 9.5 追问：为什么 KVM 看到的比 SOL 少那么多？（固件调试口 vs ConOut，printk 回放）</small></a>
+        </div>
+        <div>
+          <a href="#shi-xian-zhuang-yu-dai-ban">十、现状与待办</a>
+        </div>
+        <div>
+          <a href="#shi-yi-pai-cha-ming-ling-qing-dan-fu-yong">十一、排查命令清单（复用）</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

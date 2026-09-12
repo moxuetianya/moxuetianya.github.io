@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - browser</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/browser/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-06-13T01:43:45+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/browser/atom.xml</id>
+    <entry xml:lang="en">
+        <title>批量添加 GitHub 仓库协作者</title>
+        <published>2026-06-13T01:43:45+08:00</published>
+        <updated>2026-06-13T01:43:45+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/06/batch-add-github-collaborator/"/>
+        <id>https://moxuetianya.github.io/2026/06/batch-add-github-collaborator/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/06/batch-add-github-collaborator/">&lt;h1 id=&quot;gai-shu&quot;&gt;概述&lt;&#x2F;h1&gt;
+&lt;p&gt;使用 Playwright CLI 连接远程浏览器，批量为 &lt;code&gt;peterlishihu&lt;&#x2F;code&gt; 用户下全部 29 个仓库添加 &lt;code&gt;moxuetianya&lt;&#x2F;code&gt; 作为协作者。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;huan-jing&quot;&gt;环境&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;本地机器&lt;&#x2F;strong&gt;: 通过 SSH 隧道转发远程 Chrome 调试端口&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;远程浏览器&lt;&#x2F;strong&gt;: Chrome 149, 以 &lt;code&gt;--remote-debugging-port=9222 --remote-debugging-address=0.0.0.0&lt;&#x2F;code&gt; 启动&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Playwright CLI&lt;&#x2F;strong&gt;: 通过 CDP 协议连接 &lt;code&gt;http:&#x2F;&#x2F;127.0.0.1:9222&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 远程机器启动 Chrome
+google-chrome --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0 --user-data-dir=&amp;#x2F;tmp&amp;#x2F;chrome-debug
+
+# 本地建立 SSH 隧道
+ssh -L 9222:127.0.0.1:9222 user@192.168.2.100
+
+# 连接远程浏览器
+playwright-cli attach --cdp=http:&amp;#x2F;&amp;#x2F;127.0.0.1:9222
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cao-zuo-liu-cheng&quot;&gt;操作流程&lt;&#x2F;h1&gt;
+&lt;p&gt;对每个仓库执行以下步骤：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;导航到仓库的 Collaborators 设置页 (&lt;code&gt;&#x2F;&amp;lt;owner&amp;gt;&#x2F;&amp;lt;repo&amp;gt;&#x2F;settings&#x2F;access&lt;&#x2F;code&gt;)&lt;&#x2F;li&gt;
+&lt;li&gt;检查页面是否已包含 &lt;code&gt;@moxuetianya&lt;&#x2F;code&gt;，若有则跳过&lt;&#x2F;li&gt;
+&lt;li&gt;点击 &lt;strong&gt;&quot;Add people&quot;&lt;&#x2F;strong&gt; 按钮&lt;&#x2F;li&gt;
+&lt;li&gt;在弹出的对话框中输入 &lt;code&gt;moxuetianya&lt;&#x2F;code&gt; 搜索用户&lt;&#x2F;li&gt;
+&lt;li&gt;检查搜索结果是否已禁用（表示已邀请），若是则关闭对话框跳过&lt;&#x2F;li&gt;
+&lt;li&gt;选中 &lt;code&gt;@moxuetianya&lt;&#x2F;code&gt; 选项&lt;&#x2F;li&gt;
+&lt;li&gt;点击 &lt;strong&gt;&quot;Add moxuetianya&quot;&lt;&#x2F;strong&gt; 确认添加&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;playwright-jiao-ben&quot;&gt;Playwright 脚本&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;javascript&quot; class=&quot;language-javascript &quot;&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;async page =&amp;gt; {
+  const repos = [&amp;quot;proxy-shoes&amp;quot;,&amp;quot;learn-frontend&amp;quot;,&amp;quot;learn-architecture&amp;quot;,&amp;quot;his&amp;quot;,&amp;#x2F;* ... 共29个 *&amp;#x2F;];
+
+  for (const repo of repos) {
+    await page.goto(`https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;peterlishihu&amp;#x2F;${repo}&amp;#x2F;settings&amp;#x2F;access`, { waitUntil: &amp;#x27;load&amp;#x27; });
+    await page.waitForTimeout(2500);
+
+    &amp;#x2F;&amp;#x2F; 检查是否已存在
+    const text = await page.evaluate(() =&amp;gt; document.body.innerText);
+    if (text.includes(&amp;#x27;@moxuetianya&amp;#x27;)) continue;
+
+    &amp;#x2F;&amp;#x2F; 打开添加对话框
+    await page.getByRole(&amp;#x27;button&amp;#x27;, { name: &amp;#x27;Add people&amp;#x27; }).click();
+    await page.waitForTimeout(1000);
+
+    &amp;#x2F;&amp;#x2F; 搜索用户
+    await page.getByRole(&amp;#x27;combobox&amp;#x27;, { name: &amp;#x27;Find people&amp;#x27; }).fill(&amp;#x27;moxuetianya&amp;#x27;);
+    await page.waitForTimeout(2000);
+
+    &amp;#x2F;&amp;#x2F; 检查是否已禁用（已邀请）
+    const disabled = await page.evaluate(() =&amp;gt; {
+      const opt = document.querySelector(&amp;#x27;[role=&amp;quot;option&amp;quot;][aria-disabled=&amp;quot;true&amp;quot;]&amp;#x27;);
+      return opt &amp;amp;&amp;amp; opt.textContent.includes(&amp;#x27;moxuetianya&amp;#x27;);
+    });
+    if (disabled) { await page.keyboard.press(&amp;#x27;Escape&amp;#x27;); continue; }
+
+    &amp;#x2F;&amp;#x2F; 选中并确认
+    await page.getByRole(&amp;#x27;option&amp;#x27;, { name: &amp;#x27;@moxuetianya&amp;#x27; }).click();
+    await page.getByRole(&amp;#x27;button&amp;#x27;, { name: &amp;#x2F;Add moxuetianya&amp;#x2F; }).click();
+    await page.waitForTimeout(2000);
+  }
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;jie-guo-tong-ji&quot;&gt;结果统计&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;状态&lt;&#x2F;th&gt;&lt;th&gt;数量&lt;&#x2F;th&gt;&lt;th&gt;仓库&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;本次添加&lt;&#x2F;td&gt;&lt;td&gt;15&lt;&#x2F;td&gt;&lt;td&gt;learn-frontend, his, learn-pipewire-bluetooth, mobile-smb, obsidian, trace-learn, learn-langchain, learn-protobuf, learn-tcpip, bt-learn, wifi-learn, zod-learn, p2p-learn, my-skills, Qwen3.5&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;已存在&lt;&#x2F;td&gt;&lt;td&gt;14&lt;&#x2F;td&gt;&lt;td&gt;proxy-shoes, learn-architecture, learn-tpm-grub, learn-linux, linux-translate, linux-dlna, learn-opencode, juzhong, phone-access-card, claude-config, learn-vless, learn-ssh, learn-tls, learn-socks5&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;全部 29 个仓库均已完成。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

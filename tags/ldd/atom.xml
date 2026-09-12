@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ldd</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ldd/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-02T18:02:16+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/ldd/atom.xml</id>
+    <entry xml:lang="en">
+        <title>微信 Linux 版启动失败：apt 装了依赖却没装全</title>
+        <published>2026-08-02T18:02:16+08:00</published>
+        <updated>2026-08-02T18:02:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/"/>
+        <id>https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;Ubuntu 上通过 &lt;code&gt;apt install ~&#x2F;下载&#x2F;WeChatLinux_x86_64.deb&lt;&#x2F;code&gt; 安装了微信 Linux 版，但从 GNOME 应用菜单点击图标后&lt;strong&gt;没有任何反应&lt;&#x2F;strong&gt;，窗口不出现，进程直接退出。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-zhi-jie-yun-xing-na-dao-bao-cuo&quot;&gt;定位：直接运行拿到报错&lt;&#x2F;h1&gt;
+&lt;p&gt;从桌面点图标失败只能看到&quot;无反应&quot;，先绕过桌面环境，直接跑二进制拿错误信息：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat
+&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat: error while loading shared libraries:
+libxcb-icccm.so.4: cannot open shared object file: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原因清楚了：缺少动态库 &lt;code&gt;libxcb-icccm.so.4&lt;&#x2F;code&gt;，对应 Debian&#x2F;Ubuntu 包 &lt;code&gt;libxcb-icccm4&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-wan-yi-ge-you-que-yi-ge&quot;&gt;补完一个又缺一个&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo apt-get install -y libxcb-icccm4
+$ &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat
+libxcb-image.so.0: cannot open shared object file: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;再装 &lt;code&gt;libxcb-image0&lt;&#x2F;code&gt;，又报 &lt;code&gt;libxcb-render-util.so.0&lt;&#x2F;code&gt;……典型的&quot;补完一个又缺一个&quot;。与其一个个试，不如一次性查出所有缺失：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ldd &amp;#x2F;opt&amp;#x2F;wechat&amp;#x2F;wechat | grep &amp;quot;not found&amp;quot;
+	libxcb-image.so.0 =&amp;gt; not found
+	libxcb-render-util.so.0 =&amp;gt; not found
+	libxcb-keysyms.so.1 =&amp;gt; not found
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;ldd&lt;&#x2F;code&gt; 直接列出全部缺失，不用再来回跑二进制。一次装齐：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo apt-get install -y libxcb-image0 libxcb-render-util0 libxcb-keysyms1
+$ ldd &amp;#x2F;opt&amp;#x2F;wechat&amp;#x2F;wechat | grep &amp;quot;not found&amp;quot;   # 空，依赖齐全
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;从 GNOME 启动微信，正常。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin-deb-yuan-shu-ju-sheng-ming-de-yi-lai-bu-quan&quot;&gt;根因：deb 元数据声明的依赖不全&lt;&#x2F;h1&gt;
+&lt;p&gt;问题来了：明明用 &lt;code&gt;apt install&lt;&#x2F;code&gt; 装的，为什么依赖没有自动装上？&lt;&#x2F;p&gt;
+&lt;p&gt;查看 deb 包的元数据就明白了：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ dpkg-deb -f ~&amp;#x2F;下载&amp;#x2F;WeChatLinux_x86_64.deb Package Version Architecture
+wechat
+4.1.1.8
+amd64
+
+$ dpkg-deb -f ~&amp;#x2F;下载&amp;#x2F;WeChatLinux_x86_64.deb Depends
+fonts-noto-cjk | google-noto-cjk-fonts
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;腾讯的 deb 包只声明了一个字体依赖&lt;&#x2F;strong&gt;，而二进制实际运行需要的 4 个库：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;缺失库&lt;&#x2F;th&gt;&lt;th&gt;对应包&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-icccm.so.4&lt;&#x2F;td&gt;&lt;td&gt;libxcb-icccm4&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-image.so.0&lt;&#x2F;td&gt;&lt;td&gt;libxcb-image0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-render-util.so.0&lt;&#x2F;td&gt;&lt;td&gt;libxcb-render-util0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-keysyms.so.1&lt;&#x2F;td&gt;&lt;td&gt;libxcb-keysyms1&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;全部没有写入 &lt;code&gt;Depends&lt;&#x2F;code&gt; 字段。apt 只能根据包元数据解析依赖，元数据里没声明的它无从知道，自然也不会安装——等到运行时动态链接器报错才暴露。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带说明：&lt;code&gt;apt install .&#x2F;xxx.deb&lt;&#x2F;code&gt; 与 &lt;code&gt;dpkg -i&lt;&#x2F;code&gt; 的区别在于前者会自动解析并安装&lt;strong&gt;已声明&lt;&#x2F;strong&gt;的依赖；但本案中缺失的库根本未声明，用哪个都装不上，只能手动补。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;桌面图标启动失败先跑二进制&lt;&#x2F;strong&gt;：绕过桌面环境的静默失败，拿到真实报错&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;缺库报错用 &lt;code&gt;ldd &amp;lt;binary&amp;gt; | grep &quot;not found&quot;&lt;&#x2F;code&gt; 一次性查全&lt;&#x2F;strong&gt;，不要补完一个再试一次&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;apt 装了依赖&quot;没生效&quot;时，先查 deb 元数据&lt;&#x2F;strong&gt;：&lt;code&gt;dpkg-deb -f xxx.deb Depends&lt;&#x2F;code&gt;，确认是打包疏漏还是安装方式问题。微信 deb 的 &lt;code&gt;Depends&lt;&#x2F;code&gt; 只声明了字体，4 个 libxcb 运行库全部缺失，这是腾讯打包的锅，不是 apt 的错&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

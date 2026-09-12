@@ -1,0 +1,184 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - scroll</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/scroll/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-15T15:25:20+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/scroll/atom.xml</id>
+    <entry xml:lang="en">
+        <title>触摸板滚动灵敏度排查：从 tmux 到 opencode 的三层事件链</title>
+        <published>2026-08-15T15:25:20+08:00</published>
+        <updated>2026-08-15T15:25:20+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/touchpad-scroll-sensitivity-diagnosis/">&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;外接 2.4G 无线键鼠套装（HS-LP88 - PTP-01-23-1F，VID 1c4f:0086）自带的触摸板（102×51mm 精度触控板），在终端里两指轻轻一动就滚掉半页；浏览器里&quot;还凑合&quot;；普通终端（Ptyxis）里则感觉正常。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;di-yi-ceng-huai-yi-tmux-gun-lun-bu-chang&quot;&gt;第一层怀疑：tmux 滚轮步长&lt;&#x2F;h3&gt;
+&lt;p&gt;环境是 GNOME Wayland + Ptyxis + tmux（&lt;code&gt;set -g mouse on&lt;&#x2F;code&gt;）。tmux 默认每格滚轮 = 5 行（&lt;code&gt;send-keys -X -N 5 scroll-up&lt;&#x2F;code&gt;），44 行的 pane 里一个轻扫就 20+ 行，确实像&quot;半页&quot;。&lt;&#x2F;p&gt;
+&lt;p&gt;修改 &lt;code&gt;~&#x2F;.tmux.conf&lt;&#x2F;code&gt; 把步长降到 2 行、1 行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;conf&quot; class=&quot;language-conf &quot;&gt;&lt;code class=&quot;language-conf&quot; data-lang=&quot;conf&quot;&gt;bind-key -T copy-mode-vi WheelUpPane   select-pane \; send-keys -X -N 1 scroll-up
+bind-key -T copy-mode-vi WheelDownPane select-pane \; send-keys -X -N 1 scroll-down
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但用户反馈&quot;没什么变化&quot;——说明问题不只在 tmux。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-er-ceng-shi-ce-shi-jian-liu-pai-chu-libinput-mutter&quot;&gt;第二层：实测事件流，排除 libinput &#x2F; mutter&lt;&#x2F;h3&gt;
+&lt;p&gt;用工具逐层测量（&lt;code&gt;libinput-tools&lt;&#x2F;code&gt;、&lt;code&gt;evtest&lt;&#x2F;code&gt;、&lt;code&gt;wev&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;evtest&lt;&#x2F;code&gt; 看内核原始坐标：轴分辨率 14 units&#x2F;mm，坐标流平滑，无异常&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;libinput debug-events&lt;&#x2F;code&gt; 看 libinput 输出：滑动时&lt;strong&gt;每帧产生 0.38 格&lt;&#x2F;strong&gt;滚轮（设备事件率本就偏高，无线设备报告率低、位置跳变被放大）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;wev&lt;&#x2F;code&gt; 看应用实际收到的 Wayland axis 事件：慢速 2cm 手势 ≈ 60px，快速轻扫 ≈ 260px——&lt;strong&gt;mutter 已经做了正常化&lt;&#x2F;strong&gt;，应用层像素量正常&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：libinput 和 mutter 都不是主要问题（全局 quirk 调 &lt;code&gt;ScrollDistance&lt;&#x2F;code&gt; 会影响所有应用，先排除）。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-san-ceng-vte-de-sgr-shi-jian-fang-da&quot;&gt;第三层：VTE 的 SGR 事件放大&lt;&#x2F;h3&gt;
+&lt;p&gt;tmux 里用启用鼠标模式的程序统计实际收到的滚轮事件数：一次快速轻扫 ≈ &lt;strong&gt;31 个 SGR 滚轮事件&lt;&#x2F;strong&gt;（260px ÷ 31 ≈ 8px&#x2F;事件 ≈ 半个行高）。&lt;&#x2F;p&gt;
+&lt;p&gt;原来 VTE 把平滑滚动&lt;strong&gt;每累计 0.5 行就发一个 SGR 滚轮事件&lt;&#x2F;strong&gt;给全屏应用（正常鼠标滚轮是 1 格&#x2F;3 行，差了 6 倍）。所以：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;触控板 → libinput(hi-res 事件) → mutter(Wayland px, 已正常化)
+       → VTE(每 0.5 行发一个 SGR 事件, 放大 ~6 倍)
+       → 全屏 TUI(每事件滚 N 行)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;di-si-ceng-zhen-zheng-de-yuan-xiong-opencode-tui&quot;&gt;第四层：真正的元凶——opencode TUI&lt;&#x2F;h3&gt;
+&lt;p&gt;用户实际感觉&quot;太灵敏&quot;的终端是 &lt;strong&gt;opencode TUI&lt;&#x2F;strong&gt;。查源码 &lt;code&gt;packages&#x2F;tui&#x2F;src&#x2F;util&#x2F;scroll.ts&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ts&quot; class=&quot;language-ts &quot;&gt;&lt;code class=&quot;language-ts&quot; data-lang=&quot;ts&quot;&gt;export function getScrollAcceleration(tuiConfig?: ScrollConfig): ScrollAcceleration {
+  if (tuiConfig?.scroll_acceleration?.enabled) {
+    return new MacOSScrollAccel()
+  }
+  if (tuiConfig?.scroll_speed !== undefined) {
+    return new CustomSpeedScroll(tuiConfig.scroll_speed)
+  }
+  return new CustomSpeedScroll(3)   &amp;#x2F;&amp;#x2F; ← 默认每次滚轮事件滚 3 行
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;默认每次滚轮事件 = 3 行&lt;&#x2F;strong&gt;，且不区分慢速&#x2F;快速。一个快速轻扫 = 31 个事件 × 3 行 = 93 行 ≈ 2 页多，所以&quot;随便一动就半页&quot;。&lt;&#x2F;p&gt;
+&lt;p&gt;浏览器&quot;凑合&quot;是因为浏览器使用 Wayland 平滑滚动 + 惯性动画（kinetic），对高频小 delta 有缓冲；而 TUI 是逐事件跳行。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-wan-lu-yu-cuo-wu-ji-lu&quot;&gt;排查弯路与错误记录&lt;&#x2F;h2&gt;
+&lt;p&gt;整个排查过程中犯过的错、被推翻的假设，都值得记下来防止重蹈覆辙：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;#&lt;&#x2F;th&gt;&lt;th&gt;错误假设 &#x2F; 失误&lt;&#x2F;th&gt;&lt;th&gt;为什么错&lt;&#x2F;th&gt;&lt;th&gt;如何纠正&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;一开始就锁定 tmux，投入大量时间调 &lt;code&gt;-N 5→2→1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;用户实际滚动的是 &lt;strong&gt;opencode TUI&lt;&#x2F;strong&gt;，tmux 配置根本不参与那条滚动路径&lt;&#x2F;td&gt;&lt;td&gt;先确认&quot;你说的终端到底是哪个程序&quot;再排查；事后发现 tmux 改动只影响 copy-mode，用户场景里无感&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;怀疑触摸板设备本身有问题（&lt;code&gt;libinput debug-events&lt;&#x2F;code&gt; 显示每帧 0.38 格、VTE 每 0.5 行发一个 SGR 事件，一度以为要写 libinput quirk）&lt;&#x2F;td&gt;&lt;td&gt;原始坐标流（&lt;code&gt;evtest&lt;&#x2F;code&gt;）是平滑的；&lt;code&gt;wev&lt;&#x2F;code&gt; 证明 mutter 已把应用层像素量正常化（慢速 60px &#x2F; 快速 260px），设备不是主因&lt;&#x2F;td&gt;&lt;td&gt;逐层测量事件流（evtest → libinput → wev），把&quot;全局 quirk&quot;方案压到最后一档，避免影响所有应用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;3&lt;&#x2F;td&gt;&lt;td&gt;测量 tmux 滚动行数时用 &lt;code&gt;capture-pane&lt;&#x2F;code&gt; 对比&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;capture-pane 抓不到 copy-mode 的滚动视图&lt;&#x2F;strong&gt;，连续两次测出 0 行，误以为用户没滚&lt;&#x2F;td&gt;&lt;td&gt;改用 tmux 内部 &lt;code&gt;copy_cursor_line&lt;&#x2F;code&gt; 做差分测量，才拿到真实滚动量&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;4&lt;&#x2F;td&gt;&lt;td&gt;让用户做受控手势时没有先输出指令、等确认就开始倒计时&lt;&#x2F;td&gt;&lt;td&gt;用户看到消息时测量窗口已过，测试数据无效&lt;&#x2F;td&gt;&lt;td&gt;改为&quot;我输出指令 → 用户确认 → 开始测量&quot;的节奏&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;5&lt;&#x2F;td&gt;&lt;td&gt;没意识到 Wayland 滚轮事件发给&lt;strong&gt;指针所在窗口&lt;&#x2F;strong&gt;而非活动窗口&lt;&#x2F;td&gt;&lt;td&gt;用户把指针放在别的窗口上做手势，测试窗口 0 滚动&lt;&#x2F;td&gt;&lt;td&gt;明确要求&quot;把鼠标指针移到测试窗口中间&quot;再测&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;6&lt;&#x2F;td&gt;&lt;td&gt;一度以为 tmux 配置改动&quot;没作用&quot;是配置没生效&lt;&#x2F;td&gt;&lt;td&gt;配置曾被还原回 &lt;code&gt;-N 5&lt;&#x2F;code&gt;；且就算生效，作用域也只是 tmux copy-mode&lt;&#x2F;td&gt;&lt;td&gt;每次改动后 `tmux list-keys -T copy-mode-vi&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pai-cha-yong-dao-de-ming-ling-qing-dan&quot;&gt;排查用到的命令清单&lt;&#x2F;h2&gt;
+&lt;p&gt;按事件链各层整理，附用途和关键输出，方便下次直接复用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;she-bei-shi-bie&quot;&gt;设备识别&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 找出所有被识别为触摸板的设备节点（NAME 为设备名）
+for f in &amp;#x2F;dev&amp;#x2F;input&amp;#x2F;event*; do
+  name=$(udevadm info -q property -n &amp;quot;$f&amp;quot; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | grep &amp;#x27;^NAME=&amp;#x27; | sed &amp;#x27;s&amp;#x2F;NAME=&amp;#x2F;&amp;#x2F;&amp;#x27;)
+  tp=$(udevadm info -q property -n &amp;quot;$f&amp;quot; 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null | grep -c &amp;#x27;ID_INPUT_TOUCHPAD=1&amp;#x27;)
+  [ &amp;quot;$tp&amp;quot; = &amp;quot;1&amp;quot; ] &amp;amp;&amp;amp; echo &amp;quot;$f  $name&amp;quot;
+done
+
+# 查看设备的完整属性（vendor&amp;#x2F;model、尺寸、usb 路径）
+udevadm info -q property -n &amp;#x2F;dev&amp;#x2F;input&amp;#x2F;event8 | sort
+
+# 查看设备在 &amp;#x2F;proc&amp;#x2F;bus&amp;#x2F;input&amp;#x2F;devices 中的注册信息（轴位图、handlers）
+awk &amp;#x27;&amp;#x2F;Name=&amp;quot;HS-LP88 -PTP-01-23-1F USB KeyBoard Touchpad&amp;quot;&amp;#x2F;{found=1} found{print} found&amp;amp;&amp;amp;&amp;#x2F;^$&amp;#x2F;{exit}&amp;#x27; &amp;#x2F;proc&amp;#x2F;bus&amp;#x2F;input&amp;#x2F;devices
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;xi-tong-she-zhi-yu-quirk&quot;&gt;系统设置与 quirk&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# GNOME 触摸板设置（speed 0.0 默认、natural-scroll、two-finger-scrolling）
+gsettings get org.gnome.desktop.peripherals.touchpad speed
+gsettings get org.gnome.desktop.peripherals.touchpad natural-scroll
+
+# 查看设备当前生效的 libinput quirks（无输出 = 无 quirk）
+libinput quirks list &amp;#x2F;dev&amp;#x2F;input&amp;#x2F;event8
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;zhu-ceng-ce-liang-shi-jian-liu&quot;&gt;逐层测量事件流&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 内核原始事件 + 轴分辨率（evtest 输出含 Min&amp;#x2F;Max&amp;#x2F;Resolution）
+sudo evtest &amp;#x2F;dev&amp;#x2F;input&amp;#x2F;event8
+#   → ABS_X Max 1433 Resolution 14   （14 units&amp;#x2F;mm，102×51mm）
+
+# ② libinput 处理后的滚动事件（POINTER_SCROLL_FINGER，1.0 = 一格滚轮）
+sudo libinput debug-events --device &amp;#x2F;dev&amp;#x2F;input&amp;#x2F;event8
+
+# ③ Wayland 应用层实际收到的 axis 事件（数值即像素，mutter 正常化后的真实输入）
+timeout 15 wev
+
+# 统计 wev 中每个手势的像素总量：
+python3 - &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+import re
+times, vals = [], []
+for line in open(&amp;#x27;&amp;#x2F;tmp&amp;#x2F;wev.txt&amp;#x27;):
+    m = re.search(r&amp;#x27;axis: time: (\d+); axis: 0 \(vertical\), value: ([\d.]+)&amp;#x27;, line)
+    if m: times.append(int(m.group(1))); vals.append(float(m.group(2)))
+g, acc, prev = 0, 0, None
+for t, v in zip(times, vals):
+    if prev and t - prev &amp;gt; 300: print(f&amp;quot;gesture {g}: {acc:.1f}px&amp;quot;); g += 1; acc = 0
+    acc += v; prev = t
+print(f&amp;quot;gesture {g}: {acc:.1f}px&amp;quot;)
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;tmux-ceng&quot;&gt;tmux 层&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看当前滚轮绑定（确认 -N 步长是否生效，改完配置必查）
+tmux list-keys -T copy-mode-vi | grep Wheel
+
+# 统计一个手势产生多少个 SGR 滚轮事件（在 tmux 窗格里运行，鼠标模式由程序自己开启）
+tmux new-window -d -n wc &amp;quot;python3 -c &amp;#x27;
+import sys, time
+sys.stdout.write(chr(27)+chr(91)+chr(63)+chr(49)+chr(48)+chr(48)+chr(48)+chr(104))
+sys.stdout.flush()
+n=0; start=time.time()
+while time.time()-start&amp;lt;20:
+    d=sys.stdin.buffer.read(1)
+    if not d: continue
+    if d==b\&amp;quot;\\x1b\&amp;quot;:
+        rest=sys.stdin.buffer.read(3)
+        if rest.startswith(b\&amp;quot;[M\&amp;quot;): n+=1
+print(); print(\&amp;quot;SGR events:\&amp;quot;, n)
+&amp;#x27;&amp;quot;
+
+# 测真实滚动行数：copy_cursor_line 差分（capture-pane 抓不到 copy-mode 视图，别用那个）
+tmux display-message -p -t &amp;lt;pane&amp;gt; &amp;#x27;copy_cursor_line=#{copy_cursor_line}&amp;#x27;   # 手势前
+tmux display-message -p -t &amp;lt;pane&amp;gt; &amp;#x27;copy_cursor_line=#{copy_cursor_line}&amp;#x27;   # 手势后，差值即行数
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;opencode-pei-zhi&quot;&gt;opencode 配置&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 配置文件位置（启动时加载，改后需重启 opencode）
+cat ~&amp;#x2F;.config&amp;#x2F;opencode&amp;#x2F;tui.json
+# {&amp;quot;$schema&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;tui.json&amp;quot;, &amp;quot;scroll_speed&amp;quot;: 1}
+
+# 源码中的默认值定位（packages&amp;#x2F;tui&amp;#x2F;src&amp;#x2F;util&amp;#x2F;scroll.ts）
+#   getScrollAcceleration(): scroll_speed 未配置时默认 CustomSpeedScroll(3)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu&quot;&gt;修复&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 的 TUI 配置在 &lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;tui.json&lt;&#x2F;code&gt;（schema: &lt;code&gt;https:&#x2F;&#x2F;opencode.ai&#x2F;tui.json&lt;&#x2F;code&gt;），写入：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;$schema&amp;quot;: &amp;quot;https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;tui.json&amp;quot;,
+  &amp;quot;scroll_speed&amp;quot;: 1
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;配置启动时加载，重启 opencode 生效。想要浏览器式惯性平滑手感可加：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;scroll_speed&amp;quot;: 1,
+  &amp;quot;scroll_acceleration&amp;quot;: { &amp;quot;enabled&amp;quot;: true }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;scroll_speed&lt;&#x2F;code&gt; 范围 ≥0.001，越大越快。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;同一个滚动灵敏度问题，事件链上每一层都有各自的&quot;每事件行数&quot;乘数：libinput（每 mm 格数）→ mutter（px）→ VTE（SGR 事件率）→ TUI（每事件行数）。&lt;strong&gt;感知上的速度 = 各层乘数之积&lt;&#x2F;strong&gt;，改任何一层都有效，但要注意影响面：
+&lt;ul&gt;
+&lt;li&gt;libinput &lt;code&gt;ScrollDistance&lt;&#x2F;code&gt; quirk：全局，所有应用一起变&lt;&#x2F;li&gt;
+&lt;li&gt;tmux &lt;code&gt;-N&lt;&#x2F;code&gt;：只影响 tmux copy-mode 滚动&lt;&#x2F;li&gt;
+&lt;li&gt;opencode &lt;code&gt;scroll_speed&lt;&#x2F;code&gt;：只影响 opencode TUI（本项目最终采用）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;排查工具清单：&lt;code&gt;evtest&lt;&#x2F;code&gt;（内核原始事件）、&lt;code&gt;libinput debug-events&lt;&#x2F;code&gt;（libinput 输出）、&lt;code&gt;wev&lt;&#x2F;code&gt;（Wayland 应用层事件）、tmux &lt;code&gt;copy_cursor_line&lt;&#x2F;code&gt; 差分（测实际滚动行数）。&lt;&#x2F;li&gt;
+&lt;li&gt;教训：先确认&quot;你说的终端到底是哪个程序&quot;，再开始排查——本问题在 tmux 层投入了大量时间，实际元凶是 opencode。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

@@ -1,0 +1,219 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - rustc</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/rustc/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-10-31T09:52:15+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/rustc/atom.xml</id>
+    <entry xml:lang="en">
+        <title>rustc-wrapper(linker)解决cargo并行链接OOM问题</title>
+        <published>2025-10-31T09:52:15+08:00</published>
+        <updated>2025-10-31T09:52:15+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/"/>
+        <id>https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/rustc-wrapper(linker)解决cargo并行链接OOM问题/">&lt;h1 id=&quot;bao-zhuan-linkerde-fang-shi&quot;&gt;包转linker的方式&lt;&#x2F;h1&gt;
+&lt;p&gt;ld_wrapper.sh
+并没有验证通过ORZ?&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;bash
+# 通用链接器包装器 - ld_generic_wrapper.sh
+
+PRESSURE_THRESHOLD=&amp;quot;0.10&amp;quot;          # 内存压力阈值（10%）
+MAX_WAIT_TIME=600                  # 最大等待时间（秒）
+MIN_WAIT_TIME=5                    # 最小等待时间（秒） 
+MAX_RETRIES=100                    # 最大重试次数
+PRESSURE_FILE=&amp;quot;&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;cgroup&amp;#x2F;user.slice&amp;#x2F;user-$(id -u).slice&amp;#x2F;memory.pressure&amp;quot;
+REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ld&amp;quot;              # 真实链接器路径，可根据需要修改
+LOG_FILE=&amp;quot;&amp;#x2F;tmp&amp;#x2F;linker_wrapper.log&amp;quot; # 日志文件路径
+
+# 检测真实链接器
+detect_real_linker() {
+    local wrapper_name=$(basename &amp;quot;$0&amp;quot;)
+    case &amp;quot;$wrapper_name&amp;quot; in
+        *ld*)
+            REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ld&amp;quot;
+            ;;
+        *lld*)
+            REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;lld&amp;quot;
+            ;;
+        *gold*)
+            REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;gold&amp;quot;
+            ;;
+        *)
+            REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ld&amp;quot;
+            ;;
+    esac
+    
+    # 检查链接器是否存在
+    if [[ ! -x &amp;quot;$REAL_LD&amp;quot; ]]; then
+        # 尝试在PATH中查找
+        REAL_LD=$(which &amp;quot;${wrapper_name#wrapper_}&amp;quot;) || REAL_LD=&amp;quot;&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ld&amp;quot;
+    fi
+}
+
+# 日志函数
+log_message() {
+    echo &amp;quot;$(date &amp;#x27;+%Y-%m-%d %H:%M:%S&amp;#x27;) - $1&amp;quot; &amp;gt;&amp;gt; &amp;quot;$LOG_FILE&amp;quot;
+}
+
+# 其余函数与之前相同...
+get_some_avg10() {
+    local pressure_file=$1
+    if [[ -f &amp;quot;$pressure_file&amp;quot; ]]; then
+        local line=$(grep &amp;quot;^some&amp;quot; &amp;quot;$pressure_file&amp;quot;)
+        if [[ $line =~ avg10=([0-9.]+) ]]; then
+            echo &amp;quot;${BASH_REMATCH[1]}&amp;quot;
+            return 0
+        fi
+    fi
+    echo &amp;quot;0.00&amp;quot;
+}
+
+wait_for_low_memory_pressure() {
+    local retry_count=0
+    local current_pressure
+    
+    while [[ $retry_count -lt $MAX_RETRIES ]]; do
+        current_pressure=$(get_some_avg10 &amp;quot;$PRESSURE_FILE&amp;quot;)
+        
+        # 使用bc进行浮点数比较
+        if command -v bc &amp;gt;&amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1; then
+            # 如果有bc，进行精确比较
+            if (( $(echo &amp;quot;$current_pressure &amp;lt; $PRESSURE_THRESHOLD&amp;quot; | bc -l) )); then
+                log_message &amp;quot;内存压力正常 ($current_pressure &amp;lt; $PRESSURE_THRESHOLD)，开始执行链接&amp;quot;
+                return 0
+            fi
+        else
+            # 如果没有bc，使用bash内置的数值比较（假设压力值小于10）
+            if (( $(echo &amp;quot;${current_pressure} &amp;lt; ${PRESSURE_THRESHOLD}&amp;quot; | tr -d &amp;#x27;.&amp;#x27; | head -c3) &amp;lt; $(echo &amp;quot;${PRESSURE_THRESHOLD}&amp;quot; | tr -d &amp;#x27;.&amp;#x27; | head -c3) )); then
+                log_message &amp;quot;内存压力正常 ($current_pressure &amp;lt; $PRESSURE_THRESHOLD)，开始执行链接&amp;quot;
+                return 0
+            fi
+        fi
+        
+        # 计算随机等待时间
+        local wait_time=$(( MIN_WAIT_TIME + RANDOM % (MAX_WAIT_TIME - MIN_WAIT_TIME + 1) ))
+        
+        log_message &amp;quot;内存压力过高: $current_pressure (阈值: $PRESSURE_THRESHOLD), 等待 ${wait_time}秒后重试 (尝试: $((retry_count + 1))&amp;#x2F;$MAX_RETRIES)&amp;quot;
+        
+        # 等待
+        sleep $wait_time
+        
+        ((retry_count++))
+    done
+    
+    log_message &amp;quot;错误: 达到最大重试次数 ($MAX_RETRIES)，内存压力仍过高: $current_pressure&amp;quot;
+    return 1
+}
+
+main() {
+    log_message &amp;quot;链接器包装器被调用，参数: $*&amp;quot;
+
+    detect_real_linker
+    log_message &amp;quot;$(date) - 链接器包装器调用: $REAL_LD, 参数: $*&amp;quot; &amp;gt;&amp;gt; &amp;quot;$LOG_FILE&amp;quot;
+    
+    if ! wait_for_low_memory_pressure; then
+        log_message &amp;quot;错误: 内存压力持续过高&amp;quot; &amp;gt;&amp;amp;2
+        return 1
+    fi
+    
+    log_message &amp;quot;执行真实链接器: $REAL_LD $*&amp;quot;
+    exec &amp;quot;$REAL_LD&amp;quot; &amp;quot;$@&amp;quot;
+}
+
+main &amp;quot;$@&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;修改cargo编译使用的链接器&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 临时生效： 使脚本可执行
+chmod +x &amp;#x2F;path&amp;#x2F;to&amp;#x2F;ld_wrapper.sh
+
+# 配置RUSTFLAGS环境变量
+export RUSTFLAGS=&amp;quot;-C link-arg=-fuse-ld=&amp;#x2F;path&amp;#x2F;to&amp;#x2F;ld_wrapper.sh&amp;quot;
+cargo build
+# 或者配置
+export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=$(realpath &amp;#x2F;path&amp;#x2F;to&amp;#x2F;wrap-ld.sh)
+
+# 创建符号链接
+ln -s &amp;#x2F;path&amp;#x2F;to&amp;#x2F;ld_generic_wrapper.sh &amp;#x2F;path&amp;#x2F;to&amp;#x2F;wrapper_ld
+ln -s &amp;#x2F;path&amp;#x2F;to&amp;#x2F;ld_generic_wrapper.sh &amp;#x2F;path&amp;#x2F;to&amp;#x2F;wrapper_lld
+ln -s &amp;#x2F;path&amp;#x2F;to&amp;#x2F;ld_generic_wrapper.sh &amp;#x2F;path&amp;#x2F;to&amp;#x2F;wrapper_gold
+
+# 在cargo配置中使用
+[target.x86_64-unknown-linux-gnu]
+linker = &amp;quot;&amp;#x2F;path&amp;#x2F;to&amp;#x2F;wrapper_ld&amp;quot;
+
+# 实时查看日志
+tail -f &amp;#x2F;tmp&amp;#x2F;ld_wrapper.log
+
+# 监控内存压力变化
+watch -n 1 &amp;#x27;cat &amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;cgroup&amp;#x2F;user.slice&amp;#x2F;user-$(id -u).slice&amp;#x2F;memory.pressure&amp;#x27;
+
+# 检查链接进程
+ps aux | grep ld_wrapper
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;bao-zhuang-rustcjin-xing-bian-yi&quot;&gt;包装rustc进行编译&lt;&#x2F;h1&gt;
+&lt;p&gt;使用rustc-wrapper.sh&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#!&amp;#x2F;bin&amp;#x2F;bash
+RUSTC_BIN=&amp;quot;$1&amp;quot;
+shift
+
+PRESSURE_THRESHOLD=&amp;quot;0.10&amp;quot;
+MAX_WAIT_TIME=60
+MIN_WAIT_TIME=5
+MAX_RETRIES=60
+PRESSURE_FILE=&amp;quot;&amp;#x2F;sys&amp;#x2F;fs&amp;#x2F;cgroup&amp;#x2F;user.slice&amp;#x2F;user-$(id -u).slice&amp;#x2F;memory.pressure&amp;quot;
+
+get_some_avg10() {
+    if [[ -f &amp;quot;$PRESSURE_FILE&amp;quot; ]]; then
+        local line=$(grep &amp;quot;^some&amp;quot; &amp;quot;$PRESSURE_FILE&amp;quot;)
+        if [[ $line =~ avg10=([0-9.]+) ]]; then
+            echo &amp;quot;${BASH_REMATCH[1]}&amp;quot;
+            return 0
+        fi
+    fi
+    # 默认返回 0.00，表示没有压力
+    echo &amp;quot;0.00&amp;quot;
+}
+
+# 检查是否为链接阶段：包含 --crate-type=bin 或 cdylib，且不包含 --print（避免干扰 Cargo 查询）
+if [[ &amp;quot;$*&amp;quot; == *&amp;quot;--crate-type bin&amp;quot;* || &amp;quot;$*&amp;quot; == *&amp;quot;--crate-type cdylib&amp;quot;* ]] &amp;amp;&amp;amp; [[ &amp;quot;$*&amp;quot; != *&amp;quot;--print&amp;quot;* ]]; then
+    echo &amp;#x27;****************Linker stage ...****************&amp;#x27;
+    retry_count=0
+    while [[ $retry_count -lt 100 ]]; do
+        current_pressure=$(get_some_avg10 &amp;quot;$PRESSURE_FILE&amp;quot;)
+        # 使用bc进行浮点数比较
+        if command -v bc &amp;gt;&amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1; then
+            if (( $(echo &amp;quot;$current_pressure &amp;lt; $PRESSURE_THRESHOLD&amp;quot; | bc -l) )); then
+                echo &amp;quot;****************内存压力正常 ($current_pressure &amp;lt; $PRESSURE_THRESHOLD)，开始执行 rustc****************&amp;quot;
+		break
+            fi
+        else
+                echo &amp;quot;****************必须安装bc工具计算浮点运算****************&amp;quot;
+		exit 1
+        fi
+
+        # 计算随机等待时间
+        wait_time=$(( MIN_WAIT_TIME + RANDOM % (MAX_WAIT_TIME - MIN_WAIT_TIME + 1) ))
+        echo &amp;quot;****************内存压力过高: $current_pressure (阈值: $PRESSURE_THRESHOLD), 等待 ${wait_time}秒后重试 (尝试: $((retry_count + 1))&amp;#x2F;$MAX_RETRIES)****************&amp;quot;
+        sleep $wait_time
+        ((retry_count++))
+    done
+fi
+
+exec &amp;quot;$RUSTC_BIN&amp;quot; &amp;quot;$@&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

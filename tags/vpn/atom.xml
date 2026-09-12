@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - vpn</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/vpn/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-16T00:30:04+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/vpn/atom.xml</id>
+    <entry xml:lang="en">
+        <title>TUN &#x2F; TAP 虚拟网卡技术详解:三层隧道与二层网桥的取舍</title>
+        <published>2026-08-16T00:30:04+08:00</published>
+        <updated>2026-08-16T00:30:04+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/"/>
+        <id>https://moxuetianya.github.io/2026/08/tun-tap-technical-details/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/tun-tap-technical-details/">&lt;h1 id=&quot;bei-jing-ben-ji-wang-luo-zhan-li-na-xie-kan-bu-jian-de-wang-qia&quot;&gt;背景:本机网络栈里那些看不见的&quot;网卡&quot;&lt;&#x2F;h1&gt;
+&lt;p&gt;日常 &lt;code&gt;ip link&lt;&#x2F;code&gt; 会看到一堆奇怪的接口——&lt;code&gt;tun0&lt;&#x2F;code&gt;、&lt;code&gt;tap0&lt;&#x2F;code&gt;、&lt;code&gt;tailscale0&lt;&#x2F;code&gt;、&lt;code&gt;docker0&lt;&#x2F;code&gt;、&lt;code&gt;veth&lt;&#x2F;code&gt;。它们不是物理网卡,而是内核虚拟设备。本机(Proxmox 宿主)实测:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;tailscale0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...    ← TUN,三层
+    inet 100.64.0.3&amp;#x2F;32 scope global tailscale0
+tun0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...          ← TUN,OpenVPN
+    inet 10.8.0.6 peer 10.8.0.5&amp;#x2F;32 scope global tun0
+vmbr0: ...                                        ← 网桥,二层
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;TUN 和 TAP 是 Linux 提供的一对&quot;用户空间 ↔ 内核协议栈&quot;的虚拟管道设备:程序打开 &lt;code&gt;&#x2F;dev&#x2F;net&#x2F;tun&lt;&#x2F;code&gt;,通过 read&#x2F;write 收发数据包。区别只在&lt;strong&gt;收发的是什么东西&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;tun-yu-tap-de-ji-ben-gai-nian&quot;&gt;TUN 与 TAP 的基本概念&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;TUN&lt;&#x2F;th&gt;&lt;th&gt;TAP&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;工作层级&lt;&#x2F;td&gt;&lt;td&gt;三层(网络层)&lt;&#x2F;td&gt;&lt;td&gt;二层(数据链路层)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;处理的数据&lt;&#x2F;td&gt;&lt;td&gt;IP 数据包&lt;&#x2F;td&gt;&lt;td&gt;以太网帧&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;有 MAC 地址?&lt;&#x2F;td&gt;&lt;td&gt;没有(&lt;code&gt;link&#x2F;none&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;td&gt;有(&lt;code&gt;link&#x2F;ether&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;有 IP 地址?&lt;&#x2F;td&gt;&lt;td&gt;有(手动配置)&lt;&#x2F;td&gt;&lt;td&gt;有(手动配置)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;能加入网桥?&lt;&#x2F;td&gt;&lt;td&gt;不能&lt;&#x2F;td&gt;&lt;td&gt;可以&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;典型应用&lt;&#x2F;td&gt;&lt;td&gt;VPN(OpenVPN、WireGuard、Tailscale&#x2F;Headscale)&lt;&#x2F;td&gt;&lt;td&gt;虚拟机网络(QEMU&#x2F;KVM)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;tun-she-bei-xiang-jie-san-ceng-wu-mac-dian-dui-dian&quot;&gt;TUN 设备详解:三层、无 MAC、点对点&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ji-ben-shu-xing&quot;&gt;基本属性&lt;&#x2F;h2&gt;
+&lt;p&gt;TUN 是&lt;strong&gt;三层(网络层)设备&lt;&#x2F;strong&gt;,只处理 IP 包,不涉及以太网帧,因此&lt;strong&gt;没有 MAC 地址&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;# TUN 设备 —— link&amp;#x2F;none,没有 MAC
+5: tun0: &amp;lt;POINTOPOINT,MULTICAST,NOARP&amp;gt; ...
+    link&amp;#x2F;none
+# ifconfig 视角:硬件地址全是零
+tun0  Link encap:UNSPEC  HWaddr 00-00-00-00-00-00-...
+      inet addr:10.8.0.5  P-T-P:10.8.0.5  Mask:255.255.255.0
+      UP POINTOPOINT RUNNING NOARP MULTICAST
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wei-shen-me-bu-xu-yao-mac&quot;&gt;为什么不需要 MAC?&lt;&#x2F;h2&gt;
+&lt;p&gt;TUN 工作在三层,数据直接以 &lt;strong&gt;IP 包&lt;&#x2F;strong&gt;形式在内核协议栈和用户空间程序之间传递,不经过以太网帧封装,自然不需要 MAC 做二层寻址。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;POINTOPOINT&lt;&#x2F;code&gt;(点对点)标志揭示了它的本质:一条&lt;strong&gt;虚拟点对点链路&lt;&#x2F;strong&gt;——一端是宿主机内核协议栈,另一端是用户空间的 VPN 程序。数据通过这条管道直接传递 IP 包,不存在二层寻址的概念。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;这也是 Tailscale&#x2F;OpenVPN 等 VPN 选择 TUN 的根本原因&lt;&#x2F;strong&gt;:省去 ARP、MAC、广播等二层烦恼,VPN 程序只需专注&quot;路由 IP 包 → 加密 → UDP&#x2F;TCP 发到远端&quot;。本机 &lt;code&gt;tailscale0&lt;&#x2F;code&gt; 就是 TUN,100.64.0.3&#x2F;32 点对点。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;tap-she-bei-xiang-jie-er-ceng-bi-xu-you-mac-wei-gei-wang-qiao&quot;&gt;TAP 设备详解:二层、必须&quot;有&quot;MAC、喂给网桥&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;chuang-jian-yu-pei-zhi&quot;&gt;创建与配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip tuntap add dev tap0 mode tap user $(whoami)   # user 参数允许普通用户读写
+sudo ip link set tap0 up
+sudo ip addr add 10.0.0.1&amp;#x2F;24 dev tap0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;mac-di-zhi-de-liang-ge-can-yu-zhe-bi-xu-bu-tong&quot;&gt;MAC 地址的两个&quot;参与者&quot;必须不同&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;tap0 自身的 MAC&lt;&#x2F;strong&gt;:创建时内核&lt;strong&gt;随机生成&lt;&#x2F;strong&gt;(常以 &lt;code&gt;fe:&lt;&#x2F;code&gt; 开头),只是占位符,不是虚拟机的 MAC。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;虚拟机网卡的 MAC&lt;&#x2F;strong&gt;:QEMU 打开 tap0 后,在 VM 内部模拟网卡硬件(virtio-net),分配自己的 MAC(常以 &lt;code&gt;52:54:&lt;&#x2F;code&gt; 开头;可用 &lt;code&gt;-device virtio-net-pci,netdev=net0,mac=52:54:00:12:34:56&lt;&#x2F;code&gt; 固定)。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;两者必须不同&lt;&#x2F;strong&gt;,原因在网桥:br0 依靠 MAC 地址表决定帧的转发端口,若 tap0 与 VM 网卡 MAC 相同,网桥将无法判断该 MAC 对应的设备在 tap0 端口侧还是外部物理网络侧,转发混乱。libvirt 的规律:把 VM MAC 首字节改为 &lt;code&gt;0xFE&lt;&#x2F;code&gt; 生成 tap0 的 MAC(如 VM &lt;code&gt;52:54:d7:18:09:2a&lt;&#x2F;code&gt; → tap0 &lt;code&gt;fe:54:d7:18:09:2a&lt;&#x2F;code&gt;)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;tap0-de-mac-ji-hu-mei-you-shi-ji-zuo-yong&quot;&gt;tap0 的 MAC 几乎没有实际作用&lt;&#x2F;h2&gt;
+&lt;p&gt;回顾数据流:网桥学习的是&lt;strong&gt;帧里的源 MAC&lt;&#x2F;strong&gt;(VM 的),不是 tap0 接口自身的 MAC;帧经过 tap0 时 MAC 不被替换;TAP 设备设了 NOARP,没人 ARP 查询它。&lt;strong&gt;那为什么它还存在?&lt;&#x2F;strong&gt;——Linux 内核 &lt;code&gt;net_device&lt;&#x2F;code&gt; 结构体的硬性要求:任何网络设备都必须有一个 MAC 地址,即使实际用不到。它是&quot;存在即合理&quot;的占位符。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;shu-ju-bao-ru-he-lu-you-dao-xu-ni-ji-wang-qiao-de-mac-biao-dong-tai-xue-xi&quot;&gt;数据包如何路由到虚拟机:网桥的 MAC 表动态学习&lt;&#x2F;h2&gt;
+&lt;p&gt;数据包路由到 VM 依赖的是网桥 MAC 转发表,由 VM 发出帧的源 MAC &lt;strong&gt;动态学习&lt;&#x2F;strong&gt;建立:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;初始:br0 转发表为空
+VM1 发帧(src MAC 52:54:d7:18:09:2a)从 tap0 进入
+  → 网桥记录:52:54:d7:18:09:2a → tap0 端口
+VM2 发帧(src MAC 52:54:aa:bb:cc:dd)从 tap1 进入
+  → 网桥记录:52:54:aa:bb:cc:dd → tap1 端口
+回包:外部帧 dst=52:54:d7:18:09:2a
+  → 网桥查表 → 从 tap0 端口转发 → QEMU 读帧注入 VM1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;shu-ju-bao-jiao-hu-liu-cheng-vm-wai-wang&quot;&gt;数据包交互流程:VM → 外网&lt;&#x2F;h1&gt;
+&lt;p&gt;拓扑:VM(eth0 10.0.0.2) ↔ QEMU 进程 ↔ 宿主机 tap0 ↔ 网桥 br0(10.0.0.1) ↔ 物理网卡 eth0 ↔ 外网。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;发送(VM1 → 外网)&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;VM1 应用 → VM1 内核查路由表 → 虚拟网卡 eth0
+  → QEMU 进程把帧写入宿主机 tap0
+  → 内核发现 tap0 挂在 br0 上,转发到网桥
+  → br0 查 MAC 表,目标不在本地 VM → 从物理网卡 eth0 发出
+  → (VM 访问外网通常还需宿主机 NAT:iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE)
+  → 路由器 → 外网目标
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;接收(外网 → VM1)&lt;&#x2F;strong&gt;:对称反向——物理网卡收帧 → br0 查 MAC 表找到 tap0 端口 → 帧交给 QEMU → 注入 VM 虚拟网卡 → VM 内核协议栈 → 应用。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;核心要点&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;TAP 是&lt;strong&gt;桥梁&lt;&#x2F;strong&gt;:一头连内核网桥,一头被 QEMU 持有,负责搬运帧&lt;&#x2F;li&gt;
+&lt;li&gt;网桥 br0 是&lt;strong&gt;交换机&lt;&#x2F;strong&gt;:二层按 MAC 决定转发端口&lt;&#x2F;li&gt;
+&lt;li&gt;NAT 是&lt;strong&gt;可选的&lt;&#x2F;strong&gt;:VM 要出外网才需要 MASQUERADE&lt;&#x2F;li&gt;
+&lt;li&gt;QEMU 是&lt;strong&gt;搬运工&lt;&#x2F;strong&gt;:read&#x2F;write tap0 与 VM 网卡之间持续搬运&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;50-xing-python-jian-yi-vpn-yan-zheng-vpn-ben-zhi&quot;&gt;50 行 Python 简易 VPN:验证&quot;VPN 本质&quot;&lt;&#x2F;h1&gt;
+&lt;p&gt;核心逻辑:打开 &lt;code&gt;&#x2F;dev&#x2F;net&#x2F;tun&lt;&#x2F;code&gt; → ioctl 配置为 tap0 → 死循环读包&#x2F;写包。示例程序只处理 ARP 请求,构造假回复声称&quot;10.0.0.2 存在&quot;:&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;import os, struct
+from fcntl import ioctl
+
+TUNSETIFF = 0x400454ca
+IFF_TAP   = 0x0002
+IFF_NO_PI = 0x1000
+
+def create_tap(ifname):
+    tap_fd = os.open(&amp;quot;&amp;#x2F;dev&amp;#x2F;net&amp;#x2F;tun&amp;quot;, os.O_RDWR)
+    ifr = struct.pack(&amp;quot;16sH&amp;quot;, ifname.encode(&amp;quot;utf-8&amp;quot;), IFF_TAP | IFF_NO_PI)
+    ioctl(tap_fd, TUNSETIFF, ifr)
+    return tap_fd
+
+def handle_arp_request(packet, tap_fd):
+    host_mac = packet[6:12]          # 提取 ARP 请求源 MAC
+    fake_mac = bytes([0x00,0x11,0x22,0x33,0x44,0x55])
+    arp_reply = (host_mac + fake_mac + b&amp;#x27;\x08\x06&amp;#x27; + b&amp;#x27;\x00\x01&amp;#x27; + b&amp;#x27;\x08\x00&amp;#x27; +
+                 b&amp;#x27;\x06&amp;#x27; + b&amp;#x27;\x04&amp;#x27; + b&amp;#x27;\x00\x02&amp;#x27; + fake_mac +
+                 b&amp;#x27;\x0a\x00\x00\x02&amp;#x27; + host_mac + b&amp;#x27;\x0a\x00\x00\x01&amp;#x27;)
+    os.write(tap_fd, arp_reply)
+    print(&amp;quot;捕获到 ARP 请求,已伪造 10.0.0.2 的回复!&amp;quot;)
+
+def main():
+    tap_fd = create_tap(&amp;quot;tap0&amp;quot;)
+    print(&amp;quot;启动简易 VPN 程序,正在监听 tap0...&amp;quot;)
+    while True:
+        packet = os.read(tap_fd, 1514)
+        if packet[12:14] == b&amp;#x27;\x08\x06&amp;#x27;:   # ARP
+            handle_arp_request(packet, tap_fd)
+        else:
+            pass                            # 其他包(IP)直接丢弃
+
+if __name__ == &amp;quot;__main__&amp;quot;:
+    main()
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;运行与现象&lt;&#x2F;strong&gt;:&lt;code&gt;python3 simple_vpn.py&lt;&#x2F;code&gt; + 另一终端 &lt;code&gt;ping 10.0.0.2&lt;&#x2F;code&gt;——先通(ARP 被拦截伪造了假回复),随后 &lt;code&gt;Destination Host Unreachable&lt;&#x2F;code&gt; 或卡住。&lt;strong&gt;为什么卡住&lt;&#x2F;strong&gt;:ping 拿到假 MAC 后发出 ICMP IP 包,程序在 else 分支直接丢弃——没有完整 TCP&#x2F;IP 协议栈就回不了 ICMP Echo Reply。&lt;&#x2F;p&gt;
+&lt;p&gt;这揭示了 &lt;strong&gt;VPN 的本质&lt;&#x2F;strong&gt;:&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;TAP 模式&lt;&#x2F;strong&gt;:读的是完整以太网帧,要实现完整网络功能,程序内部必须实现一套虚拟协议栈(ARP&#x2F;ICMP&#x2F;TCP 握手),或把帧转发到真实物理网络——复杂&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;TUN 模式&lt;&#x2F;strong&gt;(Tailscale 用):读的是纯 IP 包(无 MAC 头),省去 ARP 烦恼,VPN 程序只需路由、加密、UDP&#x2F;TCP 传输——简单,这正是 tailscale0 走的路&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;ge-xu-ni-hua-ping-tai-de-tap-tun-guan-li&quot;&gt;各虚拟化平台的 TAP&#x2F;TUN 管理&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;需要手动创建?&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;QEMU&#x2F;KVM 手动配置&lt;&#x2F;td&gt;&lt;td&gt;需要&lt;&#x2F;td&gt;&lt;td&gt;每个 VM 一个 TAP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libvirt &#x2F; virt-manager&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;libvirt 自动管理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMware &#x2F; VirtualBox&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;工具内部自动处理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Docker&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;用 veth pair,非 TAP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Tailscale&#x2F;Headscale&lt;&#x2F;td&gt;&lt;td&gt;自动&lt;&#x2F;td&gt;&lt;td&gt;每节点自动创建自己的 TUN&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;TUN = 三层点对点管道,&lt;strong&gt;无 MAC&lt;&#x2F;strong&gt;,只管 IP 包 → VPN 首选(OpenVPN&#x2F;WireGuard&#x2F;Tailscale)&lt;&#x2F;li&gt;
+&lt;li&gt;TAP = 二层以太网管道,&lt;strong&gt;有 MAC&lt;&#x2F;strong&gt;(内核硬性要求,实际是占位符),能进网桥 → 虚拟机网络首选(QEMU&#x2F;KVM)&lt;&#x2F;li&gt;
+&lt;li&gt;网桥靠&lt;strong&gt;帧内源 MAC 动态学习&lt;&#x2F;strong&gt;转发表,与 tap0 自身 MAC 无关&lt;&#x2F;li&gt;
+&lt;li&gt;&quot;为什么 VPN 不用 TAP&quot;:二层帧需要完整协议栈或桥接转发,三层 TUN 省掉 ARP&#x2F;MAC&#x2F;广播,实现和排障都简单得多&lt;&#x2F;li&gt;
+&lt;li&gt;虚拟化为什么不用 TUN:VM 需要完整二层语义(广播&#x2F;ARP&#x2F;交换机行为),TAP + 网桥正是干这个的&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

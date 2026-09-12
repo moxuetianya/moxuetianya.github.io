@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - hermes</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/hermes/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-11T17:30:07+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/hermes/atom.xml</id>
+    <entry xml:lang="en">
+        <title>把 pi&#x2F;Hermes 关进 OpenShell 沙箱：rootless Podman 与凭证不落地</title>
+        <published>2026-09-11T17:30:07+08:00</published>
+        <updated>2026-09-11T17:30:07+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/"/>
+        <id>https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;我有一台 Ubuntu 桌面 VM（下面叫 dut），平时在上面跑两个 agent：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;pi&lt;&#x2F;strong&gt;：极简的终端编码 agent（&lt;code&gt;@earendil-works&#x2F;pi-coding-agent&lt;&#x2F;code&gt;）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Hermes&lt;&#x2F;strong&gt;：Nous Research 的自改进 agent，带 Web dashboard。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;直接跑在宿主上有三个担心：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;隐私文件&lt;&#x2F;strong&gt;：agent 的 &lt;code&gt;bash&lt;&#x2F;code&gt; 工具能读 &lt;code&gt;~&#x2F;.ssh&lt;&#x2F;code&gt;、&lt;code&gt;~&#x2F;.password-store&lt;&#x2F;code&gt;、各种文档；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;密钥&lt;&#x2F;strong&gt;：模型 API key 在进程环境或配置里，prompt injection 可以把 key 外传；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;破坏性操作&lt;&#x2F;strong&gt;：&lt;code&gt;rm -rf&lt;&#x2F;code&gt; 直接作用在宿主文件系统。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;目标：把 agent 关进沙箱，文件只读&#x2F;只写工作区、出网白名单、&lt;strong&gt;真 key 不进入 agent 进程&lt;&#x2F;strong&gt;，同时保留可观测性。最后选了 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;NVIDIA&#x2F;OpenShell&quot;&gt;NVIDIA OpenShell&lt;&#x2F;a&gt;——它的 policy 引擎正好覆盖这三件事。&lt;&#x2F;p&gt;
+&lt;p&gt;这篇文章分两部分：OpenShell 的部署与 policy 字段详解；以及在沙箱里加装 Hermes 的完整过程和持久化取舍。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;openshell-jia-gou-su-lan&quot;&gt;OpenShell 架构速览&lt;&#x2F;h1&gt;
+&lt;pre&gt;&lt;code&gt;CLI ──mTLS──▶ openshell-gateway（控制面，systemd 用户服务，127.0.0.1:17670）
+                  │ 通过 compute driver 管理沙箱
+                  ▼
+          sandbox 容器（rootless podman）
+            └─ supervisor（PID 1，root）
+                 ├─ 把 agent 降权到 sandbox 用户、清 capability
+                 ├─ 应用 filesystem policy（Landlock LSM）
+                 ├─ 建 agent netns + 在 10.200.0.1:3128 跑正向代理
+                 └─ 每次连接按 binary+endpoint 做 OPA 判权、L7 时终结 TLS 替换凭证
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;几个容易误解的点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Docker&#x2F;Podman 只是计算驱动&lt;&#x2F;strong&gt;（可换 k8s&#x2F;VM），不是权限边界本身；真正的限制是 supervisor 里的 policy 层；&lt;&#x2F;li&gt;
+&lt;li&gt;沙箱网络和宿主&lt;strong&gt;不是同一个网络&lt;&#x2F;strong&gt;：agent 在嵌套 netns（&lt;code&gt;veth-s&lt;&#x2F;code&gt; 10.200.0.2&#x2F;24，默认路由指向 supervisor 的 &lt;code&gt;10.200.0.1&lt;&#x2F;code&gt;），实测除代理端口外什么都不可达（podman 网关、宿主 LAN、公网 IP、&lt;code&gt;host.openshell.internal&lt;&#x2F;code&gt; 全不通），DNS 也是代理侧解析；&lt;&#x2F;li&gt;
+&lt;li&gt;出口是&lt;strong&gt;应用层正向代理&lt;&#x2F;strong&gt;（不是 NAT）：TLS 终结、OPA 策略、凭证占位符替换、OCSF 审计日志一条龙。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;bu-shu&quot;&gt;部署&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-zhuang-openshell&quot;&gt;1. 装 OpenShell&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export https_proxy=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+curl -LsSf https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;NVIDIA&amp;#x2F;OpenShell&amp;#x2F;main&amp;#x2F;install.sh | sh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;装的是 Debian 包：CLI + gateway + systemd &lt;strong&gt;用户服务&lt;&#x2F;strong&gt;。装完 gateway 会自动起；&lt;code&gt;openshell status&lt;&#x2F;code&gt; 显示 &lt;code&gt;Connected&lt;&#x2F;code&gt; + &lt;code&gt;Authenticated (mTLS)&lt;&#x2F;code&gt; 即可。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-ji-suan-qu-dong-cong-docker-huan-rootless-podman&quot;&gt;2. 计算驱动：从 Docker 换 rootless Podman&lt;&#x2F;h2&gt;
+&lt;p&gt;这台机器原本用 Docker。换 Podman 的原因很实际：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;拉镜像的代理&lt;&#x2F;strong&gt;：podman 拉取是客户端行为，&lt;code&gt;export HTTPS_PROXY&lt;&#x2F;code&gt; 直接生效；docker 是 daemon 拉，客户端 export 无效，必须改 &lt;code&gt;docker.service.d&lt;&#x2F;code&gt; 并重启 daemon（我不想动 Docker 配置，也不想重启跑着服务的 Docker）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;权限&lt;&#x2F;strong&gt;：rootless podman socket 天然属于用户，gateway 不需要 docker 组、不用改 socket 权限；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;podman-docker&lt;&#x2F;code&gt; 提供 &lt;code&gt;docker&lt;&#x2F;code&gt; CLI 兼容层，旧脚本基本无痛。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install -y podman podman-compose podman-docker passt uidmap slirp4netns
+systemctl --user enable --now podman.socket
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后让网关切到 podman 驱动：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;toml&quot; class=&quot;language-toml &quot;&gt;&lt;code class=&quot;language-toml&quot; data-lang=&quot;toml&quot;&gt;# ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;gateway.toml
+[openshell.gateway]
+compute_drivers = [&amp;quot;podman&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl --user restart openshell-gateway
+journalctl --user -u openshell-gateway -n 20 | grep -i driver
+# INFO openshell_driver_podman::driver: Connected to Podman ... rootless=true rootless_network_cmd=pasta
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;坑：卸载 Docker 时 purge &lt;code&gt;containerd.io&lt;&#x2F;code&gt; 会&lt;strong&gt;连带删掉 &lt;code&gt;runc&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（podman 当时用的 OCI runtime），正在跑的沙箱容器直接变 unhealthy&#x2F;Error，补装 &lt;code&gt;apt install runc&lt;&#x2F;code&gt; 后重建沙箱即可。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;3-la-jing-xiang&quot;&gt;3. 拉镜像&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export https_proxy=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+podman pull ghcr.io&amp;#x2F;nvidia&amp;#x2F;openshell&amp;#x2F;supervisor:0.0.116
+podman pull ghcr.io&amp;#x2F;nvidia&amp;#x2F;openshell-community&amp;#x2F;sandboxes&amp;#x2F;pi:latest
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;pi 镜像是上游构建好的（&lt;code&gt;RUN npm install -g @earendil-works&#x2F;pi-coding-agent&lt;&#x2F;code&gt;，pi 0.77.0），沙箱里&lt;strong&gt;零安装&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ping-zheng-bu-luo-di-provider-zhan-wei-fu-l7-ti-huan&quot;&gt;凭证不落地：provider + 占位符 + L7 替换&lt;&#x2F;h1&gt;
+&lt;p&gt;模型 key 的最终形态是：&lt;strong&gt;agent 进程只拿到占位符，真值只存在 supervisor 内存里，代理在发往上游的请求上替换&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;先写一个 provider profile（自定义类型）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;# xiaomi-token-plan-cn-provider.yaml
+id: xiaomi-token-plan-cn
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [XIAOMI_TOKEN_PLAN_CN_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: token-plan-cn.xiaomimimo.com
+    port: 443
+    protocol: rest          # ← L7：必须，否则代理看不到明文、无法替换
+    access: read-write
+    enforcement: enforce
+binaries:
+  - &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;pi
+  - &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;node
+  # ... node_modules 里的 cli.js 等
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;导入并用文件喂 key（key 不进命令行历史）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell provider profile import -f xiaomi-token-plan-cn-provider.yaml
+XIAOMI_TOKEN_PLAN_CN_API_KEY=&amp;quot;$(cat ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;pi-key)&amp;quot; \
+  openshell provider create --name pi-xiaomi --type xiaomi-token-plan-cn \
+  --credential XIAOMI_TOKEN_PLAN_CN_API_KEY
+shred -u ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;pi-key
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;机制&lt;&#x2F;strong&gt;：沙箱里 &lt;code&gt;env&lt;&#x2F;code&gt; 看到的是 &lt;code&gt;openshell:resolve:env:XIAOMI_TOKEN_PLAN_CN_API_KEY&lt;&#x2F;code&gt;；supervisor 的代理对 L7 端点做 TLS 终结（临时 CA，私钥只在内存），解析明文 HTTP 后把占位符替换成真 key，再用真实根 CA 重新加密发往上游。&lt;code&gt;provider update&lt;&#x2F;code&gt; 到运行中沙箱约 &lt;strong&gt;15s&lt;&#x2F;strong&gt; 同步，运行中的进程无需重启。&lt;&#x2F;p&gt;
+&lt;p&gt;踩过的坑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;credentialed endpoint 必须 L7&lt;&#x2F;strong&gt;。pi 镜像自带的 policy 里 &lt;code&gt;token-plan-cn.xiaomimimo.com&lt;&#x2F;code&gt; 是裸 CONNECT 隧道，运行时会报 &lt;code&gt;credentialed endpoint requires L7 inspection; raw tunnel is not explicitly allowed&lt;&#x2F;code&gt;（deny 日志 &lt;code&gt;[policy:pi engine:credentials]&lt;&#x2F;code&gt;）。把端点改成 &lt;code&gt;protocol: rest&lt;&#x2F;code&gt; 才通。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;provider attach 的校验读的是沙箱创建时 spec 里的 policy&lt;&#x2F;strong&gt;，不是后续 &lt;code&gt;policy set&lt;&#x2F;code&gt; 的 revision。所以 policy 和 &lt;code&gt;--provider&lt;&#x2F;code&gt; 要在 &lt;code&gt;sandbox create&lt;&#x2F;code&gt; 时一次给全；对已存在沙箱事后 attach 带凭证的 provider 会报 L4-only。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;pi-policy-yaml-zi-duan-xiang-jie&quot;&gt;pi-policy.yaml 字段详解&lt;&#x2F;h1&gt;
+&lt;p&gt;policy 分&lt;strong&gt;静态段&lt;&#x2F;strong&gt;（创建时锁定，改了要重建沙箱）和&lt;strong&gt;动态段&lt;&#x2F;strong&gt;（&lt;code&gt;network_policies&lt;&#x2F;code&gt;，可 &lt;code&gt;policy set --wait&lt;&#x2F;code&gt; 热更）。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;类别&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;version&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;schema 版本，固定 &lt;code&gt;1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;filesystem_policy.include_workdir&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;把 driver 工作目录（&lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt;）纳入可写&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;filesystem_policy.read_only&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;read_write&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;白名单模型：只读&#x2F;可写路径，&lt;strong&gt;未列出的路径不可访问&lt;&#x2F;strong&gt;；由 supervisor 用 Landlock LSM + 挂载落实&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;landlock.compatibility&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;best_effort&lt;&#x2F;code&gt;：内核支持就启用，不支持则降级&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;process.run_as_user&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;run_as_group&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;agent 进程降权身份（pi 镜像里是 &lt;code&gt;sandbox&lt;&#x2F;code&gt;，uid 998）；禁止 root&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;network_policies.&amp;lt;key&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;一条规则 = endpoints × binaries；&lt;strong&gt;规则里每个二进制都能访问该规则所有端点&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;host&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;port&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;目标；省略 &lt;code&gt;protocol&lt;&#x2F;code&gt; = 裸 CONNECT 隧道（L4，只能看 host:port）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;protocol: rest&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;L7：代理终结 TLS、解析 HTTP、按 method&#x2F;path 判、可替换凭证占位符&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;access&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;预设：&lt;code&gt;read-only&lt;&#x2F;code&gt; = GET&#x2F;HEAD&#x2F;OPTIONS；&lt;code&gt;read-write&lt;&#x2F;code&gt; 全放&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;rules[].allow{method,path}&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;L7 方法&#x2F;路径白名单（如 git 只放 clone&#x2F;fetch，禁 push）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;allow_encoded_slash&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;允许路径里的 &lt;code&gt;%2F&lt;&#x2F;code&gt;（npm scoped 包必须）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;binaries[].path&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;允许使用该规则的执行者（支持 glob）；代理按 &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;exe&lt;&#x2F;code&gt; 的&lt;strong&gt;真实路径&lt;&#x2F;strong&gt;匹配（软链不算）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;code&gt;filesystem_policy&lt;&#x2F;code&gt; 的 whitelist 效果实测：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n pi -- sh -c &amp;#x27;id; ls &amp;#x2F;home&amp;#x27;
+uid=998(sandbox) gid=998(sandbox) groups=998(sandbox)
+ls: cannot open directory &amp;#x27;&amp;#x2F;home&amp;#x27;: Permission denied
+
+$ openshell sandbox exec -n pi -- sh -c &amp;#x27;touch &amp;#x2F;usr&amp;#x2F;x; touch &amp;#x2F;sandbox&amp;#x2F;ok&amp;#x27;
+touch: cannot touch &amp;#x27;&amp;#x2F;usr&amp;#x2F;x&amp;#x27;: Permission denied   # 只读
+$ touch &amp;#x2F;sandbox&amp;#x2F;ok                               # 可写
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;网络白名单：未列端点直接 403，且每次放行&#x2F;拒绝都有 OCSF 日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n pi -- sh -c &amp;#x27;curl -sS https:&amp;#x2F;&amp;#x2F;example.com&amp;#x27;
+curl: (56) CONNECT tunnel failed, response 403
+
+$ openshell logs pi --tail
+NET:OPEN [MED] DENIED &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;curl -&amp;gt; example.com:443 [reason:endpoint not allowed by any policy]
+HTTP:POST [INFO] ALLOWED POST http:&amp;#x2F;&amp;#x2F;token-plan-cn.xiaomimimo.com:443&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions [policy:pi engine:l7]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;创建沙箱：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell sandbox create --name pi --from pi --provider pi-xiaomi \
+  --policy .&amp;#x2F;pi-policy.yaml --detach
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;sha-xiang-nei-jia-zhuang-hermes-lu-xian-xuan-ze-yu-chi-jiu-hua&quot;&gt;沙箱内加装 Hermes：路线选择与持久化&lt;&#x2F;h1&gt;
+&lt;p&gt;Hermes 不在 pi 镜像里，有两个装法：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;路线 A：运行时安装&lt;&#x2F;strong&gt;——在运行中的沙箱里跑官方安装器，装到 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;路线 B：BYOC 镜像&lt;&#x2F;strong&gt;——写 Dockerfile &lt;code&gt;FROM pi 镜像&lt;&#x2F;code&gt; 再装 Hermes，构建时网络不受 policy 限制，重建不丢。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;我这次先用 A 快速验证。&lt;strong&gt;持久化边界&lt;&#x2F;strong&gt;要说清楚：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;位置&lt;&#x2F;th&gt;&lt;th&gt;stop&#x2F;start&lt;&#x2F;th&gt;&lt;th&gt;sandbox delete&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt;（podman 命名卷）&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;宿主 &lt;code&gt;~&#x2F;.local&#x2F;share&#x2F;containers&#x2F;storage&#x2F;volumes&#x2F;openshell-sandbox-&amp;lt;id&amp;gt;-workspace&#x2F;_data&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;容器可写层（&lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 外）&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 是只读 policy，装不了全局包&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pi 本体&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;但它在镜像里，重建自动有&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;所以路线 A 装的东西随卷走，但 &lt;code&gt;sandbox delete&lt;&#x2F;code&gt; 就没了；长期用建议路线 B 把它固化进镜像。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lu-xian-a-shi-cao&quot;&gt;路线 A 实操&lt;&#x2F;h2&gt;
+&lt;p&gt;先给 policy 加两条规则（&lt;code&gt;hermes_install&lt;&#x2F;code&gt; 放行安装端点、&lt;code&gt;hermes_model&lt;&#x2F;code&gt; 放行模型端点），热更：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell policy set pi --policy pi-policy.yaml --wait
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装（装到 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell sandbox exec -n pi --timeout 1500 -- bash -lc \
+  &amp;#x27;curl -fsSL https:&amp;#x2F;&amp;#x2F;hermes-agent.nousresearch.com&amp;#x2F;install.sh | bash&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;两个坑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;uv 解释器真实路径&lt;&#x2F;strong&gt;：Hermes 的 venv python 是指向 &lt;code&gt;&#x2F;sandbox&#x2F;.uv&#x2F;python&#x2F;cpython-3.11.x&#x2F;bin&#x2F;python3.11&lt;&#x2F;code&gt; 的软链，OPA 按 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 的真实 exe 匹配——&lt;code&gt;hermes_model&lt;&#x2F;code&gt; 的 binaries 只写 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&#x2F;**&lt;&#x2F;code&gt; 会被 deny，必须加上 &lt;code&gt;&#x2F;sandbox&#x2F;.uv&#x2F;python&#x2F;**&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;npm 的 &lt;code&gt;%2F&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：Web UI 构建时 scoped 包路径带 &lt;code&gt;%2F&lt;&#x2F;code&gt;，裸隧道端点会被 http-parser 拒绝；&lt;code&gt;registry.npmjs.org&lt;&#x2F;code&gt; 要配 &lt;code&gt;protocol: rest&lt;&#x2F;code&gt; + &lt;code&gt;allow_encoded_slash: true&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;模型接入（命名 provider + 环境变量占位符）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;hermes config set providers.xiaomi-token-plan-cn.base_url https:&amp;#x2F;&amp;#x2F;token-plan-cn.xiaomimimo.com&amp;#x2F;v1
+hermes config set providers.xiaomi-token-plan-cn.key_env XIAOMI_TOKEN_PLAN_CN_API_KEY
+hermes config set model.provider xiaomi-token-plan-cn
+hermes config set model.default mimo-v2.5
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n pi -- hermes -z &amp;quot;Reply with exactly one word: pong&amp;quot;
+pong
+# 日志：HTTP:POST ALLOWED ...&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions [policy:hermes_model engine:l7]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;hermes-web-ui-zi-dai-ren-zheng-bu-xu-yao-caddy&quot;&gt;Hermes Web UI：自带认证，不需要 caddy&lt;&#x2F;h1&gt;
+&lt;p&gt;Hermes 自带 &lt;strong&gt;BasicAuthProvider&lt;&#x2F;strong&gt;（&lt;code&gt;dashboard.basic_auth.*&lt;&#x2F;code&gt;，scrypt 密码哈希 + HMAC 签名会话），所以不用反代加认证，直接绑 &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt; 暴露即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 沙箱内：生成随机密码、算 scrypt 哈希写进配置
+PW=$(openssl rand -base64 18)
+HASH=$(.&amp;#x2F;venv&amp;#x2F;bin&amp;#x2F;python -c &amp;#x27;from plugins.dashboard_auth.basic import hash_password; import sys; print(hash_password(sys.argv[1]))&amp;#x27; &amp;quot;$PW&amp;quot;)
+hermes config set dashboard.basic_auth.username admin
+hermes config set dashboard.basic_auth.password_hash &amp;quot;$HASH&amp;quot;
+hermes config set dashboard.basic_auth.secret &amp;quot;$(openssl rand -hex 32)&amp;quot;
+
+# 绑 0.0.0.0 起服务（有认证才允许非 loopback）
+setsid nohup hermes dashboard --no-open --host 0.0.0.0 &amp;gt; &amp;#x2F;sandbox&amp;#x2F;.hermes&amp;#x2F;logs&amp;#x2F;dashboard.log 2&amp;gt;&amp;amp;1 &amp;lt; &amp;#x2F;dev&amp;#x2F;null &amp;amp;
+
+# 宿主：把沙箱端口转发到 LAN
+openshell forward start 0.0.0.0:9119 pi -d
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证门禁：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;GET &amp;#x2F;                -&amp;gt; 302（跳登录页）
+GET &amp;#x2F;api&amp;#x2F;sessions    -&amp;gt; 401（未认证）
+POST &amp;#x2F;auth&amp;#x2F;password-login（provider: basic）-&amp;gt; 200 并下发 cookie
+带 cookie 再访问 &amp;#x2F;api&amp;#x2F;sessions -&amp;gt; 200
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意两点：一是 &lt;strong&gt;HTTP 明文&lt;&#x2F;strong&gt;（无 TLS），LAN 内密码明文传输，介意就再套 caddy TLS；二是 &lt;code&gt;openshell forward&lt;&#x2F;code&gt; 的 listener 在跑 CLI 的机器上，且 &lt;code&gt;forward stop&#x2F;start&lt;&#x2F;code&gt; 有时会卡住不退出（SSH channel 不关，之前专门写过一篇排查），实际转发通常已经生效，&lt;code&gt;openshell forward list&lt;&#x2F;code&gt; 确认即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cai-keng-qing-dan&quot;&gt;踩坑清单&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;credentialed endpoint&lt;&#x2F;code&gt; 必须 L7（&lt;code&gt;protocol: rest&lt;&#x2F;code&gt;），否则代理只能看到裸隧道，凭证替换失败；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;provider attach&lt;&#x2F;code&gt; 校验读创建时 spec 的 policy——policy 和 &lt;code&gt;--provider&lt;&#x2F;code&gt; 要 &lt;code&gt;sandbox create&lt;&#x2F;code&gt; 一起给；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;provider update&lt;&#x2F;code&gt; 到沙箱约 15s 同步，别急着测；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;openshell policy get&lt;&#x2F;code&gt; 输出带表格头（&lt;code&gt;Version: … ---&lt;&#x2F;code&gt;），回灌前要截 &lt;code&gt;---&lt;&#x2F;code&gt; 后的纯 YAML；&lt;&#x2F;li&gt;
+&lt;li&gt;OPA 按 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 真实 exe 匹配 binaries，venv&#x2F;软链要写真实路径（uv python）；&lt;&#x2F;li&gt;
+&lt;li&gt;npm scoped 包需要 &lt;code&gt;allow_encoded_slash: true&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;purge &lt;code&gt;containerd.io&lt;&#x2F;code&gt; 会删 &lt;code&gt;runc&lt;&#x2F;code&gt;，podman 沙箱容器会变 Error；&lt;&#x2F;li&gt;
+&lt;li&gt;沙箱里跑不了 tcpdump（没二进制 + &lt;code&gt;CapEff=0&lt;&#x2F;code&gt; + policy 无 capability 配置）；抓包在宿主做，明文 HTTP 看 &lt;code&gt;openshell logs&lt;&#x2F;code&gt; 的 OCSF 事件。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;OpenShell 的价值在于它把「文件、进程、网络、凭证」四件事做成了一个可声明、可热更、可审计的策略层，而容器只是执行载体：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;文件：Landlock 白名单，agent 只看得到 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 和只读系统目录；&lt;&#x2F;li&gt;
+&lt;li&gt;网络：白名单 + L7 检查，未列端点 403，全部留 OCSF 日志；&lt;&#x2F;li&gt;
+&lt;li&gt;凭证：占位符 + 代理替换，真 key 不进 agent 进程——这是普通容器&#x2F;namespace 方案做不到的部分；&lt;&#x2F;li&gt;
+&lt;li&gt;扩展：沙箱里可以再装别的 agent（本文的 Hermes），代价是持久化要自己规划（卷 vs BYOC 镜像）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;如果你只是想要「文件隔离 + 用宿主工具」，bubblewrap&#x2F;Landlock 更轻；但一旦涉及「模型 key 不能被 agent 读走」，OpenShell 这种带凭证注入的代理沙箱是最省心的方案。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>

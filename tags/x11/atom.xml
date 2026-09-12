@@ -1,0 +1,305 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - X11</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/x11/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-12T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/x11/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Linux 使用优化记录（一）：终端与 Wayland 使用优化</title>
+        <published>2026-08-11T11:11:10+08:00</published>
+        <updated>2026-08-12T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/"/>
+        <id>https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/linux-usage-optimization-notes/">&lt;h2 id=&quot;he-ji-shuo-ming&quot;&gt;合集说明&lt;&#x2F;h2&gt;
+&lt;p&gt;记录日常 Linux 使用中遇到的小问题与调优过程：现象 → 排查 → 解决 → 总结，方便日后检索复用。本文是第一篇。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;从文件管理器（Nautilus）把文件拖进终端窗口，期望在命令行插入文件路径：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;kitty&lt;&#x2F;strong&gt;：拖放正常，路径直接插入&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Alacritty&lt;&#x2F;strong&gt;：完全无反应，鼠标光标没有任何反馈&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-sheng-ji-ban-ben-wu-xiao&quot;&gt;1. 升级版本无效&lt;&#x2F;h3&gt;
+&lt;p&gt;当时 Alacritty 是 apt 装的 0.13.2，先用 cargo 升级到最新的 0.17.0：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cargo install alacritty --version 0.17.0 --locked
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;~&#x2F;.cargo&#x2F;bin&lt;&#x2F;code&gt; 在 PATH 最前，新版本生效（&lt;code&gt;alacritty --version&lt;&#x2F;code&gt; 确认）。&lt;strong&gt;但拖放依旧不行。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-que-ren-shi-shang-you-wei-shi-xian-er-fei-pei-zhi-wen-ti&quot;&gt;2. 确认是上游未实现，而非配置问题&lt;&#x2F;h3&gt;
+&lt;p&gt;查 GitHub 找到对应 issue：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;alacritty&#x2F;alacritty&#x2F;issues&#x2F;4010&quot;&gt;alacritty&#x2F;alacritty#4010&lt;&#x2F;a&gt; &quot;Drag and drop to paste file path doesn&#x27;t work under Wayland&quot;，状态 &lt;strong&gt;Open&lt;&#x2F;strong&gt;，被上游 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;rust-windowing&#x2F;winit&#x2F;issues&#x2F;1881&quot;&gt;winit#1881&lt;&#x2F;a&gt; 阻塞。&lt;&#x2F;p&gt;
+&lt;p&gt;关键时间线：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;winit 的 Wayland DnD 实现（PR #4571）&lt;strong&gt;2026-07-16 才合并到 master&lt;&#x2F;strong&gt;，尚未发布到 crates.io&lt;&#x2F;li&gt;
+&lt;li&gt;Alacritty 还在用 crates.io 的 winit 0.30.x，自然没有该功能&lt;&#x2F;li&gt;
+&lt;li&gt;也就是说：&lt;strong&gt;Alacritty 在 Wayland 下不支持拖放是功能缺失，升级解决不了&lt;&#x2F;strong&gt;，只能等 winit 发版 + Alacritty 适配&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-chang-shi-x11-hou-duan-winit-unix-backend-cai-keng&quot;&gt;3. 尝试 X11 后端：WINIT_UNIX_BACKEND 踩坑&lt;&#x2F;h3&gt;
+&lt;p&gt;issue 里确认 X11 模式下拖放可用，于是尝试强制 X11 后端：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;WINIT_UNIX_BACKEND=x11 alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;无效！&lt;&#x2F;strong&gt; 用 &lt;code&gt;lsof&lt;&#x2F;code&gt; 检查进程，发现它监听的还是 &lt;code&gt;Alacritty-wayland-0-*.sock&lt;&#x2F;code&gt;，实际跑的还是 Wayland 后端。&lt;&#x2F;p&gt;
+&lt;p&gt;查 winit 源码（&lt;code&gt;platform_impl&#x2F;linux&#x2F;mod.rs&lt;&#x2F;code&gt; 的 &lt;code&gt;EventLoop::new&lt;&#x2F;code&gt;）才明白：winit 0.29 起&lt;strong&gt;已移除 &lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; 环境变量&lt;&#x2F;strong&gt;，后端选择只看 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;DISPLAY&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;Breaking:&lt;&#x2F;strong&gt; &lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; was removed in favor of standard &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; and &lt;code&gt;DISPLAY&lt;&#x2F;code&gt; variables.（winit 0.29 changelog）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;也就是说旧教程里的 &lt;code&gt;WINIT_UNIX_BACKEND=x11&lt;&#x2F;code&gt; 对现代 winit 是&lt;strong&gt;无效的&lt;&#x2F;strong&gt;，坑了不少人。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-jue-fang-an&quot;&gt;解决方案&lt;&#x2F;h2&gt;
+&lt;p&gt;正确的强制 X11 后端方式是 &lt;strong&gt;unset &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;，winit 检测不到 Wayland 后自然 fallback 到 X11：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;env -u WAYLAND_DISPLAY alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证方法（确认窗口真的跑在 X11）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 窗口应出现在 X11 窗口树，带 mutter-x11-frames 装饰
+DISPLAY=:0 wmctrl -l
+
+# 进程不再监听 wayland socket，且无 Alacritty-wayland-*.sock
+lsof -p $(pgrep -x alacritty) | grep -E &amp;#x27;Alacritty.*sock&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实测从 Nautilus 拖文件，路径正常插入。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;gu-hua-qi-dong-fu-gai-desktop-wen-jian&quot;&gt;固化启动：覆盖 desktop 文件&lt;&#x2F;h3&gt;
+&lt;p&gt;改系统 desktop 文件不持久（升级 apt 包会覆盖），在用户级同名文件覆盖即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;# ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;Alacritty.desktop
+[Desktop Entry]
+Type=Application
+TryExec=alacritty
+Exec=env -u WAYLAND_DISPLAY alacritty
+Icon=Alacritty
+Terminal=false
+Categories=System;TerminalEmulator;
+
+Name=Alacritty
+GenericName=Terminal
+Comment=A fast, cross-platform, OpenGL terminal emulator
+StartupNotify=true
+StartupWMClass=Alacritty
+Actions=New;
+
+[Desktop Action New]
+Name=New Terminal
+Exec=env -u WAYLAND_DISPLAY alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;desktop-file-validate ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;Alacritty.desktop
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;之后从应用菜单&#x2F;桌面启动的 Alacritty 都走 X11 后端。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-er-x11-hou-duan-xia-zi-ti-bian-da&quot;&gt;问题二：X11 后端下字体变大&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-1&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;改完 desktop 文件后，从应用菜单启动的 Alacritty 字体明显变大（18pt 看起来像 27pt），而之前 Wayland 后端时正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yuan-yin-fen-xi&quot;&gt;原因分析&lt;&#x2F;h3&gt;
+&lt;p&gt;排查链路：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;GNOME 全局设了 &lt;code&gt;text-scaling-factor = 1.5&lt;&#x2F;code&gt;（GNOME Tweaks → 字体 → 缩放因子，或 &lt;code&gt;gsettings&lt;&#x2F;code&gt; 设置，默认 1.0）&lt;&#x2F;li&gt;
+&lt;li&gt;GNOME 会话会把该值&lt;strong&gt;同步给 XWayland&lt;&#x2F;strong&gt;：&lt;code&gt;Xft.dpi = 96 × 1.5 = 144&lt;&#x2F;code&gt;（可用 &lt;code&gt;xrdb -q | grep Xft.dpi&lt;&#x2F;code&gt; 确认）&lt;&#x2F;li&gt;
+&lt;li&gt;winit 的 X11 后端按 &lt;code&gt;Xft.dpi &#x2F; 96&lt;&#x2F;code&gt; 计算窗口 scale factor → 1.5&lt;&#x2F;li&gt;
+&lt;li&gt;Alacritty 字体大小 = &lt;code&gt;font.size (18pt) × scale factor&lt;&#x2F;code&gt; → 视觉 27pt&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;Wayland 后端不读 Xft.dpi&lt;&#x2F;strong&gt;（用 compositor 的 surface scale），所以之前从终端启动（Wayland）完全正常，切到 X11 后端才暴露。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-1&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;两个层次，可叠加：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;单独压掉 Alacritty 的缩放&lt;&#x2F;strong&gt;（推荐，不影响全局）：winit 支持 &lt;code&gt;WINIT_X11_SCALE_FACTOR&lt;&#x2F;code&gt; 环境变量强制 scale factor（数字，或 &lt;code&gt;randr&lt;&#x2F;code&gt; 用 xrandr 自算）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;Exec=env -u WAYLAND_DISPLAY WINIT_X11_SCALE_FACTOR=1.0 alacritty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;本次最终取舍&lt;&#x2F;strong&gt;：全局恢复 1.5（桌面文字大更好读），Alacritty 保持 &lt;code&gt;WINIT_X11_SCALE_FACTOR=1.0&lt;&#x2F;code&gt; 单独压掉——两套方案叠加，互不冲突。改全局到 1.0 实测发现桌面文字偏小，又改回了 1.5。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;&lt;strong&gt;关掉全局文本缩放&lt;&#x2F;strong&gt;（影响所有 GTK 应用，如标题栏、菜单）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set org.gnome.desktop.interface text-scaling-factor 1.0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果调 1.5 只是为了可读性，可以改用系统字体大小替代（如 &lt;code&gt;font-name &#x27;Ubuntu Sans 12&#x27;&lt;&#x2F;code&gt;），两者效果不同但都能放大界面。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;xiao-jie&quot;&gt;小结&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;th&gt;影响&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;text-scaling-factor&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1.5（全局）&lt;&#x2F;td&gt;&lt;td&gt;GTK 应用文本放大；同步 Xft.dpi=144&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;Xft.dpi&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;144&lt;&#x2F;td&gt;&lt;td&gt;X11 应用（含 XWayland）按 1.5 缩放&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;WINIT_X11_SCALE_FACTOR&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;1.0&lt;&#x2F;td&gt;&lt;td&gt;仅覆盖 Alacritty 的 X11 scale factor&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;wen-ti-san-kitty-ssh-hou-mei-ci-an-jian-chu-xian-da-liang-zhong-fu-zi-fu&quot;&gt;问题三：kitty ssh 后每次按键出现大量重复字符&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-2&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;kitty 终端本地开 zsh 一切正常；&lt;code&gt;ssh dev&lt;&#x2F;code&gt; 到远程服务器后，每次键盘输入都出现很多字符（重复&#x2F;乱画），几乎没法用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-1&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;先排除远端 shell 配置&lt;&#x2F;strong&gt;：用 rmux（tmux 类复用器）连 dev，&lt;code&gt;TERM=tmux-256color&lt;&#x2F;code&gt; 时输入完全正常 → 远端 zsh&#x2F;oh-my-zsh 配置本身没问题&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模拟 kitty 场景&lt;&#x2F;strong&gt;：&lt;code&gt;TERM=xterm-kitty ssh dev&lt;&#x2F;code&gt; 复现问题——发送 1 个字符显示 2 个，命令被双重渲染（如 &lt;code&gt;zsh -fzsh -f&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;找到报错&lt;&#x2F;strong&gt;：远端运行 &lt;code&gt;zsh -f&lt;&#x2F;code&gt; 报 &lt;code&gt;zsh: can&#x27;t find terminal definition for xterm-kitty&lt;&#x2F;code&gt;；&lt;code&gt;dpkg -S xterm-kitty&lt;&#x2F;code&gt; 显示无任何包拥有该 terminfo&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;根因&lt;&#x2F;strong&gt;：kitty 连接时把本地 &lt;code&gt;TERM=xterm-kitty&lt;&#x2F;code&gt; 传给远端（sshd 按客户端请求设置 pty TERM），但远端没有 xterm-kitty 的 terminfo 定义。zsh 5.9 的 zle 行编辑器找不到终端定义，光标定位&#x2F;行重绘全部退化 → 每次按键重复字符、画面混乱&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;排查陷阱：远端装了 zsh-autosuggestions，它的补全建议会渲染在当前行后面（如输入 &lt;code&gt;l&lt;&#x2F;code&gt; 显示 &lt;code&gt;lls&lt;&#x2F;code&gt;，其中 &lt;code&gt;s&lt;&#x2F;code&gt; 是建议），capture-pane 会连建议一起抓走，容易误判成&quot;按键重复&quot;。建议用原始字节流（&lt;code&gt;cat -A&lt;&#x2F;code&gt;）对比。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-2&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;在远端安装 xterm-kitty terminfo（本地 kitty 自带，&lt;code&gt;infocmp&lt;&#x2F;code&gt; 导出后远端 &lt;code&gt;tic&lt;&#x2F;code&gt; 导入）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;infocmp xterm-kitty | ssh dev &amp;#x27;tic -x -&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;ssh dev &#x27;infocmp xterm-kitty&#x27;&lt;&#x2F;code&gt; 有输出即成功。之后输入、退格、方向键、自动补全全部恢复正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-an-dui-bi-yu-gu-hua&quot;&gt;方案对比与固化&lt;&#x2F;h3&gt;
+&lt;p&gt;三个层次，按推荐度：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;服务器要求&lt;&#x2F;th&gt;&lt;th&gt;保留能力&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;kitten ssh&lt;&#x2F;code&gt;（推荐，已固化）&lt;&#x2F;td&gt;&lt;td&gt;零配置，首次连接自动装 terminfo（~&#x2F;.terminfo，无需 root）&lt;&#x2F;td&gt;&lt;td&gt;图形协议&#x2F;键盘协议&#x2F;真彩全保留&lt;&#x2F;td&gt;&lt;td&gt;本地需装 kitty；连接复用、shell integration&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;TERM=xterm-256color ssh&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;零（几乎每台机器都有）&lt;&#x2F;td&gt;&lt;td&gt;损失 ssh 图片预览、歧义键区分，真彩降级&lt;&#x2F;td&gt;&lt;td&gt;不想在服务器留任何东西时用；打字&#x2F;编辑&#x2F;vi&#x2F;tmux 完全兼容&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;infocmp xterm-kitty | ssh HOST &#x27;tic -x -&#x27;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;一次性装到 ~&#x2F;.terminfo&lt;&#x2F;td&gt;&lt;td&gt;全保留&lt;&#x2F;td&gt;&lt;td&gt;备用&#x2F;批量脚本&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;已固化到 dotfiles 仓库 &lt;code&gt;~&#x2F;.my_profile.kitty&lt;&#x2F;code&gt;（ssh 包装）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;# 仅&amp;quot;本地有 kitten 且进程确实在 kitty 窗口内(KITTY_PID + KITTY_WINDOW_ID 缺一不可)&amp;quot;才走 kitten ssh, 否则回退普通 ssh
+ssh() {
+    if command -v kitten &amp;gt;&amp;#x2F;dev&amp;#x2F;null 2&amp;gt;&amp;amp;1 \
+        &amp;amp;&amp;amp; [[ -n &amp;quot;${KITTY_PID:-}&amp;quot; &amp;amp;&amp;amp; -n &amp;quot;${KITTY_WINDOW_ID:-}&amp;quot; ]]; then
+        command kitten ssh &amp;quot;$@&amp;quot;
+    else
+        command ssh &amp;quot;$@&amp;quot;
+    fi
+}
+# 备用手动补装: kitty-terminfo &amp;lt;host&amp;gt;; 装依赖: bash dotfiles&amp;#x2F;run.sh install_kitty [host]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;实测细节：kitten ssh 要求&quot;进程确实在 kitty 窗口内&quot;——启动器校验 &lt;code&gt;KITTY_PID&lt;&#x2F;code&gt; + &lt;code&gt;KITTY_WINDOW_ID&lt;&#x2F;code&gt; 两个环境变量（缺一即拒绝：&quot;The SSH kitten is meant to run inside a kitty window&quot;），单纯把 TERM 伪装成 xterm-kitty 没用。所以包装必须查这两个变量，tmux 内、其他终端、远端（没装 kitty）自动回退普通 ssh，保证 ssh 永不被包装搞挂。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;顺带：服务器不需要装 kitty 也能 ssh 图片预览——只需轻量工具（&lt;code&gt;chafa --format=kitty img&lt;&#x2F;code&gt; 或 &lt;code&gt;viu -k img&lt;&#x2F;code&gt;，apt 安装），渲染由本地 kitty 完成；&lt;code&gt;bash dotfiles&#x2F;run.sh install_kitty &amp;lt;host&amp;gt;&lt;&#x2F;code&gt; 可一键给远端装 chafa&#x2F;viu&#x2F;timg。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-si-waypipe-ssh-hou-mei-you-wayland-display&quot;&gt;问题四：waypipe ssh 后没有 WAYLAND_DISPLAY&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-3&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;waypipe ssh -tY -o controlpath=none dev
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;连上后 &lt;code&gt;echo $WAYLAND_DISPLAY&lt;&#x2F;code&gt; 为空，而 &lt;code&gt;echo $DISPLAY&lt;&#x2F;code&gt; 正常（&lt;code&gt;localhost:10.0&lt;&#x2F;code&gt;，ssh -Y 的 X11 转发）。运行 Wayland 客户端 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt; 报：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;could not load cursor &amp;#x27;dnd-copy&amp;#x27;
+could not load cursor &amp;#x27;dnd-none&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;窗口也没有出现在 host 端。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-2&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;waypipe 的代理 socket 确实建了&lt;&#x2F;strong&gt;：dev 的 &lt;code&gt;&#x2F;run&#x2F;user&#x2F;1000&#x2F;&lt;&#x2F;code&gt; 下能看到一串 &lt;code&gt;wayland-1ET0R84N&lt;&#x2F;code&gt;、&lt;code&gt;wayland-BSpfNUZh&lt;&#x2F;code&gt; 之类的 socket（&lt;code&gt;wayland-&amp;lt;随机后缀&amp;gt;&lt;&#x2F;code&gt; 是 waypipe 的命名规则，时间戳对得上本次会话）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;环境变量被 zshrc 清掉了&lt;&#x2F;strong&gt;：&lt;code&gt;~&#x2F;.my_zshrc&lt;&#x2F;code&gt; 里有一段（之前为修 gpg pinentry 问题加的）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;# XDG_SESSION_TYPE=tty（SSH 会话就是这个值）时直接清掉 WAYLAND_DISPLAY
+if [ &amp;quot;${XDG_SESSION_TYPE:-}&amp;quot; = &amp;quot;tty&amp;quot; ]; then
+  unset WAYLAND_DISPLAY 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;SSH 分配的 pty 会话 &lt;code&gt;XDG_SESSION_TYPE&lt;&#x2F;code&gt; 为 &lt;code&gt;tty&lt;&#x2F;code&gt;，waypipe 给会话设置的 &lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 被登录 shell 启动时直接 unset
+3. &lt;strong&gt;weston-dnd 连不上任何合成器&lt;&#x2F;strong&gt;：&lt;code&gt;WAYLAND_DISPLAY&lt;&#x2F;code&gt; 为空 → &lt;code&gt;wl_display_connect()&lt;&#x2F;code&gt; 失败 → 窗口根本没创建（哪里都没显示），&lt;code&gt;could not load cursor&lt;&#x2F;code&gt; 是连接失败阶段报的连带错误，随后进程挂起等 Ctrl+C&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;原 unset 块的来历：tmux server 会继承旧会话的 WAYLAND_DISPLAY（孤儿 socket），残留值让 pinentry-gnome3 误判&quot;有 GUI&quot;而跳过 curses 回退 → SSH 下 gpg 弹窗不出来、干等超时（&quot;agent refused operation&quot;）。相关背景见 &lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;07&#x2F;gpg&#x2F;&quot;&gt;GPG 使用指南&lt;&#x2F;a&gt; 的 pinentry 部分。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;jie-jue-fang-an-3&quot;&gt;解决方案&lt;&#x2F;h3&gt;
+&lt;p&gt;只清掉指向&lt;strong&gt;不存在 socket&lt;&#x2F;strong&gt; 的残留值，waypipe 创建的真实 socket 予以保留：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;zsh&quot; class=&quot;language-zsh &quot;&gt;&lt;code class=&quot;language-zsh&quot; data-lang=&quot;zsh&quot;&gt;if [ &amp;quot;${XDG_SESSION_TYPE:-}&amp;quot; = &amp;quot;tty&amp;quot; ]; then
+  if [ -n &amp;quot;${WAYLAND_DISPLAY:-}&amp;quot; ] &amp;amp;&amp;amp; { [ -S &amp;quot;${XDG_RUNTIME_DIR}&amp;#x2F;${WAYLAND_DISPLAY}&amp;quot; ] || [ -S &amp;quot;${WAYLAND_DISPLAY}&amp;quot; ] || [ -S &amp;quot;&amp;#x2F;tmp&amp;#x2F;${WAYLAND_DISPLAY}&amp;quot; ]; }; then
+    :
+  else
+    unset WAYLAND_DISPLAY 2&amp;gt;&amp;#x2F;dev&amp;#x2F;null
+  fi
+fi
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;（存在多个机器共用 &lt;code&gt;~&#x2F;.my_zshrc&lt;&#x2F;code&gt; 的情况，本地与远端同步修改，我这边是符号链接到 dotfiles 仓库，改一处即可。）&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;waypipe 真实 socket（&lt;code&gt;wayland-1ET0R84N&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;保留（KEPT）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;不存在的残留值&lt;&#x2F;td&gt;&lt;td&gt;unset（原 pinentry 修复仍生效）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;空值&lt;&#x2F;td&gt;&lt;td&gt;unset（无副作用）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;之后 &lt;code&gt;waypipe ssh -tY -o controlpath=none dev&lt;&#x2F;code&gt; 再跑 &lt;code&gt;weston-dnd&lt;&#x2F;code&gt;，窗口正常显示在 host 端。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wen-ti-wu-waypipe-ssh-luan-ma-ssh-mux-fu-yong-chong-tu&quot;&gt;问题五：waypipe ssh 乱码——ssh mux 复用冲突&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;xian-xiang-4&quot;&gt;现象&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;waypipe ssh -tY douhao&lt;&#x2F;code&gt; 连上后终端输出乱码；同一命令对 dev（命令里带 &lt;code&gt;-o controlpath=none&lt;&#x2F;code&gt;）正常。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pai-cha-guo-cheng-3&quot;&gt;排查过程&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;远端配置全好&lt;&#x2F;strong&gt;：douhao 的 &lt;code&gt;.my_zshrc&lt;&#x2F;code&gt; 已是新版（socket 存在性判断）、xterm-kitty terminfo 已装、locale 正常 → 排除配置类原因&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;怀疑 ssh 复用连接&lt;&#x2F;strong&gt;：本地 ssh config 是 &lt;code&gt;ControlMaster auto&lt;&#x2F;code&gt; + &lt;code&gt;ControlPersist 1h&lt;&#x2F;code&gt;，而 douhao 恰好有一条一个多小时前建立、一直活着的 mux master&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;waypipe 内部直接 exec 系统 ssh&lt;&#x2F;strong&gt;（strace 实证：PATH 里不存在自定义 ssh，最终落到 &lt;code&gt;&#x2F;usr&#x2F;bin&#x2F;ssh&lt;&#x2F;code&gt;），构造的命令是 &lt;code&gt;ssh -R &#x2F;tmp&#x2F;waypipe-server-XXX.sock ... douhao waypipe server ...&lt;&#x2F;code&gt;，&lt;strong&gt;不传任何 control 参数&lt;&#x2F;strong&gt; → 走 config 的 ControlMaster auto → 复用别人建的老 master，把 waypipe 的 &lt;code&gt;-R&lt;&#x2F;code&gt; 转发和 X11 附加到既有会话的通道上 → 通道状态不可靠 → 乱码&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ssh -O exit douhao&lt;&#x2F;code&gt; 清掉旧 master 后再跑 waypipe，恢复正常&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;jie-jue&quot;&gt;解决&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;立即：&lt;code&gt;ssh -O exit &amp;lt;host&amp;gt;&lt;&#x2F;code&gt; 清掉残留 master&lt;&#x2F;li&gt;
+&lt;li&gt;稳妥：waypipe ssh 固定加 &lt;code&gt;-o controlpath=none&lt;&#x2F;code&gt;（独占连接，waypipe 官方 issue 里 ControlMaster 冲突是已知问题）&lt;&#x2F;li&gt;
+&lt;li&gt;持久：ssh config 对 waypipe 目标主机关 mux（&lt;code&gt;Host douhao dev&lt;&#x2F;code&gt; 段加 &lt;code&gt;ControlMaster no&lt;&#x2F;code&gt;）——局域网主机 mux 收益≈0&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;zhu-yi&quot;&gt;注意&lt;&#x2F;h3&gt;
+&lt;p&gt;shell 函数&#x2F;别名（如问题三的 ssh 包装）只拦截交互输入的命令，&lt;strong&gt;管不到 waypipe&#x2F;git&#x2F;scp 等程序内部对系统 ssh 的调用&lt;&#x2F;strong&gt;；这类工具的 ssh 行为只能通过 ssh config（或它们自己的参数）控制。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;尝试&lt;&#x2F;th&gt;&lt;th&gt;结果&lt;&#x2F;th&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;升级到 0.17.0&lt;&#x2F;td&gt;&lt;td&gt;无效&lt;&#x2F;td&gt;&lt;td&gt;功能缺失，winit Wayland DnD 2026-07 才合入、未发布&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;WINIT_UNIX_BACKEND=x11&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;无效&lt;&#x2F;td&gt;&lt;td&gt;winit 0.29 起已移除该变量&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;env -u WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;有效&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;winit 检测不到 Wayland 后 fallback 到 X11&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;四个坑点留个备忘：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Wayland 下 Alacritty 拖放无解&lt;&#x2F;strong&gt;：等 winit 发版 + Alacritty 适配（issue #4010 追踪中），之前别折腾配置&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;WINIT_UNIX_BACKEND&lt;&#x2F;code&gt; 是废弃变量&lt;&#x2F;strong&gt;：现代 winit（≥0.29）不认，别信旧教程；强制后端用 &lt;code&gt;env -u WAYLAND_DISPLAY&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;用户级 desktop 文件覆盖系统级&lt;&#x2F;strong&gt;：改名相同即可，&lt;code&gt;update-desktop-database&lt;&#x2F;code&gt; 不用手动跑&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;X11 应用的&quot;字体莫名变大&quot;先查 &lt;code&gt;text-scaling-factor&lt;&#x2F;code&gt; 与 &lt;code&gt;Xft.dpi&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：GNOME 全局文本缩放会通过 Xft.dpi 传导到 X11 应用，Wayland 应用不受影响，所以只会在 XWayland 场景暴露&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;代价是 Alacritty 窗口以 XWayland 模式运行（GNOME 下 100% 缩放下无感知差异；高 DPI 缩放下 X11 窗口会模糊，介意的话等上游修复后再切回）。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>X11 多显示器配置：玩转 XRandR</title>
+        <published>2019-12-24T00:00:00+08:00</published>
+        <updated>2019-12-24T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2019/12/auto-xrandr/"/>
+        <id>https://moxuetianya.github.io/2019/12/auto-xrandr/</id>
+        
+        <summary type="html">&lt;h1 id=&quot;x11-duo-xian-shi-qi-pei-zhi-wan-zhuan-xrandr&quot;&gt;X11 多显示器配置：玩转 XRandR&lt;&#x2F;h1&gt;
+&lt;p&gt;RandR（Resize and Rotate）协议是基于 X Window 系统的一个扩展，它可以直接操作显示器模式、刷新率，属于 DDX 组件。
+&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;wiki.archlinux.org&#x2F;index.php&#x2F;Xrandr&quot;&gt;xrandr&lt;&#x2F;a&gt; 是官方的 RandR 配置工具，比老的 Xinerama 机制更容易测试和配置。
+本文在没有桌面环境的情况下直接对底层软件进行配置，如果有安装某种 DE 可以在其控制面板中找到对应的配置。&lt;&#x2F;p&gt;
+&lt;div&gt;
+</summary>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>VT 下的键盘映射设置</title>
+        <published>2019-12-07T00:00:00+08:00</published>
+        <updated>2019-12-07T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2019/12/virtual-console-keymap/"/>
+        <id>https://moxuetianya.github.io/2019/12/virtual-console-keymap/</id>
+        
+        <summary type="html">&lt;h1 id=&quot;vt-xia-de-jian-pan-ying-she-she-zhi&quot;&gt;VT 下的键盘映射设置&lt;&#x2F;h1&gt;
+&lt;p&gt;最近遇到在 X11 下切换到 TTY 可以用 Ctrl+LeftAlt+Fn 或 Ctrl+RightAlt+Fn，但从 TTY 切换回 X11 只能使用 Ctrl+LeftAlt+Fn 的问题。
+为了手感比较一致今晚解决了这个问题并记录在这里，希望能帮助遇到同样问题的人。&lt;&#x2F;p&gt;
+&lt;p&gt;具体原因是 X11 下的键盘映射由 xkbmap 来管理，它默认提供了比较复杂的配置；但 VT 直接运行在内核上没有经过 X11 它的配置更直接和简单。
+这两份配置的不同导致了在 VT 下 RightAlt 不能正确映射。
+这里我们关心的是 keycode 到 keysym 的映射关系，
+更过关于 scancode, keycode, keysym 的概念解释可以先参考
+&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;harttle.land&#x2F;2019&#x2F;08&#x2F;08&#x2F;linux-keymap-on-macbook.html&quot;&gt;ArchLinux 键盘映射&lt;&#x2F;a&gt; 的第一小节。
+这个 keycode 到 keysym 的映射关系就是我们常说的 keymap，
+就是装各种系统时要选的键盘布局。
+所有的 keymap 都存在 &lt;code&gt;&#x2F;usr&#x2F;share&#x2F;dbd&#x2F;keymaps&lt;&#x2F;code&gt; 中：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;find &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;kbd&amp;#x2F;keymaps&amp;#x2F; -type f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键在于 X11 和 VT 中如何选择这些文件，其中每个 .map.gz 文件解压后得到的 .map 文件即为键盘布局文件。文件中的数字表示 keycode，Alt、Control 这样的词即为 keysym。&lt;&#x2F;p&gt;
+&lt;div&gt;
+</summary>
+        
+    </entry>
+</feed>
