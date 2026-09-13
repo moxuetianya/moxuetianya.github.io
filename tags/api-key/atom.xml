@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - api-key</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/api-key/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-13T17:48:42+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/api-key/atom.xml</id>
+    <entry xml:lang="en">
+        <title>让 Agent 调用模型却拿不到 API Key：OpenShell 实测、DSH 默认隔离与 SSH Key 的边界</title>
+        <published>2026-09-13T17:48:42+08:00</published>
+        <updated>2026-09-13T17:48:42+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/agent-apikey-isolation-openshell-dsh/"/>
+        <id>https://moxuetianya.github.io/2026/09/agent-apikey-isolation-openshell-dsh/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/agent-apikey-isolation-openshell-dsh/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;Agent 一旦有了 shell 工具，&quot;密钥不进它上下文&quot;就变成了一件很难保证的事：&lt;code&gt;env&lt;&#x2F;code&gt;、&lt;code&gt;.env&lt;&#x2F;code&gt;、&lt;code&gt;~&#x2F;.config&#x2F;...&lt;&#x2F;code&gt; 都是它伸手就能读的；prompt injection 还能诱导它把 key 发到外部。目标很明确：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Hermes &#x2F; DSH &#x2F; 任意 agent 能正常调用模型，但 agent 进程本身&lt;strong&gt;拿不到真实 API Key&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;围绕这个问题最近做了一轮调研，并拿手头的环境做了实测（dut 上跑着 OpenShell + Hermes 沙箱，见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;09&#x2F;openshell-pi-hermes-sandbox&#x2F;&quot;&gt;把 Hermes 关进 OpenShell 沙箱&lt;&#x2F;a&gt;）。顺手把 SSH key、DSH 的默认隔离、以及几个轻量替代方案一起理清。先给结论：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;API key 防泄漏有两条路线：&lt;strong&gt;把真 key 放在 agent 够不到的地方&lt;&#x2F;strong&gt;（代理网关 &#x2F; 宿主进程），或&lt;strong&gt;让 agent 跑在够不到 key 的沙箱里&lt;&#x2F;strong&gt;（内核隔离）。前者防&quot;读进程&#x2F;文件&quot;，后者防&quot;读宿主文件&quot;。&lt;&#x2F;li&gt;
+&lt;li&gt;OpenShell 走的是前者：L7 代理 + 凭证占位符替换，外加文件&#x2F;网络&#x2F;进程&#x2F;凭证四层声明式 policy，dut 上实测可用。但它有一个&quot;占位符进对话体&quot;的坑（§3.4），一旦踩中，会话里所有模型请求都会失败。&lt;&#x2F;li&gt;
+&lt;li&gt;SSH key 是完全不同的问题：私钥本来就不传输，防的是&quot;谁能使用签名能力&quot;。OpenShell 目前&lt;strong&gt;没有现成的 ssh-agent 转发&#x2F;挂载&lt;&#x2F;strong&gt;，网上那套 &lt;code&gt;IdentityAgent=$SSH_AUTH_SOCK&lt;&#x2F;code&gt; 的配置在 OpenShell 里配不出来（§4.3）。&lt;&#x2F;li&gt;
+&lt;li&gt;如果只想轻量解决&quot;agent 拿不到 API key&quot;：本地代理网关（LiteLLM 之类）把 agent 的 shell 扔进容器&#x2F;独立用户，比 OpenShell 省事得多（§5）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;yi-xian-fen-qing-san-ceng-ji-zhi&quot;&gt;一、先分清三层机制&lt;&#x2F;h1&gt;
+&lt;p&gt;讨论&quot;防泄漏&quot;之前先分清防的是哪一段，否则很容易把三个东西混在一起：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;层&lt;&#x2F;th&gt;&lt;th&gt;代表机制&lt;&#x2F;th&gt;&lt;th&gt;防住什么&lt;&#x2F;th&gt;&lt;th&gt;防不住什么&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;网络&#x2F;应用层代理&lt;&#x2F;td&gt;&lt;td&gt;OpenShell supervisor proxy&lt;&#x2F;td&gt;&lt;td&gt;真 key 不进 agent 进程；出网端点白名单 + L7 审计&lt;&#x2F;td&gt;&lt;td&gt;agent 读宿主文件（靠别的层）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;内核沙箱&lt;&#x2F;td&gt;&lt;td&gt;bwrap + Landlock + seccomp（DSH、容器）&lt;&#x2F;td&gt;&lt;td&gt;agent 读到宿主敏感文件 &#x2F; 提权&lt;&#x2F;td&gt;&lt;td&gt;同用户下的进程逃逸、&lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;environ&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;密码学&lt;&#x2F;td&gt;&lt;td&gt;SSH 公钥认证&lt;&#x2F;td&gt;&lt;td&gt;私钥在网络上被截获&lt;&#x2F;td&gt;&lt;td&gt;私钥被本地进程读走、签名能力被滥用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关于 OpenShell 的常见误解：MITM 只是它的&lt;strong&gt;实现手段&lt;&#x2F;strong&gt;（代理终结 TLS 才能替换凭证），不是目的。它真正做的是&quot;凭证占位符 + 策略引擎 + 审计&quot;三件套。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;er-openshell-shi-zen-me-zuo-dao-agent-na-bu-dao-key-de-dut-shi-ce&quot;&gt;二、OpenShell 是怎么做到 agent 拿不到 key 的（dut 实测）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;2-1-lian-lu&quot;&gt;2.1 链路&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;CLI ──mTLS──▶ openshell-gateway（控制面，127.0.0.1:17670）
+                  │  真 key 存在 gateway 的加密凭证库里
+                  ▼
+          sandbox 容器（rootless podman）
+            └─ supervisor（PID 1）
+                 ├─ 给 agent 进程注入占位符环境变量
+                 ├─ 出网强制走 10.200.0.1:3128 正向代理
+                 └─ 对 L7 端点终结 TLS，把占位符替换成真 key 再发上游
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-2-shi-ce-zheng-ju&quot;&gt;2.2 实测证据&lt;&#x2F;h2&gt;
+&lt;p&gt;agent 进程看到的环境变量长这样：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- sh -c &amp;#x27;env | grep XIAOMI&amp;#x27;
+XIAOMI_TOKEN_PLAN_CN_API_KEY=openshell:resolve:env:v..._XIAOMI_TOKEN_PLAN_CN_API_KEY
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;真 key 只在 gateway 的加密库里，代理在发往 &lt;code&gt;token-plan-cn.xiaomimimo.com:443&lt;&#x2F;code&gt; 的请求上替换（临时 CA 的私钥只在 supervisor 内存里）。每次 allow&#x2F;deny 都有 OCSF 日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell logs hermes --tail
+HTTP:POST [INFO] ALLOWED POST http:&amp;#x2F;&amp;#x2F;token-plan-cn.xiaomimimo.com:443&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions [policy:hermes engine:l7]
+NET:OPEN  [MED ] DENIED &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;curl -&amp;gt; example.com:443 [reason:endpoint not allowed by any policy]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-3-policy-guan-shen-me&quot;&gt;2.3 policy 管什么&lt;&#x2F;h2&gt;
+&lt;p&gt;OpenShell 的 policy 分静态段（创建时锁定，改了要重建沙箱）和动态段（可热更）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;类别&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;filesystem_policy.read_only&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;read_write&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;Landlock 白名单，未列出的路径不可访问&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;landlock.compatibility&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;best_effort&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;hard_requirement&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;process.run_as_user&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;run_as_group&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;agent 降权身份；&lt;code&gt;0&lt;&#x2F;code&gt;&#x2F;root 被 schema 拒绝&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;network_policies.&amp;lt;key&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;端点 × 二进制白名单；&lt;code&gt;protocol: rest&lt;&#x2F;code&gt; = L7 检查&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;request_body_credential_rewrite&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;是否重写&lt;strong&gt;请求体&lt;&#x2F;strong&gt;里的占位符（默认 &lt;code&gt;false&lt;&#x2F;code&gt;，见 §3.4）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;沙箱容器本身也不是&quot;随便挂载&quot;的：dut 上它只挂了 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 卷 + supervisor 二进制 + TLS 文件，宿主 home&#x2F;ssh&#x2F;pass 都不可见（这条很关键，后面 §2.5 会纠一个常见的误传）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-4-keng-zhan-wei-fu-jin-ru-dui-hua-qing-qiu-ti-hui-hua-yong-jiu-shi-bai&quot;&gt;2.4 坑：占位符进入对话&#x2F;请求体 = 会话永久失败&lt;&#x2F;h2&gt;
+&lt;p&gt;这是本次实测踩到的新坑，也是写这篇文章的起因。&lt;&#x2F;p&gt;
+&lt;p&gt;Hermes 排查问题时用 terminal 工具跑了 &lt;code&gt;env&lt;&#x2F;code&gt;&#x2F;读 &lt;code&gt;.env&lt;&#x2F;code&gt;，把 &lt;code&gt;openshell:resolve:env:...&lt;&#x2F;code&gt; 占位符留在了会话历史里。之后这个会话的&lt;strong&gt;每一次&lt;&#x2F;strong&gt;模型请求体里都带着占位符，而 OpenShell 代理按设计拒绝：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;HTTP:POST [INFO] ALLOWED POST ...&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions
+NET:TRAFFIC [HIGH] DENIED ... [reason:POST request body credential traffic denied]
+NET:FAIL ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;代理直接掐断连接，客户端报 &lt;code&gt;APIConnectionError: Server disconnected without sending a response&lt;&#x2F;code&gt;，Hermes 显示&quot;model server not responding&quot;——&lt;strong&gt;新会话（&lt;code&gt;hermes -z&lt;&#x2F;code&gt;）正常，只有被污染的会话全挂&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;根因：源码 &lt;code&gt;l7&#x2F;rest.rs&lt;&#x2F;code&gt; 的 &lt;code&gt;emit_uninspected_body_credential_denial&lt;&#x2F;code&gt;（finding &lt;code&gt;openshell.credentials.traffic_uninspectable&lt;&#x2F;code&gt;）。请求体里的凭证占位符无法安全检查&#x2F;重写，默认 fail-closed。&lt;&#x2F;li&gt;
+&lt;li&gt;修法：把占位符从会话历史里清掉（&lt;code&gt;&#x2F;reset&lt;&#x2F;code&gt; 开新会话，或清理 state.db 后让会话缓存重载）。&lt;&#x2F;li&gt;
+&lt;li&gt;别急着开 &lt;code&gt;request_body_credential_rewrite: true&lt;&#x2F;code&gt;：我们的 &lt;code&gt;open_internet&lt;&#x2F;code&gt; 是 hostless（任意主机）端点，开了等于把真 key 替换进发往任意主机的请求体，安全上不划算。&lt;&#x2F;li&gt;
+&lt;li&gt;教训：&lt;strong&gt;agent 永远不要读自己的 key&#x2F;占位符&lt;&#x2F;strong&gt;（&lt;code&gt;env | grep&lt;&#x2F;code&gt;、&lt;code&gt;cat .env&lt;&#x2F;code&gt;）。对 agent 来说，那段字符串看起来&quot;不是 secret&quot;，但它会让整个会话失去与外界的模型通信。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;2-5-kan-wu-ji-ge-wang-shang-liu-chuan-de-openshell-shuo-fa&quot;&gt;2.5 勘误：几个网上流传的 OpenShell 说法&lt;&#x2F;h2&gt;
+&lt;p&gt;调研时拿到的二手资料里有几处张冠李戴，照着配会踩空：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;流传说法&lt;&#x2F;th&gt;&lt;th&gt;事实&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&quot;&lt;code&gt;workspaceAccess: ro&#x2F;rw&lt;&#x2F;code&gt; 会把宿主工作目录挂进容器&quot;&lt;&#x2F;td&gt;&lt;td&gt;这是 &lt;strong&gt;OpenClaw&lt;&#x2F;strong&gt; 的配置（&lt;code&gt;~&#x2F;.openclaw&#x2F;openclaw.json&lt;&#x2F;code&gt;），不是 NVIDIA OpenShell。OpenShell 沙箱只挂 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 卷和 supervisor&#x2F;TLS 文件，不挂宿主工作目录&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;&lt;code&gt;tools.exec.host: gateway&lt;&#x2F;code&gt; 时命令直接在宿主机执行、容器内 uid=0 就是宿主 root&quot;&lt;&#x2F;td&gt;&lt;td&gt;同样是别家的说法。OpenShell 的 agent 进程在沙箱内降权运行，&lt;code&gt;uid=0&lt;&#x2F;code&gt;&#x2F;root 被 policy schema 和 supervisor 双重拒绝&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;未列出的端点会弹窗让你实时审批&quot;&lt;&#x2F;td&gt;&lt;td&gt;OpenShell 是声明式 deny + OCSF 日志，没有交互审批&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&quot;审计日志不可篡改&quot;&lt;&#x2F;td&gt;&lt;td&gt;OCSF 事件流可以看 allow&#x2F;deny，但&quot;不可篡改&quot;是营销词，别当合规保证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;san-ssh-key-he-api-key-shi-tong-yi-ge-wen-ti-ma&quot;&gt;三、SSH key：和 API key 是同一个问题吗？&lt;&#x2F;h1&gt;
+&lt;p&gt;不是。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-1-ssh-si-yao-ben-lai-jiu-bu-chuan-shu&quot;&gt;3.1 SSH 私钥本来就不传输&lt;&#x2F;h2&gt;
+&lt;p&gt;SSH 公钥认证里，私钥永远留在本地，网络上传的是&quot;用私钥对握手数据（含会话 ID）的签名&quot;。中间人即使截获签名，也无法转发给真实服务器——因为它和客户端、服务器各自建了不同的连接，会话 ID 对不上，签名验证必然失败。&lt;strong&gt;所以 SSH key 的泄漏模型不是&quot;传输被截&quot;，而是：私钥文件被读走，或者签名能力被滥用。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-2-agent-forwarding-shi-shuang-ren-jian&quot;&gt;3.2 agent forwarding 是双刃剑&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;ssh -A&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;ForwardAgent yes&lt;&#x2F;code&gt; 会把本地的 ssh-agent 通道借给远端：远端的进程可以请求你的 agent 签名。目标服务器一旦被攻破，攻击者就能用你的身份去连别的机器。&lt;strong&gt;除非明确需要跳板链，否则不要开。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-3-zai-openshell-li-rang-agent-yong-ssh-dan-na-bu-dao-si-yao&quot;&gt;3.3 在 OpenShell 里让 agent 用 SSH 但拿不到私钥？&lt;&#x2F;h2&gt;
+&lt;p&gt;现状要说清楚：&lt;strong&gt;OpenShell 没有现成的 ssh-agent 转发&#x2F;挂载开关&lt;&#x2F;strong&gt;。沙箱容器的挂载由 driver 决定（我们这份配置只有 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 卷 + TLS 文件），你没法把宿主的 &lt;code&gt;$SSH_AUTH_SOCK&lt;&#x2F;code&gt; 塞进去；网络默认也只放行 80&#x2F;443，22 端口需要显式加。所以网上那套&quot;宿主机跑 ssh-agent + 沙箱里 &lt;code&gt;ssh -o IdentityAgent=$SSH_AUTH_SOCK&lt;&#x2F;code&gt;&quot;在 OpenShell 里是配不出来的，除非改 driver &#x2F; 做 BYOC 深度定制。&lt;&#x2F;p&gt;
+&lt;p&gt;可行的路线，按推荐程度排：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;短时 SSH 证书&lt;&#x2F;strong&gt;（step-ca &#x2F; Vault &#x2F; Teleport 之类的 SSH CA）：给 agent 发分钟级&#x2F;小时级证书。证书在沙箱里，但泄漏窗口极小、可撤销、可绑定主体。这是&quot;让 agent 能 SSH&quot;最稳的做法。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;宿主侧受控执行器&lt;&#x2F;strong&gt;：私钥和 agent 留在宿主机，把&quot;固定几条 ssh 命令&quot;包成一个受控服务&#x2F;脚本，通过 policy 放行的端口给沙箱调用。agent 只有&quot;请求执行&quot;的能力，没有 key。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;专用受限 key 放沙箱&lt;&#x2F;strong&gt;：用远端 &lt;code&gt;authorized_keys&lt;&#x2F;code&gt; 的 &lt;code&gt;command=&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;from=&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;no-pty&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;no-port-forwarding&lt;&#x2F;code&gt; 约束死。实现最简单，但等于放弃&quot;agent 看不到 key&quot;，只适合低价值目标。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;不让沙箱做 SSH&lt;&#x2F;strong&gt;：这类操作留在宿主或 CI，agent 只要结果。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;si-dsh-deepseek-harness-de-mo-ren-ge-chi&quot;&gt;四、DSH（DeepSeek Harness）的默认隔离&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;这一节主要整理自公开资料，&lt;strong&gt;未在本机逐项实测&lt;&#x2F;strong&gt;；本机的 DSH 部署形态见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;08&#x2F;caddy-reverse-proxy-dsh-web-lan&#x2F;&quot;&gt;caddy 反代 DSH Web&lt;&#x2F;a&gt;。配置前建议以实际版本的文档&#x2F;行为为准。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;内核级沙箱&lt;&#x2F;strong&gt;：Linux 用 bwrap（namespace 拼文件系统视图）+ Landlock（内核强制访问控制）；macOS 用 Seatbelt；Windows 用 ACL 受限令牌；隔离不可用时 fail-closed（宁可拒绝执行，不悄悄降级）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;默认 workspace-write&lt;&#x2F;strong&gt;：agent（含 shell 工具）在沙箱内运行，只能在工作区目录内写；工作区之外按只读视图挂载，读得到代码&#x2F;调试工具，改不了系统文件。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;凭据只写不回读&lt;&#x2F;strong&gt;：Web UI 里填的 API key 写入 &lt;code&gt;$DSH_HOME&#x2F;.credentials.yaml&lt;&#x2F;code&gt;，前端只显示脱敏描述符。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;默认只监听回环&lt;&#x2F;strong&gt;：&lt;code&gt;127.0.0.1&lt;&#x2F;code&gt;，CLI 默认拒绝 &lt;code&gt;--host 0.0.0.0&lt;&#x2F;code&gt;（我们这台就是 caddy 反代 + basicauth 暴露，配置平面另有 loopback 围栏）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;边界&lt;&#x2F;strong&gt;：&lt;code&gt;.credentials.yaml&lt;&#x2F;code&gt; 是同用户 600 文件，&lt;strong&gt;同一 OS 用户下的其他进程理论上仍可读&lt;&#x2F;strong&gt;（以及 &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;environ&lt;&#x2F;code&gt;）。如果威胁模型包含&quot;agent 逃逸出沙箱后以同用户身份活动&quot;，需要把 DSH 跑在独立用户或容器里。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;wu-qing-liang-fang-an-dui-bi&quot;&gt;五、轻量方案对比&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;复杂度&lt;&#x2F;th&gt;&lt;th&gt;agent 拿得到真 key？&lt;&#x2F;th&gt;&lt;th&gt;适合场景&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;环境变量 &#x2F; &lt;code&gt;.env&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;最低&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;能&lt;&#x2F;strong&gt;（同用户进程可读 &lt;code&gt;.env&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;environ&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;只防误提交，不防 agent&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;独立 OS 用户跑 agent&lt;&#x2F;td&gt;&lt;td&gt;低&lt;&#x2F;td&gt;&lt;td&gt;跨用户读不到；同用户逃逸才行&lt;&#x2F;td&gt;&lt;td&gt;单机多用户、轻量加固&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;agent 的 shell 进容器&lt;&#x2F;td&gt;&lt;td&gt;中&lt;&#x2F;td&gt;&lt;td&gt;拿不到（key 留在宿主进程）&lt;&#x2F;td&gt;&lt;td&gt;个人日常，性价比高&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本地代理网关（LiteLLM 等）&lt;&#x2F;td&gt;&lt;td&gt;中&lt;&#x2F;td&gt;&lt;td&gt;拿不到（agent 只有 fake token，真 key 在网关进程）&lt;&#x2F;td&gt;&lt;td&gt;多 key&#x2F;多模型统一管理&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;OpenShell&lt;&#x2F;td&gt;&lt;td&gt;高&lt;&#x2F;td&gt;&lt;td&gt;拿不到，且带出网&#x2F;文件&#x2F;审计策略&lt;&#x2F;td&gt;&lt;td&gt;需要完整边界与可审计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;DSH 内置沙箱&lt;&#x2F;td&gt;&lt;td&gt;低（对 DSH 而言）&lt;&#x2F;td&gt;&lt;td&gt;取决于 agent 形态；同用户边界仍在&lt;&#x2F;td&gt;&lt;td&gt;本来就用 DSH&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;一个容易忽略的点：&lt;strong&gt;&quot;独立 OS 用户&quot;防的是跨用户读取，不防同用户逃逸&lt;&#x2F;strong&gt;；&quot;本地代理网关&quot;防的是 key 泄漏，不防 agent 破坏宿主文件。选方案前先写清楚威胁模型。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;liu-zhao-zhao-pei-zhi-de-qing-dan&quot;&gt;六、照着配置的清单&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;OpenShell &#x2F; Hermes（已有环境）&lt;&#x2F;strong&gt;
+&lt;ul&gt;
+&lt;li&gt;验证占位符：&lt;code&gt;openshell sandbox exec -n hermes -- sh -c &#x27;env | grep XIAOMI&#x27;&lt;&#x2F;code&gt;，应该只看到 &lt;code&gt;openshell:resolve:env:...&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;纪律：agent 不允许 &lt;code&gt;env | grep&lt;&#x2F;code&gt;、&lt;code&gt;cat .env&lt;&#x2F;code&gt;（占位符进上下文会让会话永久失败，§2.4）。&lt;&#x2F;li&gt;
+&lt;li&gt;cron 任务注意 provider 快照：全局换 provider 后，任务默认仍钉在创建时的快照上，需要 &lt;code&gt;cron.model_provider&lt;&#x2F;code&gt; 或 &lt;code&gt;hermes cron edit --provider&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;宿主 DSH&lt;&#x2F;strong&gt;
+&lt;ul&gt;
+&lt;li&gt;确认默认沙箱生效（workspace-write）；&lt;code&gt;.credentials.yaml&lt;&#x2F;code&gt; 权限 600；威胁模型包含同用户逃逸就换独立用户&#x2F;容器。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SSH&lt;&#x2F;strong&gt;
+&lt;ul&gt;
+&lt;li&gt;绝不开 &lt;code&gt;ForwardAgent&lt;&#x2F;code&gt;；优先走 SSH CA 短证书或宿主侧受控执行器；不要照搬&quot;挂 &lt;code&gt;SSH_AUTH_SOCK&lt;&#x2F;code&gt;&quot;的说法（OpenShell 挂不进去）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;验收命令&lt;&#x2F;strong&gt;
+&lt;ul&gt;
+&lt;li&gt;OpenShell：&lt;code&gt;openshell logs &amp;lt;sandbox&amp;gt; --tail&lt;&#x2F;code&gt; 看 allow&#x2F;deny；&lt;code&gt;env&lt;&#x2F;code&gt; 看占位符。&lt;&#x2F;li&gt;
+&lt;li&gt;DSH：&lt;code&gt;ls -l $DSH_HOME&#x2F;.credentials.yaml&lt;&#x2F;code&gt;；在 agent 里尝试 &lt;code&gt;cat ~&#x2F;.dsh&#x2F;.credentials.yaml&lt;&#x2F;code&gt; 应被沙箱拒绝。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;API key 防泄漏的关键不是&quot;藏起来&quot;，而是&lt;strong&gt;让真值不进入 agent 进程&lt;&#x2F;strong&gt;：要么代理网关侧替换（OpenShell、LiteLLM），要么把 agent 关进内核沙箱（DSH、bwrap+Landlock）。&lt;&#x2F;li&gt;
+&lt;li&gt;OpenShell 的能力是&quot;凭证注入 + 策略 + 审计&quot;三合一，实测有效，但要接受它的复杂度，并注意占位符不能进入对话体这个坑。&lt;&#x2F;li&gt;
+&lt;li&gt;SSH key 是密码学层面的问题，防的是签名能力滥用而非传输截获；想在沙箱里&quot;用 SSH 但看不到私钥&quot;，OpenShell 目前没有现成方案，优先考虑 SSH CA 短证书或宿主侧受控执行器。&lt;&#x2F;li&gt;
+&lt;li&gt;二手资料里&quot;OpenShell 挂宿主工作目录 &#x2F; 命令在宿主执行&quot;之类的说法来自别家产品（OpenClaw），照着配会踩空——以实测和官方 policy schema 为准。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

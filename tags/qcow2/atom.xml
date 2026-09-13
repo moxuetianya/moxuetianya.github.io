@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - qcow2</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/qcow2/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-01-25T13:28:12+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/qcow2/atom.xml</id>
+    <entry xml:lang="en">
+        <title>qemu启动pve qcow2虚拟机镜像排查</title>
+        <published>2026-01-25T13:28:12+08:00</published>
+        <updated>2026-01-25T13:28:12+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/"/>
+        <id>https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/01/qemu启动pve qcow2虚拟机镜像排查/">&lt;h1 id=&quot;xiu-fu-qcow2wen-jian-mu-lu&quot;&gt;修复qcow2文件目录&lt;&#x2F;h1&gt;
+&lt;p&gt;最后发现时rootfs中缺少了 &#x2F;dev 和 &#x2F;sys 两个目录，导致initrd中切换到systemd时缺少挂载点后panic了&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;qemu-system-x86_64 --enable-kvm -smp 2 -m 4096  -hda vm-7044.qcow2 -snapshot -serial stdio
+modprobe nbd
+sudo modprobe nbd max_part=8
+lsblk
+qemu-nbd --help
+qemu-nbd -c &amp;#x2F;dev&amp;#x2F;nbd0 vm-7044.qcow2
+mkdir vm-7044 &amp;amp;&amp;amp; cd vm-7044&amp;#x2F;
+mkdir part{1,5}
+mount &amp;#x2F;dev&amp;#x2F;nbd0p1 part1&amp;#x2F;
+mount &amp;#x2F;dev&amp;#x2F;nbd0p5 part5
+cd part5&amp;#x2F;boot&amp;#x2F;
+file initrd.img
+mkdir initrd &amp;amp;&amp;amp; cd initrd&amp;#x2F;
+cpio -idmv &amp;lt; ..&amp;#x2F;initrd.img-5.15.0-139-generic
+qemu-system-x86_64 -smp 2 -m 4096 -kernel vmlinuz-5.15.0-139-generic -initrd initrd.img-5.15.0-139-generic  -append &amp;quot;console=ttyS0&amp;quot;
+cp initrd.img ..&amp;#x2F;..&amp;#x2F;
+cp vmlinuz ..&amp;#x2F;..&amp;#x2F;
+umount part1
+umount part5
+qemu-nbd -d &amp;#x2F;dev&amp;#x2F;nbd0
+qemu-system-x86_64 --enable-kvm -smp 2 -m 4096 -kernel vmlinuz -initrd initrd.img  -append &amp;quot;console=ttyS0&amp;quot;
+qemu-system-x86_64 --enable-kvm -smp 2 -m 4096  -hda ..&amp;#x2F;vm-7044.qcow2
+qemu-system-x86_64 --enable-kvm -smp 2 -m 4096 -kernel vmlinuz -initrd initrd.img  -append &amp;quot;console=ttyS0&amp;quot; -hda ..&amp;#x2F;vm-7044.qcow2
+qemu-system-x86_64 --enable-kvm -smp 2 -m 4096 -kernel vmlinuz -initrd initrd.img  -append &amp;quot;console=ttyS0 root=&amp;#x2F;dev&amp;#x2F;sda5&amp;quot; -hda ..&amp;#x2F;vm-7044.qcow2
+
+# 最后发现qcow2中的文件系统缺少&amp;#x2F;dev 和 &amp;#x2F;sys 两个目录（导致init启动时没有devfs&amp;#x2F;tmpfs的挂载点）
+qemu-system-x86_64 --enable-kvm -smp 2 -m 4096 -hda vm-7044.qcow2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qemuxu-ni-ji-qi-dong-hou-ru-he-qie-huan-tty&quot;&gt;qemu虚拟机启动后如何切换tty&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;tty1中的启动程序没有完全成功，导致卡死在启动过程，且没有shell供用户输入&lt;&#x2F;li&gt;
+&lt;li&gt;qemu GUI中使用monitor0, 可以发送命令,切换其他tty登录&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;(qemu) sendkey ctrl+alt+f3
+
+# 登录系统后， 修改grub
+sudo nano &amp;#x2F;etc&amp;#x2F;defautl&amp;#x2F;grub
+# 注释掉hide和选项
+# GRUB_TIMEOUT_STYLE=hide
+GRUB_CMDLINE_LINUX_DEFAULT=&amp;#x27;loglevel=7&amp;#x27;
+GRUB_CMDLINE_LINUX=&amp;quot;console=tty0 console=ttyS0,115200n8 earlyprintk=ttyS0,115200 systemd.show_status=1&amp;quot;
+
+sudo update-grub
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;grub-shellchang-yong-ming-ling&quot;&gt;grub shell常用命令&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;ls	列出设备、分区或目录内容	ls, ls (hd0,1)&#x2F;boot&lt;&#x2F;li&gt;
+&lt;li&gt;set	查看或设置环境变量	set root=(hd0,gpt2)&lt;&#x2F;li&gt;
+&lt;li&gt;linux	加载内核文件	linux &#x2F;vmlinuz root=&#x2F;dev&#x2F;sda5&lt;&#x2F;li&gt;
+&lt;li&gt;initrd	加载初始化 RAM 磁盘	initrd &#x2F;initrd.img&lt;&#x2F;li&gt;
+&lt;li&gt;boot	启动已经加载好的内核	boot&lt;&#x2F;li&gt;
+&lt;li&gt;insmod	加载动态模块（如 normal, ext2）	insmod normal&lt;&#x2F;li&gt;
+&lt;li&gt;cat	查看文件内容（常用于检查 grub.cfg）	cat (hd0,1)&#x2F;etc&#x2F;default&#x2F;grub&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;grub&amp;gt; configfile (hd0,msdos1)&amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+# 或尝试使用 search 命令自动查找
+grub&amp;gt; search --file --set=root &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+grub&amp;gt; configfile &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+
+grub&amp;gt; ls (hd0,msdos5)&amp;#x2F;
+# 如果显示了 vmlinuz, initrd.img 等文件，说明找对了
+
+# 第二步：设置根分区
+# 查看当前 root &amp;#x2F; prefix
+grub&amp;gt; set
+grub&amp;gt; set root=(hd0,msdos5)
+grub&amp;gt; insmod normal
+grub&amp;gt; insmod linux
+grub&amp;gt; insmod ext2     # ext2&amp;#x2F;ext4 都是这个
+
+# 第三步：加载内核 (关键步骤)
+# 你需要指定内核文件，并手动告诉它根目录在哪里。在这里加上 nomodeset 来解决你之前的卡死问题。
+# 注意：利用 Tab 键补全文件名，因为内核版本号很长
+grub&amp;gt; linux &amp;#x2F;boot&amp;#x2F;vmlinuz-xxx-generic root=&amp;#x2F;dev&amp;#x2F;sda5 nomodeset
+
+# 第四步：加载 initrd
+grub&amp;gt; initrd &amp;#x2F;boot&amp;#x2F;initrd.img-xxx-generic
+grub&amp;gt; boot
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

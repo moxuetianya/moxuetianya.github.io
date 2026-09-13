@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - dspark</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/dspark/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-25T11:04:22+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/dspark/atom.xml</id>
+    <entry xml:lang="en">
+        <title>深入浅出大模型推理加速：从 DSpark 到 MTP</title>
+        <published>2026-08-25T11:04:22+08:00</published>
+        <updated>2026-08-25T11:04:22+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/"/>
+        <id>https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/llm-inference-acceleration-dspark-and-mtp/">&lt;h1 id=&quot;shen-ru-qian-chu-da-mo-xing-tui-li-jia-su-cong-dspark-dao-mtp&quot;&gt;深入浅出大模型推理加速：从 DSpark 到 MTP&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;本文基于与 DeepSeek 技术专家的深度对话整理，系统梳理了当前大模型推理加速的两大主流技术——DSpark 与 MTP——的核心原理、实现细节与应用场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;qian-yan&quot;&gt;前言&lt;&#x2F;h2&gt;
+&lt;p&gt;随着大语言模型（LLM）参数规模持续增长（从百亿到万亿），推理效率已成为制约其大规模落地的关键瓶颈。在这一背景下，&lt;strong&gt;推测解码（Speculative Decoding）&lt;&#x2F;strong&gt; 技术应运而生，成为学术界与工业界共同关注的焦点。&lt;&#x2F;p&gt;
+&lt;p&gt;本文将详细解析两种具有代表性的推测解码方案：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;：DeepSeek 联合北京大学开源的推理加速框架&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;MTP（Multi-Token Prediction）&lt;&#x2F;strong&gt;：一种需要模型训练时内建支持的多 token 预测技术&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;通过对比分析，帮助读者理解其设计哲学、技术原理与适用场景。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-yi-bu-fen-dspark-xiang-jie&quot;&gt;第一部分：DSpark 详解&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;shen-me-shi-dspark&quot;&gt;什么是 DSpark？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt; 是 DeepSeek 联合北京大学共同开发并开源的大模型推理加速框架。其核心目标是通过 &lt;strong&gt;推测解码&lt;&#x2F;strong&gt; 技术，解决大模型在高并发场景下的推理效率瓶颈。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;一句话概括&lt;&#x2F;strong&gt;：DSpark 是一个&quot;即插即用&quot;的推理加速&quot;外挂&quot;，无需修改原始模型结构，即可实现 60%-85% 的单用户速度提升。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;he-xin-yuan-li&quot;&gt;核心原理&lt;&#x2F;h3&gt;
+&lt;p&gt;DSpark 采用 &lt;strong&gt;推测解码（Speculative Decoding）&lt;&#x2F;strong&gt; 的基本思路，但进行了两项关键创新：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ban-zi-hui-gui-bing-xing-cao-gao-sheng-cheng&quot;&gt;半自回归并行草稿生成&lt;&#x2F;h4&gt;
+&lt;p&gt;传统推测解码使用轻量级&quot;草稿模型&quot;（Draft Model）&lt;strong&gt;串行&lt;&#x2F;strong&gt;生成候选 token，而 DSpark 实现了&lt;strong&gt;并行&lt;&#x2F;strong&gt;生成：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;传统方式：草稿模型逐个生成 token1 → token2 → token3 → ...
+DSpark 方式：草稿模型一次性并行生成 token1, token2, token3, ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这充分利用了 GPU 的并行计算能力，大幅降低了草稿生成阶段的时间开销。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;dong-tai-yan-zheng-diao-du&quot;&gt;动态验证调度&lt;&#x2F;h4&gt;
+&lt;p&gt;DSpark 引入了&quot;置信度调度验证机制&quot;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;评估每个候选 token 被接受的概率&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;动态决定&lt;&#x2F;strong&gt;验证多长的候选序列&lt;&#x2F;li&gt;
+&lt;li&gt;一旦发现错误，&lt;strong&gt;立即截断&lt;&#x2F;strong&gt;，避免算力浪费&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这解决了传统推测解码中&quot;固定长度验证&quot;带来的效率损失问题。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;guan-jian-ji-shu-cao-gao-mo-xing&quot;&gt;关键技术：草稿模型&lt;&#x2F;h3&gt;
+&lt;p&gt;DSpark 的精妙之处在于&lt;strong&gt;草稿模型的设计与训练&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;cao-gao-mo-xing-de-te-dian&quot;&gt;草稿模型的特点&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;独立性&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;与主模型完全解耦，是一个独立训练的轻量级模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;参数量&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;约 3 亿参数（相对于主模型的数千亿参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;结构&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;从主模型特定层（如第 5、17、29、41、46 层）抽取隐藏状态作为输入&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;即插即用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;可随时加载&#x2F;卸载，不影响主模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;xun-lian-fang-shi-mo-fang-zhu-mo-xing-de-si-kao&quot;&gt;训练方式：模仿主模型的&quot;思考&quot;&lt;&#x2F;h4&gt;
+&lt;p&gt;草稿模型的训练过程本质上是&lt;strong&gt;知识蒸馏&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;准备&quot;老师&quot;的数据&lt;&#x2F;strong&gt;：让主模型处理大量文本，&lt;strong&gt;记录其每一层的隐藏状态（Hidden States）&lt;&#x2F;strong&gt;，形成&quot;目标缓存（Target Cache）&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;训练&quot;学生&quot;模型&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型从主模型的&lt;strong&gt;特定层&lt;&#x2F;strong&gt;抽取隐藏状态作为输入&lt;&#x2F;li&gt;
+&lt;li&gt;目标是&lt;strong&gt;预测主模型接下来会生成的 token&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;通过损失函数调整草稿模型参数&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;为什么不使用全部层？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;降低计算量，保证草稿模型的&quot;轻量&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;特定层（如中间层）已包含足够的语义信息&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键洞察&lt;&#x2F;strong&gt;：草稿模型学习的是主模型的&quot;解题思路&quot;（隐藏状态），而非&quot;抄答案&quot;（最终文本）。这让它在风格和概率分布上高度接近主模型，从而保证高接受率。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;dui-bi-yuan-mo-xing-de-ying-xiang&quot;&gt;对闭源模型的影响&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;重要结论&lt;&#x2F;strong&gt;：DSpark 的加速能力目前&lt;strong&gt;只能应用于开源模型&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;原因：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;训练需要访问主模型的&lt;strong&gt;内部隐藏状态&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;闭源模型（如 GPT-4、Claude）仅提供 API，无法获取内部信息&lt;&#x2F;li&gt;
+&lt;li&gt;架构信息（层数、隐藏层大小等）不公开&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tui-li-guo-cheng-bing-xing-yan-zheng-de-jing-sui&quot;&gt;推理过程：并行验证的精髓&lt;&#x2F;h3&gt;
+&lt;p&gt;这是理解 DSpark 为何能提速的核心：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;zhi-jue-wu-qu&quot;&gt;直觉误区&lt;&#x2F;h4&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&quot;每个 token 都要经过主模型，还增加了草稿模型的计算，怎么可能提速？&quot;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键认知&lt;&#x2F;strong&gt;：主模型&quot;验证 100 个 token&quot;和&quot;串行生成 5 个 token&quot;的计算成本&lt;strong&gt;不是&lt;&#x2F;strong&gt;&quot;100 次 vs 5 次&quot;的关系，而是 &lt;strong&gt;&quot;1 次 vs 5 次&quot;&lt;&#x2F;strong&gt; 的关系。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ping-jing-fen-xi&quot;&gt;瓶颈分析&lt;&#x2F;h4&gt;
+&lt;p&gt;大模型推理的最大瓶颈不在&quot;算力&quot;（FLOPs），而在 &lt;strong&gt;&quot;内存带宽&quot;&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型有数千亿参数（几百 GB）&lt;&#x2F;li&gt;
+&lt;li&gt;每次前向传播需要将权重从显存搬运到计算单元&lt;&#x2F;li&gt;
+&lt;li&gt;这是最耗时的操作&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;bing-xing-yan-zheng-de-gong-zuo-yuan-li&quot;&gt;并行验证的工作原理&lt;&#x2F;h4&gt;
+&lt;p&gt;&lt;strong&gt;步骤 1：草稿生成&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型一次性生成连续的 N 个候选 token&lt;&#x2F;li&gt;
+&lt;li&gt;例如：位置 N+1, N+2, ..., N+100&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;步骤 2：并行验证&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型将这 100 个 token &lt;strong&gt;一次性&lt;&#x2F;strong&gt;输入&lt;&#x2F;li&gt;
+&lt;li&gt;利用 Transformer 的&lt;strong&gt;因果自注意力（Causal Attention）&lt;&#x2F;strong&gt; 机制&lt;&#x2F;li&gt;
+&lt;li&gt;在一次前向传播中，&lt;strong&gt;同时&lt;&#x2F;strong&gt;计算出所有位置的概率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre&gt;&lt;code&gt;验证位置1：基于原始上下文
+验证位置2：基于&amp;quot;原始上下文 + 位置1的token&amp;quot;
+验证位置3：基于&amp;quot;原始上下文 + 位置1和2的token&amp;quot;
+...
+验证位置N：基于&amp;quot;原始上下文 + 位置1到N-1的token&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;关键&lt;&#x2F;strong&gt;：这些计算是&lt;strong&gt;并行&lt;&#x2F;strong&gt;的，而非串行等待！&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;cheng-ben-dui-bi&quot;&gt;成本对比&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;对比项&lt;&#x2F;th&gt;&lt;th&gt;原始方式（生成 5 个 token）&lt;&#x2F;th&gt;&lt;th&gt;DSpark 方式（验证 100 个 token）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型权重搬运次数&lt;&#x2F;td&gt;&lt;td&gt;5 次&lt;&#x2F;td&gt;&lt;td&gt;1 次&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;耗时&lt;&#x2F;td&gt;&lt;td&gt;5 × 搬运时间&lt;&#x2F;td&gt;&lt;td&gt;约 1 × 搬运时间&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;草稿模型开销&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;td&gt;极小（3 亿参数 vs 数千亿参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：即使 100 个 token 中只接受了 5 个（接受率 5%），整体速度依然显著提升。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;shi-ji-jie-shou-lu&quot;&gt;实际接受率&lt;&#x2F;h4&gt;
+&lt;p&gt;官方数据显示，DSpark 的平均每次&quot;验证批处理&quot;能成功接受 &lt;strong&gt;4-6 个 Token&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;这意味着：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型每&quot;搬运 1 次权重&quot;，产出 4-6 个有效 token&lt;&#x2F;li&gt;
+&lt;li&gt;原始方式搬运 1 次权重只产出 1 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;速度提升的 60%-85% 来源于此&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;wu-sun-jia-su-de-shu-xue-bao-zhang&quot;&gt;无损加速的数学保障&lt;&#x2F;h3&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&quot;如果草稿生成的 token 不是最大概率，但概率过线了，结果会不会不一样？&quot;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;答案&lt;&#x2F;strong&gt;：不会。DSpark（以及所有标准推测解码）在数学上是&lt;strong&gt;无损（Lossless）&lt;&#x2F;strong&gt; 的。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;ju-jue-cai-yang-rejection-sampling&quot;&gt;拒绝采样（Rejection Sampling）&lt;&#x2F;h4&gt;
+&lt;p&gt;验证机制&lt;strong&gt;不是&lt;&#x2F;strong&gt;简单的&quot;概率过线就接受&quot;，而是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;接受概率 = min(1, P_main(x) &amp;#x2F; P_draft(x))
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;P_main(x)&lt;&#x2F;code&gt;：主模型算出的真实概率&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;P_draft(x)&lt;&#x2F;code&gt;：草稿模型算出的概率&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;tan-xin-jie-ma-mo-shi&quot;&gt;贪心解码模式&lt;&#x2F;h4&gt;
+&lt;p&gt;如果主模型使用 Argmax（取最大概率）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿词如果是最大概率词 → 接受&lt;&#x2F;li&gt;
+&lt;li&gt;草稿词如果不是最大概率词 → P_main(x) = 0 → 接受概率 = 0 → &lt;strong&gt;100% 拒绝&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;结果&lt;&#x2F;strong&gt;：最终输出与主模型直接生成&lt;strong&gt;完全一致&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;sui-ji-cai-yang-mo-shi&quot;&gt;随机采样模式&lt;&#x2F;h4&gt;
+&lt;p&gt;如果主模型使用带温度的随机采样：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;拒绝采样机制保证了最终输出的概率分布&lt;strong&gt;恰好等于&lt;&#x2F;strong&gt;主模型的原始分布&lt;&#x2F;li&gt;
+&lt;li&gt;已被学术界严格证明&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xing-neng-shu-ju&quot;&gt;性能数据&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;模型&lt;&#x2F;th&gt;&lt;th&gt;速度提升&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;DeepSeek-V4-Flash&lt;&#x2F;td&gt;&lt;td&gt;60% - 85%&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;DeepSeek-V4-Pro&lt;&#x2F;td&gt;&lt;td&gt;57% - 78%&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;在 vLLM 中集成（对比 EAGLE-3）&lt;&#x2F;td&gt;&lt;td&gt;吞吐量最高提升 1.69 倍&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;di-er-bu-fen-mtp-xiang-jie&quot;&gt;第二部分：MTP 详解&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;shen-me-shi-mtp&quot;&gt;什么是 MTP？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;MTP（Multi-Token Prediction）&lt;&#x2F;strong&gt; 是一种&lt;strong&gt;需要在模型训练时就内建支持&lt;&#x2F;strong&gt;的多 token 预测技术。它通过在训练时给模型增加额外的&quot;预测头&quot;，让模型学会&lt;strong&gt;同时预测多个未来位置&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;定位&lt;&#x2F;strong&gt;：MTP 是 DeepSeek 上一代的&quot;招牌&quot;技术，DSpark 可以看作是其&quot;进化版&quot;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;zhu-mo-xing-ru-he-gua-pei-mtp&quot;&gt;主模型如何适配 MTP？&lt;&#x2F;h3&gt;
+&lt;p&gt;要在模型上支持 MTP，需要进行&lt;strong&gt;结构扩展&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;tian-jia-duo-ge-yu-ce-tou&quot;&gt;添加多个预测头&lt;&#x2F;h4&gt;
+&lt;p&gt;在标准的语言模型头（预测下一个词）旁边，增加几个额外的输出头：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Head 1: 预测第 N+1 个 token（标准头）
+Head 2: 预测第 N+2 个 token（MTP 头 1）
+Head 3: 预测第 N+3 个 token（MTP 头 2）
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;ji-lian-jie-gou&quot;&gt;级联结构&lt;&#x2F;h4&gt;
+&lt;p&gt;MTP 模块采用&lt;strong&gt;级联（Cascaded）&lt;&#x2F;strong&gt; 设计：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;第一个 MTP 模块：利用主模型的最终隐藏状态 → 预测第 2 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;第二个 MTP 模块：结合第一个模块的预测结果 + 主模型的隐藏状态 → 预测第 3 个 token&lt;&#x2F;li&gt;
+&lt;li&gt;以此类推……&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这种设计可以尽可能保留主模型的信息，让预测更准确。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;mtp-shi-fou-ying-xiang-zhu-mo-xing-de-pu-tong-shi-yong&quot;&gt;MTP 是否影响主模型的普通使用？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不影响。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;MTP 模块在推理时可以&lt;strong&gt;被直接丢弃&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;主模型可以像普通 LLM 一样正常运行&lt;&#x2F;li&gt;
+&lt;li&gt;行为和能力与标准模型&lt;strong&gt;完全一致&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;这是 MTP 的一个重要特性：&lt;strong&gt;&quot;训练时多步规划，推理时灵活选择&quot;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;xun-lian-guo-cheng-yu-pu-tong-xun-lian-de-qu-bie&quot;&gt;训练过程与普通训练的区别&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;xun-lian-mu-biao-loss-de-bian-hua&quot;&gt;训练目标（Loss）的变化&lt;&#x2F;h4&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;训练方式&lt;&#x2F;th&gt;&lt;th&gt;预测目标&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;普通训练（NTP）&lt;&#x2F;td&gt;&lt;td&gt;只预测&lt;strong&gt;下一个词&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;MTP 训练&lt;&#x2F;td&gt;&lt;td&gt;同时预测&lt;strong&gt;未来多个词&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h4 id=&quot;dai-lai-de-hao-chu&quot;&gt;带来的好处&lt;&#x2F;h4&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;更强的训练信号&lt;&#x2F;strong&gt;：预测多个位置的目标，提供更密集的监督信号&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;提升数据利用效率&lt;&#x2F;strong&gt;：每个训练样本提供更多学习信息&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;可能提升模型性能&lt;&#x2F;strong&gt;：DeepSeek-V3 技术报告证明，MTP 策略在多个评测基准上&lt;strong&gt;一致增强&lt;&#x2F;strong&gt;了模型性能&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;xun-lian-fang-shi-xuan-ze&quot;&gt;训练方式选择&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;从头训练&lt;&#x2F;strong&gt;：在模型预训练阶段就加入 MTP 目标&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;两阶段训练&lt;&#x2F;strong&gt;：
+&lt;ul&gt;
+&lt;li&gt;阶段 1：冻结主模型，仅训练新添加的 MTP 头（Head Warm-up）&lt;&#x2F;li&gt;
+&lt;li&gt;阶段 2：对整个模型（主模型 + 头）进行联合微调&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xun-lian-hou-de-shi-yong-fang-shi&quot;&gt;训练后的使用方式&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;zuo-wei-cao-gao-mo-xing-jin-xing-tou-ji-cai-yang&quot;&gt;作为&quot;草稿模型&quot;进行投机采样&lt;&#x2F;h4&gt;
+&lt;p&gt;MTP 用于推理加速的核心方式：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;打草稿（Draft）阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;主模型完成一次前向计算&lt;&#x2F;li&gt;
+&lt;li&gt;利用&lt;strong&gt;内部的隐藏状态&lt;&#x2F;strong&gt; + &lt;strong&gt;级联的 MTP 模块&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;快速、串行&lt;&#x2F;strong&gt;地生成多个候选 token&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;并行验证（Verification）阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;将候选 token 序列一次性输入完整的主模型&lt;&#x2F;li&gt;
+&lt;li&gt;在一次前向传播中并行计算出所有位置的真实概率&lt;&#x2F;li&gt;
+&lt;li&gt;通过&quot;拒绝采样&quot;接受尽可能长的正确前缀&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h4 id=&quot;zhi-jie-diu-qi&quot;&gt;直接丢弃&lt;&#x2F;h4&gt;
+&lt;p&gt;如果不需要加速，或出于兼容性考虑，&lt;strong&gt;直接抛弃 MTP 模块&lt;&#x2F;strong&gt;，作为标准模型使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-san-bu-fen-dspark-vs-mtp-shen-du-dui-bi&quot;&gt;第三部分：DSpark vs MTP 深度对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-chai-yi-yi-lan&quot;&gt;核心差异一览&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;对比维度&lt;&#x2F;th&gt;&lt;th&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;本质&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;独立的推理加速框架&lt;&#x2F;td&gt;&lt;td&gt;模型训练策略&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;草稿生成者&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;独立的外部小模型（3 亿参数）&lt;&#x2F;td&gt;&lt;td&gt;主模型自带的 MTP 模块&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;训练时间&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型训练&lt;strong&gt;之后&lt;&#x2F;strong&gt;，单独训练&lt;&#x2F;td&gt;&lt;td&gt;主模型训练&lt;strong&gt;期间&lt;&#x2F;strong&gt;，同步训练&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;模型修改&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;不修改主模型结构&lt;&#x2F;td&gt;&lt;td&gt;增加额外的 MTP 头&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;即插即用&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;可为任意开源模型单独训练并挂载&lt;&#x2F;td&gt;&lt;td&gt;与主模型深度绑定，不可拆分&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;草稿成本&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;额外小模型的计算 + 显存开销&lt;&#x2F;td&gt;&lt;td&gt;几乎无额外开销（共享大部分参数）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;适用场景&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;开源模型推理加速&lt;&#x2F;td&gt;&lt;td&gt;需要内建加速能力的模型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;zhi-guan-lei-bi&quot;&gt;直观类比&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;给专家（主模型）配了一位快速助手（外部草稿模型）。助手先快速写草稿，专家审阅。这套班子可以随时请来，随时请走。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;专家自己被训练出了一心多用的天赋（内部预测头）。自己快速打草稿，自己审阅。这种天赋需要从小（训练时）培养，是专家不可分割的一部分。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;yan-zheng-jie-duan-shi-fou-xiang-tong&quot;&gt;验证阶段是否相同？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;是的，验证阶段的核心机制完全相同。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;MTP 和 DSpark 在&quot;验证&quot;这一步，都遵循推测解码的标准范式：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;一次并行前向传播&lt;&#x2F;strong&gt;验证多个候选 token&lt;&#x2F;li&gt;
+&lt;li&gt;通过&lt;strong&gt;拒绝采样&lt;&#x2F;strong&gt;保证无损&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;区别仅在于 &lt;strong&gt;&quot;谁&quot;来生成候选草稿&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-si-bu-fen-ji-shu-wen-da-jing-xuan&quot;&gt;第四部分：技术问答精选&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;q1-cao-gao-mo-xing-shi-sui-zhu-mo-xing-yi-qi-fa-bu-ma&quot;&gt;Q1：草稿模型是随主模型一起发布吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不是。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;草稿模型是&lt;strong&gt;独立训练&lt;&#x2F;strong&gt;的，需要单独获取&lt;&#x2F;li&gt;
+&lt;li&gt;DeepSeek 会在 Hugging Face 等平台&lt;strong&gt;单独发布&lt;&#x2F;strong&gt;针对特定主模型的草稿模型权重&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q2-cao-gao-mo-xing-ke-yi-zai-zhu-mo-xing-xun-lian-shi-yi-qi-xun-lian-ma&quot;&gt;Q2：草稿模型可以在主模型训练时一起训练吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;两种方式都有，但主流是&quot;事后训练&quot;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;th&gt;主流程度&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;事后训练&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型训练完成后，再单独训练草稿模型&lt;&#x2F;td&gt;&lt;td&gt;主流&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;联合训练&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;主模型与草稿模型同时训练&lt;&#x2F;td&gt;&lt;td&gt;研究探索&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;事后训练的优势&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;资源需求灵活（单机 8 卡即可）&lt;&#x2F;li&gt;
+&lt;li&gt;解耦与复用（可为任何开源模型训练）&lt;&#x2F;li&gt;
+&lt;li&gt;工程成熟（DeepSpec 框架支持）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q3-xun-lian-cao-gao-mo-xing-xu-yao-zhu-mo-xing-de-can-shu-ma&quot;&gt;Q3：训练草稿模型需要主模型的参数吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不需要权重参数，但需要架构信息。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;需求项&lt;&#x2F;th&gt;&lt;th&gt;是否需要&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型权重参数&lt;&#x2F;td&gt;&lt;td&gt;不需要&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;主模型架构信息（层数、hidden size 等）&lt;&#x2F;td&gt;&lt;td&gt;需要&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;主模型隐藏状态&lt;&#x2F;td&gt;&lt;td&gt;核心需求&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;对闭源模型的影响&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;无法获取隐藏状态 → &lt;strong&gt;无法为闭源模型训练草稿模型&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;DSpark 的加速能力目前仅适用于&lt;strong&gt;开源模型&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;q4-zhu-mo-xing-bing-xing-yan-zheng-100-ge-token-shi-ru-guo-qian-mian-de-token-shi-cuo-de-hou-mian-de-ji-suan-huan-you-yi-yi-ma&quot;&gt;Q4：主模型&quot;并行验证 100 个 token&quot;时，如果前面的 token 是错的，后面的计算还有意义吗？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;有意义。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;主模型在验证时，计算的是**&quot;假设前面 token 被接受&quot;这一条件下的条件概率**：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;位置 3 的计算：基于&quot;原始上下文 + 位置 1 和 2 的 token（&lt;strong&gt;假设被接受&lt;&#x2F;strong&gt;）&quot;&lt;&#x2F;li&gt;
+&lt;li&gt;这个上下文是主模型&lt;strong&gt;自己构建的、逻辑连贯的&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;即使草稿在位置 1 出错，主模型算出的位置 2、3 的&quot;条件概率&quot;&lt;strong&gt;本身仍是有效的&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;真正的&quot;浪费&quot;&lt;&#x2F;strong&gt;：如果草稿在位置 K 出错，K+1 及之后的草稿 token 会作废。但 DSpark 的&lt;strong&gt;动态验证调度&lt;&#x2F;strong&gt;会立即截断，最大化收益。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;q5-yan-zheng-shi-de-reng-tou-zi-shi-fou-hui-dao-zhi-hui-tui-dao-chuan-xing-ji-suan&quot;&gt;Q5：验证时的&quot;扔骰子&quot;是否会导致回退到串行计算？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不会。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&quot;扔骰子&quot;（拒绝采样判断）的成本与主模型计算的成本&lt;strong&gt;相差几个数量级&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;操作&lt;&#x2F;th&gt;&lt;th&gt;耗时&lt;&#x2F;th&gt;&lt;th&gt;数据量&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;主模型前向传播&lt;&#x2F;td&gt;&lt;td&gt;毫秒级&lt;&#x2F;td&gt;&lt;td&gt;几百 GB 权重搬运&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;拒绝采样判断&lt;&#x2F;td&gt;&lt;td&gt;微秒&#x2F;纳秒级&lt;&#x2F;td&gt;&lt;td&gt;几 KB 数据读取 + 除法 + 随机数&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;1 毫秒 = 1000 微秒，主模型跑 1 步的时间足够 GPU &lt;strong&gt;扔上几万次骰子&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-wu-bu-fen-zong-jie-yu-zhan-wang&quot;&gt;第五部分：总结与展望&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;he-xin-yao-dian&quot;&gt;核心要点&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;DSpark 和 MTP 不是竞争关系，而是继承与超越的关系&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;MTP 是 DeepSeek 上一代技术&lt;&#x2F;li&gt;
+&lt;li&gt;DSpark 是新一代、更强大的进化版&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;DSpark 的核心创新&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;半自回归并行草稿生成&lt;&#x2F;li&gt;
+&lt;li&gt;动态验证调度&lt;&#x2F;li&gt;
+&lt;li&gt;轻量级独立草稿模型&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;MTP 的核心特点&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;训练时多步规划&lt;&#x2F;li&gt;
+&lt;li&gt;推理时灵活选择（可用可弃）&lt;&#x2F;li&gt;
+&lt;li&gt;与主模型深度绑定&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;推测解码的无损保证&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;拒绝采样机制&lt;&#x2F;li&gt;
+&lt;li&gt;数学上严格证明&lt;&#x2F;li&gt;
+&lt;li&gt;最终输出与主模型直接生成分布一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;xuan-xing-jian-yi&quot;&gt;选型建议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;场景&lt;&#x2F;th&gt;&lt;th&gt;推荐方案&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;为已有开源模型加速&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;（即插即用，独立训练）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;从头训练新模型，追求极致效率&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;MTP&lt;&#x2F;strong&gt;（内建加速能力，无额外开销）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;构建高并发线上服务&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;vLLM + DSpark&lt;&#x2F;strong&gt;（全能框架 + 先进算法）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;追求单用户极限响应速度&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;DSpark&lt;&#x2F;strong&gt;（速度提升 60%-85%）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;yan-shen-si-kao&quot;&gt;延伸思考&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;DSpark 的&quot;事后训练&quot;思路，为开源生态的推理加速提供了巨大想象空间&lt;&#x2F;li&gt;
+&lt;li&gt;草稿模型的独立训练，使得&quot;为任何开源模型定制加速器&quot;成为可能&lt;&#x2F;li&gt;
+&lt;li&gt;未来的发展方向：更轻量的草稿模型、更高的接受率、更智能的动态调度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;can-kao-zi-yuan&quot;&gt;参考资源&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;DeepSeek 官方开源框架：&lt;strong&gt;DeepSpec&lt;&#x2F;strong&gt;（包含 DSpark 实现）&lt;&#x2F;li&gt;
+&lt;li&gt;草稿模型权重：Hugging Face 平台（针对 Gemma、Qwen 等模型）&lt;&#x2F;li&gt;
+&lt;li&gt;相关论文：DSpark 技术报告、DeepSeek-V3 技术报告&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;本文基于与 DeepSeek 技术专家的深度对话整理而成，旨在帮助读者系统理解大模型推理加速的核心技术。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;em&gt;最后更新：2026-08-25&lt;&#x2F;em&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>
