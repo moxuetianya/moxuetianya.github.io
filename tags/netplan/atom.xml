@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - netplan</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/netplan/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-09T14:20:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/netplan/atom.xml</id>
+    <entry xml:lang="en">
+        <title>服务器启动慢排查：systemd-networkd-wait-online 等空网口 2 分钟的根因与 netplan optional 修复</title>
+        <published>2026-09-09T14:20:00+08:00</published>
+        <updated>2026-09-09T14:20:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/learn/systemd-boot-slow-networkd-wait-online/"/>
+        <id>https://moxuetianya.github.io/2026/09/learn/systemd-boot-slow-networkd-wait-online/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/learn/systemd-boot-slow-networkd-wait-online/">&lt;h1 id=&quot;yi-xian-xiang&quot;&gt;一、现象&lt;&#x2F;h1&gt;
+&lt;p&gt;鲲鹏 920 推理服务器（Ubuntu 22.04，ACPI 启动，网卡 4× 25G）重启后，ssh 轮询要等 2~4 分钟才通。量一下到底慢在哪：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ systemd-analyze time
+Startup finished in 19.274s (kernel) + 2min 35.437s (userspace) = 2min 54.712s
+graphical.target reached after 2min 34.379s in userspace
+
+$ systemd-analyze blame | head
+2min 141ms systemd-networkd-wait-online.service   ← 主犯：恰好 120s 超时 + 启动偏移
+   30.368s snapd.seeded.service                    ← 次犯：LXD snap 激活链
+   30.291s snap.lxd.activate.service
+   30.270s snapd.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：kernel 19.3s 是这台机器的硬件底数（ACPI 设备多、PCIe&#x2F;固件初始化慢，&lt;code&gt;Run &#x2F;init&lt;&#x2F;code&gt; 要到 10.8s），不是这里要解决的问题。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;er-gen-yin-netplan-gei-mei-cha-xian-de-kou-ye-pei-liao-dhcp&quot;&gt;二、根因：netplan 给没插线的口也配了 DHCP&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ networkctl list
+IDX LINK     TYPE     OPERATIONAL SETUP
+  2 enp2s0f0 ether    routable    configured    ← 唯一在用的口（静态 IP）
+  3 enp2s0f1 ether    no-carrier  configuring   ← 没插线，永远 configuring
+  4 enp2s0f2 ether    no-carrier  configuring
+  5 enp2s0f3 ether    no-carrier  configuring
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;netplan 配置（subiquity 装机生成）把 4 个口全配了：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;network:
+  ethernets:
+    enp2s0f0:            # 静态 192.168.6.8&amp;#x2F;22，实际在用
+      addresses: [...]
+    enp2s0f1:            # dhcp4: true，但没插网线
+      dhcp4: true
+    enp2s0f2:            # 同上
+      dhcp4: true
+    enp2s0f3:            # 同上
+      dhcp4: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;机制：systemd-networkd-wait-online 默认等&lt;strong&gt;所有被管理接口&lt;&#x2F;strong&gt; online（systemd 249 行为）；无载波口（NO-CARRIER）在 networkd 里永远停在 &lt;code&gt;configuring&lt;&#x2F;code&gt; → 等到 120s 超时 → &lt;code&gt;network-online.target&lt;&#x2F;code&gt; 延后 → graphical.target 晚到 2 分钟。多网口服务器只要有一个口没插线&#x2F;没配好就会踩中。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;san-xiu-fu-netplan-optional-true&quot;&gt;三、修复：netplan &lt;code&gt;optional: true&lt;&#x2F;code&gt;&lt;&#x2F;h1&gt;
+&lt;p&gt;给这些&quot;可能有线、可能没有&quot;的口加 optional（渲染成 networkd 的 &lt;code&gt;RequiredForOnline=no&lt;&#x2F;code&gt;，wait-online 不再等它们；将来插线 DHCP 照常工作）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;    enp2s0f1:
+      dhcp4: true
+      optional: true     # ← 与 dhcp4 同级（6 空格缩进）
+    enp2s0f2:
+      dhcp4: true
+      optional: true
+    enp2s0f3:
+      dhcp4: true
+      optional: true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo chmod 600 &amp;#x2F;etc&amp;#x2F;netplan&amp;#x2F;00-installer-config.yaml   # netplan 警告权限过宽
+sudo netplan generate    # 语法&amp;#x2F;渲染检查（只生成不应用）
+sudo netplan apply
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证渲染结果（optional 是否生效看这里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ cat &amp;#x2F;run&amp;#x2F;systemd&amp;#x2F;network&amp;#x2F;10-netplan-enp2s0f1.network
+[Match]
+Name=enp2s0f1
+
+[Link]
+RequiredForOnline=no     # ← 有此行 = wait-online 不再等它
+
+$ grep -c RequiredForOnline &amp;#x2F;run&amp;#x2F;systemd&amp;#x2F;network&amp;#x2F;10-netplan-enp2s0f0.network
+0                          # 在用的口保持 required（0 行）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;si-jie-guo&quot;&gt;四、结果&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;指标&lt;&#x2F;th&gt;&lt;th&gt;修复前&lt;&#x2F;th&gt;&lt;th&gt;修复后&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;总启动&lt;&#x2F;td&gt;&lt;td&gt;2min 54.7s&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;1min 2.6s&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;userspace&lt;&#x2F;td&gt;&lt;td&gt;2min 35s&lt;&#x2F;td&gt;&lt;td&gt;43.2s&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;networkd-wait-online&lt;&#x2F;td&gt;&lt;td&gt;2min 141ms&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;8.5s&lt;&#x2F;strong&gt;（f0 一 online 就退出）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;剩余大头：&lt;code&gt;snapd.seeded&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;snap.lxd.activate&lt;&#x2F;code&gt; ~30s（不用 LXD 可 &lt;code&gt;sudo snap disable lxd&lt;&#x2F;code&gt;），未处理。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wu-cao-zuo-keng-ji-lu&quot;&gt;五、操作坑记录&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;netplan try&lt;&#x2F;code&gt; 在非交互环境会白等&lt;&#x2F;strong&gt;：ssh 无 tty 无法按回车确认，15s 超时后自动 &lt;code&gt;Reverting.&lt;&#x2F;code&gt;，改动不生效。非交互请用 &lt;code&gt;netplan generate&lt;&#x2F;code&gt;（校验）+ &lt;code&gt;netplan apply&lt;&#x2F;code&gt;（应用）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;判断文件是否被回滚别用 &lt;code&gt;grep -A1&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：只显示匹配行后 1 行，容易误判&quot;optional 丢了&quot;，导致重复追加产生重复键。改完直接 &lt;code&gt;cat&lt;&#x2F;code&gt; 全文核对。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;sed 追加不幂等&lt;&#x2F;strong&gt;：重复执行会叠行。稳妥写法是先删后加（&lt;code&gt;sed -i &#x27;&#x2F;^      optional: true$&#x2F;d&#x27;&lt;&#x2F;code&gt; 再 append）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;gateway4&lt;&#x2F;code&gt; 已废弃的警告可忽略（新语法用 &lt;code&gt;routes:&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;li&gt;apply 瞬间 enp2s0f0 的 IP 会短暂消失（networkd 重载），ssh 若恰好断开属正常，等几秒重连即可——建议在串口&#x2F;SOL 会话里做网络变更。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;liu-wait-online-qi-ta-jie-fa-dui-bi-he-bing-zi-jiu-bi-ji&quot;&gt;六、wait-online 其他解法对比（合并自旧笔记）&lt;&#x2F;h1&gt;
+&lt;p&gt;除 netplan &lt;code&gt;optional: true&lt;&#x2F;code&gt; 外，还有几个常见做法，按&quot;是否动全局行为&quot;排列（本案例最终选 optional，因为它最精准：只声明&quot;这几个口不需要等&quot;，不动 wait-online 对其它接口&#x2F;服务的语义）：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;① &lt;code&gt;--any&lt;&#x2F;code&gt;：任意一个接口 online 即返回&lt;&#x2F;strong&gt;（2025-10-30 旧笔记方案）&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;systemd-networkd-wait-online.service.d&amp;#x2F;any.conf &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+[Service]
+ExecStart=
+ExecStart=&amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;systemd-networkd-wait-online --any
+EOF
+sudo systemctl daemon-reload
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;适用：服务器出口只有一条主链路、其它口爱配不配。代价：任何口（哪怕是 docker0&#x2F;备用口）先 online 就放行，可能&quot;网没真正通&quot;就继续启动。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;② 缩短超时 + 指定等待接口&lt;&#x2F;strong&gt;（2025-11-23 旧笔记方案）&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl edit systemd-networkd-wait-online.service
+# [Service]
+# TimeoutStartSec=5
+# ExecStart=
+# ExecStart=&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;systemd-networkd-wait-online --interface=eth0 --interface=eth1
+# 排除不想等的口：
+# ExecStart=&amp;#x2F;lib&amp;#x2F;systemd&amp;#x2F;systemd-networkd-wait-online --exclude=vpn0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;wait-online 的 120s 来自 service 自身的 &lt;code&gt;TimeoutStartSec&lt;&#x2F;code&gt;（Ubuntu 249 unit 默认 120），缩短它 + &lt;code&gt;--interface&lt;&#x2F;code&gt; 显式点名要等的口。代价：仍可能因点名口没插线而等满新超时；&lt;code&gt;--exclude&lt;&#x2F;code&gt; 对新装口不免疫。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;③ disable &#x2F; mask：完全不等待&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl disable systemd-networkd-wait-online.service --now   # 或 mask
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;最粗暴。依赖 &lt;code&gt;network-online.target&lt;&#x2F;code&gt; 的服务（部分 docker&#x2F;cloud-init&#x2F;挂载场景）可能在网络就绪前启动——2025-11-23 旧笔记自己都提醒：&lt;strong&gt;接口一直起不来时，disable 只是把问题藏起来&lt;&#x2F;strong&gt;，先按第七节诊断根源。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;为什么本案例用 optional 而不是上面几种&lt;&#x2F;strong&gt;：这台机器 4 个口是&quot;常态只插 1 个、偶尔插 2-3 个&quot;，不是&quot;永远不用&quot;。&lt;code&gt;optional: true&lt;&#x2F;code&gt; 让没插线的口随时可以被 networkd 管理（插线即 DHCP），又不阻塞开机；wait-online 的默认语义（等所有&quot;必需&quot;接口）对其他服务保持不变。三种旧方案要么改全局语义（--any）、要么点名维护（--interface）、要么彻底关掉（disable），都不如&quot;按接口声明必需性&quot;干净。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;qi-pai-cha-ming-ling-qing-dan-fu-yong&quot;&gt;七、排查命令清单（复用）&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemd-analyze time &amp;amp;&amp;amp; systemd-analyze blame | head -10   # 定位耗时 service
+networkctl list                                             # 看被管理接口状态（no-carrier + configuring = 嫌疑）
+cat &amp;#x2F;etc&amp;#x2F;netplan&amp;#x2F;*.yaml                                     # 谁配了它
+ip -br link                                                 # 物理层是否真的没插线
+cat &amp;#x2F;run&amp;#x2F;systemd&amp;#x2F;network&amp;#x2F;10-netplan-&amp;lt;iface&amp;gt;.network         # optional 是否渲染成 RequiredForOnline=no
+sudo journalctl -b -u systemd-networkd-wait-online          # 确认它的等待行为
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

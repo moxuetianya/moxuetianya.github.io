@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - letsencrypt</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/letsencrypt/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-13T14:10:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/letsencrypt/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Nextcloud 自托管：rootless Podman + Cloudflare Tunnel + 宿主机 Caddy</title>
+        <published>2026-09-13T14:10:00+08:00</published>
+        <updated>2026-09-13T14:10:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/nextcloud-podman-cloudflare-tunnel/"/>
+        <id>https://moxuetianya.github.io/2026/09/nextcloud-podman-cloudflare-tunnel/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/nextcloud-podman-cloudflare-tunnel/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;需求很简单：要一个自己掌控的网盘，能在浏览器里直接编辑 Markdown（我的笔记都是 .md），顺带支持 WebDAV 和手机端同步。目标是家里那台 192.168.2.160（下面叫 160，Debian 13 的 VM），要求：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;不暴露任何公网入站端口（家里没有固定公网 IP 的玩法），用 Cloudflare Tunnel 出站连出去；&lt;&#x2F;li&gt;
+&lt;li&gt;机器上不提供明文 HTTP 服务；&lt;&#x2F;li&gt;
+&lt;li&gt;尽量别动系统全局设置（比如为了绑 443 去改 &lt;code&gt;ip_unprivileged_port_start&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;最后跑起来的链路是这样：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;公网用户 ──https──&amp;gt; Cloudflare 边缘（TLS 终结，无 A 记录直连）
+                      │ cloudflared 出站长连接
+                      ▼
+              160 上 cloudflared
+                ├─ ACME challenge ──&amp;gt; http:&amp;#x2F;&amp;#x2F;localhost:80   （caddy，HTTP-01）
+                └─ 其余 ────────────&amp;gt; https:&amp;#x2F;&amp;#x2F;localhost:443 （caddy，LE 证书）
+                                            │
+                                 caddy :443（apt 系统服务）
+                                            │ reverse_proxy
+                                            ▼
+                                 127.0.0.1:8080（rootless podman）
+                                            │
+                                 nextcloud + mariadb + redis
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;内网访问则靠 split-horizon DNS 把 &lt;code&gt;nextcloud.juzhong.xyz&lt;&#x2F;code&gt; 直接解析到 160，走同一条 caddy 链路，吃同一张真证书。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fen-ceng-xuan-xing&quot;&gt;分层选型&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wei-shen-me-shi-rootless-podman-quadlet&quot;&gt;为什么是 rootless Podman + quadlet&lt;&#x2F;h2&gt;
+&lt;p&gt;160 上本来就跑着 rootless podman。用 quadlet（&lt;code&gt;~&#x2F;.config&#x2F;containers&#x2F;systemd&#x2F;*.container&lt;&#x2F;code&gt;）把三个容器写成 systemd 用户服务，好处是不用维护 compose，&lt;code&gt;systemctl --user&lt;&#x2F;code&gt; 直接管，开机自启只依赖 linger。&lt;&#x2F;p&gt;
+&lt;p&gt;关键点：容器&lt;strong&gt;只发布到回环&lt;&#x2F;strong&gt; &lt;code&gt;127.0.0.1:8080:80&lt;&#x2F;code&gt;。rootless podman 绑不了 1024 以下端口，而我又不想改 &lt;code&gt;net.ipv4.ip_unprivileged_port_start&lt;&#x2F;code&gt;（那等于把所有特权端口开放给本机所有非特权进程，为一个网盘不值得）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-443-gei-su-zhu-ji-caddy&quot;&gt;为什么 443 给宿主机 Caddy&lt;&#x2F;h2&gt;
+&lt;p&gt;既然 rootless 绑不了 443，就让宿主机装一个 caddy（Debian apt 包，root 系统服务）来监听 80&#x2F;443，反代到回环的 8080。Caddy 自动申请 Let&#x27;s Encrypt 证书、自动 HTTP→HTTPS 跳转，80 端口只用来应答 ACME challenge 和 301，不提供任何明文内容。&lt;&#x2F;p&gt;
+&lt;p&gt;试过在 podman 里跑 caddy + DNS-01（自建带 cloudflare 插件的镜像），但复杂度明显更高：要维护自定义镜像、把 CA 从容器里导出来信任。换成宿主机 apt caddy 后，一个 Caddyfile 就结束了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-zheng-shu-zhi-neng-zou-http-01&quot;&gt;为什么证书只能走 HTTP-01&lt;&#x2F;h2&gt;
+&lt;p&gt;Cloudflare 代理会在边缘终结 TLS，回源由 cloudflared 发起。这意味着源站根本收不到 TLS-ALPN-01 的握手，所以 caddy 里必须：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;tls {
+    issuer acme {
+        disable_tlsalpn_challenge
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后在隧道里把 challenge 路径单独路由到本机 80：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;ingress:
+  - hostname: nextcloud.juzhong.xyz
+    path: ^&amp;#x2F;\.well-known&amp;#x2F;acme-challenge&amp;#x2F;
+    service: http:&amp;#x2F;&amp;#x2F;localhost:80
+  - hostname: nextcloud.juzhong.xyz
+    service: https:&amp;#x2F;&amp;#x2F;localhost:443
+    originRequest:
+      originServerName: nextcloud.juzhong.xyz
+  - service: http_status:404
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;签发和续期都靠这条路径回源，实测 LE 证书正常下发。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-shu-guo-cheng&quot;&gt;部署过程&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-rong-qi-yu-chu-shi-hua&quot;&gt;1. 容器与初始化&lt;&#x2F;h2&gt;
+&lt;p&gt;三个 quadlet：&lt;code&gt;nextcloud-app&lt;&#x2F;code&gt;（nextcloud:apache）、&lt;code&gt;nextcloud-db&lt;&#x2F;code&gt;（mariadb:11）、&lt;code&gt;nextcloud-redis&lt;&#x2F;code&gt;（redis:7-alpine），加一个 &lt;code&gt;nextcloud.network&lt;&#x2F;code&gt;。数据全部落在 &lt;code&gt;~&#x2F;nextcloud&#x2F;{html,data,db,redis}&lt;&#x2F;code&gt;，密钥放 &lt;code&gt;~&#x2F;nextcloud&#x2F;.env&lt;&#x2F;code&gt;（600）。&lt;&#x2F;p&gt;
+&lt;p&gt;两个小坑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;app 容器 &lt;code&gt;TimeoutStartSec&lt;&#x2F;code&gt; 要给足（我给了 900s），首次初始化要建库、装应用，比较慢；&lt;&#x2F;li&gt;
+&lt;li&gt;初始化完成后用 &lt;code&gt;occ&lt;&#x2F;code&gt; 补配置：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;podman exec -u www-data nextcloud-app php occ config:system:set \
+  trusted_proxies 2 --value=10.89.0.0&amp;#x2F;24
+podman exec -u www-data nextcloud-app php occ config:system:set \
+  overwriteprotocol --value=https
+podman exec -u www-data nextcloud-app php occ config:system:set \
+  overwrite.cli.url --value=https:&amp;#x2F;&amp;#x2F;nextcloud.juzhong.xyz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;trusted_proxies&lt;&#x2F;code&gt; 里的 &lt;code&gt;10.89.0.0&#x2F;24&lt;&#x2F;code&gt; 是 rootless podman 网络里 caddy 连接所见的网关地址——不填它，Nextcloud 不认 &lt;code&gt;X-Forwarded-For&lt;&#x2F;code&gt;，后面会看到真实的客户端 IP 全部丢失。&lt;&#x2F;p&gt;
+&lt;p&gt;背景任务用 systemd timer 每 5 分钟跑一次 &lt;code&gt;cron.php&lt;&#x2F;code&gt;，并把 &lt;code&gt;backgroundjobs_mode&lt;&#x2F;code&gt; 设为 &lt;code&gt;cron&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-sui-dao&quot;&gt;2. 隧道&lt;&#x2F;h2&gt;
+&lt;p&gt;cloudflared 的隧道创建需要&lt;strong&gt;账号级凭据&lt;&#x2F;strong&gt; &lt;code&gt;~&#x2F;.cloudflared&#x2F;cert.pem&lt;&#x2F;code&gt;（一次浏览器授权生成）。我之前在 VPS 上已经登录过同一个 Cloudflare 账号，所以直接把 &lt;code&gt;cert.pem&lt;&#x2F;code&gt; 复制到 160 即可，不用重新授权：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cloudflared tunnel create nextcloud
+cloudflared tunnel route dns nextcloud nextcloud.juzhong.xyz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;建完会得到隧道凭据 &lt;code&gt;&amp;lt;UUID&amp;gt;.json&lt;&#x2F;code&gt;。&lt;strong&gt;运行隧道只需要这个 JSON&lt;&#x2F;strong&gt;，&lt;code&gt;cert.pem&lt;&#x2F;code&gt; 是账号级的（能管理账号下所有隧道和 DNS），所以 bootstrap 完就 &lt;code&gt;shred -u&lt;&#x2F;code&gt; 删掉了，需要管理隧道时再从 VPS 临时取回。&lt;&#x2F;p&gt;
+&lt;p&gt;cloudflared 以 systemd 用户服务常驻，&lt;code&gt;config.yml&lt;&#x2F;code&gt; 里就是上面那段 ingress。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-caddy&quot;&gt;3. Caddy&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install caddy
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Caddyfile（简化版）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;nextcloud.juzhong.xyz {
+    tls {
+        issuer acme {
+            disable_tlsalpn_challenge
+        }
+    }
+    encode gzip
+    reverse_proxy 127.0.0.1:8080 {
+        trusted_proxies 127.0.0.1 ::1
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;最后那行 &lt;code&gt;trusted_proxies&lt;&#x2F;code&gt; 是踩坑之后补的，见下一节。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cai-keng&quot;&gt;踩坑&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;keng-1-markdown-bian-ji-qi-ying-yong-zhuang-bu-shang&quot;&gt;坑 1：Markdown 编辑器应用装不上&lt;&#x2F;h2&gt;
+&lt;p&gt;Nextcloud 应用商店里有个 Markdown Editor（&lt;code&gt;files_markdown&lt;&#x2F;code&gt;），但它的 &lt;code&gt;max-version&lt;&#x2F;code&gt; 还没跟上 Nextcloud 34，装了也用不了。好在 NC34 内置的 &lt;code&gt;text&lt;&#x2F;code&gt; 应用（8.0.0）本身就支持直接编辑 text&#x2F;markdown 和 text&#x2F;plain，点开 .md 就是所见即所得编辑器，自动保存。笔记场景再装个 &lt;code&gt;notes&lt;&#x2F;code&gt;（6.0.2）就够了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-2-zhen-shi-ke-hu-duan-ip-quan-bu-bian-cheng-wang-guan-di-zhi&quot;&gt;坑 2：真实客户端 IP 全部变成网关地址&lt;&#x2F;h2&gt;
+&lt;p&gt;部署完看日志，发现所有失败登录都记成同一个 IP &lt;code&gt;10.89.0.14&lt;&#x2F;code&gt;（podman 网关）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Login failed: &amp;#x27;wrong&amp;#x27; (Remote IP: &amp;#x27;10.89.0.14&amp;#x27;)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这个问题的严重性不只是日志难看：Nextcloud 的防爆破是按 IP 累计的，所有公网用户挤在同一个 IP 上，等于一个人爆破就会连累所有人被锁。&lt;&#x2F;p&gt;
+&lt;p&gt;排查过程有点绕：先看 Apache access log，客户端地址是 podman 网关（正常，caddy 从回环连进来）；Nextcloud 的 &lt;code&gt;getRemoteAddress()&lt;&#x2F;code&gt; 逻辑是「如果 REMOTE_ADDR 在 trusted_proxies 里，就解析 &lt;code&gt;X-Forwarded-For&lt;&#x2F;code&gt;，跳过可信代理，取第一个不可信的 IP」。所以问题出在 XFF 本身。&lt;&#x2F;p&gt;
+&lt;p&gt;翻了 caddy 2.6.2 的源码（&lt;code&gt;reverseproxy.go&lt;&#x2F;code&gt; 的 &lt;code&gt;addForwardedHeaders&lt;&#x2F;code&gt;）才明白：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;go&quot; class=&quot;language-go &quot;&gt;&lt;code class=&quot;language-go&quot; data-lang=&quot;go&quot;&gt;&amp;#x2F;&amp;#x2F; 如果直接客户端不在 trustedProxies 里，trusted=false，
+&amp;#x2F;&amp;#x2F; 那么 clientXFF = clientIP，直接覆写 XFF
+clientXFF := clientIP
+prior, ok, omit := allHeaderValues(req.Header, &amp;quot;X-Forwarded-For&amp;quot;)
+if trusted &amp;amp;&amp;amp; ok &amp;amp;&amp;amp; prior != &amp;quot;&amp;quot; {
+    clientXFF = prior + &amp;quot;, &amp;quot; + clientXFF
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;cloudflared 从 127.0.0.1 连进来，带来了 Cloudflare 边缘设置的真实客户端 IP 的 XFF；但 caddy 默认不信任它，把 XFF 覆写成了 &lt;code&gt;127.0.0.1&lt;&#x2F;code&gt;。Nextcloud 一看 &lt;code&gt;127.0.0.1&lt;&#x2F;code&gt; 也是可信代理，跳过，最后回退到 REMOTE_ADDR——也就是 podman 网关。&lt;&#x2F;p&gt;
+&lt;p&gt;修复就是在 &lt;code&gt;reverse_proxy&lt;&#x2F;code&gt; 里声明信任回环：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;caddyfile&quot; class=&quot;language-caddyfile &quot;&gt;&lt;code class=&quot;language-caddyfile&quot; data-lang=&quot;caddyfile&quot;&gt;reverse_proxy 127.0.0.1:8080 {
+    trusted_proxies 127.0.0.1 ::1
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意 Debian 打包的 caddy 2.6.2 还没有全局 &lt;code&gt;trusted_proxies&lt;&#x2F;code&gt; 选项（2.7+ 才有），只能写在 &lt;code&gt;reverse_proxy&lt;&#x2F;code&gt; 子指令里。&lt;&#x2F;p&gt;
+&lt;p&gt;修完验证：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;公网失败登录 -&amp;gt; Remote IP: 222.129.x.x（真实公网 IP）
+内网直连失败登录 -&amp;gt; Remote IP: 192.168.2.160（真实来源）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;keng-3-su-zhu-oom-ba-vm-li-de-wen-jian-xie-cheng-liao-nul&quot;&gt;坑 3：宿主 OOM 把 VM 里的文件写成了 NUL&lt;&#x2F;h2&gt;
+&lt;p&gt;160 的宿主是台 15G 内存、没有 swap 的小主机，给 VM 分了 12G。某次宿主 OOM killer 杀了 qemu，VM 恢复后发现两个文件变成了全 NUL 字节：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;~&#x2F;.cloudflared&#x2F;config.yml&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;~&#x2F;.config&#x2F;systemd&#x2F;user&#x2F;cloudflared.service&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;数据目录倒是无损（可能刚写完盘）。从模板重新渲染这两个文件就恢复了。教训：宿主加 swap，或者给 VM 降内存。这种「文件还在、内容全没了」的故障模式挺隐蔽的，&lt;code&gt;file&lt;&#x2F;code&gt; 或 &lt;code&gt;wc -c&lt;&#x2F;code&gt; 一看大小对但内容是 &lt;code&gt;\0&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;https:&#x2F;&#x2F;nextcloud.juzhong.xyz&#x2F;status.php&lt;&#x2F;code&gt; 公网 200；&lt;&#x2F;li&gt;
+&lt;li&gt;内网 &lt;code&gt;--resolve&lt;&#x2F;code&gt; 直连 160:443，TLS 校验 &lt;code&gt;ssl_verify_result=0&lt;&#x2F;code&gt;（真证书）；&lt;&#x2F;li&gt;
+&lt;li&gt;WebDAV PUT&#x2F;GET&#x2F;DELETE 往返正常；&lt;&#x2F;li&gt;
+&lt;li&gt;浏览器打开 .md → Text 编辑器 → 编辑 → 自动保存，WebDAV 拉回来内容一致；&lt;&#x2F;li&gt;
+&lt;li&gt;公网失败登录日志记录真实客户端 IP。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;配置和安装脚本整理在仓库 &lt;code&gt;homelab&#x2F;nextcloud&#x2F;&lt;&#x2F;code&gt;（install.sh 幂等，模板含 quadlet、cloudflared ingress、Caddyfile）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;xiao-jie&quot;&gt;小结&lt;&#x2F;h1&gt;
+&lt;p&gt;整套方案的层次其实很清晰：&lt;strong&gt;Cloudflare 负责公网入口和 TLS 终结，caddy 负责源站证书与反代，podman 负责应用隔离，隧道负责穿透&lt;&#x2F;strong&gt;。踩的坑里，最值得记的是 caddy 的 XFF 覆写——它不会报错，只会让所有用户悄悄共享同一个 IP；如果不是专门去核对登录日志，很可能一直发现不了。另一个是 &lt;code&gt;cert.pem&lt;&#x2F;code&gt; 和隧道凭据的区别：前者是账号级的，用完就该删。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>
