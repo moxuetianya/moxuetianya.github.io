@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - docker</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/docker/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-05T18:23:16+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/docker/atom.xml</id>
+    <entry xml:lang="en">
+        <title>一个容器内进程的 cwd 诊断记录</title>
+        <published>2026-08-05T18:23:16+08:00</published>
+        <updated>2026-08-05T18:23:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/"/>
+        <id>https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/container-process-cwd-diagnosis/">&lt;h1 id=&quot;yi-ge-rong-qi-nei-jin-cheng-de-cwd-zhen-duan-ji-lu&quot;&gt;一个容器内进程的 cwd 诊断记录&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h2&gt;
+&lt;p&gt;在一台远程服务器上排查一个 Java 服务（portal.jar），执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh smyl@192.168.7.16 &amp;quot;ps -ef | grep portal.jar&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;得到进程 PID 后，查看它的启动目录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ls -l &amp;#x2F;proc&amp;#x2F;2333607&amp;#x2F;cwd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果显示 symlink 指向 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt;（根目录）。但是 &lt;code&gt;ls &#x2F;&lt;&#x2F;code&gt; 里根本没有 &lt;code&gt;portal.jar&lt;&#x2F;code&gt;，文件去哪了？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-xian-kan-wan-zheng-de-qi-dong-ming-ling-xing&quot;&gt;1. 先看完整的启动命令行&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;2333607&amp;#x2F;cmdline | tr &amp;#x27;\0&amp;#x27; &amp;#x27; &amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;java -agentlib:jdwp=... -jar portal.jar --spring.datasource.url=...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意这里用的是&lt;strong&gt;相对路径&lt;&#x2F;strong&gt; &lt;code&gt;-jar portal.jar&lt;&#x2F;code&gt;，没有带目录。也就是说，jar 的路径在启动命令行里，和 cwd 是两回事——&lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt; 只是进程的 OS 层工作目录（chdir 状态），不等于 jar 文件所在位置。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-kan-fu-jin-cheng-zhe-shi-guan-jian-yi-bu&quot;&gt;2. 看父进程，这是关键一步&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ps -fp 2333588   # 父进程
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;root 2333588 1 ... &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;containerd-shim-runc-v2 -namespace moby \
+  -id b1361c5698864840338b2753403884cff27c8189a6c7bc4a88fabb83f1706805 \
+  -address &amp;#x2F;var&amp;#x2F;run&amp;#x2F;docker&amp;#x2F;containerd&amp;#x2F;containerd.sock
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看到父进程是 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt; 就基本可以断定：&lt;strong&gt;这个进程跑在 Docker 容器里&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;几个识别特征：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt;：Docker 为每个容器创建的 shim 进程，是容器内 PID 1 的宿主侧父进程&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-namespace moby&lt;&#x2F;code&gt;：Docker 的 containerd 命名空间&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-address &#x2F;var&#x2F;run&#x2F;docker&#x2F;containerd&#x2F;containerd.sock&lt;&#x2F;code&gt;：Docker 的 containerd socket&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;-id &amp;lt;64位hex&amp;gt;&lt;&#x2F;code&gt;：就是容器 ID&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-docker-inspect-jiao-cha-yan-zheng&quot;&gt;3. docker inspect 交叉验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker inspect b1361c56... --format &amp;#x27;{{json .Config.WorkingDir}} {{json .Path}} {{json .Args}}&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;quot;&amp;#x2F;&amp;quot; &amp;quot;java&amp;quot; [&amp;quot;...&amp;quot;,&amp;quot;-jar&amp;quot;,&amp;quot;portal.jar&amp;quot;,&amp;quot;--spring.datasource.url=...&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;容器 &lt;code&gt;Config.WorkingDir&lt;&#x2F;code&gt; 是 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt;，命令是 &lt;code&gt;java ... -jar portal.jar&lt;&#x2F;code&gt;，与 cmdline 完全吻合。同时拿到容器名 &lt;code&gt;xfuzz-saas-test-server-1&lt;&#x2F;code&gt;、镜像 &lt;code&gt;wfuzz-web:v1.12.27.1&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-jin-rong-qi-que-ren&quot;&gt;4. 进容器确认&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker exec &amp;lt;容器ID&amp;gt; ls -l &amp;#x2F;portal.jar
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;容器里 &lt;code&gt;&#x2F;portal.jar&lt;&#x2F;code&gt; &lt;strong&gt;确实存在&lt;&#x2F;strong&gt;（396MB）；而宿主机 &lt;code&gt;ls &#x2F;&lt;&#x2F;code&gt; 里没有。真相大白：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;cwd 显示的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 是容器内的根目录（overlay 文件系统），不是宿主机的根目录。&lt;&#x2F;strong&gt; 两者是两个不同的文件系统，我在宿主机的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 里找容器里的文件，当然找不到。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yuan-li-xiao-jie&quot;&gt;原理小结&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt;：进程的工作目录，是 OS 层 chdir 状态，&lt;strong&gt;和可执行文件&#x2F;jar 在哪没有必然关系&lt;&#x2F;strong&gt;；jar 的真实路径要看 &lt;code&gt;&#x2F;proc&#x2F;PID&#x2F;cmdline&lt;&#x2F;code&gt; 里的启动参数（可能有相对路径 + 其他情况）&lt;&#x2F;li&gt;
+&lt;li&gt;容器进程的文件系统：Docker 容器根目录是 overlay2 挂载的镜像层，与宿主根目录隔离。宿主上 &lt;code&gt;ls -l &#x2F;proc&#x2F;PID&#x2F;cwd&lt;&#x2F;code&gt; 显示的路径是容器命名空间内的路径&lt;&#x2F;li&gt;
+&lt;li&gt;容器进程判定：&lt;code&gt;ps -ef&lt;&#x2F;code&gt; 时看 PPID，父进程是 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt;（Docker）或 &lt;code&gt;containerd-shim&lt;&#x2F;code&gt;（containerd）即为容器内进程；容器内根目录还有 &lt;code&gt;.dockerenv&lt;&#x2F;code&gt; 标记文件&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;hou-xu-xia-zai-wen-jian-de-pai-cha&quot;&gt;后续：下载文件的排查&lt;&#x2F;h2&gt;
+&lt;p&gt;这个服务还提供 wfuzz 程序下载功能，最初也没找到 wfuzz 文件。排查结果：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;可下载的文件不在 &lt;code&gt;portal.jar&lt;&#x2F;code&gt; 里。jar 内搜到的 &lt;code&gt;wfuzz&lt;&#x2F;code&gt; 全是 Java 包名&#x2F;类名（&lt;code&gt;com.wfuzz.saas.portal.*&lt;&#x2F;code&gt;），不是二进制&lt;&#x2F;li&gt;
+&lt;li&gt;下载源在容器磁盘上：配置文件 &lt;code&gt;application-platform.yml&lt;&#x2F;code&gt; 里写了 &lt;code&gt;repo: &#x2F;dist&#x2F;repo&lt;&#x2F;code&gt;、&lt;code&gt;install: &#x2F;dist&#x2F;install&lt;&#x2F;code&gt;、&lt;code&gt;assetDir: &#x2F;repo&#x2F;dist&#x2F;asset&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;实际文件在 &lt;code&gt;&#x2F;repo&#x2F;dist&#x2F;out&#x2F;wfuzz-Linux-x86_64&lt;&#x2F;code&gt;、&lt;code&gt;&#x2F;repo&#x2F;dist&#x2F;repo&#x2F;wfuzz-2.4.20-Linux-x86_64.tar.xz&lt;&#x2F;code&gt; 等&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;找不到的另一个原因是&lt;strong&gt;文件名带了架构后缀&lt;&#x2F;strong&gt;：&lt;code&gt;wfuzz-Linux-x86_64&lt;&#x2F;code&gt;、&lt;code&gt;wfuzz-2.4.20-Linux-x86_64.tar.xz&lt;&#x2F;code&gt;，用 &lt;code&gt;ls&lt;&#x2F;code&gt; 或 &lt;code&gt;find -name &quot;wfuzz&quot;&lt;&#x2F;code&gt; 精确匹配会漏掉，要写成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;find &amp;#x2F; -iname &amp;quot;*wfuzz*&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jing-yan-zong-jie&quot;&gt;经验总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;排查进程问题先看三件套：&lt;code&gt;cmdline&lt;&#x2F;code&gt;（启动参数）、&lt;code&gt;cwd&lt;&#x2F;code&gt;、&lt;code&gt;exe&lt;&#x2F;code&gt;，再看 &lt;strong&gt;PPID&lt;&#x2F;strong&gt;（父进程是谁往往直接给出答案）&lt;&#x2F;li&gt;
+&lt;li&gt;看到 &lt;code&gt;containerd-shim-runc-v2&lt;&#x2F;code&gt; 立刻意识到是容器场景，接下来一切都要到容器内文件系统里找&lt;&#x2F;li&gt;
+&lt;li&gt;cwd 指向的 &lt;code&gt;&#x2F;&lt;&#x2F;code&gt; 不等于可执行文件所在目录；文件位置看 cmdline，文件系统边界看父进程&lt;&#x2F;li&gt;
+&lt;li&gt;文件搜索用通配符（&lt;code&gt;*wfuzz*&lt;&#x2F;code&gt;），别被带后缀的文件名骗了&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>docker 多阶段构建</title>
+        <published>2022-06-19T19:13:03+08:00</published>
+        <updated>2022-06-19T19:13:03+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/06/docker-多阶段构建/"/>
+        <id>https://moxuetianya.github.io/2022/06/docker-多阶段构建/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/06/docker-多阶段构建/">&lt;h1 id=&quot;docker-duo-jie-duan-gou-jian&quot;&gt;docker 多阶段构建&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;duo-jie-duan-gou-jian&quot;&gt;多阶段构建&lt;&#x2F;h1&gt;
+&lt;p&gt;Docker v17.05 开始支持多阶段构建 (multistage builds)。使用多阶段构建我们就可以很容易解决前面提到的问题，并且只需要编写一个 Dockerfile：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;FROM golang:alpine as builder
+RUN apk --no-cache add git
+WORKDIR &amp;#x2F;go&amp;#x2F;src&amp;#x2F;github.com&amp;#x2F;go&amp;#x2F;helloworld&amp;#x2F;
+RUN go get -d -v github.com&amp;#x2F;go-sql-driver&amp;#x2F;mysql
+COPY app.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+
+FROM alpine:latest as prod
+RUN apk --no-cache add ca-certificates
+WORKDIR &amp;#x2F;root&amp;#x2F;
+# COPY --from=builder &amp;#x2F;go&amp;#x2F;src&amp;#x2F;github.com&amp;#x2F;go&amp;#x2F;helloworld&amp;#x2F;app .
+COPY --from=0 &amp;#x2F;go&amp;#x2F;src&amp;#x2F;github.com&amp;#x2F;go&amp;#x2F;helloworld&amp;#x2F;app .
+CMD [&amp;quot;.&amp;#x2F;app&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;zhi-gou-jian-mou-yi-jie-duan-de-jing-xiang&quot;&gt;只构建某一阶段的镜像&lt;&#x2F;h1&gt;
+&lt;p&gt;我们只想构建 builder 阶段的镜像时，增加 --target=builder 参数即可&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;docker build --target builder -t username&amp;#x2F;imagename:tag .
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;gou-jian-shi-cong-qi-ta-jing-xiang-fu-zhi-wen-jian&quot;&gt;构建时从其他镜像复制文件&lt;&#x2F;h1&gt;
+&lt;p&gt;上面例子中我们使用 COPY --from=0 &#x2F;go&#x2F;src&#x2F;github.com&#x2F;go&#x2F;helloworld&#x2F;app . 从上一阶段的镜像中复制文件，我们也可以复制任意镜像中的文件。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;COPY --from=nginx:latest &amp;#x2F;etc&amp;#x2F;nginx&amp;#x2F;nginx.conf &amp;#x2F;nginx.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>vscode using remote docker</title>
+        <published>2022-05-16T17:28:51+08:00</published>
+        <updated>2022-05-16T17:28:51+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/"/>
+        <id>https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2022/05/vscode-using-remote-docker/">&lt;h1 id=&quot;vscode-using-remote-docker&quot;&gt;vscode using remote docker&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;dockerkai-qi-yuan-cheng-duan-kou&quot;&gt;Docker开启远程端口&lt;&#x2F;h1&gt;
+&lt;p&gt;在远程主机上：&lt;&#x2F;p&gt;
+&lt;p&gt;创建文件 daemon.json 到目录 &#x2F;etc&#x2F;docker:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt; {&amp;quot;hosts&amp;quot;: [&amp;quot;tcp:&amp;#x2F;&amp;#x2F;0.0.0.0:2375&amp;quot;, &amp;quot;unix:&amp;#x2F;&amp;#x2F;&amp;#x2F;var&amp;#x2F;run&amp;#x2F;docker.sock&amp;quot;]}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;创建文件 &#x2F;etc&#x2F;systemd&#x2F;system&#x2F;docker.service.d&#x2F;override.conf:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt; [Service]
+ ExecStart=
+ ExecStart=&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;dockerd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启docker：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt; systemctl daemon-reload
+ systemctl restart docker.service 
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;pei-zhi-ben-di-shi-yong-yuan-cheng-docker-fu-wu&quot;&gt;配置本地使用远程 Docker 服务&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;ssh-copy-id&quot;&gt;ssh-copy-id&lt;&#x2F;h2&gt;
+&lt;h2 id=&quot;chuang-jian-yi-ge-context&quot;&gt;创建一个context：&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;docker context create &amp;lt;context name&amp;gt; --docker &amp;quot;host=ssh:&amp;#x2F;&amp;#x2F;&amp;lt;user&amp;gt;@&amp;lt;host&amp;gt;[:port]&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;切换到上面这个context：
+测试一下：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;docker context use &amp;lt;context name&amp;gt;
+docker info
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里会输出和在远程主机上运行 docker info 一样的结果， 实际上这里docker本地只是一个客户端，连接到远程主机上的docker服务。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;kai-shi-yi-ge-vscodexiang-mu&quot;&gt;开始一个vscode项目!&lt;&#x2F;h1&gt;
+&lt;p&gt;这里有两个方式&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-shi-yi-attach-remote-host-container&quot;&gt;方式一： Attach Remote Host Container&lt;&#x2F;h2&gt;
+&lt;p&gt;远程主机上创建项目
+新建一个目录，例如 ~&#x2F;newproj, 然后加一个Dockerfile，例如：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;FROM python                                                                
+ENV DEBIAN_FRONTEND=noninteractive 
+apt-get update                
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后创建镜像，再启动容器：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;docker build . -t &amp;lt;image tag&amp;gt;
+docker run -d --name &amp;lt;container name&amp;gt; -v ~&amp;#x2F;newproj:&amp;#x2F;workspaces&amp;#x2F;newproj &amp;lt;image tag&amp;gt; tail -f &amp;#x2F;dev&amp;#x2F;null
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意: 这里要挂载项目目录到容器中方便保存文件。tail -f 这个命令是为了让容器保持运行。&lt;&#x2F;p&gt;
+&lt;p&gt;本地 VSCode 访问远程容器
+切换 Docker context
+打开VSCode，按下 ctrl+shift+p 运行 docker contexts use , 选择上面创建的docker context.&lt;&#x2F;p&gt;
+&lt;p&gt;连接容器
+按下 ctrl+shift+p 运行 Remote-Containers:Attach to Running Container..., 选择上面创建的容器名字。&lt;&#x2F;p&gt;
+&lt;p&gt;连接成功后，按下 ctrl+k, ctr+o, 你会发现VSCode弹出的不是本地目录，而是容器内部的目录！现在VSCode只是一个客户端，一切操作都在容器中了！&lt;&#x2F;p&gt;
+&lt;p&gt;尝试一下。选择上面创建的 &#x2F;workspaces&#x2F;newproj，新建一个main.py，保存。再去主机上看，~&#x2F;newproj&#x2F;main.py就躺在那。&lt;&#x2F;p&gt;
+&lt;p&gt;现在，可以愉快地在容器里面编码了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-ruan-guan-fang-tui-jian-de-ban-fa-bi-jiao-ma-fan-lue&quot;&gt;微软官方推荐的办法，比较麻烦?略。&lt;&#x2F;h2&gt;
+</content>
+        
+    </entry>
+</feed>

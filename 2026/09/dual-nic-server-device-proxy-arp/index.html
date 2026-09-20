@@ -1,0 +1,643 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux 双网卡 Server 与直连 Device 通信：标准路由与 Proxy ARP 两种方案（含勘误） | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Linux 双网卡 Server 与直连 Device 通信：不同网段 + 默认网关，与同网段 &#x2F;30 + ARP 代答；并勘误代答靠 arp_ignore=0 而非 proxy_arp" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/09/dual-nic-server-device-proxy-arp/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/09/dual-nic-server-device-proxy-arp/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/09/dual-nic-server-device-proxy-arp/" />
+  <meta property="og:description" content="Linux 双网卡 Server 与直连 Device 通信：不同网段 + 默认网关，与同网段 &#x2F;30 + ARP 代答；并勘误代答靠 arp_ignore=0 而非 proxy_arp" />
+  <meta name="twitter:description" content="Linux 双网卡 Server 与直连 Device 通信：不同网段 + 默认网关，与同网段 &#x2F;30 + ARP 代答；并勘误代答靠 arp_ignore=0 而非 proxy_arp" />
+  <meta property="og:title" content="Linux 双网卡 Server 与直连 Device 通信：标准路由与 Proxy ARP 两种方案（含勘误） | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux 双网卡 Server 与直连 Device 通信：标准路由与 Proxy ARP 两种方案（含勘误） | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-09-20" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=23ff8061489b333541fe"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/09/dual-nic-server-device-proxy-arp/">Linux 双网卡 Server 与直连 Device 通信：标准路由与 Proxy ARP 两种方案（含勘误）</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 九月 20, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux/">linux</a>] #<a href="https://moxuetianya.github.io/tags/linux/">linux</a>  #<a href="https://moxuetianya.github.io/tags/networking/">networking</a>  #<a href="https://moxuetianya.github.io/tags/proxy-arp/">proxy-arp</a>  #<a href="https://moxuetianya.github.io/tags/routing/">routing</a>  #<a href="https://moxuetianya.github.io/tags/arp/">arp</a> </span>
+
+    
+
+
+<h1 id="bei-jing">背景</h1>
+<p>有一台 Linux Server，拥有两块网卡：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">                 Server
+          ┌─────────────────┐
+          │                 │
+      eth0│                 │eth1
+          │                 │
+          └─────────────────┘
+</code></pre>
+<p>其中：</p>
+<ul>
+<li><code>eth0</code> 连接正常的业务网络；</li>
+<li><code>eth1</code> 与一个 Device 直接连接；</li>
+<li>Server 上的 HTTP 服务绑定到了 <code>eth0</code> 的 IP <code>192.168.1.10</code>；</li>
+<li>希望 Device 可以通过 <code>eth1</code> 访问这个 HTTP 服务。</li>
+</ul>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Device ───────── eth1 ───────── Server
+                                  │
+                                  │ eth0
+                                  ▼
+                              192.168.1.10
+                              HTTP Server
+</code></pre>
+<p>这里有一个非常重要的概念：</p>
+<blockquote>
+<p><strong>HTTP 服务绑定在哪个网卡的 IP 上，并不意味着只有从这个网卡进入的数据包才能访问这个服务。</strong></p>
+</blockquote>
+<p>Linux 判断一个 IP 数据包是否属于本机，主要看：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">目标 IP 是否是本机地址
+</code></pre>
+<p>而不是：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">数据包是不是从拥有这个 IP 的网卡进入
+</code></pre>
+<p>因此，只要 Device 能够把 <code>dst = 192.168.1.10</code> 的数据包送到 Server，Server 就可以把它交给 <code>192.168.1.10:80</code> 上的 HTTP 服务。</p>
+<p>真正需要解决的问题是：</p>
+<blockquote>
+<p><strong>Device 如何把目标为 <code>192.168.1.10</code> 的数据包送到 Server 的 eth1？</strong></p>
+</blockquote>
+<p>下面介绍两种不同的方案。</p>
+<h1 id="fang-an-yi-bu-tong-wang-duan-mo-ren-wang-guan">方案一：不同网段 + 默认网关</h1>
+<p>这是最传统、最标准的三层网络设计。</p>
+<p>网络配置：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Server:
+  eth0 = 192.168.1.10&#x2F;24
+  eth1 = 192.168.100.1&#x2F;24
+
+Device:
+  eth1 = 192.168.100.2&#x2F;24
+  default gateway = 192.168.100.1
+</code></pre>
+<p>拓扑：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">                         Server
+                  ┌──────────────────┐
+                  │                  │
+LAN ──────────────┤ eth0             │
+192.168.1.0&#x2F;24    │ 192.168.1.10     │
+                  │                  │
+                  │ eth1             │
+                  │ 192.168.100.1    │
+                  └────────┬─────────┘
+                           │
+                           │ Ethernet
+                           │
+                    192.168.100.2
+                         Device
+</code></pre>
+<p>Device 和 Server 的 eth1 属于 <code>192.168.100.0/24</code>，Server 的 eth0 属于 <code>192.168.1.0/24</code>，两个接口处于不同 IP 网络。</p>
+<h2 id="device-de-lu-you-biao">Device 的路由表</h2>
+<p>Device 配置：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ip addr add 192.168.100.2&#x2F;24 dev ethX
+ip route add default via 192.168.100.1
+</code></pre>
+<p>路由表可以理解为：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.100.0&#x2F;24 dev ethX
+default via 192.168.100.1
+</code></pre>
+<p>当 Device 访问 <code>192.168.1.10</code> 时，目标不属于 <code>192.168.100.0/24</code>，因此匹配 <code>default via 192.168.100.1</code>：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.1.10
+      │
+      ▼
+下一跳：192.168.100.1
+      │
+      ▼
+Server eth1
+</code></pre>
+<h2 id="arp-de-zuo-yong">ARP 的作用</h2>
+<p>Device 已经知道下一跳是 <code>192.168.100.1</code>，但 Ethernet 发送数据需要 MAC 地址，所以先发 ARP：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Who has 192.168.100.1?
+</code></pre>
+<p>Server 的 eth1 回复：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.100.1 is-at &lt;Server eth1 MAC&gt;
+</code></pre>
+<p>然后 Device 才真正发送 IP 数据包：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Ethernet:
+    src MAC = Device MAC
+    dst MAC = Server eth1 MAC
+
+IP:
+    src = 192.168.100.2
+    dst = 192.168.1.10
+
+TCP:
+    src port = random
+    dst port = 80
+</code></pre>
+<p>注意：ARP 解决的是「下一跳 IP 对应哪个 MAC」，并不负责决定 IP 数据包最终应该去哪里——IP 路由已经在前面决定好了。</p>
+<h2 id="server-shou-dao-shu-ju-bao-zhi-hou">Server 收到数据包之后</h2>
+<p>Server eth1 收到 <code>src = 192.168.100.2, dst = 192.168.1.10</code>。</p>
+<p>很多人会认为 <code>eth1 → eth0</code> 所以必须开启 IP forwarding，实际上<strong>不需要</strong>。因为 <code>192.168.1.10</code> 是 Server 自己的 IP，Linux 发现目标属于本机后直接交给本机协议栈：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">eth1
+  │
+  ▼
+Linux IP stack
+  │
+  ▼
+发现目标 IP 是本机地址
+  │
+  ▼
+TCP
+  │
+  ▼
+192.168.1.10:80
+  │
+  ▼
+HTTP Server
+</code></pre>
+<p>这里不是 <code>eth1 → routing → eth0</code>，而是 <code>eth1 → 本机协议栈 → HTTP Server</code>。因此访问 Server 自己的服务时，<code>net.ipv4.ip_forward</code> 不需要开启。</p>
+<h2 id="server-de-hui-bao">Server 的回包</h2>
+<p>HTTP Server 回复 <code>src = 192.168.1.10, dst = 192.168.100.2</code>，Server 查路由：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.100.0&#x2F;24 dev eth1
+</code></pre>
+<p>于是回包从 eth1 发出，直接到达 Device。完整 TCP 流程：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Device                         Server
+192.168.100.2                  eth1: 192.168.100.1
+      │                              │
+      │ TCP SYN                      │
+      │ dst=192.168.1.10:80          │
+      ├─────────────────────────────&gt;│
+      │                              │
+      │                         HTTP Server
+      │                              │
+      │ TCP SYN&#x2F;ACK                  │
+      │&lt;─────────────────────────────┤
+      │                              │
+      │ TCP ACK                      │
+      ├─────────────────────────────&gt;│
+      │                              │
+</code></pre>
+<h2 id="fang-an-yi-de-te-dian">方案一的特点</h2>
+<ul>
+<li>两块 Server 网卡使用不同网段；</li>
+<li>Device 有明确的默认网关；</li>
+<li>不需要任何 ARP 代答机制；</li>
+<li>网络拓扑清晰，非常符合传统 IP 网络设计。</li>
+</ul>
+<h1 id="fang-an-er-tong-yi-ge-di-zhi-kong-jian-30-jing-que-wang-luo-arp-dai-da">方案二：同一个地址空间 + /30 精确网络 + ARP 代答</h1>
+<p>第二种方案：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Server:
+  eth0 = 192.168.1.10&#x2F;24
+  eth1 = 192.168.1.101&#x2F;30
+
+Device:
+  192.168.1.102&#x2F;24
+</code></pre>
+<p>拓扑：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">                         Server
+                  ┌──────────────────┐
+                  │                  │
+LAN ──────────────┤ eth0             │
+                  │ 192.168.1.10&#x2F;24  │
+                  │                  │
+                  │ eth1             │
+                  │ 192.168.1.101&#x2F;30 │
+                  └────────┬─────────┘
+                           │
+                           │ Ethernet
+                           │
+                    192.168.1.102&#x2F;24
+                         Device
+</code></pre>
+<p>这个方案看起来很奇怪：为什么让 eth0 和 Device 处在同一个 <code>/24</code> 里？</p>
+<p>核心目的就是：</p>
+<blockquote>
+<p><strong>让 Device 认为 <code>192.168.1.10</code> 和自己处于同一个 <code>/24</code> 网络，从而不需要配置 Gateway 或静态路由。</strong></p>
+</blockquote>
+<p>而 Server 又通过 eth1 的 <code>/30</code> 形成一个非常小、更加精确的直连网络：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Server eth1              Device
+192.168.1.101 ───────── 192.168.1.102
+       \                    &#x2F;
+        \──── &#x2F;30 ─────────&#x2F;
+</code></pre>
+<h2 id="wei-shen-me-eth1-shi-yong-30">为什么 eth1 使用 /30？</h2>
+<p><code>192.168.1.101/30</code> 对应的网络是 <code>192.168.1.100/30</code>：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.1.100  network
+192.168.1.101  Server
+192.168.1.102  Device
+192.168.1.103  broadcast
+</code></pre>
+<p>这是点对点链路中 <code>/30</code> 的经典用法。</p>
+<h2 id="server-de-lu-you-biao-yu-zui-chang-qian-zhui-pi-pei">Server 的路由表与最长前缀匹配</h2>
+<p>Server 同时拥有：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.1.0&#x2F;24 dev eth0
+192.168.1.100&#x2F;30 dev eth1
+</code></pre>
+<p>两个网络存在包含关系：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">192.168.1.0&#x2F;24
+└─────────────────────────────────────┐
+                                      │
+                    192.168.1.100&#x2F;30 │
+                    └──────────────┐  │
+                    .100 .101 .102 .103
+</code></pre>
+<p>当 Server 访问 <code>192.168.1.102</code> 时，两个路由都能匹配，但 <code>/30</code> 比 <code>/24</code> 更具体，按 <strong>Longest Prefix Match（最长前缀匹配）</strong> 选择：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Server 192.168.1.10
+      │
+      │ dst = 192.168.1.102
+      ▼
+Longest Prefix Match
+      │
+      ▼
+192.168.1.100&#x2F;30 dev eth1
+</code></pre>
+<p>这就是 <code>/30</code> 在这个设计里的作用：<strong>让 Server 到 Device 的回程明确走 eth1</strong>。</p>
+<h2 id="device-wei-shen-me-ke-yi-zhi-jie-fang-wen-192-168-1-10">Device 为什么可以直接访问 192.168.1.10？</h2>
+<p>因为 Device 配置的是 <code>192.168.1.102/24</code> 而不是 <code>/30</code>，它认为 <code>192.168.1.0/24</code> 是自己的本地网络，<code>192.168.1.10</code> 属于其中。所以它不找 Gateway、不查静态路由，而是直接 ARP：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Who has 192.168.1.10?
+</code></pre>
+<h2 id="kan-wu-dai-da-arp-de-qi-shi-bu-shi-proxy-arp">勘误：代答 ARP 的其实不是 proxy_arp</h2>
+<p>本文最初的解释是「在 eth1 上开 <code>proxy_arp</code>，Server 就会替 <code>192.168.1.10</code> 回答 ARP」——这是同类教程里非常常见的一种说法，核对内核实际行为、并在隔离 netns 中实测复核后发现并不成立：<strong>目标 IP 就是 Server 本机地址（<code>.10</code> 配在 eth0 上）时，代答与 <code>proxy_arp</code> 无关</strong>。</p>
+<h3 id="wu-qu-shi-zen-me-lai-de">误区是怎么来的</h3>
+<p>方案二确实能通，而 <code>proxy_arp</code> 又经常出现在同类方案里，于是「能通」被归因给了这个开关。实际上：</p>
+<ul>
+<li>默认配置（<code>arp_ignore=0</code>、<code>proxy_arp=0</code>）方案二就能工作；</li>
+<li>开了 <code>proxy_arp</code> 后再验证，看到的「通了」并不是它的功劳——把 <code>proxy_arp</code> 关掉、清一次 ARP 缓存，照样通。</li>
+</ul>
+<p>这种「先动手、后归因」的顺序很容易制造错误的因果：<strong>开关打开时网络是通的，不等于这个开关是通的必要条件。</strong></p>
+<h3 id="nei-he-shi-ji-zen-me-chu-li">内核实际怎么处理</h3>
+<p>Linux 收到 ARP 请求后，先判断目标 IP 是不是本机地址：</p>
+<ul>
+<li><strong>目标是本机地址</strong>（路由类型 <code>RTN_LOCAL</code>，<code>.10</code> 属于本机）→ 是否应答由 <code>arp_ignore</code> 决定：
+<ul>
+<li><code>arp_ignore=0</code>（默认）：<strong>本机在任何接口上的地址，都会在任意入接口上应答</strong>——这就是著名的 <strong>ARP flux</strong>。所以 eth1 收到「谁是 <code>.10</code>」时会直接用 eth1 的 MAC 应答；</li>
+<li><code>arp_ignore=1</code>：只有目标 IP 就配置在入接口上才应答。</li>
+</ul>
+</li>
+<li><strong>目标不是本机地址</strong>（需要经其他接口路由过去）→ 才轮到 <code>proxy_arp</code>：Server 以自己的 MAC 替该地址应答，并且这个分支还要求 <code>ip_forward=1</code>（proxy ARP 本质上是转发的配套行为）。</li>
+</ul>
+<p>由此还能得到两个反直觉的结论：</p>
+<ul>
+<li>做过 ARP 硬化的机器（<code>arp_ignore=1</code>）方案二会失效，且 <code>proxy_arp=1</code> <strong>也救不回来</strong>——因为目标 IP 是本机地址，根本不会走到 proxy ARP 分支；</li>
+<li>只有「HTTP 服务实际在 Server 后面的另一台主机上」这种目标 IP 非本机的场景，<code>proxy_arp=1</code> + <code>ip_forward=1</code> 才是必需的。</li>
+</ul>
+<h3 id="yi-ju-hua-pan-ding">一句话判定</h3>
+<p>判断一个场景到底需不需要 proxy_arp，只看目标 IP：<strong>目标是本机地址 → 看 <code>arp_ignore</code>；目标不是本机地址 → 才看 <code>proxy_arp</code> + <code>ip_forward</code>。</strong> 文末「如何验证方案二」里给出了可复现的判定实验。</p>
+<blockquote>
+<p>注：proxy ARP 并不是把 ARP 广播从 eth1 转发到 eth0，而是 Server 自己代替目标 IP 回答 ARP。</p>
+</blockquote>
+<h3 id="proxy-arp-zhen-zheng-yong-zai-na">proxy_arp 真正用在哪</h3>
+<p>既然目标为本机地址时轮不到 <code>proxy_arp</code>，那它到底解决什么问题？它解决的是：</p>
+<blockquote>
+<p><strong>发送方认为目标和自己同一子网、直接 ARP 目标 IP，但 ARP 广播到不了目标，而代理主机能路由到目标。</strong></p>
+</blockquote>
+<p>Linux 上的完整触发链：</p>
+<ol>
+<li>入接口收到 ARP 请求；</li>
+<li>目标 IP <strong>不是</strong>本机地址（是本机地址就走 <code>arp_ignore</code> 那条分支，见上文勘误）；</li>
+<li>入接口 <code>proxy_arp=1</code>，并且处于转发状态（通常即 <code>ip_forward=1</code>）——实测把 <code>ip_forward</code> 关掉后，<code>proxy_arp=1</code> 也不再代答，所以「只开 proxy_arp」是不够的；</li>
+<li>本机路由表能到达目标（目标若就在入接口的二层网段上，本来就会由目标自己应答，不需要代答）；</li>
+<li>本机用自己的 MAC 替目标应答，发送方把帧发给本机，之后由数据面转发到目标。</li>
+</ol>
+<p>真实场景：</p>
+<ul>
+<li><strong>同一网段被拆到两个物理网段</strong>：经典 proxy ARP（RFC 1027）。两边主机以为对方在本地，中间路由器在两侧接口分别代答；思科路由器默认开启 proxy ARP，老网络里很常见；</li>
+<li><strong>VPN 客户端与内网同网段</strong>：办公室 LAN 是 <code>192.168.1.0/24</code>，VPN 客户端也拿到 <code>192.168.1.200</code>，但不在同一广播域；VPN 服务器在 LAN 接口代答 <code>.200</code>，LAN 主机的流量先到服务器、再走隧道；</li>
+<li><strong>移动 IP 的家乡代理</strong>：移动节点离开家乡网络后，家乡代理替它的家乡地址应答，家乡 LAN 的主机仍然以为它在本地；</li>
+<li><strong>容器/虚拟机网络</strong>：Pod/VM 互认为同子网、直接 ARP 对端，宿主机或 CNI 组件在相应接口代答，把流量拉进来再转发。本博客 <a href="https://moxuetianya.github.io/2025/07/virtualization/">QEMU 虚拟化笔记</a>里「VM 用 <code>/32</code> 地址 + 宿主 wlan0 开 <code>proxy_arp</code>」就是这类用法；</li>
+<li><strong>PVLAN / 端口隔离</strong>：同一接口下互相隔离的域要互通时，<code>proxy_arp_pvlan</code> 让隔离域内的 ARP 由代理代答；</li>
+<li><strong>网络迁移/合并过渡期</strong>：临时维持连通，避免立刻修改所有主机的配置。</li>
+</ul>
+<p>这些场景的共同点是：<strong>发送方都「以为目标在本地」，且没有（或不能用）正确的网关</strong>。如果发送方正确配置了默认网关，跨网段时它 ARP 的是网关而不是目标，根本不会触发 proxy_arp。</p>
+<p>现代网络里它很少被主动使用：proxy_arp 本质上是「合法 ARP 欺骗」，有中间人风险，还会带来 ARP 表膨胀、拓扑不透明、排查困难等问题。能用网关、路由协议、隧道或桥接解决时，都不该用它兜底。</p>
+<h2 id="wan-zheng-shu-ju-liu">完整数据流</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Device                              Server
+  │                                    │
+  │ ARP: Who has 192.168.1.10?         │
+  ├───────────────────────────────────&gt;│
+  │                                    │
+  │ ARP Reply: .10 is-at eth1 MAC      │
+  │ （arp_ignore=0 的默认行为）         │
+  │&lt;───────────────────────────────────┤
+  │                                    │
+  │ TCP SYN                            │
+  │ dst=.10:80                         │
+  ├───────────────────────────────────&gt;│
+  │                                    │
+  │                         HTTP Server│
+  │                                    │
+  │ TCP SYN&#x2F;ACK                        │
+  │&lt;───────────────────────────────────┤
+  │                                    │
+  │ TCP ACK                            │
+  ├───────────────────────────────────&gt;│
+</code></pre>
+<p>Server 收到 <code>dst = 192.168.1.10</code> 后同样不需要 forwarding（目标是本机地址），直接交给本机 HTTP 服务；回包 <code>src = 192.168.1.10, dst = 192.168.1.102</code> 经最长前缀匹配走 <code>/30</code> 的 eth1 回到 Device。</p>
+<h1 id="liang-chong-fang-an-de-he-xin-qu-bie">两种方案的核心区别</h1>
+<p>两种方案最终都实现 <code>Device → Server 192.168.1.10:80</code>，但 Device 到 Server 的「第一跳」完全不同。</p>
+<h2 id="fang-an-yi">方案一</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Device 192.168.100.2&#x2F;24
+      │
+      │ 目标不在本地网段
+      ▼
+Default Gateway 192.168.100.1
+      │
+      ▼
+Server eth1
+</code></pre>
+<p>核心：<strong>IP Routing</strong>。</p>
+<h2 id="fang-an-er">方案二</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">Device 192.168.1.102&#x2F;24
+      │
+      │ 目标在本地网段（自认为）
+      ▼
+ARP
+      │
+      ▼
+Server eth1
+</code></pre>
+<p>Device 以为 <code>.10</code> 就在本地网段，直接 ARP；Server 侧靠默认的 <code>arp_ignore=0</code> 代答，回包再靠最长前缀匹配走 <code>/30</code> 的 eth1。</p>
+<p>核心：<strong>同网段 ARP 代答 + 精确路由</strong>。</p>
+<h1 id="liang-chong-fang-an-dui-bi">两种方案对比</h1>
+<table><thead><tr><th>项目</th><th>方案一</th><th>方案二</th></tr></thead><tbody>
+<tr><td>Server eth0</td><td><code>192.168.1.10/24</code></td><td><code>192.168.1.10/24</code></td></tr>
+<tr><td>Server eth1</td><td><code>192.168.100.1/24</code></td><td><code>192.168.1.101/30</code></td></tr>
+<tr><td>Device</td><td><code>192.168.100.2/24</code></td><td><code>192.168.1.102/24</code></td></tr>
+<tr><td>Device Gateway</td><td><code>192.168.100.1</code></td><td>不需要</td></tr>
+<tr><td>Device 静态路由</td><td>不需要额外路由</td><td>不需要</td></tr>
+<tr><td>ARP 代答</td><td>不需要</td><td>需要（默认 <code>arp_ignore=0</code> 即可）</td></tr>
+<tr><td>proxy_arp</td><td>不需要</td><td>也不需要（目标为本机地址）</td></tr>
+<tr><td>Device 访问 <code>.10</code> 的方式</td><td>通过 Gateway</td><td>直接 ARP</td></tr>
+<tr><td>Server 回 Device</td><td>eth1 的 <code>/24</code> 路由</td><td>eth1 的 <code>/30</code> 更具体路由</td></tr>
+<tr><td>两个接口地址空间</td><td>不重叠</td><td>有重叠</td></tr>
+<tr><td>网络模型</td><td>标准三层路由</td><td>同网段 ARP 代答 + 精确路由</td></tr>
+<tr><td>配置复杂度</td><td>较低</td><td>较高，且依赖默认 ARP 行为</td></tr>
+</tbody></table>
+<h1 id="ru-he-yan-zheng-fang-an-er">如何验证方案二</h1>
+<h2 id="cha-kan-lu-you-yu-zui-chang-qian-zhui-pi-pei">查看路由与最长前缀匹配</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ip route
+# 192.168.1.0&#x2F;24 dev eth0
+# 192.168.1.100&#x2F;30 dev eth1
+
+ip route get 192.168.1.102
+# 192.168.1.102 dev eth1 src 192.168.1.101
+</code></pre>
+<p><code>ip route get</code> 是验证 <code>/30</code> 优先于 <code>/24</code> 最直接的方法。</p>
+<h2 id="cha-kan-arp-xiang-guan-can-shu">查看 ARP 相关参数</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sysctl net.ipv4.conf.eth1.arp_ignore   # 默认 0
+sysctl net.ipv4.conf.eth1.proxy_arp    # 默认 0
+</code></pre>
+<h2 id="zhua-arp">抓 ARP</h2>
+<p>Server 上：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo tcpdump -ni eth1 arp
+</code></pre>
+<p>Device 上 ping：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ping 192.168.1.10
+</code></pre>
+<p>可以看到：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">ARP, Request who-has 192.168.1.10 tell 192.168.1.102
+ARP, Reply 192.168.1.10 is-at &lt;Server eth1 MAC&gt;
+</code></pre>
+<p>这可以直接证明 <code>Device → eth1 → ARP 代答</code> 这条路径成立。</p>
+<h2 id="fu-xian-kan-wu-zheng-ming-dai-da-yu-proxy-arp-wu-guan">复现勘误：证明代答与 proxy_arp 无关</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 1. Server 上确认 proxy_arp 是关的（默认就是 0）
+sysctl net.ipv4.conf.eth1.proxy_arp
+
+# 2. Device 上清掉 ARP 缓存再试，依然能通
+ip neigh del 192.168.1.10 dev ethX
+ping -c 1 192.168.1.10
+
+# 3. 反证：把 arp_ignore 改成 1，代答立即消失
+sudo sysctl -w net.ipv4.conf.eth1.arp_ignore=1
+# Device 上再清一次缓存
+ip neigh del 192.168.1.10 dev ethX
+ping -c 1 192.168.1.10        # 不通：ARP 无人应答
+
+# 4. 实验完恢复默认
+sudo sysctl -w net.ipv4.conf.eth1.arp_ignore=0
+</code></pre>
+<p>第 2 步通了、第 3 步不通，就足以推翻「必须开 proxy_arp」的归因：如果代答真由 <code>proxy_arp</code> 提供，<code>proxy_arp=0</code> 时第 2 步就该失败；而改变 <code>arp_ignore</code> 能立刻开关代答，说明真正起作用的是它。</p>
+<p>以上结论在隔离的 netns 里按本文拓扑实测复核过（三个命名空间分别模拟 Server、Device 和 eth0 侧的远端主机；下表 <code>proxy_arp</code> 指 eth1 的开关，B 组回程另在 eth0 开了 <code>proxy_arp</code>）：</p>
+<p><strong>A 组：目标 <code>.10</code> 是 Server 本机地址（配在 eth0 上）</strong></p>
+<table><thead><tr><th>proxy_arp</th><th>arp_ignore</th><th>ip_forward</th><th>ping <code>.10</code></th><th>Device 的 ARP 表</th></tr></thead><tbody>
+<tr><td>0（默认）</td><td>0（默认）</td><td>0（默认）</td><td>OK</td><td><code>.10 → eth1 MAC</code></td></tr>
+<tr><td>1</td><td>0</td><td>0</td><td>OK</td><td><code>.10 → eth1 MAC</code></td></tr>
+<tr><td>0</td><td>1</td><td>0</td><td>FAIL</td><td>INCOMPLETE</td></tr>
+<tr><td>1</td><td>1</td><td>1</td><td>FAIL</td><td>INCOMPLETE</td></tr>
+</tbody></table>
+<p><strong>B 组：目标 <code>.50</code> 非本机，经 eth0 可达</strong></p>
+<table><thead><tr><th>proxy_arp</th><th>arp_ignore</th><th>ip_forward</th><th>ping <code>.50</code></th><th>Device 的 ARP 表</th></tr></thead><tbody>
+<tr><td>0</td><td>0</td><td>1</td><td>FAIL</td><td>INCOMPLETE</td></tr>
+<tr><td>1</td><td>0</td><td>1</td><td>OK</td><td><code>.50 → eth1 MAC</code></td></tr>
+<tr><td>1</td><td>0</td><td>0</td><td>FAIL</td><td>INCOMPLETE</td></tr>
+</tbody></table>
+<p>上面的对照实验分别证明：</p>
+<ol>
+<li>全默认（<code>proxy_arp=0</code>、<code>arp_ignore=0</code>、<code>ip_forward=0</code>）就能代答本机地址——方案二不需要 <code>proxy_arp</code>；</li>
+<li>本机地址的代答完全由 <code>arp_ignore</code> 控制，<code>arp_ignore=1</code> 后代答消失，且 <code>proxy_arp=1</code> + <code>ip_forward=1</code> 也救不回来；</li>
+<li><code>proxy_arp</code> 只在目标非本机时生效（B1 → B2）；</li>
+<li>即便如此，<code>proxy_arp</code> 也必须配合 <code>ip_forward=1</code> 才能代答（B3）。</li>
+</ol>
+<h2 id="zhua-tcp">抓 TCP</h2>
+<p>Server 上：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sudo tcpdump -ni eth1 &#x27;tcp port 80&#x27;
+sudo tcpdump -ni eth0 &#x27;tcp port 80&#x27;
+</code></pre>
+<p>可以看到 <code>eth1</code> 上有 Device 到 <code>192.168.1.10:80</code> 的 TCP SYN，而 <code>eth0</code> 上通常看不到这条连接——因为它是 <code>eth1 → 本机 TCP socket</code>，而不是 <code>eth1 → eth0</code> 转发。</p>
+<p>这能直接证明：</p>
+<blockquote>
+<p><strong>「服务绑定在 eth0 地址」和「数据包必须从 eth0 进入」是两件完全不同的事情。</strong></p>
+</blockquote>
+<h1 id="zhu-yi-shi-xiang-fang-an-er-shu-yu-fei-dian-xing-wang-luo-she-ji">注意事项：方案二属于非典型网络设计</h1>
+<p>方案二能工作，但依赖若干默认行为，在复杂环境中要特别小心：</p>
+<ul>
+<li><strong>依赖 <code>arp_ignore=0</code></strong>：很多服务器会做 ARP 硬化（<code>arp_ignore=1</code>、<code>arp_announce=2</code>）或防火墙限制，这会让方案二直接失效，且开 <code>proxy_arp</code> 也救不回来；</li>
+<li><strong>地址空间重叠</strong>：Server 两个接口的网段互相包含，ARP 行为（ARP flux）、<code>arp_announce</code>、<code>rp_filter</code>、源地址选择、防火墙规则都需要额外确认；</li>
+<li><strong>ARP flux 的副作用</strong>：默认行为意味着 Server 在任何接口上都可能代答本机地址，在共享二层网络中可能引起混乱；</li>
+<li>简单实验环境里方案二很有价值——Device 只配一个 <code>/24</code> 地址、不配 Gateway、不配静态路由就能访问 Server 另一接口上的服务；但生产网络优先选择方案一的标准三层设计。</li>
+</ul>
+<h1 id="zong-jie">总结</h1>
+<p>这个问题实际上涉及 Linux 网络中的三个不同层次：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">┌──────────────────────────────────────┐
+│              Application             │
+│          HTTP 192.168.1.10:80        │
+└──────────────────┬───────────────────┘
+                   │
+┌──────────────────▼───────────────────┐
+│                  IP                  │
+│       Route &#x2F; Longest Prefix         │
+└──────────────────┬───────────────────┘
+                   │
+┌──────────────────▼───────────────────┐
+│              Ethernet                │
+│                 ARP                  │
+└──────────────────────────────────────┘
+</code></pre>
+<p><strong>方案一</strong>：不同网段 + 默认网关，靠 IP Routing 把包交给 Server，标准三层设计。</p>
+<p><strong>方案二</strong>：Device 用 <code>/24</code> 把 <code>.10</code> 认成同网段邻居，直接 ARP；Server 用默认的 <code>arp_ignore=0</code> 在 eth1 上代答，再用 <code>/30</code> 的最长前缀匹配把回程钉在 eth1 上。</p>
+<p>最后要记住三点：</p>
+<ol>
+<li>服务绑定在哪个接口的 IP 上，和「数据包从哪个接口进入」无关——只要目标 IP 是本机地址，内核就交给本机协议栈，不需要 forwarding；</li>
+<li>方案二里代答 ARP 的是默认的 <code>arp_ignore=0</code>（ARP flux），不是 <code>proxy_arp</code>；<code>proxy_arp</code> 只在目标 IP 非本机、需要经其他接口路由时才起作用，而且要求 <code>ip_forward=1</code>；</li>
+<li>验证时「先关掉可疑开关再看」——默认行为的功劳很容易被记到刚打开的开关上，本文对 <code>proxy_arp</code> 的误判就是这么来的。</li>
+</ol>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/09/agent-apikey-isolation-openshell-dsh/"> 让 Agent 调用模型却拿不到 API Key：OpenShell 实测、DSH 默认隔离与 SSH Key 的边界 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#fang-an-yi-bu-tong-wang-duan-mo-ren-wang-guan">方案一：不同网段 + 默认网关</a>
+        </div>
+        <div class="hpad">
+          <a href="#device-de-lu-you-biao"><small>- Device 的路由表</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#arp-de-zuo-yong"><small>- ARP 的作用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#server-shou-dao-shu-ju-bao-zhi-hou"><small>- Server 收到数据包之后</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#server-de-hui-bao"><small>- Server 的回包</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-yi-de-te-dian"><small>- 方案一的特点</small></a>
+        </div>
+        <div>
+          <a href="#fang-an-er-tong-yi-ge-di-zhi-kong-jian-30-jing-que-wang-luo-arp-dai-da">方案二：同一个地址空间 + &#x2F;30 精确网络 + ARP 代答</a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-eth1-shi-yong-30"><small>- 为什么 eth1 使用 &#x2F;30？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#server-de-lu-you-biao-yu-zui-chang-qian-zhui-pi-pei"><small>- Server 的路由表与最长前缀匹配</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#device-wei-shen-me-ke-yi-zhi-jie-fang-wen-192-168-1-10"><small>- Device 为什么可以直接访问 192.168.1.10？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#kan-wu-dai-da-arp-de-qi-shi-bu-shi-proxy-arp"><small>- 勘误：代答 ARP 的其实不是 proxy_arp</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wu-qu-shi-zen-me-lai-de"><small>· 误区是怎么来的</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#nei-he-shi-ji-zen-me-chu-li"><small>· 内核实际怎么处理</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yi-ju-hua-pan-ding"><small>· 一句话判定</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#proxy-arp-zhen-zheng-yong-zai-na"><small>· proxy_arp 真正用在哪</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wan-zheng-shu-ju-liu"><small>- 完整数据流</small></a>
+        </div>
+        <div>
+          <a href="#liang-chong-fang-an-de-he-xin-qu-bie">两种方案的核心区别</a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-yi"><small>- 方案一</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fang-an-er"><small>- 方案二</small></a>
+        </div>
+        <div>
+          <a href="#liang-chong-fang-an-dui-bi">两种方案对比</a>
+        </div>
+        <div>
+          <a href="#ru-he-yan-zheng-fang-an-er">如何验证方案二</a>
+        </div>
+        <div class="hpad">
+          <a href="#cha-kan-lu-you-yu-zui-chang-qian-zhui-pi-pei"><small>- 查看路由与最长前缀匹配</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#cha-kan-arp-xiang-guan-can-shu"><small>- 查看 ARP 相关参数</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zhua-arp"><small>- 抓 ARP</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu-xian-kan-wu-zheng-ming-dai-da-yu-proxy-arp-wu-guan"><small>- 复现勘误：证明代答与 proxy_arp 无关</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zhua-tcp"><small>- 抓 TCP</small></a>
+        </div>
+        <div>
+          <a href="#zhu-yi-shi-xiang-fang-an-er-shu-yu-fei-dian-xing-wang-luo-she-ji">注意事项：方案二属于非典型网络设计</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

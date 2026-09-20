@@ -1,0 +1,627 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - 310p</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/310p/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-09T11:42:47+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/310p/atom.xml</id>
+    <entry xml:lang="en">
+        <title>ARM 服务器（鲲鹏 920）让内核日志显示在 VGA：从 console=tty0 实验到 simplefb 点亮</title>
+        <published>2026-09-09T11:42:47+08:00</published>
+        <updated>2026-09-09T11:42:47+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/"/>
+        <id>https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/arm-tty0-console-experiment/">&lt;h1 id=&quot;yi-bei-jing-vga-shang-yong-yuan-zhi-you-efi-stub-san-xing&quot;&gt;一、背景：VGA 上永远只有&quot;EFI stub 三行&quot;&lt;&#x2F;h1&gt;
+&lt;p&gt;鲲鹏 920 推理服务器（TaiShan 200 &#x2F; iBMC 固件 3.03.00.69，昇腾 310P 推理卡）在 IPMI KVM 上观察：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;EFI stub: Booting Linux Kernel...
+EFI stub: Using DTB from configuration table
+EFI stub: Exiting boot services...
+（此后黑屏，再也没有内容）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原因链（详见《2026-09-08-ext4-rootfs-readonly-recovery.md》第四节与第九节）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;这板子的启动链是 UEFI → shim → grub → 内核；EFI stub 阶段通过 &lt;strong&gt;UEFI GOP&lt;&#x2F;strong&gt; 自绘 → VGA 有字；&lt;&#x2F;li&gt;
+&lt;li&gt;内核接管后，控制台由 &lt;strong&gt;ACPI SPCR&lt;&#x2F;strong&gt;（firmware Console Redirection 表）决定 → &lt;code&gt;console [ttyS0] enabled&lt;&#x2F;code&gt;，日志全走串口；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;proc&#x2F;cmdline&lt;&#x2F;code&gt; 里&lt;strong&gt;没有 &lt;code&gt;console=&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; → 内核注册了串口，tty0 根本不是 printk 目标。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;于是：&lt;strong&gt;想验证能不能让内核日志同步显示到 VGA&#x2F;IPMI 画面&lt;&#x2F;strong&gt; → 下面的实验。实验本身成功了（tty0 注册），但当时画面仍黑，第一版结论判为&quot;平台限制、无解&quot;——&lt;strong&gt;本文是续篇：这个结论是错的，VGA 最终被点亮了&lt;&#x2F;strong&gt;（见第四节起）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;er-shi-yan-console-tty0-de-zhu-ce-di-yi-ci-jin-zheng-ming-ri-zhi-tou-di-cheng-gong&quot;&gt;二、实验：console=tty0 的注册（第一次，仅证明&quot;日志投递&quot;成功）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;2-1-pei-zhi&quot;&gt;2.1 配置&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 备份 + 修改 &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub
+sudo cp &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub.bak-tty0
+sudo sed -i &amp;#x27;s&amp;#x2F;^GRUB_CMDLINE_LINUX=.*&amp;#x2F;GRUB_CMDLINE_LINUX=&amp;quot;console=ttyS0,115200 console=tty0&amp;quot;&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;default&amp;#x2F;grub
+sudo update-grub
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;为什么写两个 console=&lt;&#x2F;strong&gt;：第一个是主日志通道（串口）；第二个（tty0）追加为辅助通道，同一份 printk 同时打给两者；最后一个 console= 决定 &#x2F;dev&#x2F;console。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-2-zhong-qi-hou-dmesg-shi-ce-di-yi-ci-shi-yan-nei-he-5-15-0-107&quot;&gt;2.2 重启后 dmesg 实测（第一次实验，内核 5.15.0-107）&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;[    0.000211] Console: colour dummy device 80x25
+[    0.000546] printk: console [tty0] enabled      ← ✅ 注册成功（改前没有这行）
+[    0.351424] fbcon: Taking over console           ← ⚠️ 声称接管
+[    0.401209] pci 0000:06:00.0: BAR 0: assigned to efifb  ← ⚠️ 此行的解读后来被修正（见 4.3）
+[    0.774270] printk: console [ttyS0] enabled      ← ✅ 串口照常
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;但画面仍然失败：&lt;code&gt;&#x2F;dev&#x2F;fb0&lt;&#x2F;code&gt; 不存在、&lt;code&gt;&#x2F;sys&#x2F;class&#x2F;graphics&#x2F;&lt;&#x2F;code&gt; 只有 fbcon、&lt;code&gt;vtcon0&lt;&#x2F;code&gt; 是 &lt;code&gt;(S) dummy device&lt;&#x2F;code&gt;、显卡是 &lt;code&gt;Huawei Hi171x [iBMC ... w&#x2F;VGA support]&lt;&#x2F;code&gt;（PCI 06:00.0，BAR0 = 32MB @ e4000000，BAR1 = 2MB @ e7200000）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;san-dang-shi-de-jie-lun-2026-09-09-shang-wu-yi-bei-xia-wu-de-pai-cha-tui-fan&quot;&gt;三、当时的结论（2026-09-09 上午）——已被下午的排查推翻&lt;&#x2F;h1&gt;
+&lt;p&gt;当时判定为&lt;strong&gt;平台限制&lt;&#x2F;strong&gt;，链条是：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;efifb &quot;试图接管&quot;（&quot;BAR 0: assigned to efifb&quot;）但没有 GOP screen_info 提供真实帧缓冲描述 → 未注册 fb0；&lt;&#x2F;li&gt;
+&lt;li&gt;DRM 侧也是空的（华为未提供该芯片开源驱动）；&lt;&#x2F;li&gt;
+&lt;li&gt;fbcon 挂的是 dummy device → 内核日志投给 tty0 后无处可画。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;纠错说明（为什么错，防止重复踩坑）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;① &quot;无 GOP screen_info&quot; 是&lt;strong&gt;误读&lt;&#x2F;strong&gt;——screen_info 一直有效，物证见第四节 &lt;code&gt;BOOTFB&lt;&#x2F;code&gt; 区段；&lt;&#x2F;li&gt;
+&lt;li&gt;② 把 &quot;BAR 0: assigned to efifb&quot; 当成 &quot;efifb 驱动在工作&quot; 是&lt;strong&gt;误读&lt;&#x2F;strong&gt;——该行出现在 PCI 资源归属日志里，而本配置下 efifb 驱动（&lt;code&gt;FB_EFI=y&lt;&#x2F;code&gt; 内置）&lt;strong&gt;根本没有可绑定的平台设备&lt;&#x2F;strong&gt;（见 4.3），谈不上&quot;拿到 BAR 后放弃&quot;；&lt;&#x2F;li&gt;
+&lt;li&gt;③ 漏查了 &lt;strong&gt;sysfb 已把 GOP 帧缓冲注册成 &lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt; 平台设备&lt;&#x2F;strong&gt;这一步——缺的不是&quot;硬件驱动不存在&quot;，而是&quot;驱动模块存在但没加载、且不能自动绑定&quot;。&lt;&#x2F;li&gt;
+&lt;li&gt;教训：查显示问题不能只看 fb0&#x2F;efifb&#x2F;drm 这几个名字，还要查 &lt;code&gt;&#x2F;sys&#x2F;bus&#x2F;platform&#x2F;devices&#x2F;&lt;&#x2F;code&gt; 有没有等驱动的显示设备、&lt;code&gt;&#x2F;proc&#x2F;iomem&lt;&#x2F;code&gt; 里帧缓冲区段是谁预留的。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;si-ji-xu-pai-cha-sysfb-zao-yi-ba-lu-pu-hao-que-de-zhi-shi-qu-dong&quot;&gt;四、继续排查：sysfb 早已把路铺好，缺的只是驱动&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;4-1-xin-zheng-ju-yi-proc-iomem-li-de-bootfb&quot;&gt;4.1 新证据一：&#x2F;proc&#x2F;iomem 里的 BOOTFB&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ cat &amp;#x2F;proc&amp;#x2F;iomem | grep -B2 -A2 BOOTFB
+e4000000-e5ffffff : PCI Bus 0000:06
+  e4000000-e5ffffff : 0000:06:00.0
+    e4000000-e412bfff : BOOTFB          ← 起点恰是 Hi171x BAR0 基址
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;e412bfff - e4000000 + 1 = 0x12c000 = 1,228,800 B = 640×480×32&lt;&#x2F;code&gt;——&lt;strong&gt;正好是一个 GOP 帧缓冲&lt;&#x2F;strong&gt;。也就是说：固件把 GOP 画面画在 Hi171x 显存窗口（BAR0 = e4000000）的起始处，这块内存在内核侧被预留为 &lt;code&gt;BOOTFB&lt;&#x2F;code&gt;，而 &lt;strong&gt;iBMC 的物理 VGA&#x2F;HDMI 与 IPMI KVM 采集的就是这个显存窗口&lt;&#x2F;strong&gt;（UEFI 有字、内核黑屏的边界 = 谁在往这块内存写）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-2-xin-zheng-ju-er-simple-framebuffer-0-ping-tai-she-bei-zai-deng-qu-dong&quot;&gt;4.2 新证据二：simple-framebuffer.0 平台设备在等驱动&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ls &amp;#x2F;sys&amp;#x2F;bus&amp;#x2F;platform&amp;#x2F;devices&amp;#x2F; | grep framebuffer
+simple-framebuffer.0          ← 已注册，但 driver 目录不存在 = 没有驱动绑定
+
+$ grep -E &amp;quot;^CONFIG_(SYSFB|SYSFB_SIMPLEFB|FB_EFI|FB_SIMPLE|DRM_SIMPLEDRM)&amp;quot; &amp;#x2F;boot&amp;#x2F;config-$(uname -r)
+CONFIG_SYSFB=y
+CONFIG_SYSFB_SIMPLEFB=y
+CONFIG_FB_EFI=y            # efifb 驱动内置
+CONFIG_FB_SIMPLE=m         # fbdev simplefb 驱动是模块
+CONFIG_DRM_SIMPLEDRM=m     # DRM simpledrm 驱动是模块
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;解读：内核启动早期（sysfb）根据 &lt;strong&gt;screen_info（来自 EFI stub 登记的 GOP 信息）&lt;&#x2F;strong&gt; 生成了一个平台设备 &lt;code&gt;simple-framebuffer.0&lt;&#x2F;code&gt;（这台是 ACPI 机器、无 device tree，所以该设备只能来自 sysfb）。屏幕信息不是没有，是&lt;strong&gt;转换成了 simple-framebuffer 形态在等 fb 驱动&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-3-xiu-zheng-efifb-wei-shen-me-mei-gan-huo-ta-ya-gen-mei-you-she-bei&quot;&gt;4.3 修正：efifb 为什么&quot;没干活&quot;——它压根没有设备&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;CONFIG_SYSFB_SIMPLEFB=y&lt;&#x2F;code&gt; 的含义：sysfb 把 GOP 帧缓冲注册成 &lt;strong&gt;&lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; 平台设备（供 simplefb&#x2F;simpledrm 绑定），而&lt;strong&gt;不再注册 &lt;code&gt;efifb&lt;&#x2F;code&gt; 平台设备&lt;&#x2F;strong&gt;。efifb 驱动（&lt;code&gt;FB_EFI=y&lt;&#x2F;code&gt; 内置）需要名为 &lt;code&gt;efifb&lt;&#x2F;code&gt; 的设备才会 probe——它永远等不到。所以：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;之前看到的 &lt;code&gt;pci 0000:06:00.0: BAR 0: assigned to efifb&lt;&#x2F;code&gt; 与 &lt;code&gt;BOOTFB&lt;&#x2F;code&gt; 都是&lt;strong&gt;早期资源预留&#x2F;归属日志&lt;&#x2F;strong&gt;，不是 efifb 驱动工作的痕迹；&lt;&#x2F;li&gt;
+&lt;li&gt;真正缺的一环是：&lt;strong&gt;加载并绑定一个能认 &lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt; 设备的 fb 驱动&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;4-4-guan-jian-chai-yi-107-yu-186-nei-he-de-mo-kuai-ku-cun&quot;&gt;4.4 关键差异：107 与 186 内核的模块库存&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 当前运行 5.15.0-107（内核包被 apt hold，且没有 linux-modules-extra-107）
+$ ls &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;modules&amp;#x2F;5.15.0-107-generic&amp;#x2F;kernel&amp;#x2F;drivers&amp;#x2F;gpu&amp;#x2F;drm&amp;#x2F;tiny&amp;#x2F;   # 不存在
+$ find &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;modules&amp;#x2F;5.15.0-107-generic&amp;#x2F;kernel -name &amp;quot;*simple*&amp;quot;
+...&amp;#x2F;kernel&amp;#x2F;drivers&amp;#x2F;video&amp;#x2F;fbdev&amp;#x2F;simplefb.ko     # 只有 simplefb
+
+# 5.15.0-186（linux-modules-extra 已装）
+$ ls &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;modules&amp;#x2F;5.15.0-186-generic&amp;#x2F;kernel&amp;#x2F;drivers&amp;#x2F;gpu&amp;#x2F;drm&amp;#x2F;tiny&amp;#x2F;
+simpledrm.ko
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;simplefb（fbdev）&lt;&#x2F;strong&gt; 与 &lt;strong&gt;simpledrm（DRM）&lt;&#x2F;strong&gt; 的平台驱动名都叫 &lt;strong&gt;&lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（与 sysfb 设备同名，simpledrm 源码注释直接写着 &lt;code&gt;&#x2F;* connect to sysfb *&#x2F;&lt;&#x2F;code&gt;）→ 走 platform bus 的&lt;strong&gt;名字回退匹配&lt;&#x2F;strong&gt;即可绑定，&lt;strong&gt;不需要 DT 节点、也不需要 driver_override&lt;&#x2F;strong&gt;（这一点初稿判断错了，见第五节弯路记录）；&lt;&#x2F;li&gt;
+&lt;li&gt;两者的 &lt;code&gt;MODULE_DEVICE_TABLE&lt;&#x2F;code&gt; 都只有 &lt;code&gt;of:N...simple-framebuffer&lt;&#x2F;code&gt;（of_match_table），&lt;strong&gt;没有 &lt;code&gt;platform:simple-framebuffer&lt;&#x2F;code&gt; 别名&lt;&#x2F;strong&gt; → udev 冷插时按设备 modalias（&lt;code&gt;platform:simple-framebuffer&lt;&#x2F;code&gt;）找不到任何模块，&lt;strong&gt;不会自动加载&lt;&#x2F;strong&gt;——真正缺的一环只是&quot;把模块加载进来&quot;：模块一加载，driver_register 的 attach 循环立刻按名字把设备绑上；&lt;&#x2F;li&gt;
+&lt;li&gt;simpledrm 只在 186 内核存在（107 缺 linux-modules-extra）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这决定了修复路线（见第五、七节）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;wu-dian-liang-modprobe-simplefb-ji-zi-dong-bang-ding-ling-zhong-qi-xian-chang-xiu-fu&quot;&gt;五、点亮：modprobe simplefb 即自动绑定，零重启现场修复&lt;&#x2F;h1&gt;
+&lt;p&gt;107 内核上没有 simpledrm，先用 simplefb 验证（不需要重启）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo modprobe simplefb      # 模块加载 → driver_register → attach 循环 → 名字匹配 → probe，一步到位
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;dmesg 实测输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[ 4055.198726] simple-framebuffer simple-framebuffer.0: framebuffer at 0xe4000000, 0x12c000 bytes
+[ 4055.198735] simple-framebuffer simple-framebuffer.0: format=a8r8g8b8, mode=640x480x32, linelength=2560
+[ 4055.198932] Console: switching to colour frame buffer device 80x30
+[ 4055.203598] simple-framebuffer simple-framebuffer.0: fb0: simplefb registered!
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证结果：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ls &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;graphics&amp;#x2F;          # fbcon → fb0 + fbcon
+$ cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;vtconsole&amp;#x2F;vtcon0&amp;#x2F;name   # (S) dummy device（VT0 仍哑）
+$ cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;vtconsole&amp;#x2F;vtcon1&amp;#x2F;name   # (M) frame buffer device ← fbcon 绑定真设备
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;VGA&#x2F;HDMI 与 web IPMI 上出现文本终端（TTY 登录界面），&quot;EFI stub 三行后黑屏&quot;结束&lt;&#x2F;strong&gt;。fb0 参数：640×480×32，stride 2560（= 640×4），即 UEFI GOP 模式本身（BMC 会做缩放）。probe 的宽高&#x2F;格式来自 sysfb 附在平台设备上的 &lt;strong&gt;platform_data&lt;&#x2F;strong&gt;（&lt;code&gt;simplefb_parse_pd&lt;&#x2F;code&gt;，由 screen_info 解析而来）——又一次证明无 DT 也能拿到显示参数。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-1-wan-lu-ji-lu-driver-override-yu-simplefb-mu-lu-chu-gao-de-cuo-yi-xiu-zheng&quot;&gt;5.1 弯路记录：driver_override 与 &quot;simplefb&quot; 目录（初稿的错，已修正）&lt;&#x2F;h3&gt;
+&lt;p&gt;初版排查时误以为 simplefb 是 DT-only、必须 &lt;code&gt;driver_override&lt;&#x2F;code&gt; 强绑，实际是&lt;strong&gt;多此一举&lt;&#x2F;strong&gt;，还原过程：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;先 &lt;code&gt;modprobe simplefb&lt;&#x2F;code&gt; —— &lt;strong&gt;这一刻绑定就已发生&lt;&#x2F;strong&gt;（dmesg 单条 probe 记录）；&lt;&#x2F;li&gt;
+&lt;li&gt;随后写入 &lt;code&gt;driver_override=simplefb&lt;&#x2F;code&gt; —— 绑定已完成后写入，无任何作用；且该残留值其实&lt;strong&gt;有害&lt;&#x2F;strong&gt;：override 会让未来只有名为 &lt;code&gt;simplefb&lt;&#x2F;code&gt; 的驱动能绑这个设备，而真实驱动名是 &lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt; → 解绑后将无法重绑（已清空）；&lt;&#x2F;li&gt;
+&lt;li&gt;手动 bind 报 &lt;code&gt;drivers&#x2F;simplefb&#x2F;bind: Directory nonexistent&lt;&#x2F;code&gt; —— 因为驱动目录真实名字是 &lt;strong&gt;&lt;code&gt;drivers&#x2F;simple-framebuffer&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（驱动名≠模块名），不是 &lt;code&gt;simplefb&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;决定性实验：清掉 override → 解绑 → &lt;strong&gt;不带 override 手动 bind&lt;&#x2F;strong&gt; → probe 成功、fb0 回来（见第十一节命令）。绑定机制 = platform bus 名字回退匹配。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：此修复已通过 107 initramfs 持久化并重启验证（见 7.3）——VGA 从 initramfs 阶段起有画面。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;liu-ji-zhi-bu-ke-fbcon-framebuffer-dev-fb0-de-guan-xi&quot;&gt;六、机制补课：fbcon &#x2F; framebuffer &#x2F; &#x2F;dev&#x2F;fb0 的关系&lt;&#x2F;h1&gt;
+&lt;p&gt;刚踩完坑，顺手把这三层关系理清（排查显示问题必须懂的结构）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;printk → console[tty0] → VT 子系统 → vtconN 绑定 → fbcon → fb_info → 显存 → 扫描输出
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;显示驱动&lt;&#x2F;strong&gt;（simplefb &#x2F; simpledrm &#x2F; efifb）：拥有显存、提供画点&#x2F;填充&#x2F;位块搬运原语。调用 &lt;code&gt;register_framebuffer()&lt;&#x2F;code&gt; 注册一个 &lt;code&gt;fb_info&lt;&#x2F;code&gt; 后，fbdev 核心（fbmem.c）才生成 &lt;code&gt;&#x2F;dev&#x2F;fb0&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;&#x2F;dev&#x2F;fb0&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：用户态访问同一个 &lt;code&gt;fb_info&lt;&#x2F;code&gt; 的窗口（open&#x2F;mmap&#x2F;ioctl 直接读写像素，如 &lt;code&gt;fbset&lt;&#x2F;code&gt;、截图）。&lt;strong&gt;内核控制台文字不走它&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;fbcon&lt;&#x2F;strong&gt;（framebuffer console）：VT 子系统的&quot;显示后端&quot;。VT 把字符交给 fbcon，fbcon 把字符点阵画进 &lt;code&gt;fb_info&lt;&#x2F;code&gt; 的显存。&lt;code&gt;&#x2F;sys&#x2F;class&#x2F;vtconsole&#x2F;vtcon1&#x2F;name&lt;&#x2F;code&gt; 从 &lt;code&gt;(S) dummy device&lt;&#x2F;code&gt; 变 &lt;code&gt;(M) frame buffer device&lt;&#x2F;code&gt; = fbcon 绑定成功。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;DRM 时代等价物&lt;&#x2F;strong&gt;：simpledrm 是 DRM 驱动，靠 &lt;code&gt;DRM_FBDEV_EMULATION=y&lt;&#x2F;code&gt; 的模拟层同样生成 &#x2F;dev&#x2F;fb0 供 fbcon 挂（另外提供 &#x2F;dev&#x2F;dri&#x2F;card0 给现代 GUI）。186 内核走的就是这条路。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以回头看第一节说的&quot;三个开关&quot;，第三格要修正：&lt;strong&gt;不是&quot;硬件没有显示驱动&quot;，而是&quot;驱动存在（&lt;code&gt;FB_EFI=y&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;FB_SIMPLE=m&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;DRM_SIMPLEDRM=m&lt;&#x2F;code&gt;），但模块没加载、且内置的 efifb 因 SYSFB_SIMPLEFB=y 永远等不到设备&quot;&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;6-1-platform-bus-pi-pei-gui-ze-wei-shen-me-simplefb-neng-zi-dong-bang-shang-sysfb-she-bei&quot;&gt;6.1 platform bus 匹配规则：为什么 simplefb 能自动绑上 sysfb 设备&lt;&#x2F;h2&gt;
+&lt;p&gt;platform bus 匹配 设备↔驱动 按序尝试 4 条规则（drivers&#x2F;base&#x2F;platform.c &lt;code&gt;platform_match&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;of_driver_match_device&lt;&#x2F;code&gt;：设备带 DT 节点且 compatible 命中驱动的 &lt;code&gt;of_match_table&lt;&#x2F;code&gt;（DT 匹配）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;acpi_driver_match_device&lt;&#x2F;code&gt;：ACPI 匹配&lt;&#x2F;li&gt;
+&lt;li&gt;驱动 &lt;code&gt;id_table&lt;&#x2F;code&gt; 命中设备名&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;兜底：&lt;code&gt;strcmp(pdev-&amp;gt;name, drv-&amp;gt;name)&lt;&#x2F;code&gt;——设备名 == 驱动名直接绑定&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;simplefb&#x2F;simpledrm 走的就是规则 4：它们的 &lt;code&gt;platform_driver.driver.name&lt;&#x2F;code&gt; 都叫 &lt;strong&gt;&lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（与 sysfb 设备同名；simpledrm 源码注释直白写着 &lt;code&gt;&#x2F;* connect to sysfb *&#x2F;&lt;&#x2F;code&gt;）。&lt;strong&gt;不需要 DT 节点、不需要 driver_override&lt;&#x2F;strong&gt;——当初以为&quot;DT-only 必须强绑&quot;是误判（5.1 弯路记录）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;查看 DT 配置的方法&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;是否 DT 启动：&lt;code&gt;ls &#x2F;proc&#x2F;device-tree&lt;&#x2F;code&gt;（存在 = DT 启动；本机是 ACPI 机，只有 &#x2F;sys&#x2F;firmware&#x2F;acpi）&lt;&#x2F;li&gt;
+&lt;li&gt;某设备是否有 DT 节点：&lt;code&gt;ls -la &#x2F;sys&#x2F;bus&#x2F;platform&#x2F;devices&#x2F;&amp;lt;设备&amp;gt;&#x2F;of_node&lt;&#x2F;code&gt;（本机 simple-framebuffer.0 无 of_node）&lt;&#x2F;li&gt;
+&lt;li&gt;DT 机上浏览结构：&lt;code&gt;ls &#x2F;proc&#x2F;device-tree&#x2F;&lt;&#x2F;code&gt;（目录=节点、文件=属性），如 &lt;code&gt;cat &#x2F;proc&#x2F;device-tree&#x2F;chosen&#x2F;stdout-path&lt;&#x2F;code&gt;、&lt;code&gt;ls &#x2F;proc&#x2F;device-tree&#x2F; | grep -i fb&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;设备 modalias：&lt;code&gt;cat ...&#x2F;modalias&lt;&#x2F;code&gt;——udev 靠它查模块（本机为 &lt;code&gt;platform:simple-framebuffer&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;6-2-simplefb-vs-simpledrm-fbdev-lao-jiang-vs-drm-ji-ren-zhe&quot;&gt;6.2 simplefb vs simpledrm：fbdev 老将 vs DRM 继任者&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;simplefb&lt;&#x2F;th&gt;&lt;th&gt;simpledrm&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;出身&lt;&#x2F;td&gt;&lt;td&gt;2013 年 fbdev 时代（ARM DT simple-framebuffer）&lt;&#x2F;td&gt;&lt;td&gt;5.14 加入的 DRM 化重写（源码注释 &lt;code&gt;connect to sysfb&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;API&lt;&#x2F;td&gt;&lt;td&gt;老 fbdev：register_framebuffer → &#x2F;dev&#x2F;fb0&lt;&#x2F;td&gt;&lt;td&gt;现代 DRM：&#x2F;dev&#x2F;dri&#x2F;card0（KMS&#x2F;atomic&#x2F;damage）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;fbcon 怎么用&lt;&#x2F;td&gt;&lt;td&gt;直接提供 fb0&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;DRM_FBDEV_EMULATION=y&lt;&#x2F;code&gt; 模拟层生成 fb0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;附带能力&lt;&#x2F;td&gt;&lt;td&gt;仅画&lt;&#x2F;td&gt;&lt;td&gt;格式转换、damage 刷新、标准 modeset 接口（GUI 可用）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本机&lt;&#x2F;td&gt;&lt;td&gt;107&#x2F;186 都有&lt;&#x2F;td&gt;&lt;td&gt;仅 186（在 linux-modules-extra）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;是&lt;strong&gt;官方路线上的迭代取代&lt;&#x2F;strong&gt;（fbdev→DRM 迁移，6.x 后老 fbdev 驱动陆续 obsolete），但同内核共存、绑定机制完全相同（都靠驱动名=设备名）。选型：只要控制台日志→两者等价；要 GUI 后路（&#x2F;dev&#x2F;dri）→simpledrm。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;6-3-modprobe-jiu-chuang-jian-liao-dev-fb0-yi-tiao-jian-jie-lian-lu&quot;&gt;6.3 &quot;modprobe 就创建了 &#x2F;dev&#x2F;fb0&quot;？——一条间接链路&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;modprobe simplefb&lt;&#x2F;code&gt; 并不直接创建设备，链路是：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;modprobe simplefb → driver_register → platform bus 对已有无驱动设备跑 attach 循环
+  → 规则 4 名字匹配 → probe() → 读 sysfb 附带的 platform_data（640×480×32 等参数）
+  → register_framebuffer() → fbdev 核心注册 fb_info → devtmpfs 自动生成 &amp;#x2F;dev&amp;#x2F;fb0（c 29:0）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所以&lt;strong&gt;真正起作用的只有&quot;加载模块&quot;一步&lt;&#x2F;strong&gt;；绑定、fb0、fbcon 接管都是内核自动完成的。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;qi-wei-shen-me-zao-qi-nei-he-ri-zhi-kan-bu-dao-fb-qu-dong-de-jia-zai-shi-ji-mang-qu&quot;&gt;七、为什么早期内核日志看不到？——fb 驱动的加载时机盲区&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;7-1-wen-ti-ben-zhi&quot;&gt;7.1 问题本质&lt;&#x2F;h2&gt;
+&lt;p&gt;fb 驱动若是&lt;strong&gt;模块&lt;&#x2F;strong&gt;（=m），要等根文件系统挂载、udev 运行（约开机 1 秒后）才加载；更早的内核日志（EFI stub 之后到 initramfs&#x2F;udev 之前）已经只进了串口和 dmesg ring buffer，&lt;strong&gt;fbcon 接管时不会&quot;回放&quot;启动日志&lt;&#x2F;strong&gt;（最多重画当前 VT 屏存的最后一屏）。所以即使修好了，VGA 也只能看到&quot;驱动加载之后&quot;的输出。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 验证&amp;quot;最后接入点&amp;quot;：dmesg 中 fb0 注册的时间戳（4055s = 运行中手动加载；重启后则是 initramfs&amp;#x2F;udev 阶段）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;7-2-rang-fb-qu-dong-ti-qian-initramfs-built-in&quot;&gt;7.2 让 fb 驱动提前：initramfs &#x2F; built-in&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;生效时机&lt;&#x2F;th&gt;&lt;th&gt;代价&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;udev 规则（根系统）&lt;&#x2F;td&gt;&lt;td&gt;~1s 后（udev 阶段）&lt;&#x2F;td&gt;&lt;td&gt;简单，但早期日志仍缺&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;initramfs 提前加载&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;etc&#x2F;initramfs-tools&#x2F;modules&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;initramfs 阶段起（约 1s，比 udev 早，根挂载前 fb0 就绪）&lt;&#x2F;td&gt;&lt;td&gt;需重建 initrd；模块一加载即自动绑定（见下）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;驱动编译为 built-in (=y)&lt;&#x2F;td&gt;&lt;td&gt;开机 ~0.4s（驱动先注册，sysfb 设备一出现即绑）&lt;&#x2F;td&gt;&lt;td&gt;本发行版 FB_SIMPLE&#x2F;DRM_SIMPLEDRM 都是 =m，需自编&#x2F;换内核&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;关键机制（初稿在此处判错过，修正）：&lt;strong&gt;simplefb 与 simpledrm 加载后都会立刻按名字自动绑定&lt;&#x2F;strong&gt;（驱动名 = &lt;code&gt;simple-framebuffer&lt;&#x2F;code&gt; = 设备名），所以塞进 initramfs&#x2F;模块列表都有效，&lt;strong&gt;不需要任何 udev 规则或 override&lt;&#x2F;strong&gt;。自动加载（autoload）盲区只在&quot;没有任何加载动作&quot;时存在：两个模块都只导出 &lt;code&gt;of:N...&lt;&#x2F;code&gt; 别名、没有 &lt;code&gt;platform:simple-framebuffer&lt;&#x2F;code&gt; 别名，udev 按设备 modalias 找不到可加载的模块——但只要 initramfs &lt;code&gt;&#x2F;etc&#x2F;initramfs-tools&#x2F;modules&lt;&#x2F;code&gt; 或根系统 &lt;code&gt;modules-load.d&lt;&#x2F;code&gt; 显式 modprobe，绑定即刻发生。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;7-3-ben-ji-yi-zuo-de-pei-zhi-186-nei-he-dai-zhong-qi-yan-zheng&quot;&gt;7.3 本机已做的配置（186 内核，待重启验证）&lt;&#x2F;h2&gt;
+&lt;p&gt;107 没有 simpledrm，所以 initramfs 方案绑定 186（选择 simpledrm 而非 simplefb 的理由：simpledrm 额外提供 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;card0&lt;&#x2F;code&gt;，为将来跑 GUI 留路；纯日志目标两者等价）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# &amp;#x2F;etc&amp;#x2F;initramfs-tools&amp;#x2F;modules 追加（先备份）
+sudo cp -n &amp;#x2F;etc&amp;#x2F;initramfs-tools&amp;#x2F;modules &amp;#x2F;etc&amp;#x2F;initramfs-tools&amp;#x2F;modules.bak-20260909
+echo simpledrm | sudo tee -a &amp;#x2F;etc&amp;#x2F;initramfs-tools&amp;#x2F;modules
+
+sudo update-initramfs -u -k 5.15.0-186-generic
+# 验证模块与依赖确实进了 initrd（simpledrm 依赖 drm&amp;#x2F;drm_kms_helper&amp;#x2F;fb_sys_fops&amp;#x2F;syscopyarea&amp;#x2F;sysfillrect&amp;#x2F;sysimgblt&amp;#x2F;cec&amp;#x2F;rc-core 共 9 个 ko）
+lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-5.15.0-186-generic | grep -E &amp;quot;simpledrm|drm_kms_helper|fb_sys_fops|sysimgblt&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;107 已按同法处理并&lt;strong&gt;重启验证通过&lt;&#x2F;strong&gt;（2026-09-09）：&lt;code&gt;&#x2F;etc&#x2F;initramfs-tools&#x2F;modules&lt;&#x2F;code&gt; 改为 &lt;code&gt;simplefb&lt;&#x2F;code&gt;（107&#x2F;186 模块集都有它；186 的 initrd 此前已按 simpledrm 生成，两内核各自生效、互不影响）。重启后实测时间轴（这台机器启动很慢，内核设备初始化 ~11s 才 Run &#x2F;init）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;[ 0.78s] Freeing initrd memory
+[10.82s] Run &amp;#x2F;init as init process        ← initramfs 开始
+[17.70s] simple-framebuffer.0: fb0: simplefb registered!   ← initramfs 阶段绑定
+[19.14s] EXT4-fs (sda2): mounted          ← 根挂载（之后才轮到真实 udev）
+[19.31s] systemd[1]: systemd 249 ... running
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;fb0 在根挂载前就绪 → &lt;strong&gt;VGA 显示覆盖 initramfs 阶段起的全部内容&lt;&#x2F;strong&gt;。若日后 186 想从 simpledrm 换回&#x2F;换用 simplefb：编辑 modules 文件（先加载者先绑设备）并 &lt;code&gt;update-initramfs -u -k 5.15.0-186-generic&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;重启验证用&lt;strong&gt;单次引导&lt;&#x2F;strong&gt;（NPU 驱动挑内核的疑虑未消除前不固化默认内核，见第九节）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl stop libvirtd        # 上次重启因 libvirt 保存 VM 的 inhibitor 卡 20 分钟
+sudo grub-reboot &amp;quot;Advanced options for Ubuntu&amp;gt;Ubuntu, with Linux 5.15.0-186-generic&amp;quot;   # 仅下一次启动生效
+sudo systemctl reboot
+# 期望：dmesg 早期出现 simple-framebuffer fb0 &amp;#x2F; simpledrm 注册，VGA 从 initramfs 阶段起有字
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;为何不直接换默认内核：107 被 hold 是因为查到华为 NPU 驱动（昇腾 310P）在高版本内核可能有问题（待确认）。186 与 107 同属 5.15 大版本、仅 SRU 点版本差异，风险理论很低，但仍用 grub-reboot 单次验证，出问题重启即回 107（GRUB 默认仍指向 107）。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;ba-graphical-target-zhi-mi-wei-shen-me-shi-tui-er-bu-shi-gui&quot;&gt;八、graphical.target 之谜：为什么是 TUI 而不是 GUI？&lt;&#x2F;h1&gt;
+&lt;p&gt;排查中发现 &lt;code&gt;systemctl get-default&lt;&#x2F;code&gt; 是 &lt;code&gt;graphical.target&lt;&#x2F;code&gt;，但 VGA&#x2F;HDMI 上始终是 TTY——查证结果：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ systemctl get-default
+graphical.target
+$ ls &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;display-manager.service   # 不存在
+$ dpkg -l | grep -E &amp;quot;gdm3|lightdm|sddm|gnome-shell&amp;quot;  # 什么都没装
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结论：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;graphical.target 只是 systemd 开关&lt;&#x2F;strong&gt;，唯一实质动作是拉起 &lt;code&gt;display-manager.service&lt;&#x2F;code&gt;；机器上根本没装任何显示管理器（连服务软链都不存在），所以 graphical.target 与 multi-user.target 效果完全一样——没有 DM 就没有进程画 GUI，屏幕只能是 fbcon 文本终端。多半是装 plymouth 或某组件时被顺手设的，无害但无意义。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;GUI 也依赖 fb&#x2F;DRM&lt;&#x2F;strong&gt;：fb&#x2F;DRM 是地基、GUI 是房子。没有 fb0&#x2F;DRM 时显示服务器（Xorg&#x2F;Wayland）根本无法启动（没有 scanout 目标）。所以&quot;先让 fb 工作&quot;是 GUI 的前提，与 target 无关——这也是为什么过去 graphical.target 挂着、VGA 却一直黑屏。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;HDMI 与 web IPMI 看到同一份画面&lt;&#x2F;strong&gt;是正常的：这台机器物理 VGA&#x2F;HDMI 和 IPMI KVM 视频都来自 iBMC 对同一显存窗口（Hi171x BAR0 = e4000000）的采集。&lt;&#x2F;li&gt;
+&lt;li&gt;若将来要跑真 GUI：simplefb 是纯 fbdev（无 &#x2F;dev&#x2F;dri），只能 Xorg+fbdev 老模式；现代 GNOME&#x2F;Wayland 需要 DRM 设备——186 + simpledrm 才有 &lt;code&gt;&#x2F;dev&#x2F;dri&#x2F;card0&lt;&#x2F;code&gt;（simpledrm 同时提供 &#x2F;dev&#x2F;fb0）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;jiu-dui-zhao-chuan-kou-wei-shen-me-neng-kan-quan-qi-dong-ri-zhi-earlycon-console-ji-zhi&quot;&gt;九、对照：串口为什么能看全启动日志？（earlycon &#x2F; console 机制）&lt;&#x2F;h1&gt;
+&lt;p&gt;VGA 看不全早期日志，串口却能——这正好引出一段经常混淆的机制（排查时对照本机 SPCR 输出很有用）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;9-1-console-ttys0-yu-earlycon-shi-liang-hui-shi&quot;&gt;9.1 console=ttyS0 与 earlycon 是两回事&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;console=ttyS0,115200&lt;&#x2F;code&gt;：走正常 console 框架（printk → console 子系统 → serial8250 console → UART）。&lt;strong&gt;console 注册和 tty 驱动初始化路径不同&lt;&#x2F;strong&gt;：console 在 start_kernel 早期就能注册并开始输出，而 &lt;code&gt;&#x2F;dev&#x2F;ttyS0&lt;&#x2F;code&gt; 是之后 serial 驱动 probe 才诞生的设备节点——console 输出不依赖 &#x2F;dev&#x2F;ttyS0 存在。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;earlycon=...&lt;&#x2F;code&gt;：真正的&quot;驱动框架还没初始化&quot;之前的输出。内核直接按参数给的&lt;strong&gt;类型 + 地址&lt;&#x2F;strong&gt;操作寄存器，不经过任何设备模型。例如 &lt;code&gt;earlycon=uart8250,io,0x3f8,115200&lt;&#x2F;code&gt;：内核知道这是 8250&#x2F;16550 兼容 UART，用固定寄存器布局（THR=+0、IER=+1、LCR=+3、LSR=+5…），轮询 LSR 的 THRE 位后直接写 THR。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;9-2-ying-jian-di-zhi-cong-na-lai&quot;&gt;9.2 硬件地址从哪来？&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;平台&lt;&#x2F;th&gt;&lt;th&gt;earlycon&#x2F;console 如何知道 UART 在哪&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;传统 x86&lt;&#x2F;td&gt;&lt;td&gt;固定 legacy 地址：ttyS0=COM1@0x3f8、ttyS1=COM2@0x2f8、ttyS2=COM3@0x3e8、ttyS3=COM4@0x2e8（注意：ACPI 时代 ttyS0 编号由枚举顺序决定，不再保证等于 COM1）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ARM&#x2F;ARM64（DT）&lt;&#x2F;td&gt;&lt;td&gt;device tree：&lt;code&gt;stdout-path = &quot;serial0:115200n8&quot;&lt;&#x2F;code&gt; 或 earlycon 无参时读 DT&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ACPI 机器&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;ACPI SPCR 表&lt;&#x2F;strong&gt;：固件声明&quot;控制台 UART 的类型&#x2F;地址&#x2F;波特率&quot;。本机 dmesg：&lt;code&gt;ACPI: SPCR: console: uart,mmio,0x3f00002f8,115200&lt;&#x2F;code&gt; → 于是 &lt;code&gt;console [ttyS0] enabled&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;EFI stub 阶段&lt;&#x2F;td&gt;&lt;td&gt;根本不是内核在输出——是 &lt;strong&gt;UEFI Simple Text Output（ConOut）&lt;&#x2F;strong&gt;，走 GOP 画面&#x2F;串口&#x2F;SOL 由固件配置决定。本机&quot;EFI stub 三行&quot;= 固件通过 GOP 画到 VGA&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;9-3-wei-shen-me-bu-shi-suo-you-chuan-kou-du-neng-earlycon&quot;&gt;9.3 为什么&quot;不是所有串口都能 earlycon&quot;？&lt;&#x2F;h2&gt;
+&lt;p&gt;PCI 串口（需要先枚举 PCI、找 BAR）无法用于最早期输出；传统固定 I&#x2F;O 端口（0x3f8 类）和 ARM SoC 固定 MMIO UART 最容易做 earlycon。ARM64 上还有 EFI 引导时会话：SPCR 常与&quot;固件串口重定向&quot;配套，即使内核参数里没写 console=，SPCR 也能让日志落到串口（这正是本机最初&quot;无 console= 时日志全走串口&quot;的原因）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;9-4-yu-ben-ji-xian-xiang-dui-qi-lai&quot;&gt;9.4 与本机现象对起来&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;串口（面板 &amp;#x2F; SOL &amp;#x2F; telnet）：EFI 阶段有 → earlycon&amp;#x2F;SPCR → console [ttyS0] → 全程可见
+VGA（HDMI &amp;#x2F; IPMI KVM）：EFI stub 三行（固件 GOP）→ 内核阶段：tty0 注册了但 fbcon 挂 dummy
+     → fb 驱动加载后：fbcon 接管，从加载时刻起可见（早期日志缺失）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;一句话：&lt;strong&gt;串口通道在&quot;内核刚醒来&quot;就有 SPCR&#x2F;earlycon 兜底，VGA 通道要等 fb 驱动出现才有画面来源&lt;&#x2F;strong&gt;——两个通道的&quot;最早可见时刻&quot;不同，不是同一个机制。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;9-5-zhui-wen-wei-shen-me-kvm-kan-dao-de-bi-sol-shao-na-me-duo-gu-jian-diao-shi-kou-vs-conout-printk-hui-fang&quot;&gt;9.5 追问：为什么 KVM 看到的比 SOL 少那么多？（固件调试口 vs ConOut，printk 回放）&lt;&#x2F;h2&gt;
+&lt;p&gt;对比同一台机器 SOL 与 web IPMI KVM 的实际输出，差异分三段，全部是机制使然：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;① 固件阶段（&lt;code&gt;SasBase=...&lt;&#x2F;code&gt;、&lt;code&gt;Initialize PCIe RAS&lt;&#x2F;code&gt;、&lt;code&gt;[Bds]Booting ubuntu&lt;&#x2F;code&gt;、&lt;code&gt;XHCI HC reset&lt;&#x2F;code&gt;、&lt;code&gt;IPMI ExitBootService Event&lt;&#x2F;code&gt;、&lt;code&gt;BIOS boot completed&lt;&#x2F;code&gt;）——SOL 有、KVM 无：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;SOL 拿到的是 BIOS 的&lt;strong&gt;串口调试日志&lt;&#x2F;strong&gt;（serial debug console）——华为 BIOS 几乎所有阶段文本都只写这个口，从不经过显示设备；&lt;&#x2F;li&gt;
+&lt;li&gt;KVM&#x2F;VGA 只能看到 **UEFI ConOut（GOP 图形文本）**真正画出来的内容（本机即&quot;EFI stub 三行&quot;）。&lt;code&gt;SmiGraphicsOutputQueryMode&lt;&#x2F;code&gt; 这类 VGA 驱动查模式的日志也是串口调试输出，不上屏。&lt;&#x2F;li&gt;
+&lt;li&gt;固件阶段&quot;调试日志 ≠ 显示输出&quot;，两套通道内容源不同。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;② 内核早期（&lt;code&gt;Booting Linux on physical CPU 0x...&lt;&#x2F;code&gt; 到 ACPI RSDP 等几百行）——SOL 全量、KVM 全无：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;此时 printk 控制台尚未就绪：&lt;code&gt;console [tty0]&lt;&#x2F;code&gt; 0.0005s 注册但无 fb 驱动可画（dummy，不产生像素）；&lt;code&gt;console [ttyS0]&lt;&#x2F;code&gt; 0.774s 才注册；&lt;&#x2F;li&gt;
+&lt;li&gt;printk 输出先进&lt;strong&gt;环形缓冲&lt;&#x2F;strong&gt;（dmesg），第一个 console 注册时&lt;strong&gt;整体回放&lt;&#x2F;strong&gt; → 0.774s ttyS0 一注册就把从第一行起的全部日志吐到串口 → SOL 完整；&lt;&#x2F;li&gt;
+&lt;li&gt;VGA 侧没有驱动就没有画面来源，等 fb0（本机 initramfs ~17.7s）出现时&lt;strong&gt;不会重放 ring buffer&lt;&#x2F;strong&gt; → 早期日志只存在于 SOL&#x2F;dmesg。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;③ fb0 之后（initramfs 起）——&quot;屏幕&quot; vs &quot;终端流&quot;：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;KVM 只显示&lt;strong&gt;当前一屏&lt;&#x2F;strong&gt;（本机 640×480 → fbcon 80×30 字符 ≈ 30 行），新输出顶掉旧行；SOL 是终端流，客户端保留全部历史可回滚；&lt;&#x2F;li&gt;
+&lt;li&gt;userspace 阶段 journald 收日志，console 上只剩内核消息 + getty → KVM 长时间静止的登录界面，观感差距更大。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：SOL = 全量日志流（固件调试口 + printk 回放 + 终端滚动），KVM = 实时屏幕（ConOut + fbcon 当前屏，无历史无回放）。从头看日志用 SOL&#x2F;dmesg；KVM 只看&quot;此刻画面&quot;——与 fb 修复无关，是通道设计差异。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-xian-zhuang-yu-dai-ban&quot;&gt;十、现状与待办&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+console=tty0 注册（实验，无副作用，配置保留）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+确认 screen_info&#x2F;GOP 有效（BOOTFB + simple-framebuffer.0 证据）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+107 现场点亮 VGA（modprobe simplefb 即自动绑定）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+澄清绑定机制：驱动名=设备名（simple-framebuffer），DT&#x2F;override 都不需要（5.1 弯路记录）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+186 initrd 打入 simpledrm（update-initramfs + lsinitramfs 验证依赖齐全）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot; checked=&quot;&quot;&#x2F;&gt;
+&lt;strong&gt;107 initramfs 持久化 + 重启验证&lt;&#x2F;strong&gt;（simplefb 入 107 initrd；重启后 fb0 于 initramfs 阶段绑定，[17.7s] &amp;lt; 根挂载 [19.1s]，见 7.3）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot;&#x2F;&gt;
+重启进 186 验证 initramfs 方案（grub-reboot 单次引导，见 7.3）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot;&#x2F;&gt;
+确认华为 NPU 驱动在 186 上的兼容性（107 hold 的原始顾虑）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;input disabled=&quot;&quot; type=&quot;checkbox&quot;&#x2F;&gt;
+（可选）确认 640×480 GOP 模式能否调大 &#x2F; 是否需要&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;回退方法（与旧文一致）：&lt;code&gt;sudo cp &#x2F;etc&#x2F;default&#x2F;grub.bak-tty0 &#x2F;etc&#x2F;default&#x2F;grub &amp;amp;&amp;amp; sudo update-grub&lt;&#x2F;code&gt; 可整体还原命令行；&lt;code&gt;console=ttyS0,115200 console=tty0&lt;&#x2F;code&gt; 保留本身无副作用（tty0 挂不上 fb 时只是哑设备）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-yi-pai-cha-ming-ling-qing-dan-fu-yong&quot;&gt;十一、排查命令清单（复用）&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;proc&amp;#x2F;cmdline                                  # 看有没有 console=
+cat &amp;#x2F;proc&amp;#x2F;iomem | grep -B3 -A3 BOOTFB              # GOP 帧缓冲区段（尺寸可反推分辨率：0x12c000=640×480×32）
+ls &amp;#x2F;sys&amp;#x2F;bus&amp;#x2F;platform&amp;#x2F;devices&amp;#x2F; | grep -i framebuffer  # sysfb 是否已注册 simple-framebuffer 设备（有没有驱动在等）
+ls &amp;#x2F;sys&amp;#x2F;bus&amp;#x2F;platform&amp;#x2F;devices&amp;#x2F;simple-framebuffer.0&amp;#x2F;driver 2&amp;gt;&amp;amp;1  # 空 = 没绑定
+grep -E &amp;quot;^CONFIG_(SYSFB|SYSFB_SIMPLEFB|FB_EFI|FB_SIMPLE|DRM_SIMPLEDRM)&amp;quot; &amp;#x2F;boot&amp;#x2F;config-$(uname -r)
+find &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;modules&amp;#x2F;$(uname -r)&amp;#x2F;kernel -name &amp;quot;*.ko*&amp;quot; | grep -iE &amp;quot;simple|efifb&amp;quot;  # 模块库存
+sudo modprobe simplefb                            # 加载即自动绑定（驱动名=simple-framebuffer）
+# 手动解绑&amp;#x2F;重绑（注意驱动目录名是 simple-framebuffer，不是 simplefb）：
+#   echo simple-framebuffer.0 &amp;gt; &amp;#x2F;sys&amp;#x2F;bus&amp;#x2F;platform&amp;#x2F;drivers&amp;#x2F;simple-framebuffer&amp;#x2F;unbind
+#   echo simple-framebuffer.0 &amp;gt; &amp;#x2F;sys&amp;#x2F;bus&amp;#x2F;platform&amp;#x2F;drivers&amp;#x2F;simple-framebuffer&amp;#x2F;bind
+sudo dmesg | grep -E &amp;quot;simple-framebuffer|Console: switching|fb[0-9]:&amp;quot;
+ls &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;graphics&amp;#x2F; &amp;amp;&amp;amp; cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;vtconsole&amp;#x2F;vtcon*&amp;#x2F;name
+sudo fbset -i                                   # fb0 分辨率&amp;#x2F;位深（无 fbset 可读 virtual_size&amp;#x2F;bits_per_pixel）
+# initramfs 方案（simplefb&amp;#x2F;simpledrm 均可，加载即绑定；无需 udev 规则&amp;#x2F;override）
+echo simpledrm | sudo tee -a &amp;#x2F;etc&amp;#x2F;initramfs-tools&amp;#x2F;modules
+sudo update-initramfs -u -k 5.15.0-186-generic
+lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-5.15.0-186-generic | grep -E &amp;quot;simpledrm|drm_kms_helper|fb_sys_fops&amp;quot;
+# 单次引导测试内核
+sudo grub-reboot &amp;quot;Advanced options for Ubuntu&amp;gt;Ubuntu, with Linux 5.15.0-186-generic&amp;quot;
+# 串口机制对照
+sudo dmesg | grep -E &amp;quot;SPCR|earlycon|console \[tty&amp;quot;   # SPCR&amp;#x2F;earlycon&amp;#x2F;console 注册链
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>昇腾服务器根分区只读故障：ext4 日志中止 → 远程 fsck + IPMI 全程修复记录</title>
+        <published>2026-09-08T22:43:33+08:00</published>
+        <updated>2026-09-08T22:43:33+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/"/>
+        <id>https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/">&lt;h1 id=&quot;yi-bei-jing-yu-shi-gu-huan-jing&quot;&gt;一、背景与事故环境&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;服务器&lt;&#x2F;td&gt;&lt;td&gt;鲲鹏 920 aarch64 &#x2F; 128 核 &#x2F; 250GB 内存（TaiShan 200 Model 2280）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;加速卡&lt;&#x2F;td&gt;&lt;td&gt;2× Atlas 300I Duo = 4× 310P3，每芯 44GB LPDDR4X&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;系统盘&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sda 500GB（单盘无 RAID），&#x2F;dev&#x2F;sda2 为 ext4 根分区&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;数据盘&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sdb2 8.7TB，挂载于 &#x2F;data（模型权重等大数据）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;BMC&lt;&#x2F;td&gt;&lt;td&gt;iBMC 3.03.00.69（Web 192.168.6.100，无独立 SOL 客户端功能）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;业务&lt;&#x2F;td&gt;&lt;td&gt;vLLM 推理服务（Qwen3.8-27B w8a8）、虚拟机 u24、ollama、opencode-web&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;一句话结论&lt;&#x2F;strong&gt;：根分区只读是 &lt;strong&gt;&#x2F;dev&#x2F;sda 块层真实 I&#x2F;O 失败&lt;&#x2F;strong&gt;（一次 WRITE + 一次 DISCARD，扇区约 250GB 偏移）→ ext4 journal abort → 内核自我保护重挂 RO。恢复路径：&lt;strong&gt;initramfs 停在 BusyBox 等待人工 fsck → ipmitool SOL 直连 → &lt;code&gt;fsck.ext4 -fy &#x2F;dev&#x2F;sda2&lt;&#x2F;code&gt; → 重启&lt;&#x2F;strong&gt;，一次成功。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;er-shi-gu-shi-jian-xian&quot;&gt;二、事故时间线&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;时间（CST）&lt;&#x2F;th&gt;&lt;th&gt;事件&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 00:25:27&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sda 块层 I&#x2F;O 错误（WRITE + DISCARD）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 00:25:28&lt;&#x2F;td&gt;&lt;td&gt;ext4 检测 journal abort，内核自动重挂根分区分只读&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 ~ 9&#x2F;8&lt;&#x2F;td&gt;&lt;td&gt;系统&quot;带病运行&quot;约 39 小时（journald 持续报 Read-only，服务仍在内存里跑）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 18:2x&lt;&#x2F;td&gt;&lt;td&gt;计划在 :8001 做单卡&#x2F;双卡 TP 压测 → 发现 docker exec 报 read-only → 定位根分区 RO&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 19:0x&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;systemctl reboot&lt;&#x2F;code&gt; 触发（系统关机卡在 libvirt inhibitor，约 20 分钟后真正重启）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:02&lt;&#x2F;td&gt;&lt;td&gt;主机重启，EFI → 内核接管后无网络（VGA 黑屏）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:40&lt;&#x2F;td&gt;&lt;td&gt;经 BMC 强制断电再开机，仍无网络（其实是停在 initramfs 等 fsck）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:5x~21:4x&lt;&#x2F;td&gt;&lt;td&gt;IPMI 系列排查（视频&#x2F;CLP&#x2F;SOL 全试），最终靠串口采集包拿到启动日志&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 22:1x&lt;&#x2F;td&gt;&lt;td&gt;ipmitool SOL 直连 → 发现 BusyBox &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; → &lt;code&gt;fsck.ext4 -fy&lt;&#x2F;code&gt; 修复&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 22:23&lt;&#x2F;td&gt;&lt;td&gt;重启成功，端口 22 恢复，根分区 rw、fs clean&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;san-shi-gu-fa-xian-yi-ge-docker-exec-bao-read-only-de-xian-suo&quot;&gt;三、事故发现：一个&quot;docker exec 报 read-only&quot;的线索&lt;&#x2F;h1&gt;
+&lt;p&gt;即将开始压测时，先做一次服务状态盘点，命令本身暴露了异常：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 对容器执行运行时操作，报错：
+# OCI runtime exec failed: open &amp;#x2F;tmp&amp;#x2F;runc-process1480382453: read-only file system
+docker rm -f &amp;lt;服务容器&amp;gt;    # cannot remove container: read-only file system
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;随后系统级检查直指根因：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mount | grep &amp;quot; &amp;#x2F; &amp;quot;
+# &amp;#x2F;dev&amp;#x2F;sda2 on &amp;#x2F; type ext4 (ro,relatime)   ← 根分区只读！
+df -hT &amp;#x2F;                                # 显示 &amp;#x2F;dev&amp;#x2F;sda2 有 328G 可用——df 不看挂载选项，容易误判
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;教训 1&lt;&#x2F;strong&gt;：&lt;code&gt;df&lt;&#x2F;code&gt; 显示&quot;可用空间正常&quot;不代表可写；判断可写性要看 &lt;code&gt;mount&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;findmnt&lt;&#x2F;code&gt; 的 &lt;code&gt;ro&#x2F;rw&lt;&#x2F;code&gt; 选项。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;si-gen-yin-pai-cha-dmesg-yi-chui-ding-yin&quot;&gt;四、根因排查：dmesg 一锤定音&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;4-1-san-ge-guan-jian-zheng-ju&quot;&gt;4.1 三个关键证据&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 块层错误（真凶）
+dmesg -T | grep -iE &amp;quot;blk_update|i&amp;#x2F;o error&amp;quot;
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 466055824 op 0x3:(DISCARD)
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 491035880 op 0x1:(WRITE)
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 491035880 op 0x1:(WRITE)
+
+# ② 日志中止 → 内核自我保护
+dmesg -T | grep -iE &amp;quot;aborted|Remounting&amp;quot;
+# [9&amp;#x2F;7 00:25:28] EXT4-fs error (device sda2): ext4_journal_check_start:83: comm systemd-journal: Detected aborted journal
+# [9&amp;#x2F;7 00:25:28] EXT4-fs (sda2): Remounting filesystem read-only   （连续两行）
+
+# ③ 文件系统元数据损伤
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior&amp;quot;
+# Filesystem state:         clean with errors   ← 错误标记挡住 remount,rw
+# Errors behavior:          Continue
+blockdev --getro &amp;#x2F;dev&amp;#x2F;sda2; cat &amp;#x2F;sys&amp;#x2F;block&amp;#x2F;sda&amp;#x2F;ro   # 0 &amp;#x2F; 0 —— 设备层没写保护，纯文件系统层问题
+
+e2fsck -fn &amp;#x2F;dev&amp;#x2F;sda2   (只读预检，安全)
+# Inode bitmap differences ... Block bitmap differences: Group 1977 block bitmap does not match checksum.
+# &amp;#x2F;dev&amp;#x2F;sda2: WARNING: Filesystem still has errors
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结论链条：&lt;strong&gt;块层 WRITE 失败 → JBD2 日志中止 → 内核重挂 RO → ext4 记录&quot;errors&quot;状态 → &lt;code&gt;mount -o remount,rw&lt;&#x2F;code&gt; 被内核拒绝（报 is write-protected）→ 必须 fsck 清错误&lt;&#x2F;strong&gt;。同时确认：磁盘没有 RAID 保护（&#x2F;dev&#x2F;sda 单盘直连），任何坏区都是致命的。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-2-wei-shen-me-bu-neng-zai-xian-xiu-fu&quot;&gt;4.2 为什么不能在线修复&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;根分区正被内核独占挂载，&lt;code&gt;e2fsck&lt;&#x2F;code&gt; 无法离线执行；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;tune2fs -c 1&lt;&#x2F;code&gt;（让下次挂载强制 fsck）+ &lt;code&gt;reboot&lt;&#x2F;code&gt; 是正路，但远程执行的 &lt;code&gt;systemctl reboot&lt;&#x2F;code&gt; 卡在 &lt;strong&gt;libvirt 的 shutdown inhibitor&lt;&#x2F;strong&gt;（&quot;Virtual machines need to be saved&quot;，保存 VM 写盘时又碰上 RO），约二十分钟后关机才真正发生；&lt;&#x2F;li&gt;
+&lt;li&gt;重启后内核照常接管，但 VGA 黑屏、无网络——第一次误判为&quot;fsck 卡死&#x2F;内核挂死&quot;，其实机器好的，只是&lt;strong&gt;在 initramfs 里等人工确认&lt;&#x2F;strong&gt;（详见第五节）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;wu-ipmi-pai-cha-shi-pin-kong-zhi-tai-mei-hua-mian-de-zhen-xiang-rao-guo-zhong-ju&quot;&gt;五、IPMI 排查：视频控制台&quot;没画面&quot;的真相 + 绕过终局&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;5-1-wei-shen-me-ipmi-kvm-kan-bu-dao-qi-dong-hua-mian&quot;&gt;5.1 为什么 IPMI KVM 看不到启动画面&lt;&#x2F;h2&gt;
+&lt;p&gt;BMC（iBMC 3.03）视频控制台 &#x2F; KVM 只镜像&lt;strong&gt;显卡&#x2F;VGA&lt;&#x2F;strong&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;EFI stub: Booting Linux Kernel...
+EFI stub: Using DTB from configuration table
+EFI stub: Exiting boot services...
+（之后黑屏）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这行 EFI stub 是 UEFI&#x2F;EfiStub 用图形控制台打的最后输出；&lt;strong&gt;内核接管后默认走串口（ttyS0）&lt;&#x2F;strong&gt;，VGA 就再也没内容了——不是 IPMI 没用，是&quot;音频源&quot;开着串口，看错了窗口。这是 ARM 服务器（鲲鹏）的典型配置。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-2-ibmc-tan-suo-yi-lun-sol-ke-hu-duan-quan-que-xi&quot;&gt;5.2 iBMC 探索一轮：SOL 客户端全缺席&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;尝试&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Web 远程控制台 kvm_h5&lt;&#x2F;td&gt;&lt;td&gt;只有视频+工具栏，图标全是 icon-font，DOM 里没有&quot;串口&quot;切换项；我的浏览器页面 &lt;code&gt;Frame:0&#x2F;Send:0&#x2F;Recv:0&lt;&#x2F;code&gt;（第二个视频会话拿不到流）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Web 端口服务页&lt;&#x2F;td&gt;&lt;td&gt;未提供 SOL 端口信息（该机型固件无此功能）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;iBMC SSH CLP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sol&lt;&#x2F;code&gt; → &lt;code&gt;COMMAND NOT SUPPORTED&lt;&#x2F;code&gt;；&lt;code&gt;help&lt;&#x2F;code&gt; 只列 ipmcget&#x2F;ipmcset&#x2F;…；无串口命令&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ipmcset -d serialdir&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;有！&lt;&#x2F;strong&gt; 选项表看清了串口方向矩阵：&lt;code&gt;0 PANEL↔SYS&lt;&#x2F;code&gt;（默认，物理面板）、&lt;code&gt;1 PANEL↔BMC&lt;&#x2F;code&gt;、&lt;code&gt;2 SOL COM↔SYS COM&lt;&#x2F;code&gt;、&lt;code&gt;254 关闭&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;下载系统串口采集包（最近 2MB 环，存 BMC 本地 &#x2F;tmp&#x2F;systemcom.tar）——&lt;strong&gt;这是本事故的破局点&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;5-3-po-ju-chuan-kou-fang-xiang-qie-dao-sol-cai-ji-bao-ti-qu&quot;&gt;5.3 破局：串口方向切到 SOL + 采集包提取&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;ipmcset -d serialdir -v 2&lt;&#x2F;code&gt;（SOL COM↔SYS COM）→ 此后机器的串口输出会&lt;strong&gt;灌进 BMC 的采集环&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt; → BMC 打包 &lt;code&gt;&#x2F;tmp&#x2F;systemcom.tar&lt;&#x2F;code&gt;（2MB）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SFTP 取文件&lt;&#x2F;strong&gt;（iBMC 的 SSH ControlMaster 复用，无需再输密码）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tmux new-session -d -s cm &amp;#x27;cd &amp;#x2F;tmp &amp;amp;&amp;amp; sftp Administrator@192.168.6.100&amp;#x27;
+# sftp&amp;gt; cd &amp;#x2F;tmp; get systemcom.tar     → 本地拿到 2MB
+tar -xf systemcom.tar &amp;amp;&amp;amp; strings systemcom.dat | tail -60
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;4&quot;&gt;
+&lt;li&gt;&lt;strong&gt;启动日志最后一屏直接掀翻所有猜测&lt;&#x2F;strong&gt;：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre&gt;&lt;code&gt;Begin: Will now check root file system ... fsck.ext4 -a -C0 &amp;#x2F;dev&amp;#x2F;sda2
+&amp;#x2F;dev&amp;#x2F;sda2 contains a file system with errors, check forced.
+&amp;#x2F;dev&amp;#x2F;sda2: |                0.1%
+&amp;#x2F;dev&amp;#x2F;sda2: Inodes that were part of a corrupted orphan linked list found.
+&amp;#x2F;dev&amp;#x2F;sda2: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY.  (i.e., without -a or -p options)
+fsck exited with status code 4
+Failure: File system check of the root filesystem failed
+The root filesystem on &amp;#x2F;dev&amp;#x2F;sda2 requires a manual fsck
+BusyBox v1.30.1 (Ubuntu 1:1.30.1-7ubuntu3.1) built-in shell (ash)
+Enter &amp;#x27;help&amp;#x27; for a list of built-in commands
+(initramfs)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;机器&lt;strong&gt;根本没死&lt;&#x2F;strong&gt;：initramfs 里 &lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt;（自动模式）遇到&quot;UNEXPECTED INCONSISTENCY&quot;不会擅自修复 → 状态码 4 → drop 到 &lt;strong&gt;BusyBox 交互 shell 等人工 fsck&lt;&#x2F;strong&gt;。注意：此时内核已在跑，所以 BMC 的&quot;Power state On&quot;、EFI&#x2F;VGA 黑屏、端口 22 不通，全部自洽了。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训 2&lt;&#x2F;strong&gt;：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt; 不等于 &lt;code&gt;-y&lt;&#x2F;code&gt;。生产上 initramfs 卡在 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 提示符时，先看控制台（串口&#x2F;SOL&#x2F;采集包），机器往往只是要你带 &lt;code&gt;-y&lt;&#x2F;code&gt; 再跑一次。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-4-zui-hou-yi-gong-li-ipmitool-sol-zhi-lian&quot;&gt;5.4 最后一公里：ipmitool SOL 直连&lt;&#x2F;h2&gt;
+&lt;p&gt;Web 和 CLP 都没有 SOL 通道，但 &lt;strong&gt;IPMI LAN SOL 协议还在&lt;&#x2F;strong&gt;——用 ipmitool 走 lanplus 即可，密码也是 BMC 的 Administrator 密码（输密码时无回显，不会暴露）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地机安装 ipmitool（1.8.19）后，tmux 里起会话让用户在屏幕上输密码
+ipmitool -I lanplus -H 192.168.6.100 -U Administrator sol activate
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;连上后 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 就在眼前——&lt;strong&gt;这回是真正能输入输出串口控制台&lt;&#x2F;strong&gt;。执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;fsck.ext4 -fy &amp;#x2F;dev&amp;#x2F;sda2
+# Fix? yes  × 若干轮
+# &amp;#x2F;dev&amp;#x2F;sda2: 1188994&amp;#x2F;30457856 files, 29874374&amp;#x2F;121820928 blocks  （10-20 秒完成，无坏块挂死！）
+sync &amp;amp;&amp;amp; reboot -f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;20 秒修完——&lt;strong&gt;之前&quot;fsck 卡死几小时&quot;的假设是错的，纯粹是停在提示符等人&lt;&#x2F;strong&gt;。盘虽然坏了一次写，元数据修复后整体可用。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;liu-ke-fu-yong-su-cha&quot;&gt;六、可复用速查&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 确认根分区 RO
+mount | grep &amp;quot; &amp;#x2F; &amp;quot;
+
+# ② 找真凶
+dmesg | grep -iE &amp;quot;blk_update_request.*I&amp;#x2F;O error|aborted journal|Remounting&amp;quot;
+
+# ③ 评估修到哪一步
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior&amp;quot;   # clean with errors = 需 fsck
+e2fsck -fn &amp;#x2F;dev&amp;#x2F;sda2                    # 只读预检（安全）
+blockdev --getro &amp;#x2F;dev&amp;#x2F;sda2; cat &amp;#x2F;sys&amp;#x2F;block&amp;#x2F;sda&amp;#x2F;ro
+
+# ④ 路由串口到 SOL（iBMC）
+ipmcset -d serialdir -v 2   # SOL COM↔SYS COM（0=PANEL↔SYS 物理面板，用完切回）
+
+# ⑤ 拉串口采集包（BMC 已录最近 2MB 串口输出）
+ipmcget -d systemcom        # 生成 &amp;#x2F;tmp&amp;#x2F;systemcom.tar（BMC 侧）
+sftp Administrator@&amp;lt;bmc-ip&amp;gt;; cd &amp;#x2F;tmp; get systemcom.tar
+
+# ⑥ 直连 SOL 键盘交互
+ipmitool -I lanplus -H &amp;lt;bmc-ip&amp;gt; -U Administrator sol activate
+# → (initramfs) 里: fsck.ext4 -fy &amp;#x2F;dev&amp;#x2F;sda2 &amp;amp;&amp;amp; sync &amp;amp;&amp;amp; reboot -f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;qi-yan-shen-zhe-qi-shi-gu-yin-chu-de-liang-ge-wei-shen-me-grub-yu-initramfs&quot;&gt;七、延伸：这起事故引出的两个&quot;为什么&quot;（GRUB 与 initramfs）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;7-1-wei-shen-me-qi-dong-yao-guo-liang-ge-efi-cheng-xu-shim-grub&quot;&gt;7.1 为什么启动要过&quot;两个 EFI 程序&quot;（shim → grub）？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;背景&lt;&#x2F;strong&gt;：UEFI Secure Boot 开启时，固件只执行&quot;白名单签名&quot;的 EFI 程序（主板出厂烙有板厂 CA + Microsoft UEFI CA）。Linux 发行版的 grubaa64.efi、vmlinuz 用发行版自己的密钥签名，固件不认 → 直接加载 grub 会被拒绝。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;shim 的由来与作用&lt;&#x2F;strong&gt;：微软为第三方发行版开的&quot;前门&quot;（GPL，Red Hat 维护，微软 UEFI CA 签名）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;固件（信任：微软 UEFI CA）→ shimaa64.efi（微软 CA 签，全主板都认）
+       → shim 内嵌发行版 CA key（Canonical）→ 验签加载 grubaa64.efi
+       → grub 经 shim 验证接口（shim lock）验签加载 vmlinuz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;好处：内核高频更换不用重新过微软审核；发行版只维护一个信任锚（CA）；shim 还提供 &lt;strong&gt;MOK&lt;&#x2F;strong&gt;（Machine Owner Key，&lt;code&gt;mokutil&lt;&#x2F;code&gt; 导入自签密钥即可在 SB 下跑第三方内核&#x2F;驱动）。&lt;&#x2F;li&gt;
+&lt;li&gt;这就是&quot;两段 EFI&quot;的根因：&lt;strong&gt;固件信任的不是 grub，而是微软签的 shim&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;本机实测（Secure Boot 关闭，shim 退化为直通）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;efibootmgr -v
+# BootCurrent: 0004
+# Boot0004* ubuntu   → File(\EFI\ubuntu\shimaa64.efi)          ← 当前（Ubuntu 安装器固定以 shim 开链）
+# Boot0002* Uefi Debian Grub Boot → File(\EFI\debian\grubaa64.efi)  ← 裸 grub 入口（SB 开启后将失效）
+
+sudo mokutil --sb-state              # SecureBoot disabled（本机）
+sudo dmesg | grep -iE &amp;quot;secureboot|secure boot&amp;quot; | head
+ls &amp;#x2F;boot&amp;#x2F;efi&amp;#x2F;EFI&amp;#x2F;ubuntu&amp;#x2F;             # shimaa64.efi &amp;#x2F; grubaa64.efi &amp;#x2F; grub.cfg
+cat &amp;#x2F;boot&amp;#x2F;efi&amp;#x2F;EFI&amp;#x2F;ubuntu&amp;#x2F;grub.cfg    # 实际指向 &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;Secure Boot 查看&#x2F;管理相关命令速查&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 查看 ——
+mokutil --sb-state                            # enabled &amp;#x2F; disabled
+efibootmgr -v                                 # 启动条目、BootCurrent、TimeOut
+dmesg | grep -iE &amp;quot;secureboot|secure boot&amp;quot;     # 内核声明
+cat &amp;#x2F;sys&amp;#x2F;firmware&amp;#x2F;efi&amp;#x2F;efivars&amp;#x2F;SecureBoot-*    # 原始变量（8 字节，末尾 ff 为开）
+
+# —— 管理（建议手动在固件 UI 改，命令行仅作应急）——
+sudo efibootmgr -o 0004,0002,0000,0001        # 调整 BootOrder
+sudo efibootmgr -n 0004                       # 一次性 BootNext（下次启动有效）
+sudo efibootmgr -b 0004 -n                    # 临时禁用某条目（加回用 -a）
+sudo mokutil --import &amp;lt;my-key&amp;gt;.der            # 导入 MOK（重启后在 MOK 界面确认&amp;#x2F;输入口令）
+sudo mokutil --list-enrolled                  # 已导入的自签密钥
+sudo mokutil --disable-validation             # 关闭 shim 对内核的验证（草率，不推荐）
+
+# —— 安装&amp;#x2F;重建引导（确认签名链）——
+sudo grub-install --efi-directory=&amp;#x2F;boot&amp;#x2F;efi --bootloader-id=ubuntu
+sudo update-grub                               # 或 grub2-mkconfig -o &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;⚠️ 本机 cmdline 没有 &lt;code&gt;console=&lt;&#x2F;code&gt;，内核控制台来自 DTB &lt;code&gt;stdout-path&lt;&#x2F;code&gt;（串口）——这正是&quot;IPMI 视频只有 EFI 三行、串口才有内核日志&quot;的机制来源。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;7-2-wei-shen-me-zhong-qi-hou-ting-zai-busybox-initramfs-de-lin-shi-yong-hu-tai&quot;&gt;7.2 为什么重启后停在 BusyBox？—— initramfs 的&quot;临时用户态&quot;&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;完整启动阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;UEFI 固件（Boot0004）→ shim → grub（菜单 10s）→ vmlinuz&amp;#x2F;initrd.img
+  → 内核：CPU&amp;#x2F;内存&amp;#x2F;驱动初始化（日志 CPU53-57 Booted，约 20s）
+  → 解压 initramfs 为 &amp;#x2F; 上的 tmpfs → 执行 &amp;#x2F;init（initramfs-tools 的 shell 脚本）  ← 已进入&amp;quot;用户态①&amp;quot;
+  → &amp;#x2F;init：加载驱动 → 挂载根盘前先做 fsck 检查
+  → fsck.ext4 -a 发现 UNEXPECTED INCONSISTENCY（roots: -a 不自动修，exit 4）
+  → 判&amp;quot;根文件系统需要人工 fsck&amp;quot; → drop 到 BusyBox ash：(initramfs)  ← 用户态① 的救援 shell
+  → （人工 fsck 修复后 reboot →）再走一遍：挂根盘 → systemd → 完整用户态② → 网络
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;要点&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;(initramfs)&lt;&#x2F;code&gt; &lt;strong&gt;是用户态&lt;&#x2F;strong&gt;（busybox 程序在跑），但只是 &lt;strong&gt;initramfs&#x2F;临时用户态&lt;&#x2F;strong&gt;：根文件系统&lt;strong&gt;未挂载&lt;&#x2F;strong&gt;，systemd、网络、账号、磁盘分区全都不存在 → 端口 22 不通、VGA 黑屏（日志走串口），看起来&quot;死机&quot;其实在等你敲命令；&lt;&#x2F;li&gt;
+&lt;li&gt;卡住的直接原因：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt;（auto 模式）对&quot;意外的文件系统不一致&quot;选择&lt;strong&gt;拒绝修复&lt;&#x2F;strong&gt;（状态码 4），Ubuntu initramfs 策略规范（不自动修复 on-disk 不一致），drop 到 BusyBox 的脚本行为是 &lt;code&gt;run-init.sh&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;boot-*.sh&lt;&#x2F;code&gt; 内置逻辑；&lt;&#x2F;li&gt;
+&lt;li&gt;BusyBox 来自 initramfs-tools 依赖的 &lt;code&gt;busybox-initramfs&lt;&#x2F;code&gt; 包（Ubuntu 救援 shell 标准件）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;相关命令&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 查看 initramfs 内部（无需启动）——
+lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-$(uname -r) | head -30      # 列出镜像目录树
+unmkinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-5.15.0-107-generic &amp;#x2F;tmp&amp;#x2F;ird   # 解包到目录
+zcat &amp;#x2F;boot&amp;#x2F;initrd.img-* | cpio -it | grep -i busybox      # 找 busybox
+
+# —— 调试用启动参数（临时改 grub 菜单的 linux 行，按 e 编辑）——
+# rdinit=&amp;#x2F;bin&amp;#x2F;bash          # 跳过 init 脚本直达 bash（最后手段）
+# init=&amp;#x2F;bin&amp;#x2F;bash            # 根盘挂载后直接 bash
+# console=ttyS0,115200      # 强制串口（本机虽无 console=，DTB 已指向串口）
+
+# —— fsck 相关（发现&amp;#x2F;修复状态）——
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior|Last checked&amp;quot;
+e2fsck -n &amp;#x2F;dev&amp;#x2F;sda2        # dry-run 预检；-fy 实际修复；-a 自动模式（不处理不一致）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;7-3-chuan-kou-sol-chang-jian-faq-shi-cao-xi-jie&quot;&gt;7.3 串口&#x2F;SOL 常见 FAQ（实操细节）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;Q1：物理串口和 IPMI SOL 只能有一个激活吗？&lt;&#x2F;strong&gt;
+对。BMC 里 SYS COM 的信号&lt;strong&gt;一次只能接一个出口&lt;&#x2F;strong&gt;（面板 &#x2F; BMC 本地 &#x2F; SOL 网络），&lt;code&gt;serialdir&lt;&#x2F;code&gt; 方向值 0（面板）与 2（SOL）互斥。不是权限限制，是这套物理 mux 的机械事实——同一根&quot;串口线&quot;总得先连到一个地方。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q2：iBMC 是&quot;四口串口交换机&quot;是什么意思？内核知道输出去了哪吗？&lt;&#x2F;strong&gt;
+&lt;code&gt;serialdir&lt;&#x2F;code&gt; 不是软件层面&quot;关联 ttyS0&quot;，而是&lt;strong&gt;硬件&#x2F;电气层面&lt;&#x2F;strong&gt;的切换（TX&#x2F;RX 走线进 BMC 的多路选择器）。ttyS0 = 主板 UART 芯片（16550A @MMIO 0x3f00002f8），内核&#x2F;grub &lt;strong&gt;完全不知道&lt;&#x2F;strong&gt;信号被接到面板还是 SOL——它只对芯片寄存器读写，连到哪是 BMC 的 mux 决定的；一次一路，切换方向不影响内核。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q3：CLP 是什么？&lt;&#x2F;strong&gt;
+Huawei iBMC 的 &lt;strong&gt;CLP = Command Line Protocol&lt;&#x2F;strong&gt;：&lt;code&gt;ssh Administrator@&amp;lt;bmc-ip&amp;gt;&lt;&#x2F;code&gt; 登录后看到的 &lt;code&gt;iBMC:&#x2F;&amp;gt;&lt;&#x2F;code&gt; shell（命令：&lt;code&gt;ipmcget&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ipmcset&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ping&lt;&#x2F;code&gt;…）。它管理 &lt;strong&gt;BMC 自己&lt;&#x2F;strong&gt;，与服务器内核串口是两条赛道——这就是为什么它没有 &lt;code&gt;sol&lt;&#x2F;code&gt; 命令、也进不了串口终端。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q4：已有串口输出，为什么还要加 &lt;code&gt;console=&lt;&#x2F;code&gt;？加了 VGA 就有画面了吗？&lt;&#x2F;strong&gt;
+&lt;code&gt;console=&lt;&#x2F;code&gt; 的含义是&quot;告诉内核&lt;strong&gt;注册哪些终端作为控制台&lt;&#x2F;strong&gt;&quot;。无该参数时内核按 ACPI &lt;strong&gt;SPCR 自动注册 ttyS0&lt;&#x2F;strong&gt;（串口收日志）→ VGA 无输出。加：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;console=ttyS0,115200 console=tty0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;是&lt;strong&gt;新增第二个输出目标 tty0（VGA&#x2F;efifb 虚拟终端）&lt;&#x2F;strong&gt;——内核支持多控制台并存，一条 printk 广播给已注册的每个 console：串口照旧，VGA 同步滚同一份日志。规则：第一个 &lt;code&gt;console=&lt;&#x2F;code&gt; 为主通道，最后一个为 &lt;code&gt;&#x2F;dev&#x2F;console&lt;&#x2F;code&gt;（登录终端）；只写 &lt;code&gt;console=ttyS0&lt;&#x2F;code&gt; 行为与现在一样（还是只有串口）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q5：&lt;code&gt;serialdir -v 2&lt;&#x2F;code&gt; 后 printk 就到 SOL 了；那 &lt;code&gt;ipmitool sol activate&lt;&#x2F;code&gt; 是干嘛的？ssh 登录 BMC 看得到吗？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ipmcset -d serialdir -v 2&lt;&#x2F;code&gt;：把 uart 信号&quot;接进&quot; BMC 的 SOL 通道（等价把串口线从面板拔下来插进网络插座）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ipmitool sol activate&lt;&#x2F;code&gt;：&lt;strong&gt;在你本地终端&lt;&#x2F;strong&gt;发起 IPMI SOL 会话（UDP 623 &#x2F; RMCP+），把通道字节流&lt;strong&gt;双向转接&lt;&#x2F;strong&gt;：服务器输出显示到终端、你敲的键送回内核。它是&quot;看串口&quot;的&lt;strong&gt;客户端&lt;&#x2F;strong&gt;，不是发给 BMC 的管理命令；&lt;&#x2F;li&gt;
+&lt;li&gt;ssh 到 BMC（CLP）&lt;strong&gt;看不到&lt;&#x2F;strong&gt;串口输出——CLP 是 BMC 自己的管理壳，这个固件连 &lt;code&gt;sol&lt;&#x2F;code&gt; 命令都没有；要看串口必须走协议级 SOL 客户端。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;Q6：&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt; 和 &lt;code&gt;sftp&lt;&#x2F;code&gt; 两条命令分别在哪里执行？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ipmcget -d systemcom        # ① 在 ssh 登录 iBMC 之后执行（CLP 的 iBMC:&amp;#x2F;&amp;gt; 提示符里）
+                            #    作用：BMC 把最近 2MB 串口环回数据打包到 BMC 本地 &amp;#x2F;tmp&amp;#x2F;systemcom.tar
+sftp Administrator@&amp;lt;bmc-ip&amp;gt; # ② 在自己电脑的终端执行
+                            #    作用：SFTP 登录 BMC，把 &amp;#x2F;tmp&amp;#x2F;systemcom.tar 下回本机
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;顺序：先 ① 生成包，再 ② 拉取解析。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;7-4-ipmi-sol-bi-xu-ren-zheng-ma-an-quan-jia-gu-zen-me-zuo&quot;&gt;7.4 IPMI SOL 必须认证吗？安全加固怎么做&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;必须认证&lt;&#x2F;strong&gt;——实测错误密码：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H 192.168.6.100 -U Administrator -P wrongpass manual
+# Error: Unable to establish IPMI v2 &amp;#x2F; RMCP+ session
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原理：SOL 走 RMCP+ 会话，&lt;strong&gt;用户名+密码认证&lt;&#x2F;strong&gt;（iBMC 用户表，与 Web&#x2F;SSH 同一套）；&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;认证通过后协商加密套件（默认 AES-128 + HMAC），SOL 数据全程加密会话内传输；&lt;&#x2F;li&gt;
+&lt;li&gt;权限分级：iBMC 用户分 User&#x2F;Operator&#x2F;Administrator，&lt;strong&gt;开 SOL 需要 Operator 及以上&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;IPMI 规范的&quot;匿名登录&quot;（空用户名）iBMC 默认禁用（实测必须给 Administrator 凭据）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;风险面&lt;&#x2F;strong&gt;：SOL 认证通过 = 能看到内核串口、往里敲命令、外加远程电源管理——最高权限运维通道。加固清单：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 检查&amp;#x2F;调整（iBMC Web UI）——
+# 服务管理 → 端口服务       ：禁用 IPMI over LAN（UDP 623），平时只用 Web&amp;#x2F;SSH，需要 SOL 时再开
+# 用户&amp;amp;安全 → 安全配置       ：IP 访问白名单（只允许管理网段）、登录失败锁定、会话超时
+# 用户&amp;amp;安全 → 本地用户       ：密码复杂度策略保持开启，不用弱口令
+# —— 会话收尾 ——
+ipmitool -I lanplus -H &amp;lt;bmc-ip&amp;gt; -U Administrator sol deactivate   # 主动释放独占会话
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;❌ 623&#x2F;443&#x2F;22 永不暴露到公网或跨 VLAN；&lt;&#x2F;li&gt;
+&lt;li&gt;✅ SOL 会话独占：用完 &lt;code&gt;sol deactivate&lt;&#x2F;code&gt;，否则他人连不上；&lt;&#x2F;li&gt;
+&lt;li&gt;✅ 本次事故中凭据只在 tmux 会话中键入（无回显），不经任何历史&#x2F;日志。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;ba-zong-jie&quot;&gt;八、总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;根分区只读 ≠ 盘死了&lt;&#x2F;strong&gt;：读 dmesg 的块层错误 + ext4 aborted journal + &lt;code&gt;e2fsck -n&lt;&#x2F;code&gt;，先定位到&quot;fsck 可解&quot;的层次；只有 SMART&#x2F;持续 I&#x2F;O 错误才说明硬件报废。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;initramfs 的 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 提示符是&quot;等着你&quot;不是&quot;死了&quot;&lt;&#x2F;strong&gt;：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt; 遇 UNEXPECTED INCONSISTENCY 不会自动修；手动 &lt;code&gt;-fy&lt;&#x2F;code&gt; 20 秒收工。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;IPMI KVM 只投 VGA&lt;&#x2F;strong&gt;：鲲鹏服务器要点&quot;串口控制台&quot;（SOL&#x2F;采集包&#x2F;物理串口）才看得到内核；iBMC 3.03 无 SOL 命令时还有三招——串口方向 &lt;code&gt;serialdir&lt;&#x2F;code&gt;、&lt;code&gt;systemcom&lt;&#x2F;code&gt; 采集包、LAN SOL（ipmitool）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;生产服务器磁盘该进 RAID&#x2F;有备份&lt;&#x2F;strong&gt;：&#x2F;dev&#x2F;sda 单盘直连是脆弱点，本次坏一个扇区就差点放倒整台机器。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>
