@@ -1,0 +1,310 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - vllm-ascend</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/vllm-ascend/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-08T22:43:33+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/vllm-ascend/atom.xml</id>
+    <entry xml:lang="en">
+        <title>昇腾服务器根分区只读故障：ext4 日志中止 → 远程 fsck + IPMI 全程修复记录</title>
+        <published>2026-09-08T22:43:33+08:00</published>
+        <updated>2026-09-08T22:43:33+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/"/>
+        <id>https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/ext4-rootfs-readonly-recovery/">&lt;h1 id=&quot;yi-bei-jing-yu-shi-gu-huan-jing&quot;&gt;一、背景与事故环境&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项&lt;&#x2F;th&gt;&lt;th&gt;值&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;服务器&lt;&#x2F;td&gt;&lt;td&gt;鲲鹏 920 aarch64 &#x2F; 128 核 &#x2F; 250GB 内存（TaiShan 200 Model 2280）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;加速卡&lt;&#x2F;td&gt;&lt;td&gt;2× Atlas 300I Duo = 4× 310P3，每芯 44GB LPDDR4X&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;系统盘&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sda 500GB（单盘无 RAID），&#x2F;dev&#x2F;sda2 为 ext4 根分区&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;数据盘&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sdb2 8.7TB，挂载于 &#x2F;data（模型权重等大数据）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;BMC&lt;&#x2F;td&gt;&lt;td&gt;iBMC 3.03.00.69（Web 192.168.6.100，无独立 SOL 客户端功能）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;业务&lt;&#x2F;td&gt;&lt;td&gt;vLLM 推理服务（Qwen3.8-27B w8a8）、虚拟机 u24、ollama、opencode-web&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;一句话结论&lt;&#x2F;strong&gt;：根分区只读是 &lt;strong&gt;&#x2F;dev&#x2F;sda 块层真实 I&#x2F;O 失败&lt;&#x2F;strong&gt;（一次 WRITE + 一次 DISCARD，扇区约 250GB 偏移）→ ext4 journal abort → 内核自我保护重挂 RO。恢复路径：&lt;strong&gt;initramfs 停在 BusyBox 等待人工 fsck → ipmitool SOL 直连 → &lt;code&gt;fsck.ext4 -fy &#x2F;dev&#x2F;sda2&lt;&#x2F;code&gt; → 重启&lt;&#x2F;strong&gt;，一次成功。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;er-shi-gu-shi-jian-xian&quot;&gt;二、事故时间线&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;时间（CST）&lt;&#x2F;th&gt;&lt;th&gt;事件&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 00:25:27&lt;&#x2F;td&gt;&lt;td&gt;&#x2F;dev&#x2F;sda 块层 I&#x2F;O 错误（WRITE + DISCARD）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 00:25:28&lt;&#x2F;td&gt;&lt;td&gt;ext4 检测 journal abort，内核自动重挂根分区分只读&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;7 ~ 9&#x2F;8&lt;&#x2F;td&gt;&lt;td&gt;系统&quot;带病运行&quot;约 39 小时（journald 持续报 Read-only，服务仍在内存里跑）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 18:2x&lt;&#x2F;td&gt;&lt;td&gt;计划在 :8001 做单卡&#x2F;双卡 TP 压测 → 发现 docker exec 报 read-only → 定位根分区 RO&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 19:0x&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;systemctl reboot&lt;&#x2F;code&gt; 触发（系统关机卡在 libvirt inhibitor，约 20 分钟后真正重启）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:02&lt;&#x2F;td&gt;&lt;td&gt;主机重启，EFI → 内核接管后无网络（VGA 黑屏）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:40&lt;&#x2F;td&gt;&lt;td&gt;经 BMC 强制断电再开机，仍无网络（其实是停在 initramfs 等 fsck）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 20:5x~21:4x&lt;&#x2F;td&gt;&lt;td&gt;IPMI 系列排查（视频&#x2F;CLP&#x2F;SOL 全试），最终靠串口采集包拿到启动日志&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 22:1x&lt;&#x2F;td&gt;&lt;td&gt;ipmitool SOL 直连 → 发现 BusyBox &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; → &lt;code&gt;fsck.ext4 -fy&lt;&#x2F;code&gt; 修复&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;9&#x2F;8 22:23&lt;&#x2F;td&gt;&lt;td&gt;重启成功，端口 22 恢复，根分区 rw、fs clean&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;san-shi-gu-fa-xian-yi-ge-docker-exec-bao-read-only-de-xian-suo&quot;&gt;三、事故发现：一个&quot;docker exec 报 read-only&quot;的线索&lt;&#x2F;h1&gt;
+&lt;p&gt;即将开始压测时，先做一次服务状态盘点，命令本身暴露了异常：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 对容器执行运行时操作，报错：
+# OCI runtime exec failed: open &amp;#x2F;tmp&amp;#x2F;runc-process1480382453: read-only file system
+docker rm -f &amp;lt;服务容器&amp;gt;    # cannot remove container: read-only file system
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;随后系统级检查直指根因：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mount | grep &amp;quot; &amp;#x2F; &amp;quot;
+# &amp;#x2F;dev&amp;#x2F;sda2 on &amp;#x2F; type ext4 (ro,relatime)   ← 根分区只读！
+df -hT &amp;#x2F;                                # 显示 &amp;#x2F;dev&amp;#x2F;sda2 有 328G 可用——df 不看挂载选项，容易误判
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;教训 1&lt;&#x2F;strong&gt;：&lt;code&gt;df&lt;&#x2F;code&gt; 显示&quot;可用空间正常&quot;不代表可写；判断可写性要看 &lt;code&gt;mount&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;findmnt&lt;&#x2F;code&gt; 的 &lt;code&gt;ro&#x2F;rw&lt;&#x2F;code&gt; 选项。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;si-gen-yin-pai-cha-dmesg-yi-chui-ding-yin&quot;&gt;四、根因排查：dmesg 一锤定音&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;4-1-san-ge-guan-jian-zheng-ju&quot;&gt;4.1 三个关键证据&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 块层错误（真凶）
+dmesg -T | grep -iE &amp;quot;blk_update|i&amp;#x2F;o error&amp;quot;
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 466055824 op 0x3:(DISCARD)
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 491035880 op 0x1:(WRITE)
+# [9&amp;#x2F;7 00:25:27] blk_update_request: I&amp;#x2F;O error, dev sda, sector 491035880 op 0x1:(WRITE)
+
+# ② 日志中止 → 内核自我保护
+dmesg -T | grep -iE &amp;quot;aborted|Remounting&amp;quot;
+# [9&amp;#x2F;7 00:25:28] EXT4-fs error (device sda2): ext4_journal_check_start:83: comm systemd-journal: Detected aborted journal
+# [9&amp;#x2F;7 00:25:28] EXT4-fs (sda2): Remounting filesystem read-only   （连续两行）
+
+# ③ 文件系统元数据损伤
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior&amp;quot;
+# Filesystem state:         clean with errors   ← 错误标记挡住 remount,rw
+# Errors behavior:          Continue
+blockdev --getro &amp;#x2F;dev&amp;#x2F;sda2; cat &amp;#x2F;sys&amp;#x2F;block&amp;#x2F;sda&amp;#x2F;ro   # 0 &amp;#x2F; 0 —— 设备层没写保护，纯文件系统层问题
+
+e2fsck -fn &amp;#x2F;dev&amp;#x2F;sda2   (只读预检，安全)
+# Inode bitmap differences ... Block bitmap differences: Group 1977 block bitmap does not match checksum.
+# &amp;#x2F;dev&amp;#x2F;sda2: WARNING: Filesystem still has errors
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结论链条：&lt;strong&gt;块层 WRITE 失败 → JBD2 日志中止 → 内核重挂 RO → ext4 记录&quot;errors&quot;状态 → &lt;code&gt;mount -o remount,rw&lt;&#x2F;code&gt; 被内核拒绝（报 is write-protected）→ 必须 fsck 清错误&lt;&#x2F;strong&gt;。同时确认：磁盘没有 RAID 保护（&#x2F;dev&#x2F;sda 单盘直连），任何坏区都是致命的。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-2-wei-shen-me-bu-neng-zai-xian-xiu-fu&quot;&gt;4.2 为什么不能在线修复&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;根分区正被内核独占挂载，&lt;code&gt;e2fsck&lt;&#x2F;code&gt; 无法离线执行；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;tune2fs -c 1&lt;&#x2F;code&gt;（让下次挂载强制 fsck）+ &lt;code&gt;reboot&lt;&#x2F;code&gt; 是正路，但远程执行的 &lt;code&gt;systemctl reboot&lt;&#x2F;code&gt; 卡在 &lt;strong&gt;libvirt 的 shutdown inhibitor&lt;&#x2F;strong&gt;（&quot;Virtual machines need to be saved&quot;，保存 VM 写盘时又碰上 RO），约二十分钟后关机才真正发生；&lt;&#x2F;li&gt;
+&lt;li&gt;重启后内核照常接管，但 VGA 黑屏、无网络——第一次误判为&quot;fsck 卡死&#x2F;内核挂死&quot;，其实机器好的，只是&lt;strong&gt;在 initramfs 里等人工确认&lt;&#x2F;strong&gt;（详见第五节）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;wu-ipmi-pai-cha-shi-pin-kong-zhi-tai-mei-hua-mian-de-zhen-xiang-rao-guo-zhong-ju&quot;&gt;五、IPMI 排查：视频控制台&quot;没画面&quot;的真相 + 绕过终局&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;5-1-wei-shen-me-ipmi-kvm-kan-bu-dao-qi-dong-hua-mian&quot;&gt;5.1 为什么 IPMI KVM 看不到启动画面&lt;&#x2F;h2&gt;
+&lt;p&gt;BMC（iBMC 3.03）视频控制台 &#x2F; KVM 只镜像&lt;strong&gt;显卡&#x2F;VGA&lt;&#x2F;strong&gt;输出：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;EFI stub: Booting Linux Kernel...
+EFI stub: Using DTB from configuration table
+EFI stub: Exiting boot services...
+（之后黑屏）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这行 EFI stub 是 UEFI&#x2F;EfiStub 用图形控制台打的最后输出；&lt;strong&gt;内核接管后默认走串口（ttyS0）&lt;&#x2F;strong&gt;，VGA 就再也没内容了——不是 IPMI 没用，是&quot;音频源&quot;开着串口，看错了窗口。这是 ARM 服务器（鲲鹏）的典型配置。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-2-ibmc-tan-suo-yi-lun-sol-ke-hu-duan-quan-que-xi&quot;&gt;5.2 iBMC 探索一轮：SOL 客户端全缺席&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;尝试&lt;&#x2F;th&gt;&lt;th&gt;结论&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Web 远程控制台 kvm_h5&lt;&#x2F;td&gt;&lt;td&gt;只有视频+工具栏，图标全是 icon-font，DOM 里没有&quot;串口&quot;切换项；我的浏览器页面 &lt;code&gt;Frame:0&#x2F;Send:0&#x2F;Recv:0&lt;&#x2F;code&gt;（第二个视频会话拿不到流）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Web 端口服务页&lt;&#x2F;td&gt;&lt;td&gt;未提供 SOL 端口信息（该机型固件无此功能）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;iBMC SSH CLP&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;sol&lt;&#x2F;code&gt; → &lt;code&gt;COMMAND NOT SUPPORTED&lt;&#x2F;code&gt;；&lt;code&gt;help&lt;&#x2F;code&gt; 只列 ipmcget&#x2F;ipmcset&#x2F;…；无串口命令&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ipmcset -d serialdir&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;有！&lt;&#x2F;strong&gt; 选项表看清了串口方向矩阵：&lt;code&gt;0 PANEL↔SYS&lt;&#x2F;code&gt;（默认，物理面板）、&lt;code&gt;1 PANEL↔BMC&lt;&#x2F;code&gt;、&lt;code&gt;2 SOL COM↔SYS COM&lt;&#x2F;code&gt;、&lt;code&gt;254 关闭&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;下载系统串口采集包（最近 2MB 环，存 BMC 本地 &#x2F;tmp&#x2F;systemcom.tar）——&lt;strong&gt;这是本事故的破局点&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;5-3-po-ju-chuan-kou-fang-xiang-qie-dao-sol-cai-ji-bao-ti-qu&quot;&gt;5.3 破局：串口方向切到 SOL + 采集包提取&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;ipmcset -d serialdir -v 2&lt;&#x2F;code&gt;（SOL COM↔SYS COM）→ 此后机器的串口输出会&lt;strong&gt;灌进 BMC 的采集环&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt; → BMC 打包 &lt;code&gt;&#x2F;tmp&#x2F;systemcom.tar&lt;&#x2F;code&gt;（2MB）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SFTP 取文件&lt;&#x2F;strong&gt;（iBMC 的 SSH ControlMaster 复用，无需再输密码）：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tmux new-session -d -s cm &amp;#x27;cd &amp;#x2F;tmp &amp;amp;&amp;amp; sftp Administrator@192.168.6.100&amp;#x27;
+# sftp&amp;gt; cd &amp;#x2F;tmp; get systemcom.tar     → 本地拿到 2MB
+tar -xf systemcom.tar &amp;amp;&amp;amp; strings systemcom.dat | tail -60
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;4&quot;&gt;
+&lt;li&gt;&lt;strong&gt;启动日志最后一屏直接掀翻所有猜测&lt;&#x2F;strong&gt;：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre&gt;&lt;code&gt;Begin: Will now check root file system ... fsck.ext4 -a -C0 &amp;#x2F;dev&amp;#x2F;sda2
+&amp;#x2F;dev&amp;#x2F;sda2 contains a file system with errors, check forced.
+&amp;#x2F;dev&amp;#x2F;sda2: |                0.1%
+&amp;#x2F;dev&amp;#x2F;sda2: Inodes that were part of a corrupted orphan linked list found.
+&amp;#x2F;dev&amp;#x2F;sda2: UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY.  (i.e., without -a or -p options)
+fsck exited with status code 4
+Failure: File system check of the root filesystem failed
+The root filesystem on &amp;#x2F;dev&amp;#x2F;sda2 requires a manual fsck
+BusyBox v1.30.1 (Ubuntu 1:1.30.1-7ubuntu3.1) built-in shell (ash)
+Enter &amp;#x27;help&amp;#x27; for a list of built-in commands
+(initramfs)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;机器&lt;strong&gt;根本没死&lt;&#x2F;strong&gt;：initramfs 里 &lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt;（自动模式）遇到&quot;UNEXPECTED INCONSISTENCY&quot;不会擅自修复 → 状态码 4 → drop 到 &lt;strong&gt;BusyBox 交互 shell 等人工 fsck&lt;&#x2F;strong&gt;。注意：此时内核已在跑，所以 BMC 的&quot;Power state On&quot;、EFI&#x2F;VGA 黑屏、端口 22 不通，全部自洽了。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;教训 2&lt;&#x2F;strong&gt;：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt; 不等于 &lt;code&gt;-y&lt;&#x2F;code&gt;。生产上 initramfs 卡在 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 提示符时，先看控制台（串口&#x2F;SOL&#x2F;采集包），机器往往只是要你带 &lt;code&gt;-y&lt;&#x2F;code&gt; 再跑一次。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-4-zui-hou-yi-gong-li-ipmitool-sol-zhi-lian&quot;&gt;5.4 最后一公里：ipmitool SOL 直连&lt;&#x2F;h2&gt;
+&lt;p&gt;Web 和 CLP 都没有 SOL 通道，但 &lt;strong&gt;IPMI LAN SOL 协议还在&lt;&#x2F;strong&gt;——用 ipmitool 走 lanplus 即可，密码也是 BMC 的 Administrator 密码（输密码时无回显，不会暴露）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地机安装 ipmitool（1.8.19）后，tmux 里起会话让用户在屏幕上输密码
+ipmitool -I lanplus -H 192.168.6.100 -U Administrator sol activate
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;连上后 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 就在眼前——&lt;strong&gt;这回是真正能输入输出串口控制台&lt;&#x2F;strong&gt;。执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;fsck.ext4 -fy &amp;#x2F;dev&amp;#x2F;sda2
+# Fix? yes  × 若干轮
+# &amp;#x2F;dev&amp;#x2F;sda2: 1188994&amp;#x2F;30457856 files, 29874374&amp;#x2F;121820928 blocks  （10-20 秒完成，无坏块挂死！）
+sync &amp;amp;&amp;amp; reboot -f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;20 秒修完——&lt;strong&gt;之前&quot;fsck 卡死几小时&quot;的假设是错的，纯粹是停在提示符等人&lt;&#x2F;strong&gt;。盘虽然坏了一次写，元数据修复后整体可用。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;liu-ke-fu-yong-su-cha&quot;&gt;六、可复用速查&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# ① 确认根分区 RO
+mount | grep &amp;quot; &amp;#x2F; &amp;quot;
+
+# ② 找真凶
+dmesg | grep -iE &amp;quot;blk_update_request.*I&amp;#x2F;O error|aborted journal|Remounting&amp;quot;
+
+# ③ 评估修到哪一步
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior&amp;quot;   # clean with errors = 需 fsck
+e2fsck -fn &amp;#x2F;dev&amp;#x2F;sda2                    # 只读预检（安全）
+blockdev --getro &amp;#x2F;dev&amp;#x2F;sda2; cat &amp;#x2F;sys&amp;#x2F;block&amp;#x2F;sda&amp;#x2F;ro
+
+# ④ 路由串口到 SOL（iBMC）
+ipmcset -d serialdir -v 2   # SOL COM↔SYS COM（0=PANEL↔SYS 物理面板，用完切回）
+
+# ⑤ 拉串口采集包（BMC 已录最近 2MB 串口输出）
+ipmcget -d systemcom        # 生成 &amp;#x2F;tmp&amp;#x2F;systemcom.tar（BMC 侧）
+sftp Administrator@&amp;lt;bmc-ip&amp;gt;; cd &amp;#x2F;tmp; get systemcom.tar
+
+# ⑥ 直连 SOL 键盘交互
+ipmitool -I lanplus -H &amp;lt;bmc-ip&amp;gt; -U Administrator sol activate
+# → (initramfs) 里: fsck.ext4 -fy &amp;#x2F;dev&amp;#x2F;sda2 &amp;amp;&amp;amp; sync &amp;amp;&amp;amp; reboot -f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;qi-yan-shen-zhe-qi-shi-gu-yin-chu-de-liang-ge-wei-shen-me-grub-yu-initramfs&quot;&gt;七、延伸：这起事故引出的两个&quot;为什么&quot;（GRUB 与 initramfs）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;7-1-wei-shen-me-qi-dong-yao-guo-liang-ge-efi-cheng-xu-shim-grub&quot;&gt;7.1 为什么启动要过&quot;两个 EFI 程序&quot;（shim → grub）？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;背景&lt;&#x2F;strong&gt;：UEFI Secure Boot 开启时，固件只执行&quot;白名单签名&quot;的 EFI 程序（主板出厂烙有板厂 CA + Microsoft UEFI CA）。Linux 发行版的 grubaa64.efi、vmlinuz 用发行版自己的密钥签名，固件不认 → 直接加载 grub 会被拒绝。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;shim 的由来与作用&lt;&#x2F;strong&gt;：微软为第三方发行版开的&quot;前门&quot;（GPL，Red Hat 维护，微软 UEFI CA 签名）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;固件（信任：微软 UEFI CA）→ shimaa64.efi（微软 CA 签，全主板都认）
+       → shim 内嵌发行版 CA key（Canonical）→ 验签加载 grubaa64.efi
+       → grub 经 shim 验证接口（shim lock）验签加载 vmlinuz
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;好处：内核高频更换不用重新过微软审核；发行版只维护一个信任锚（CA）；shim 还提供 &lt;strong&gt;MOK&lt;&#x2F;strong&gt;（Machine Owner Key，&lt;code&gt;mokutil&lt;&#x2F;code&gt; 导入自签密钥即可在 SB 下跑第三方内核&#x2F;驱动）。&lt;&#x2F;li&gt;
+&lt;li&gt;这就是&quot;两段 EFI&quot;的根因：&lt;strong&gt;固件信任的不是 grub，而是微软签的 shim&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;本机实测（Secure Boot 关闭，shim 退化为直通）&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;efibootmgr -v
+# BootCurrent: 0004
+# Boot0004* ubuntu   → File(\EFI\ubuntu\shimaa64.efi)          ← 当前（Ubuntu 安装器固定以 shim 开链）
+# Boot0002* Uefi Debian Grub Boot → File(\EFI\debian\grubaa64.efi)  ← 裸 grub 入口（SB 开启后将失效）
+
+sudo mokutil --sb-state              # SecureBoot disabled（本机）
+sudo dmesg | grep -iE &amp;quot;secureboot|secure boot&amp;quot; | head
+ls &amp;#x2F;boot&amp;#x2F;efi&amp;#x2F;EFI&amp;#x2F;ubuntu&amp;#x2F;             # shimaa64.efi &amp;#x2F; grubaa64.efi &amp;#x2F; grub.cfg
+cat &amp;#x2F;boot&amp;#x2F;efi&amp;#x2F;EFI&amp;#x2F;ubuntu&amp;#x2F;grub.cfg    # 实际指向 &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;Secure Boot 查看&#x2F;管理相关命令速查&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 查看 ——
+mokutil --sb-state                            # enabled &amp;#x2F; disabled
+efibootmgr -v                                 # 启动条目、BootCurrent、TimeOut
+dmesg | grep -iE &amp;quot;secureboot|secure boot&amp;quot;     # 内核声明
+cat &amp;#x2F;sys&amp;#x2F;firmware&amp;#x2F;efi&amp;#x2F;efivars&amp;#x2F;SecureBoot-*    # 原始变量（8 字节，末尾 ff 为开）
+
+# —— 管理（建议手动在固件 UI 改，命令行仅作应急）——
+sudo efibootmgr -o 0004,0002,0000,0001        # 调整 BootOrder
+sudo efibootmgr -n 0004                       # 一次性 BootNext（下次启动有效）
+sudo efibootmgr -b 0004 -n                    # 临时禁用某条目（加回用 -a）
+sudo mokutil --import &amp;lt;my-key&amp;gt;.der            # 导入 MOK（重启后在 MOK 界面确认&amp;#x2F;输入口令）
+sudo mokutil --list-enrolled                  # 已导入的自签密钥
+sudo mokutil --disable-validation             # 关闭 shim 对内核的验证（草率，不推荐）
+
+# —— 安装&amp;#x2F;重建引导（确认签名链）——
+sudo grub-install --efi-directory=&amp;#x2F;boot&amp;#x2F;efi --bootloader-id=ubuntu
+sudo update-grub                               # 或 grub2-mkconfig -o &amp;#x2F;boot&amp;#x2F;grub&amp;#x2F;grub.cfg
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;⚠️ 本机 cmdline 没有 &lt;code&gt;console=&lt;&#x2F;code&gt;，内核控制台来自 DTB &lt;code&gt;stdout-path&lt;&#x2F;code&gt;（串口）——这正是&quot;IPMI 视频只有 EFI 三行、串口才有内核日志&quot;的机制来源。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;7-2-wei-shen-me-zhong-qi-hou-ting-zai-busybox-initramfs-de-lin-shi-yong-hu-tai&quot;&gt;7.2 为什么重启后停在 BusyBox？—— initramfs 的&quot;临时用户态&quot;&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;完整启动阶段&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;UEFI 固件（Boot0004）→ shim → grub（菜单 10s）→ vmlinuz&amp;#x2F;initrd.img
+  → 内核：CPU&amp;#x2F;内存&amp;#x2F;驱动初始化（日志 CPU53-57 Booted，约 20s）
+  → 解压 initramfs 为 &amp;#x2F; 上的 tmpfs → 执行 &amp;#x2F;init（initramfs-tools 的 shell 脚本）  ← 已进入&amp;quot;用户态①&amp;quot;
+  → &amp;#x2F;init：加载驱动 → 挂载根盘前先做 fsck 检查
+  → fsck.ext4 -a 发现 UNEXPECTED INCONSISTENCY（roots: -a 不自动修，exit 4）
+  → 判&amp;quot;根文件系统需要人工 fsck&amp;quot; → drop 到 BusyBox ash：(initramfs)  ← 用户态① 的救援 shell
+  → （人工 fsck 修复后 reboot →）再走一遍：挂根盘 → systemd → 完整用户态② → 网络
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;要点&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;(initramfs)&lt;&#x2F;code&gt; &lt;strong&gt;是用户态&lt;&#x2F;strong&gt;（busybox 程序在跑），但只是 &lt;strong&gt;initramfs&#x2F;临时用户态&lt;&#x2F;strong&gt;：根文件系统&lt;strong&gt;未挂载&lt;&#x2F;strong&gt;，systemd、网络、账号、磁盘分区全都不存在 → 端口 22 不通、VGA 黑屏（日志走串口），看起来&quot;死机&quot;其实在等你敲命令；&lt;&#x2F;li&gt;
+&lt;li&gt;卡住的直接原因：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt;（auto 模式）对&quot;意外的文件系统不一致&quot;选择&lt;strong&gt;拒绝修复&lt;&#x2F;strong&gt;（状态码 4），Ubuntu initramfs 策略规范（不自动修复 on-disk 不一致），drop 到 BusyBox 的脚本行为是 &lt;code&gt;run-init.sh&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;boot-*.sh&lt;&#x2F;code&gt; 内置逻辑；&lt;&#x2F;li&gt;
+&lt;li&gt;BusyBox 来自 initramfs-tools 依赖的 &lt;code&gt;busybox-initramfs&lt;&#x2F;code&gt; 包（Ubuntu 救援 shell 标准件）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;相关命令&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 查看 initramfs 内部（无需启动）——
+lsinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-$(uname -r) | head -30      # 列出镜像目录树
+unmkinitramfs &amp;#x2F;boot&amp;#x2F;initrd.img-5.15.0-107-generic &amp;#x2F;tmp&amp;#x2F;ird   # 解包到目录
+zcat &amp;#x2F;boot&amp;#x2F;initrd.img-* | cpio -it | grep -i busybox      # 找 busybox
+
+# —— 调试用启动参数（临时改 grub 菜单的 linux 行，按 e 编辑）——
+# rdinit=&amp;#x2F;bin&amp;#x2F;bash          # 跳过 init 脚本直达 bash（最后手段）
+# init=&amp;#x2F;bin&amp;#x2F;bash            # 根盘挂载后直接 bash
+# console=ttyS0,115200      # 强制串口（本机虽无 console=，DTB 已指向串口）
+
+# —— fsck 相关（发现&amp;#x2F;修复状态）——
+tune2fs -l &amp;#x2F;dev&amp;#x2F;sda2 | grep -E &amp;quot;Filesystem state|Errors behavior|Last checked&amp;quot;
+e2fsck -n &amp;#x2F;dev&amp;#x2F;sda2        # dry-run 预检；-fy 实际修复；-a 自动模式（不处理不一致）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;7-3-chuan-kou-sol-chang-jian-faq-shi-cao-xi-jie&quot;&gt;7.3 串口&#x2F;SOL 常见 FAQ（实操细节）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;Q1：物理串口和 IPMI SOL 只能有一个激活吗？&lt;&#x2F;strong&gt;
+对。BMC 里 SYS COM 的信号&lt;strong&gt;一次只能接一个出口&lt;&#x2F;strong&gt;（面板 &#x2F; BMC 本地 &#x2F; SOL 网络），&lt;code&gt;serialdir&lt;&#x2F;code&gt; 方向值 0（面板）与 2（SOL）互斥。不是权限限制，是这套物理 mux 的机械事实——同一根&quot;串口线&quot;总得先连到一个地方。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q2：iBMC 是&quot;四口串口交换机&quot;是什么意思？内核知道输出去了哪吗？&lt;&#x2F;strong&gt;
+&lt;code&gt;serialdir&lt;&#x2F;code&gt; 不是软件层面&quot;关联 ttyS0&quot;，而是&lt;strong&gt;硬件&#x2F;电气层面&lt;&#x2F;strong&gt;的切换（TX&#x2F;RX 走线进 BMC 的多路选择器）。ttyS0 = 主板 UART 芯片（16550A @MMIO 0x3f00002f8），内核&#x2F;grub &lt;strong&gt;完全不知道&lt;&#x2F;strong&gt;信号被接到面板还是 SOL——它只对芯片寄存器读写，连到哪是 BMC 的 mux 决定的；一次一路，切换方向不影响内核。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q3：CLP 是什么？&lt;&#x2F;strong&gt;
+Huawei iBMC 的 &lt;strong&gt;CLP = Command Line Protocol&lt;&#x2F;strong&gt;：&lt;code&gt;ssh Administrator@&amp;lt;bmc-ip&amp;gt;&lt;&#x2F;code&gt; 登录后看到的 &lt;code&gt;iBMC:&#x2F;&amp;gt;&lt;&#x2F;code&gt; shell（命令：&lt;code&gt;ipmcget&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ipmcset&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ping&lt;&#x2F;code&gt;…）。它管理 &lt;strong&gt;BMC 自己&lt;&#x2F;strong&gt;，与服务器内核串口是两条赛道——这就是为什么它没有 &lt;code&gt;sol&lt;&#x2F;code&gt; 命令、也进不了串口终端。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q4：已有串口输出，为什么还要加 &lt;code&gt;console=&lt;&#x2F;code&gt;？加了 VGA 就有画面了吗？&lt;&#x2F;strong&gt;
+&lt;code&gt;console=&lt;&#x2F;code&gt; 的含义是&quot;告诉内核&lt;strong&gt;注册哪些终端作为控制台&lt;&#x2F;strong&gt;&quot;。无该参数时内核按 ACPI &lt;strong&gt;SPCR 自动注册 ttyS0&lt;&#x2F;strong&gt;（串口收日志）→ VGA 无输出。加：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;console=ttyS0,115200 console=tty0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;是&lt;strong&gt;新增第二个输出目标 tty0（VGA&#x2F;efifb 虚拟终端）&lt;&#x2F;strong&gt;——内核支持多控制台并存，一条 printk 广播给已注册的每个 console：串口照旧，VGA 同步滚同一份日志。规则：第一个 &lt;code&gt;console=&lt;&#x2F;code&gt; 为主通道，最后一个为 &lt;code&gt;&#x2F;dev&#x2F;console&lt;&#x2F;code&gt;（登录终端）；只写 &lt;code&gt;console=ttyS0&lt;&#x2F;code&gt; 行为与现在一样（还是只有串口）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;Q5：&lt;code&gt;serialdir -v 2&lt;&#x2F;code&gt; 后 printk 就到 SOL 了；那 &lt;code&gt;ipmitool sol activate&lt;&#x2F;code&gt; 是干嘛的？ssh 登录 BMC 看得到吗？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;ipmcset -d serialdir -v 2&lt;&#x2F;code&gt;：把 uart 信号&quot;接进&quot; BMC 的 SOL 通道（等价把串口线从面板拔下来插进网络插座）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ipmitool sol activate&lt;&#x2F;code&gt;：&lt;strong&gt;在你本地终端&lt;&#x2F;strong&gt;发起 IPMI SOL 会话（UDP 623 &#x2F; RMCP+），把通道字节流&lt;strong&gt;双向转接&lt;&#x2F;strong&gt;：服务器输出显示到终端、你敲的键送回内核。它是&quot;看串口&quot;的&lt;strong&gt;客户端&lt;&#x2F;strong&gt;，不是发给 BMC 的管理命令；&lt;&#x2F;li&gt;
+&lt;li&gt;ssh 到 BMC（CLP）&lt;strong&gt;看不到&lt;&#x2F;strong&gt;串口输出——CLP 是 BMC 自己的管理壳，这个固件连 &lt;code&gt;sol&lt;&#x2F;code&gt; 命令都没有；要看串口必须走协议级 SOL 客户端。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;Q6：&lt;code&gt;ipmcget -d systemcom&lt;&#x2F;code&gt; 和 &lt;code&gt;sftp&lt;&#x2F;code&gt; 两条命令分别在哪里执行？&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ipmcget -d systemcom        # ① 在 ssh 登录 iBMC 之后执行（CLP 的 iBMC:&amp;#x2F;&amp;gt; 提示符里）
+                            #    作用：BMC 把最近 2MB 串口环回数据打包到 BMC 本地 &amp;#x2F;tmp&amp;#x2F;systemcom.tar
+sftp Administrator@&amp;lt;bmc-ip&amp;gt; # ② 在自己电脑的终端执行
+                            #    作用：SFTP 登录 BMC，把 &amp;#x2F;tmp&amp;#x2F;systemcom.tar 下回本机
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;顺序：先 ① 生成包，再 ② 拉取解析。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;7-4-ipmi-sol-bi-xu-ren-zheng-ma-an-quan-jia-gu-zen-me-zuo&quot;&gt;7.4 IPMI SOL 必须认证吗？安全加固怎么做&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;必须认证&lt;&#x2F;strong&gt;——实测错误密码：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H 192.168.6.100 -U Administrator -P wrongpass manual
+# Error: Unable to establish IPMI v2 &amp;#x2F; RMCP+ session
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原理：SOL 走 RMCP+ 会话，&lt;strong&gt;用户名+密码认证&lt;&#x2F;strong&gt;（iBMC 用户表，与 Web&#x2F;SSH 同一套）；&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;认证通过后协商加密套件（默认 AES-128 + HMAC），SOL 数据全程加密会话内传输；&lt;&#x2F;li&gt;
+&lt;li&gt;权限分级：iBMC 用户分 User&#x2F;Operator&#x2F;Administrator，&lt;strong&gt;开 SOL 需要 Operator 及以上&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;IPMI 规范的&quot;匿名登录&quot;（空用户名）iBMC 默认禁用（实测必须给 Administrator 凭据）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;风险面&lt;&#x2F;strong&gt;：SOL 认证通过 = 能看到内核串口、往里敲命令、外加远程电源管理——最高权限运维通道。加固清单：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# —— 检查&amp;#x2F;调整（iBMC Web UI）——
+# 服务管理 → 端口服务       ：禁用 IPMI over LAN（UDP 623），平时只用 Web&amp;#x2F;SSH，需要 SOL 时再开
+# 用户&amp;amp;安全 → 安全配置       ：IP 访问白名单（只允许管理网段）、登录失败锁定、会话超时
+# 用户&amp;amp;安全 → 本地用户       ：密码复杂度策略保持开启，不用弱口令
+# —— 会话收尾 ——
+ipmitool -I lanplus -H &amp;lt;bmc-ip&amp;gt; -U Administrator sol deactivate   # 主动释放独占会话
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;❌ 623&#x2F;443&#x2F;22 永不暴露到公网或跨 VLAN；&lt;&#x2F;li&gt;
+&lt;li&gt;✅ SOL 会话独占：用完 &lt;code&gt;sol deactivate&lt;&#x2F;code&gt;，否则他人连不上；&lt;&#x2F;li&gt;
+&lt;li&gt;✅ 本次事故中凭据只在 tmux 会话中键入（无回显），不经任何历史&#x2F;日志。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;ba-zong-jie&quot;&gt;八、总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;根分区只读 ≠ 盘死了&lt;&#x2F;strong&gt;：读 dmesg 的块层错误 + ext4 aborted journal + &lt;code&gt;e2fsck -n&lt;&#x2F;code&gt;，先定位到&quot;fsck 可解&quot;的层次；只有 SMART&#x2F;持续 I&#x2F;O 错误才说明硬件报废。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;initramfs 的 &lt;code&gt;(initramfs)&lt;&#x2F;code&gt; 提示符是&quot;等着你&quot;不是&quot;死了&quot;&lt;&#x2F;strong&gt;：&lt;code&gt;fsck.ext4 -a&lt;&#x2F;code&gt; 遇 UNEXPECTED INCONSISTENCY 不会自动修；手动 &lt;code&gt;-fy&lt;&#x2F;code&gt; 20 秒收工。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;IPMI KVM 只投 VGA&lt;&#x2F;strong&gt;：鲲鹏服务器要点&quot;串口控制台&quot;（SOL&#x2F;采集包&#x2F;物理串口）才看得到内核；iBMC 3.03 无 SOL 命令时还有三招——串口方向 &lt;code&gt;serialdir&lt;&#x2F;code&gt;、&lt;code&gt;systemcom&lt;&#x2F;code&gt; 采集包、LAN SOL（ipmitool）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;生产服务器磁盘该进 RAID&#x2F;有备份&lt;&#x2F;strong&gt;：&#x2F;dev&#x2F;sda 单盘直连是脆弱点，本次坏一个扇区就差点放倒整台机器。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

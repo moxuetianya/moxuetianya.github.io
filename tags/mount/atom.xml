@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - mount</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/mount/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-11-26T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/mount/atom.xml</id>
+    <entry xml:lang="en">
+        <title>如何查看被mount --bind目录的内容</title>
+        <published>2025-11-25T10:28:51+08:00</published>
+        <updated>2025-11-26T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/如何查看被mount --bind目录的内容/"/>
+        <id>https://moxuetianya.github.io/2025/11/如何查看被mount --bind目录的内容/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/如何查看被mount --bind目录的内容/">&lt;h1 id=&quot;mount-bind&quot;&gt;mount --bind&lt;&#x2F;h1&gt;
+&lt;p&gt;当你用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mount -o bind &amp;#x2F;new-disk &amp;#x2F;var&amp;#x2F;lib
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;绑定挂载后的 &#x2F;var&#x2F;lib 就被 新的分区内容覆盖&lt;&#x2F;p&gt;
+&lt;p&gt;原来真实的 &#x2F;var&#x2F;lib 内容仍然在磁盘上，但无法通过 &#x2F;var&#x2F;lib 直接访问&lt;&#x2F;p&gt;
+&lt;p&gt;想在 不 umount 的情况下 查看原来目录的内容，有几种经典做法：&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zai-ba-yuan-shi-mu-lu-gua-zai-dao-qi-ta-lu-jing-zui-chang-yong&quot;&gt;再把原始目录挂载到其他路径（最常用）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir &amp;#x2F;mnt&amp;#x2F;origin_root
+mount --bind &amp;#x2F; &amp;#x2F;mnt&amp;#x2F;origin_root    # 临时挂载根不推荐；下面是推荐方式
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zhi-jie-tong-guo-proc-pid-root-fang-wen-zui-chang-jian-zui-gan-jing-geng-tui-jian&quot;&gt;直接通过 &#x2F;proc&#x2F;[pid]&#x2F;root 访问（最常见最干净） 更推荐：&lt;&#x2F;h2&gt;
+&lt;p&gt;找到任意仍在主根下运行的进程，如 systemd ：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls -l &amp;#x2F;proc&amp;#x2F;1&amp;#x2F;root&amp;#x2F;var&amp;#x2F;lib
+# 但最好再 bind 一层：
+mkdir &amp;#x2F;mnt&amp;#x2F;original
+mount --bind &amp;#x2F;proc&amp;#x2F;1&amp;#x2F;root&amp;#x2F;var&amp;#x2F;lib &amp;#x2F;mnt&amp;#x2F;original
+ls &amp;#x2F;mnt&amp;#x2F;original
+# 你就可以浏览原来 &amp;#x2F;var&amp;#x2F;lib 中的内容了。
+# 不需要 umount，不需要停止业务，不影响现有 &amp;#x2F;var&amp;#x2F;lib。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zhi-jie-tong-guo-proc-pid-root-fang-wen&quot;&gt;直接通过 &#x2F;proc&#x2F;[pid]&#x2F;root 访问&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 任意 pid 都行，例如：
+ls &amp;#x2F;proc&amp;#x2F;1&amp;#x2F;root&amp;#x2F;var&amp;#x2F;lib
+# 就是没被覆盖的 &amp;#x2F;var&amp;#x2F;lib。
+# 但这种方式只是临时查看，比 bind 挂载不方便操作。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ti-qian-chuang-jian-tao-sheng-ru-kou-jing-yan-ji-qiao&quot;&gt;提前创建 “逃生入口”（经验技巧）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 以后遇到类似场景：
+mkdir &amp;#x2F;var&amp;#x2F;lib.real
+mount --bind &amp;#x2F;var&amp;#x2F;lib &amp;#x2F;var&amp;#x2F;lib.real
+mount --bind &amp;#x2F;newdisk &amp;#x2F;var&amp;#x2F;lib
+# 这样以后变成：
+# &amp;#x2F;var&amp;#x2F;lib → 新分区
+# &amp;#x2F;var&amp;#x2F;lib.real → 原目录仍可访问
+# 但必须在第一次 bind 前做。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zui-tui-jian-ban-fa-zong-jie&quot;&gt;最推荐办法总结&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir &amp;#x2F;mnt&amp;#x2F;original
+mount --bind &amp;#x2F;proc&amp;#x2F;1&amp;#x2F;root&amp;#x2F;var&amp;#x2F;lib &amp;#x2F;mnt&amp;#x2F;original
+ls &amp;#x2F;mnt&amp;#x2F;original
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - config</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/config/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-03T18:39:12+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/config/atom.xml</id>
+    <entry xml:lang="en">
+        <title>opencode 在服务器上启动卡死：IPv6 不通与 @opentui 依赖缺失</title>
+        <published>2026-08-03T18:39:12+08:00</published>
+        <updated>2026-08-03T18:39:12+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/"/>
+        <id>https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/opencode-ipv6-and-opentui-startup-hang/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;在一台服务器上启动 opencode，无论 &lt;code&gt;serve&lt;&#x2F;code&gt; 还是 &lt;code&gt;run&lt;&#x2F;code&gt; 模式都会卡死，没有任何报错：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd ~&amp;#x2F;project&amp;#x2F;debug-agent&amp;#x2F; &amp;amp;&amp;amp; \
+OPENCODE_CONFIG_DIR=$PWD&amp;#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&amp;quot;&amp;#x2F;path&amp;#x2F;to&amp;#x2F;wfuzz-agent&amp;#x2F;bin&amp;#x2F;opencode&amp;quot; --print-logs --log-level=DEBUG run hello
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;日志停在某一行后就没有下文，进程一直存活，只能靠 &lt;code&gt;timeout&lt;&#x2F;code&gt; 杀掉（exit 124）。同样的命令在本机（IPv6 正常）跑得好好的，换到服务器就卡。&lt;&#x2F;p&gt;
+&lt;p&gt;排查后确认这是&lt;strong&gt;两个独立的问题&lt;&#x2F;strong&gt;叠加：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;插件加载阶段&lt;&#x2F;strong&gt;：opencode 内置的 Bun 运行时解析 TS 插件时，因 &lt;code&gt;@opentui&#x2F;*&lt;&#x2F;code&gt; 依赖缺失而联网 npm registry，IPv6 不通导致连接挂死。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模型请求阶段&lt;&#x2F;strong&gt;：即使跳过插件加载，opencode 请求模型 API 时默认优先尝试 IPv6，而服务器没有真实的 IPv6 连通性。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;两个问题的共同放大器，是这台服务器的网络特殊性：&lt;strong&gt;有 IPv6 地址，但没有 IPv6 路由&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;bei-jing-opencode-de-pei-zhi-ti-xi&quot;&gt;背景：opencode 的配置体系&lt;&#x2F;h1&gt;
+&lt;p&gt;先理解 opencode 启动时会读哪些配置，这决定了排查方向。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pei-zhi-jia-zai-you-xian-ji&quot;&gt;配置加载优先级&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 按以下顺序加载配置（后面的覆盖前面的同名字段）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;配置位置&lt;&#x2F;th&gt;&lt;th&gt;路径&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;全局配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;~&#x2F;.config&#x2F;opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;用户级默认配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;自定义目录&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt; 指向的目录（如 &lt;code&gt;.global-opencode&#x2F;&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;平台注入的独立配置目录&lt;&#x2F;strong&gt;，拥有独立 plugins&#x2F;skills&#x2F;node_modules&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;项目配置&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;项目根&#x2F;.opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;项目级配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用户目录&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;~&#x2F;.opencode&#x2F;opencode.json[c]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;用户级补充&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注意：&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt; 指向的目录会被&lt;strong&gt;完整地&lt;&#x2F;strong&gt;当作一个 opencode 配置目录来扫描（&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt;、&lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;skills&#x2F;&lt;&#x2F;code&gt;、&lt;code&gt;node_modules&#x2F;&lt;&#x2F;code&gt; 等），而不是只读其中的配置文件。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;global-opencode-yun-xing-shi-sheng-cheng-de-du-li-pei-zhi-mu-lu&quot;&gt;&lt;code&gt;.global-opencode&#x2F;&lt;&#x2F;code&gt;：运行时生成的独立配置目录&lt;&#x2F;h2&gt;
+&lt;p&gt;由 wfuzz-agent（或其他引导程序）在启动前把打包好的配置模板复制到工作目录下生成，包含：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;.global-opencode&amp;#x2F;
+├── opencode.jsonc      # 模型&amp;#x2F;provider&amp;#x2F;permission 配置
+├── plugins&amp;#x2F;            # TS 插件源码（wfuzz-agent.ts + 本地库）
+├── node_modules&amp;#x2F;       # 预装的 @opencode-ai&amp;#x2F;plugin 及依赖（避免运行时 npm install）
+├── skills&amp;#x2F;             # 平台技能目录
+├── AGENTS.md           # 全局指令
+├── tsconfig.json       # 插件类型检查配置
+└── package.json        # 声明 @opencode-ai&amp;#x2F;plugin 依赖
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;opencode-xiang-mu-ji-pei-zhi&quot;&gt;&lt;code&gt;.opencode&#x2F;&lt;&#x2F;code&gt;：项目级配置&lt;&#x2F;h2&gt;
+&lt;p&gt;与 &lt;code&gt;.global-opencode&lt;&#x2F;code&gt; 不同，&lt;code&gt;.opencode&#x2F;&lt;&#x2F;code&gt; 是 opencode 标准的项目级配置目录，通常包含：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;.opencode&amp;#x2F;
+├── opencode.json       # 项目级模型&amp;#x2F;skills 路径配置
+├── skills&amp;#x2F;             # 项目级技能
+└── node_modules&amp;#x2F;       # 同步来的依赖（供插件解析）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;影响启动的关键差异&lt;&#x2F;strong&gt;：&lt;code&gt;.global-opencode&lt;&#x2F;code&gt; 中的 &lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 定义了 provider（决定模型请求发往哪个 baseURL）和默认模型；&lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt; 决定是否有插件要加载；&lt;code&gt;node_modules&lt;&#x2F;code&gt; 决定插件依赖是否能离线解析。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;gen-yin-yi-opentui-yi-lai-que-shi-bun-jia-zai-cha-jian-shi-lian-wang&quot;&gt;根因一：&lt;code&gt;@opentui&lt;&#x2F;code&gt; 依赖缺失，Bun 加载插件时联网&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang-ding-wei&quot;&gt;现象定位&lt;&#x2F;h2&gt;
+&lt;p&gt;对比实验快速锁定问题在插件加载：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;opencode run --pure hello&lt;&#x2F;code&gt;（跳过外部插件）→ 能跑起来&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;opencode run hello&lt;&#x2F;code&gt;（加载 &lt;code&gt;.global-opencode&#x2F;plugins&#x2F;wfuzz-agent.ts&lt;&#x2F;code&gt;）→ 卡死&lt;&#x2F;li&gt;
+&lt;li&gt;临时移走 &lt;code&gt;plugins&#x2F;&lt;&#x2F;code&gt; 目录 → 能跑起来&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;插件文件本身是纯 TypeScript（&lt;code&gt;import type&lt;&#x2F;code&gt; + &lt;code&gt;node:fs&lt;&#x2F;code&gt; 等），没有明显的联网代码，为什么加载会联网？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-optional-peer-dependencies-que-shi&quot;&gt;根因：optional peer dependencies 缺失&lt;&#x2F;h2&gt;
+&lt;p&gt;opencode 底层是 &lt;strong&gt;Bun&lt;&#x2F;strong&gt; 运行时。加载 &lt;code&gt;.ts&lt;&#x2F;code&gt; 插件时，Bun 解析 &lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的&lt;strong&gt;整个模块图&lt;&#x2F;strong&gt;，包括 &lt;code&gt;dist&#x2F;tui.js&lt;&#x2F;code&gt; 中对 &lt;code&gt;@opentui&#x2F;*&lt;&#x2F;code&gt; 的运行时导入：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;js&quot; class=&quot;language-js &quot;&gt;&lt;code class=&quot;language-js&quot; data-lang=&quot;js&quot;&gt;&amp;#x2F;&amp;#x2F; node_modules&amp;#x2F;@opencode-ai&amp;#x2F;plugin&amp;#x2F;dist&amp;#x2F;tui.js
+import { createBindingLookup } from &amp;quot;@opentui&amp;#x2F;keymap&amp;#x2F;extras&amp;quot;
+export { stringifyKeySequence } from &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;@opentui&#x2F;core&lt;&#x2F;code&gt;、&lt;code&gt;@opentui&#x2F;keymap&lt;&#x2F;code&gt;、&lt;code&gt;@opentui&#x2F;solid&lt;&#x2F;code&gt; 在 &lt;code&gt;@opencode-ai&#x2F;plugin&lt;&#x2F;code&gt; 的 &lt;code&gt;package.json&lt;&#x2F;code&gt; 里是 &lt;strong&gt;optional peer dependencies&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;quot;peerDependencies&amp;quot;: {
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;solid&amp;quot;: &amp;quot;&amp;gt;=0.3.4&amp;quot;
+},
+&amp;quot;peerDependenciesMeta&amp;quot;: {
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: { &amp;quot;optional&amp;quot;: true },
+  ...
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;npm install --omit=dev --legacy-peer-deps&lt;&#x2F;code&gt; &lt;strong&gt;不会安装 optional peer dependencies&lt;&#x2F;strong&gt;，所以预装的 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 里缺了这三个包。Bun 解析模块图时发现缺失，就去 npm registry 拉取——在 IPv6 不通的服务器上，这一步永远完不成。&lt;&#x2F;p&gt;
+&lt;p&gt;strace 铁证：进程反复尝试连接 npm registry 的 IPv6 地址，&lt;code&gt;connect()&lt;&#x2F;code&gt; 返回 &lt;code&gt;EINPROGRESS&lt;&#x2F;code&gt; 后永不完成：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;connect(..., &amp;quot;2606:4700::6810:622&amp;quot;, 443) = EINPROGRESS   ← 永不完成
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiu-fu-ba-optional-peer-yi-lai-bian-cheng-xian-shi-yi-lai&quot;&gt;修复：把 optional peer 依赖变成显式依赖&lt;&#x2F;h2&gt;
+&lt;p&gt;在打包 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 的 &lt;code&gt;package.json&lt;&#x2F;code&gt; 里显式声明这三个包，让它们进入预装依赖：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;&amp;quot;dependencies&amp;quot;: {
+  &amp;quot;@opencode-ai&amp;#x2F;plugin&amp;quot;: &amp;quot;1.17.12&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;core&amp;quot;: &amp;quot;0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;keymap&amp;quot;: &amp;quot;0.3.4&amp;quot;,
+  &amp;quot;@opentui&amp;#x2F;solid&amp;quot;: &amp;quot;0.3.4&amp;quot;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;code&gt;npm install --omit=dev --legacy-peer-deps&lt;&#x2F;code&gt; 后 &lt;code&gt;node_modules&#x2F;@opentui&#x2F;&lt;&#x2F;code&gt; 存在，peer 要求（&lt;code&gt;&amp;gt;=0.3.4&lt;&#x2F;code&gt;）被满足；在&lt;strong&gt;无缓存&lt;&#x2F;strong&gt;环境下 &lt;code&gt;bun -e &quot;await import(&#x27;@opencode-ai&#x2F;plugin&#x2F;tui&#x27;)&quot;&lt;&#x2F;code&gt; 从报错 &lt;code&gt;Cannot find module &#x27;@opentui&#x2F;keymap&#x2F;extras&#x27;&lt;&#x2F;code&gt; 变为成功，且全程零网络连接。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;gen-yin-er-dns-mo-ren-ipv6-you-xian-mo-xing-qing-qiu-lian-jie-gua-qi&quot;&gt;根因二：DNS 默认 IPv6 优先，模型请求连接挂起&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang-ding-wei-1&quot;&gt;现象定位&lt;&#x2F;h2&gt;
+&lt;p&gt;修好 &lt;code&gt;@opentui&lt;&#x2F;code&gt; 后，插件能加载了，但 &lt;code&gt;run hello&lt;&#x2F;code&gt; 仍然卡住。日志停在：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;stream providerID=opencode modelID=...  ← 模型请求发出后无响应
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这次不是插件问题。&lt;code&gt;OPENCODE_DISABLE_MODELS_FETCH=1&lt;&#x2F;code&gt; 只禁用了 models.dev 元数据获取，但&lt;strong&gt;模型 API 请求&lt;&#x2F;strong&gt;（&lt;code&gt;opencode.jsonc&lt;&#x2F;code&gt; 中 provider 的 &lt;code&gt;baseURL: https:&#x2F;&#x2F;opencode.ai&#x2F;zen&#x2F;v1&lt;&#x2F;code&gt;）仍会发起网络请求。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-etc-gai-conf-mo-ren-ipv6-you-xian&quot;&gt;根因：&lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 默认 IPv6 优先&lt;&#x2F;h2&gt;
+&lt;p&gt;用 curl 验证连通性：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -6 -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;%{http_code}&amp;quot; https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;zen&amp;#x2F;v1   # 超时（exit 124）
+curl -4 -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;%{http_code}&amp;quot; https:&amp;#x2F;&amp;#x2F;opencode.ai&amp;#x2F;zen&amp;#x2F;v1   # 正常返回
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;重要：本机和服务器处于同一个 IPv6 黑洞网络&lt;&#x2F;strong&gt;（同一网关 &lt;code&gt;fe80::c0b1:65ff:fe3e:68c3&lt;&#x2F;code&gt;）。&lt;code&gt;ip -6 addr&lt;&#x2F;code&gt; 可见一堆 &lt;code&gt;3000::&#x2F;64&lt;&#x2F;code&gt; 的全局地址，&lt;code&gt;ip -6 route&lt;&#x2F;code&gt; 也有 &lt;code&gt;default via ...&lt;&#x2F;code&gt; 路由，但&lt;strong&gt;所有 IPv6 出站连接都挂在半路上&lt;&#x2F;strong&gt;——本机 &lt;code&gt;curl -6&lt;&#x2F;code&gt; 同样超时，并非&quot;服务器 IPv6 不通、本机正常&quot;。&lt;&#x2F;p&gt;
+&lt;p&gt;而 Linux 的 &lt;code&gt;getaddrinfo()&lt;&#x2F;code&gt; 默认按 &lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 的优先级表排序解析结果，&lt;strong&gt;IPv6 优先级高于 IPv4&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;# &amp;#x2F;etc&amp;#x2F;gai.conf 默认（注释状态）
+precedence ::1&amp;#x2F;128       50   ← IPv6 loopback
+precedence ::&amp;#x2F;0          40   ← 所有 IPv6，优先级 40
+precedence ::ffff:0:0&amp;#x2F;96  10   ← IPv4，优先级 10（值越大越优先）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;Bun&#x2F;opencode 按 &lt;code&gt;getaddrinfo&lt;&#x2F;code&gt; 排序后的地址顺序连接：先试 IPv6 → 挂死 → 整个请求超时（默认超时很长），表现为&quot;卡住&quot;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ban-ben-dui-zhao-shi-yan-1-17-12-yu-1-18-9-mei-you-chai-yi&quot;&gt;版本对照实验：1.17.12 与 1.18.9 没有差异&lt;&#x2F;h2&gt;
+&lt;p&gt;排查中一度怀疑&quot;新版 opencode（1.18.9）内置了 IPv6→IPv4 回退，旧版（1.17.12）没有&quot;。用完全相同的配置（显式 &lt;code&gt;opencode&lt;&#x2F;code&gt; provider + &lt;code&gt;opencode.ai&lt;&#x2F;code&gt; baseURL）在同一台机器交替测试，结论是&lt;strong&gt;没有版本差异&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;测试批次&lt;&#x2F;th&gt;&lt;th&gt;1.18.9&lt;&#x2F;th&gt;&lt;th&gt;1.17.12&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;批次 A（20s 超时）&lt;&#x2F;td&gt;&lt;td&gt;卡死 3&#x2F;3&lt;&#x2F;td&gt;&lt;td&gt;卡死 3&#x2F;3&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;批次 B（60s 超时）&lt;&#x2F;td&gt;&lt;td&gt;✅ 6.2s 完成&lt;&#x2F;td&gt;&lt;td&gt;✅ 4.8s 完成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;批次 C（40s 超时）&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;卡死 2&#x2F;2&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;两个版本总是&lt;strong&gt;成对成功或成对失败&lt;&#x2F;strong&gt;——行为完全一致，由网络状态决定，与版本无关。&lt;&#x2F;p&gt;
+&lt;p&gt;真实原因是 &lt;strong&gt;IPv6 黑洞状态分钟级波动&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;挂起时段&lt;&#x2F;strong&gt;：IPv6 SYN 发出后无任何响应（黑洞丢弃），opencode 连接挂起 40s+ 无快速回退 → 表现为卡死&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;快速失败时段&lt;&#x2F;strong&gt;：网关偶发回 ICMP unreachable，opencode 秒级回退 IPv4 → 4~6 秒正常完成&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;这也解释了最初&quot;本机正常、服务器卡&quot;的观察：本机测试恰好赶上快速失败时段（或默认模型走无 AAAA 记录的 deepseek 域名，压根不触发 IPv6）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xiu-fu-rang-ipv4-you-xian&quot;&gt;修复：让 IPv4 优先&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo sed -i &amp;#x27;s&amp;#x2F;^#precedence ::ffff:0:0\&amp;#x2F;96  10&amp;#x2F;precedence ::ffff:0:0\&amp;#x2F;96  100&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;gai.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;把 IPv4 的优先级从 10 改成 100（取消注释即生效），&lt;code&gt;getaddrinfo&lt;&#x2F;code&gt; 就会把 IPv4 排在前面：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;precedence ::ffff:0:0&amp;#x2F;96  100   ← IPv4 现在最高优先
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;getent ahosts opencode.ai   # 172.65.90.x（IPv4）排在最前
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;xiu-fu-hou-de-wan-zheng-yan-zheng&quot;&gt;修复后的完整验证&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-cha-jian-jia-zai-mo-xing-hui-fu-zheng-chang&quot;&gt;1. 插件加载 + 模型回复正常&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd ~&amp;#x2F;project&amp;#x2F;debug-agent&amp;#x2F; &amp;amp;&amp;amp; \
+OPENCODE_CONFIG_DIR=$PWD&amp;#x2F;.global-opencode \
+OPENCODE_DISABLE_MODELS_FETCH=1 \
+WFUZZ_PRODUCT=code \
+&amp;quot;&amp;#x2F;path&amp;#x2F;to&amp;#x2F;wfuzz-agent&amp;#x2F;bin&amp;#x2F;opencode&amp;quot; --print-logs --log-level=DEBUG run hello
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre&gt;&lt;code&gt;[wfuzz-agent] plugin loaded hooks.trigger=11 hooks.lifecycle=6
+Hello! How can I help you today?
+[wfuzz-agent] plugin disposed after 4.5s
+EXIT: 0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-qi-dong-jie-duan-ling-gong-wang-lian-jie&quot;&gt;2. 启动阶段零公网连接&lt;&#x2F;h2&gt;
+&lt;p&gt;用 strace 跟踪启动 + 空闲运行 30 秒的全部网络连接：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;strace -f -e trace=connect -o &amp;#x2F;tmp&amp;#x2F;net-trace.log \
+  opencode serve &amp;amp;          # 带上 OPENCODE_CONFIG_DIR 等环境变量
+
+sleep 30
+curl -s -o &amp;#x2F;dev&amp;#x2F;null -w &amp;quot;HTTP %{http_code}\n&amp;quot; http:&amp;#x2F;&amp;#x2F;127.0.0.1:4096&amp;#x2F;   # 200
+
+grep -oE &amp;#x27;sin_addr=inet_addr\(&amp;quot;[0-9.]+&amp;quot;\)&amp;#x27; &amp;#x2F;tmp&amp;#x2F;net-trace.log | sort | uniq -c
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结果只有&lt;strong&gt;内网&lt;&#x2F;strong&gt;（WFUZZ_SERVER &lt;code&gt;192.168.7.16&lt;&#x2F;code&gt;）的连接，公网 IPv4&#x2F;IPv6 连接数为 0，服务正常响应 &lt;code&gt;HTTP 200&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;注：&lt;code&gt;serve&lt;&#x2F;code&gt; 出现实际会话（用户发消息调模型）时，模型请求仍会访问公网 &lt;code&gt;opencode.ai&lt;&#x2F;code&gt;（现在走 IPv4），这是功能需求，不再是卡死。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;jing-yan-zong-jie&quot;&gt;经验总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;optional peer dependencies&lt;&#x2F;code&gt; 会被 &lt;code&gt;--legacy-peer-deps&lt;&#x2F;code&gt; 跳过安装&lt;&#x2F;strong&gt;，但 Bun 解析模块图时仍然会尝试解析它们，缺失就联网。打包预装 &lt;code&gt;node_modules&lt;&#x2F;code&gt; 时，把运行链路可能触及的包显式声明为 &lt;code&gt;dependencies&lt;&#x2F;code&gt; 最稳妥。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&quot;有 IPv6 地址&quot; ≠ &quot;IPv6 可用&quot;&lt;&#x2F;strong&gt;。本机和服务器都有全局 IPv6 地址和默认路由，但出站全被黑洞丢弃。遇到&quot;某应用在这台机器卡死&quot;时，先测 &lt;code&gt;curl -6&lt;&#x2F;code&gt; 对比 &lt;code&gt;curl -4&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;黑洞网络的状态是波动而非恒定的&lt;&#x2F;strong&gt;：有时 IPv6 连接快速失败（应用秒级回退 IPv4），有时挂起几十秒。因此&quot;本机能跑、服务器不能&quot;这类对比实验必须在&lt;strong&gt;同一时段&lt;&#x2F;strong&gt;进行，否则会把网络波动误判为环境&#x2F;版本差异。用多批次交替测试 + 每次测量耗时，避免单次样本误导。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;&#x2F;etc&#x2F;gai.conf&lt;&#x2F;code&gt; 控制 getaddrinfo 的地址排序&lt;&#x2F;strong&gt;，影响所有应用的连接顺序（Bun&#x2F;Node 也遵循）。内网环境统一加 &lt;code&gt;precedence ::ffff:0:0&#x2F;96 100&lt;&#x2F;code&gt; 可以绕开 IPv6 黑洞，无论黑洞状态如何都稳定。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;.global-opencode&lt;&#x2F;code&gt;（&lt;code&gt;OPENCODE_CONFIG_DIR&lt;&#x2F;code&gt;）与 &lt;code&gt;.opencode&lt;&#x2F;code&gt;（项目级）是两个不同的配置来源&lt;&#x2F;strong&gt;：前者由引导程序整目录注入（含独立的 node_modules&#x2F;plugins），后者是标准项目级配置。排查启动问题时，先分清插件&#x2F;模型配置来自哪一层，再看对应的依赖是否完整。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

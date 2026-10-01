@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - xkb</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/xkb/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-02T18:35:02+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/xkb/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Ubuntu 中文输入法 Shift 切换故障排查与 GNOME 输入源机制剖析</title>
+        <published>2026-08-02T18:35:02+08:00</published>
+        <updated>2026-08-02T18:35:02+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/ibus-xkb-input-source/"/>
+        <id>https://moxuetianya.github.io/2026/08/ibus-xkb-input-source/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/ibus-xkb-input-source/">&lt;h1 id=&quot;ubuntu-zhong-wen-shu-ru-fa-shift-qie-huan-gu-zhang-pai-cha-yu-gnome-shu-ru-yuan-ji-zhi-pou-xi&quot;&gt;Ubuntu 中文输入法 Shift 切换故障排查与 GNOME 输入源机制剖析&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wen-ti-xian-xiang&quot;&gt;问题现象&lt;&#x2F;h2&gt;
+&lt;p&gt;Ubuntu 26.04 + GNOME Wayland + ibus-libpinyin 环境下，按 Shift 切换中英文输入法时&lt;strong&gt;经常失效&lt;&#x2F;strong&gt;，且失效时伴随&lt;strong&gt;候选词窗口消失&lt;&#x2F;strong&gt;等异常。同时发现 GNOME 设置界面无法添加已删除的 xkb 输入源。&lt;&#x2F;p&gt;
+&lt;p&gt;排查过程中一路深入，最终把 xkb、ibus、GNOME 输入源这三者的分层协作机制彻底理清。本文记录完整排查过程与概念剖析。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;di-yi-bu-que-ren-huan-jing&quot;&gt;第一步：确认环境&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 发行版 &amp;#x2F; 会话
+cat &amp;#x2F;etc&amp;#x2F;os-release          # Ubuntu 26.04 LTS
+echo $XDG_SESSION_TYPE       # wayland
+echo $XDG_CURRENT_DESKTOP    # ubuntu:GNOME
+
+# 输入法框架进程
+ps aux | grep -iE &amp;quot;fcitx|ibus|scim&amp;quot;
+# &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ibus-daemon --panel disable
+# &amp;#x2F;usr&amp;#x2F;libexec&amp;#x2F;ibus-engine-libpinyin --ibus
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;结论：GNOME Wayland 会话 + IBus + libpinyin 引擎，ibus-daemon 以 &lt;code&gt;--panel disable&lt;&#x2F;code&gt; 启动。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-er-bu-jian-cha-pei-zhi&quot;&gt;第二步：检查配置&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings get org.gnome.desktop.input-sources sources
+# [(&amp;#x27;xkb&amp;#x27;, &amp;#x27;cn&amp;#x27;), (&amp;#x27;ibus&amp;#x27;, &amp;#x27;libpinyin&amp;#x27;)]   ← 两个输入源
+
+gsettings get com.github.libpinyin.ibus-libpinyin.libpinyin main-switch
+# &amp;#x27;&amp;lt;Shift&amp;gt;&amp;#x27;   ← Shift 切换已配置
+
+gsettings get org.freedesktop.ibus.general use-global-engine   # true
+gsettings get org.freedesktop.ibus.general embed-preedit-text  # true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;配置本身正常，但发现几个高风险因素。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-san-bu-ding-wei-gen-yin&quot;&gt;第三步：定位根因&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;1. 双输入源结构（xkb-cn + libpinyin）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;输入源分两种：&lt;code&gt;xkb&lt;&#x2F;code&gt; 键盘布局（纯键盘映射，无引擎）和 &lt;code&gt;ibus&lt;&#x2F;code&gt; 引擎（真正的输入法）。用 Super+Space 切换输入源时，如果停在 &lt;code&gt;xkb-cn&lt;&#x2F;code&gt;（中文键盘布局）上，Shift 切换必然无效——切换逻辑在 libpinyin 引擎的状态机里，而 xkb 布局层根本没有&quot;模式&quot;概念。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;2. Chromium&#x2F;Electron 应用吞键&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;运行环境中有 VS Code 和 Chrome（均为 Chromium 系）。这类应用在 GNOME Wayland 下存在已知问题：Shift 修饰键事件可能被应用自身消费，未传给 ibus 引擎，导致切换失败——这与&quot;间歇性失效&quot;（而非永久失效）的特征吻合。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;3. 候选词窗口消失的机理&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;embed-preedit-text = true&lt;&#x2F;code&gt; 时，候选框嵌入应用窗口内渲染。Chromium 应用清理嵌入候选框的时机存在 bug：可能清掉候选框但未把 Shift 事件转发给引擎——视觉上&quot;候选框消失&quot;，实际模式没切换。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;4. 全局模式放大故障&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;use-global-engine = true&lt;&#x2F;code&gt; 让中英模式在所有应用间共享，一次吞键的失败状态会传染到所有应用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;di-si-bu-xiu-fu-fang-an&quot;&gt;第四步：修复方案&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;修复 1：移除 xkb-cn，只保留 libpinyin 输入源&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set org.gnome.desktop.input-sources sources &amp;quot;[(&amp;#x27;ibus&amp;#x27;, &amp;#x27;libpinyin&amp;#x27;)]&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;修复 2：恢复 ibus 语言栏（解决状态不可见）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;移除 xkb 后，GNOME 顶部栏在单一输入源时不显示指示器（&lt;code&gt;keyboard.js&lt;&#x2F;code&gt; 的 &lt;code&gt;_syncShowIndicator&lt;&#x2F;code&gt; 逻辑）。恢复语言栏的方法：ibus 由 systemd 管理，用 drop-in 覆盖掉 &lt;code&gt;--panel disable&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir -p ~&amp;#x2F;.config&amp;#x2F;systemd&amp;#x2F;user&amp;#x2F;org.freedesktop.IBus.session.GNOME.service.d&amp;#x2F;
+cat &amp;gt; ~&amp;#x2F;.config&amp;#x2F;systemd&amp;#x2F;user&amp;#x2F;org.freedesktop.IBus.session.GNOME.service.d&amp;#x2F;panel.conf &amp;lt;&amp;lt; &amp;#x27;EOF&amp;#x27;
+[Service]
+ExecStart=
+ExecStart=&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ibus-daemon --replace
+EOF
+systemctl --user daemon-reload
+systemctl --user restart org.freedesktop.IBus.session.GNOME.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启后语言栏窗口出现，中英状态可见。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;修复 3（可选）：两条 gsettings 优化&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 候选框改为 ibus 独立弹出窗口，规避 Chromium 清理候选框的 bug
+gsettings set org.freedesktop.ibus.general embed-preedit-text false
+# 各应用独立记忆中英模式，防止一次失败全局传染
+gsettings set org.freedesktop.ibus.general use-global-engine false
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gai-nian-pou-xi-xkb-yu-shu-ru-fa-de-fen-ceng-xie-zuo&quot;&gt;概念剖析：xkb 与输入法的分层协作&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;an-jian-chu-li-wan-zheng-lian-lu&quot;&gt;按键处理完整链路&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;物理键盘 ──内核 input 子系统──&amp;gt; 扫描码(scancode) ──&amp;gt; compositor(Mutter) ──&amp;gt; keysym ──&amp;gt; ibus 引擎 ──&amp;gt; 字符上屏
+             内核只做这件事                  ┌────────────────────────────┘
+                                           libxkbcommon (用户态 C 库)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;内核&lt;&#x2F;strong&gt;（&lt;code&gt;&#x2F;dev&#x2F;input&#x2F;eventX&lt;&#x2F;code&gt;）：只上报&quot;哪颗物理键被按下&quot;的扫描码，&lt;strong&gt;完全不关心布局&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;compositor 层&lt;&#x2F;strong&gt;（Mutter + libxkbcommon）：xkb 所在的位置。libxkbcommon 读取 &lt;code&gt;&#x2F;usr&#x2F;share&#x2F;X11&#x2F;xkb&#x2F;&lt;&#x2F;code&gt; 下的布局配置（&lt;code&gt;evdev.xml&lt;&#x2F;code&gt; 是注册表，共 99 个布局），把&quot;扫描码 + 修饰键状态&quot;翻译成 keysym。&lt;strong&gt;这一层只有映射规则，没有状态机&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ibus + libpinyin 引擎&lt;&#x2F;strong&gt;：Mutter 把 keysym 转交给 ibus，引擎决定拼音组合、候选词、上屏。&lt;strong&gt;中英切换的状态机在这里&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xkb-shi-nei-he-shi-xian-huan-shi-yong-hu-tai-shi-xian&quot;&gt;xkb 是内核实现还是用户态实现？&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;用户态，但在比 libpinyin 更底层的位置&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;层&lt;&#x2F;th&gt;&lt;th&gt;实现&lt;&#x2F;th&gt;&lt;th&gt;职责&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;内核 input&lt;&#x2F;td&gt;&lt;td&gt;evdev&lt;&#x2F;td&gt;&lt;td&gt;上报扫描码&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;compositor&lt;&#x2F;td&gt;&lt;td&gt;libxkbcommon&lt;&#x2F;td&gt;&lt;td&gt;扫描码 → keysym 映射&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;输入法框架&lt;&#x2F;td&gt;&lt;td&gt;ibus-daemon + libpinyin&lt;&#x2F;td&gt;&lt;td&gt;输入法逻辑（状态机）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;xkb 是 X11 时代（X Keyboard Extension）的遗留技术，被 libxkbcommon 库继承，在合成器内部运行。ibus&#x2F;libpinyin 是合成器外的独立进程，通过 Wayland 的 text-input 协议与合成器通信。Wayland 本身不实现任何输入处理，只规定协议。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;gnome-de-shu-ru-yuan-chou-xiang&quot;&gt;GNOME 的&quot;输入源&quot;抽象&lt;&#x2F;h3&gt;
+&lt;p&gt;GNOME 把 xkb 布局和 ibus 引擎&lt;strong&gt;统一抽象为&quot;输入源&quot;（input source）&lt;&#x2F;strong&gt;，这是一个用户视角的&quot;配置集合&quot;，而不是技术层的概念：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;输入源(智能拼音) = { xkb布局: default(us) }  +  { ibus引擎: libpinyin }
+输入源(中文中国) = { xkb布局: cn }           +  { 无引擎 }
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;切换输入源时，GNOME 同时通知两个层：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;切换输入源 (面板&amp;#x2F;Super+Space)
+        │
+        ├──&amp;gt; Mutter 层：切换 xkb 布局（用 libxkbcommon 重新加载映射）
+        │
+        └──&amp;gt; ibus 层：激活&amp;#x2F;停用对应引擎
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所以&lt;strong&gt;面板上的互斥是&quot;输入源选择器&quot;的互斥（同一时刻只能激活一个输入源对象），不是 xkb 层和引擎层的互斥&lt;&#x2F;strong&gt;。激活的输入源内部，xkb 层和引擎层始终同时工作——没有 xkb 映射，连 &lt;code&gt;a&lt;&#x2F;code&gt; 键都映射不出 &lt;code&gt;a&lt;&#x2F;code&gt; 字符。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;mei-ge-yin-qing-du-bang-ding-yi-ge-xkb-bu-ju&quot;&gt;每个引擎都绑定一个 xkb 布局&lt;&#x2F;h3&gt;
+&lt;p&gt;验证 libpinyin 引擎的注册表声明：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;python3 -c &amp;quot;
+import gi
+gi.require_version(&amp;#x27;IBus&amp;#x27;,&amp;#x27;1.0&amp;#x27;)
+from gi.repository import IBus
+bus = IBus.Bus()
+for e in bus.get_engines_by_names([&amp;#x27;libpinyin&amp;#x27;]):
+    print(e.get_name(), e.get_layout(), e.get_language())
+&amp;quot;
+# libpinyin default zh_CN
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;default&lt;&#x2F;code&gt; 即美式 QWERTY——拼音引擎必须依赖标准字母映射才能输入拼音。这也是引擎无法脱离输入源体系单独存在的原因。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;sources-pei-zhi-ge-shi-xiang-jie&quot;&gt;sources 配置格式详解&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set org.gnome.desktop.input-sources sources &amp;quot;[(&amp;#x27;xkb&amp;#x27;, &amp;#x27;us&amp;#x27;), (&amp;#x27;ibus&amp;#x27;, &amp;#x27;libpinyin&amp;#x27;)]&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;每个元素是元组 &lt;code&gt;(类型, 标识符)&lt;&#x2F;code&gt;：&lt;code&gt;xkb&lt;&#x2F;code&gt; 类型第二项是布局名（如 &lt;code&gt;us&lt;&#x2F;code&gt;、&lt;code&gt;cn&lt;&#x2F;code&gt;），&lt;code&gt;ibus&lt;&#x2F;code&gt; 类型第二项是引擎名（如 &lt;code&gt;libpinyin&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;数组顺序 = 面板显示顺序、Super+Space 循环顺序、开机默认输入源&lt;&#x2F;li&gt;
+&lt;li&gt;整个数组要用单引号包裹（GVariant 语法）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;wei-shen-me-she-zhi-jie-mian-zhao-bu-dao-xkb-cn&quot;&gt;为什么设置界面找不到 xkb-cn？&lt;&#x2F;h3&gt;
+&lt;p&gt;GNOME 设置&quot;添加输入源&quot;对话框受 &lt;code&gt;show-all-sources&lt;&#x2F;code&gt; 键控制（默认 false）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gsettings set org.gnome.desktop.input-sources show-all-sources true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;false&lt;&#x2F;code&gt;：只显示与当前系统语言匹配的布局 + 所有 ibus 引擎，且 GNOME 46+ 改版后按&quot;语言 → 输入源&quot;两级展开，xkb 布局排在引擎之后容易被忽略&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;true&lt;&#x2F;code&gt;：列出全部 99 个 xkb 布局&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;而命令行 &lt;code&gt;gsettings set&lt;&#x2F;code&gt; 直接写入 dconf 配置库，绕过 UI 过滤逻辑，所以始终有效。&lt;code&gt;evdev.xml&lt;&#x2F;code&gt; 里的 Chinese 布局一直存在——删除输入源只是从 dconf 列表移除引用，布局本身从未消失。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Shift 切换失效排查要点&lt;&#x2F;strong&gt;：检查输入源结构（是否停在无引擎的 xkb 源上）、&lt;code&gt;main-switch&lt;&#x2F;code&gt; 配置、运行中的 Chromium 应用、&lt;code&gt;embed-preedit-text&lt;&#x2F;code&gt; 与 &lt;code&gt;use-global-engine&lt;&#x2F;code&gt; 设置&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;xkb 是用户态&lt;&#x2F;strong&gt;，位于 compositor 层，提供 keysym 映射；&lt;strong&gt;ibus 引擎是合成器外的进程&lt;&#x2F;strong&gt;，两者通过 Wayland 协议协作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;GNOME 输入源 = xkb 布局 + 引擎的打包组合&lt;&#x2F;strong&gt;，面板互斥的是输入源对象，xkb 层永远在工作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;每个引擎输入源都绑定一个 xkb 布局&lt;&#x2F;strong&gt;（libpinyin 为 default&#x2F;us），这是引擎正确工作的基础&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

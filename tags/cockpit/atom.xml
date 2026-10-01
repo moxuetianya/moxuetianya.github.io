@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - cockpit</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/cockpit/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-10T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/cockpit/atom.xml</id>
+    <entry xml:lang="en">
+        <title>cockpit管理qemu虚拟机</title>
+        <published>2025-10-09T20:04:52+08:00</published>
+        <updated>2026-08-10T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/"/>
+        <id>https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/cockpit管理qemu虚拟机/">&lt;h1 id=&quot;gao-xiao-deng-lu-xu-ni-ji-gui&quot;&gt;高效登录虚拟机GUI&lt;&#x2F;h1&gt;
+&lt;p&gt;使用virt-viewer客户端spice协议登录&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install virt-viewer
+virt-viewer --reconnect win11
+virt-viewer --wait win11
+virsh domdisplay win11
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;lian-jie-ju-yu-wang-de-xu-ni-ji&quot;&gt;连接局域网的虚拟机&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;#1. 如果远程宿主机也在跑 libvirtd 并允许远程连接，你还可以直接用：
+# 这样 virt-viewer 会先通过 libvirt 查询到 SPICE 端口，然后自动帮你连上去（不用手动写端口）。
+# 通常推荐这种方式，安全性更好（走 SSH）
+virt-viewer -c qemu+ssh:&amp;#x2F;&amp;#x2F;user@&amp;lt;宿主机IP&amp;gt;&amp;#x2F;system &amp;lt;VM名称或UUID&amp;gt;
+virt-viewer -c qemu+ssh:&amp;#x2F;&amp;#x2F;peter@192.168.7.99&amp;#x2F;system win11
+
+#2. 开放spice监听外部地址
+# 修改listen=&amp;#x27;0.0.0.0&amp;#x27; 表示允许外部访问（默认可能是 127.0.0.1，那就只能本机连）。
+# port 可以固定（如 5901）或自动分配
+sudo virsh list
+sudo virsh dominfo win11
+sudo grep -C 0 --group-separator=&amp;quot;======&amp;quot; listen &amp;#x2F;etc&amp;#x2F;libvirt&amp;#x2F;qemu&amp;#x2F;win11.xml
+sudo sed -i&amp;#x27;&amp;#x27; &amp;#x27;s&amp;#x2F;127.0.0.1&amp;#x2F;0.0.0.0&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;libvirt&amp;#x2F;qemu&amp;#x2F;win11.xml
+# 一般需要配置密码，否则太不安全
+## &amp;lt;graphics type=&amp;#x27;spice&amp;#x27; port=&amp;#x27;5901&amp;#x27; listen=&amp;#x27;0.0.0.0&amp;#x27;&amp;gt;
+##   &amp;lt;passwd&amp;gt;123&amp;lt;&amp;#x2F;passwd&amp;gt;
+## &amp;lt;&amp;#x2F;graphics&amp;gt;
+virt-viewer --spice-uri spice:&amp;#x2F;&amp;#x2F;192.168.7.99:5901 --spice-password 123
+
+cat &amp;lt;&amp;lt;EOF &amp;gt; win11.vv
+[virt-viewer]
+type=spice
+host=192.168.7.99
+port=5901
+password=123
+delete-this-file=1
+fullscreen=0
+EOF
+remote-viewer vm.vv
+# 或者直接双击执行
+
+# 可能的问题
+# 音频&amp;#x2F;USB 不工作 SPICE 的辅助通道（如 5902）可能被防火墙阻断，需开放连续端口范围
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qi-dong-wen-ti-pai-cha&quot;&gt;启动问题排查&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;从debian12 升级到debian13系统后， cockpit的web页面登录失败&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl status cockpit.service
+# 2月 03 14:00:57 xiao99 cockpit-tls[2028483]: cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+# 2月 03 14:01:06 xiao99 cockpit-tls[2028483]: cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+
+# 另外网页会自动刷行页面，后续的cockpit.socket 会崩溃，出现另一个报错信息, 这个应该不是根因
+# Dependency failed for cockpit.service - Cockpit Web Service.
+
+gnutls-cli --insecure -p 9090 localhost
+# Processed 0 CA certificate(s).
+# Resolving &amp;#x27;localhost:9090&amp;#x27;...
+# Connecting to &amp;#x27;127.0.0.1:9090&amp;#x27;...
+# *** Fatal error: Error in the pull function.
+
+echo -e &amp;quot;GET &amp;#x2F; HTTP&amp;#x2F;1.0\r\n\r\n&amp;quot; | socat - OPENSSL:127.0.0.1:9090,verify=0
+# 2026&amp;#x2F;02&amp;#x2F;03 14:18:00 socat[2106042] W refusing to set empty SNI host name
+# 2026&amp;#x2F;02&amp;#x2F;03 14:18:00 socat[2106042] W SSL_connect(): Connection reset by peer
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zheng-shu-wen-ti-jie-jue&quot;&gt;证书问题解决&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemd-run \
+  --unit=cockpit-cert-debug \
+  --pty \
+  -p RuntimeDirectory=cockpit&amp;#x2F;tls \
+  -p WorkingDirectory=&amp;#x2F; \
+  &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;cockpit&amp;#x2F;cockpit-certificate-ensure --for-cockpit-tls
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl reset-failed cockpit-debug.service
+sudo systemd-run \
+  --unit=cockpit-debug \
+  --pty \
+  -p WorkingDirectory=&amp;#x2F;run \
+  -p RuntimeDirectory=cockpit&amp;#x2F;tls \
+  -p DynamicUser=yes \
+  -p User=cockpit-systemd-service \
+  -p Group=cockpit-wsinstance-socket \
+  -p NoNewPrivileges=yes \
+  -p ProtectSystem=strict \
+  -p PrivateDevices=yes \
+  -p ProtectKernelTunables=yes \
+  -p MemoryDenyWriteExecute=yes \
+  -p PrivateIPC=yes \
+  -p PrivateNetwork=yes \
+  &amp;#x2F;usr&amp;#x2F;lib&amp;#x2F;cockpit&amp;#x2F;cockpit-tls
+
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl enable --now \
+  cockpit.socket \
+  cockpit-wsinstance-http.socket \
+  cockpit-wsinstance-https-factory.socket
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-ni-ji-biao-qian-bu-xian-shi&quot;&gt;虚拟机标签不显示&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：登录 Cockpit 后左侧导航只有 概览&#x2F;日志&#x2F;存储&#x2F;网络&#x2F;用户账户&#x2F;服务，没有「虚拟机」标签。&lt;&#x2F;p&gt;
+&lt;p&gt;原因：未安装 &lt;code&gt;cockpit-machines&lt;&#x2F;code&gt; 包（虚拟机页面的功能由它提供，与 libvirt 本体无关）。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看已装 cockpit 组件
+dpkg -l | grep cockpit
+
+sudo apt install cockpit-machines
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装后强制刷新浏览器（Ctrl+Shift+R）即可出现「虚拟机器」标签。
+注意：Ubuntu 24.04 若 cockpit 核心来自 backports（如 362），建议一并安装 backports 版对齐版本，避免旧版页面与新版 bridge 不兼容：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install cockpit-machines&amp;#x2F;noble-backports
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;deng-lu-duan-kai-zi-qian-zheng-shu-guo-qi-zi-dong-zhong-xin-sheng-cheng&quot;&gt;登录断开：自签证书过期自动重新生成&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：前一天还能打开 Cockpit，今天突然「已断开连接 &#x2F; 服务器已关闭了连接」。服务器日志里大量：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cockpit-tls: gnutls_handshake failed: A TLS fatal alert has been received.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查发现 &lt;code&gt;&#x2F;etc&#x2F;cockpit&#x2F;ws-certs.d&#x2F;&lt;&#x2F;code&gt; 下的自签证书在当天被重新生成了（旧证书过期）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls -la &amp;#x2F;etc&amp;#x2F;cockpit&amp;#x2F;ws-certs.d&amp;#x2F;
+openssl x509 -in &amp;#x2F;etc&amp;#x2F;cockpit&amp;#x2F;ws-certs.d&amp;#x2F;0-self-signed.cert -noout -dates
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;浏览器缓存&#x2F;信任的是旧证书，服务器换了新证书后 TLS 握手被浏览器直接掐断，表现就是「已断开连接」。这与上面 Debian 升级导致的证书问题根因不同（那次是升级破坏了证书文件，这次是正常到期轮换）。&lt;&#x2F;p&gt;
+&lt;p&gt;解决（浏览器侧操作）：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;隐身窗口打开 &lt;code&gt;https:&#x2F;&#x2F;&amp;lt;ip&amp;gt;:9090&lt;&#x2F;code&gt;，出现&quot;您的连接不是私密连接&quot;时点 高级 → 继续前往&lt;&#x2F;li&gt;
+&lt;li&gt;若曾把旧证书导入系统&#x2F;浏览器信任库，删除旧记录&lt;&#x2F;li&gt;
+&lt;li&gt;清除该站点的缓存&#x2F;站点数据&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;服务端验证连通性：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -sk -o &amp;#x2F;dev&amp;#x2F;null -w &amp;#x27;HTTP %{http_code}\n&amp;#x27; https:&amp;#x2F;&amp;#x2F;localhost:9090&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-ni-ji-ye-mian-fu-wu-qi-yi-guan-bi-liao-lian-jie-pybridge-dan-li-huan-cun-bug&quot;&gt;虚拟机页面「服务器已关闭了连接」：pybridge 单例缓存 bug&lt;&#x2F;h1&gt;
+&lt;p&gt;现象：其他标签都正常，唯独点「虚拟机」后整个会话断开，页面显示「已断开连接 &#x2F; 服务器已关闭了连接」+ 重新连接按钮。每次点都崩，可稳定复现。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;服务器日志（journalctl）看到 bridge 崩溃：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;journalctl -u cockpit-session@ -n 50
+# cockpit.protocol.CockpitProtocolError: channel is already open
+#   File &amp;quot;...&amp;#x2F;cockpit&amp;#x2F;router.py&amp;quot;, line 281, in channel_control_received
+# OSError: [Errno 22] sd_bus_attach_event: Invalid argument
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;检查运行中 bridge 的环境，发现缺少 &lt;code&gt;XDG_RUNTIME_DIR&lt;&#x2F;code&gt; 和 &lt;code&gt;DBUS_SESSION_BUS_ADDRESS&lt;&#x2F;code&gt;：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tr &amp;#x27;\0&amp;#x27; &amp;#x27;\n&amp;#x27; &amp;lt; &amp;#x2F;proc&amp;#x2F;&amp;lt;bridge-pid&amp;gt;&amp;#x2F;environ
+# 只有 XDG_SESSION_CLASS&amp;#x2F;XDG_SESSION_TYPE&amp;#x2F;HOME&amp;#x2F;PATH
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;3&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;干净环境复现：&lt;code&gt;sd_bus_default_user&lt;&#x2F;code&gt; 报 &lt;code&gt;No medium found&lt;&#x2F;code&gt;（ENOMEDIUM）——web 会话没有 session bus。&lt;code&gt;&#x2F;etc&#x2F;pam.d&#x2F;cockpit&lt;&#x2F;code&gt; 只有 &lt;code&gt;pam_unix&lt;&#x2F;code&gt;，没有 &lt;code&gt;pam_systemd&lt;&#x2F;code&gt;，所以 bridge 拿不到用户会话总线地址。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;给 bridge 打临时日志补丁（router.py 记录重复打开的 channel id，dbus.py 记录打开的 bus&#x2F;name），再触发一次崩溃，抓到决定性证据：&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# DBG dbus-open channel=1:6!6 bus=session name=org.libvirt superuser=None
+#   → attach_event EINVAL（异步异常，channel 残留在 open_channels，无 close 响应）
+# DBG channel=1:6!6 already-open message={&amp;#x27;bus&amp;#x27;: &amp;#x27;session&amp;#x27;, &amp;#x27;payload&amp;#x27;: &amp;#x27;dbus-json3&amp;#x27;, &amp;#x27;name&amp;#x27;: &amp;#x27;org.libvirt&amp;#x27;, ...}
+#   → 页面超时后重试同一 channel id → CockpitProtocolError → bridge 死亡
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h2&gt;
+&lt;p&gt;崩溃链完整还原：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;会话内第一个 session bus 通道（如日志页的 &lt;code&gt;org.freedesktop.systemd1&lt;&#x2F;code&gt;）调用 &lt;code&gt;sd_bus_default_user&lt;&#x2F;code&gt; 失败（ENOMEDIUM），但 &lt;code&gt;systemd_ctypes&#x2F;bus.py&lt;&#x2F;code&gt; 的 &lt;code&gt;default_user()&lt;&#x2F;code&gt; &lt;strong&gt;先把空壳 Bus() 写入了单例缓存&lt;&#x2F;strong&gt;，失败后也不清除：&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;if Bus._default_user_instance is None:
+    Bus._default_user_instance = Bus()      # 先赋值（空壳！）
+    Bus._default_user(byref(...))           # 失败时异常，但空壳已缓存
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;虚拟机页打开 &lt;code&gt;org.libvirt&lt;&#x2F;code&gt; session 通道（第二个 session 通道），拿到缓存的空 bus → &lt;code&gt;attach_event(NULL)&lt;&#x2F;code&gt; 返回 EINVAL → channel 半开残留在路由表&lt;&#x2F;li&gt;
+&lt;li&gt;页面收不到 ready&#x2F;close 响应，超时重试同一 channel id → router 抛 &lt;code&gt;CockpitProtocolError(&#x27;channel is already open&#x27;)&lt;&#x2F;code&gt; → 整个 bridge 进程崩溃 → 前端「服务器已关闭了连接」&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;xiu-fu&quot;&gt;修复&lt;&#x2F;h2&gt;
+&lt;p&gt;只把成功创建的连接写入缓存（&lt;code&gt;default_user&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;default_system&lt;&#x2F;code&gt; 同样处理）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;python&quot; class=&quot;language-python &quot;&gt;&lt;code class=&quot;language-python&quot; data-lang=&quot;python&quot;&gt;@staticmethod
+def default_user(attach_event: bool = True) -&amp;gt; &amp;#x27;Bus&amp;#x27;:
+    if Bus._default_user_instance is None:
+        instance = Bus()
+        Bus._default_user(byref(instance))
+        if attach_event:
+            instance.attach_event(None, 0)
+        Bus._default_user_instance = instance
+    return Bus._default_user_instance
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;修复后 session 通道干净地返回 ChannelError，虚拟机页按设计回落到 system bus（&lt;code&gt;superuser: &quot;try&quot;&lt;&#x2F;code&gt;），虚拟机列表正常加载。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jing-yan&quot;&gt;经验&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;判定顺序：先看服务器日志定位崩溃点，再看 bridge 进程环境找缺失依赖，最后用临时日志补丁抓决定性证据&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;systemd_ctypes&lt;&#x2F;code&gt; 的单例模式「先赋值后初始化」是隐患，任何初始化失败都会污染缓存——排查时可先怀疑这类模式&lt;&#x2F;li&gt;
+&lt;li&gt;复现脚本（模拟 bridge 协议驱动 channel 打开）能验证修复，但要记得模拟浏览器的「重试」行为，否则不会触发崩溃&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

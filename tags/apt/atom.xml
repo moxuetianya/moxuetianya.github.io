@@ -1,0 +1,848 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - apt</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/apt/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-13T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/apt/atom.xml</id>
+    <entry xml:lang="en">
+        <title>把 Hermes 关进 OpenShell 沙箱（基于 pi 镜像）：rootless Podman 与凭证不落地</title>
+        <published>2026-09-11T17:30:07+08:00</published>
+        <updated>2026-09-13T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/"/>
+        <id>https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/openshell-pi-hermes-sandbox/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;我有一台 Ubuntu 桌面 VM（下面叫 dut），平时在上面跑两个 agent：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;pi&lt;&#x2F;strong&gt;：极简的终端编码 agent（&lt;code&gt;@earendil-works&#x2F;pi-coding-agent&lt;&#x2F;code&gt;）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Hermes&lt;&#x2F;strong&gt;：Nous Research 的自改进 agent，带 Web dashboard。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;2026-09 更新：沙箱最终常驻跑的是 Hermes，沙箱名 &#x2F; provider &#x2F; 仓库目录已从 &lt;code&gt;pi&lt;&#x2F;code&gt; 统一改名为 &lt;code&gt;hermes&lt;&#x2F;code&gt;（镜像仍是上游 pi 镜像，pi 在镜像里可作备用）；文中命令均已用新名字。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;直接跑在宿主上有三个担心：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;隐私文件&lt;&#x2F;strong&gt;：agent 的 &lt;code&gt;bash&lt;&#x2F;code&gt; 工具能读 &lt;code&gt;~&#x2F;.ssh&lt;&#x2F;code&gt;、&lt;code&gt;~&#x2F;.password-store&lt;&#x2F;code&gt;、各种文档；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;密钥&lt;&#x2F;strong&gt;：模型 API key 在进程环境或配置里，prompt injection 可以把 key 外传；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;破坏性操作&lt;&#x2F;strong&gt;：&lt;code&gt;rm -rf&lt;&#x2F;code&gt; 直接作用在宿主文件系统。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;目标：把 agent 关进沙箱，文件只读&#x2F;只写工作区、出网白名单、&lt;strong&gt;真 key 不进入 agent 进程&lt;&#x2F;strong&gt;，同时保留可观测性。最后选了 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;NVIDIA&#x2F;OpenShell&quot;&gt;NVIDIA OpenShell&lt;&#x2F;a&gt;——它的 policy 引擎正好覆盖这三件事。&lt;&#x2F;p&gt;
+&lt;p&gt;这篇文章分两部分：OpenShell 的部署与 policy 字段详解；以及在沙箱里加装 Hermes 的完整过程和持久化取舍。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;openshell-jia-gou-su-lan&quot;&gt;OpenShell 架构速览&lt;&#x2F;h1&gt;
+&lt;pre&gt;&lt;code&gt;CLI ──mTLS──▶ openshell-gateway（控制面，systemd 用户服务，127.0.0.1:17670）
+                  │ 通过 compute driver 管理沙箱
+                  ▼
+          sandbox 容器（rootless podman）
+            └─ supervisor（PID 1，root）
+                 ├─ 把 agent 降权到 sandbox 用户、清 capability
+                 ├─ 应用 filesystem policy（Landlock LSM）
+                 ├─ 建 agent netns + 在 10.200.0.1:3128 跑正向代理
+                 └─ 每次连接按 binary+endpoint 做 OPA 判权、L7 时终结 TLS 替换凭证
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;几个容易误解的点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Docker&#x2F;Podman 只是计算驱动&lt;&#x2F;strong&gt;（可换 k8s&#x2F;VM），不是权限边界本身；真正的限制是 supervisor 里的 policy 层；&lt;&#x2F;li&gt;
+&lt;li&gt;沙箱网络和宿主&lt;strong&gt;不是同一个网络&lt;&#x2F;strong&gt;：agent 在嵌套 netns（&lt;code&gt;veth-s&lt;&#x2F;code&gt; 10.200.0.2&#x2F;24，默认路由指向 supervisor 的 &lt;code&gt;10.200.0.1&lt;&#x2F;code&gt;），实测除代理端口外什么都不可达（podman 网关、宿主 LAN、公网 IP、&lt;code&gt;host.openshell.internal&lt;&#x2F;code&gt; 全不通），DNS 也是代理侧解析；&lt;&#x2F;li&gt;
+&lt;li&gt;出口是&lt;strong&gt;应用层正向代理&lt;&#x2F;strong&gt;（不是 NAT）：TLS 终结、OPA 策略、凭证占位符替换、OCSF 审计日志一条龙。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;bu-shu&quot;&gt;部署&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-zhuang-openshell&quot;&gt;1. 装 OpenShell&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export https_proxy=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+curl -LsSf https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;NVIDIA&amp;#x2F;OpenShell&amp;#x2F;main&amp;#x2F;install.sh | sh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;装的是 Debian 包：CLI + gateway + systemd &lt;strong&gt;用户服务&lt;&#x2F;strong&gt;。装完 gateway 会自动起；&lt;code&gt;openshell status&lt;&#x2F;code&gt; 显示 &lt;code&gt;Connected&lt;&#x2F;code&gt; + &lt;code&gt;Authenticated (mTLS)&lt;&#x2F;code&gt; 即可。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-ji-suan-qu-dong-cong-docker-huan-rootless-podman&quot;&gt;2. 计算驱动：从 Docker 换 rootless Podman&lt;&#x2F;h2&gt;
+&lt;p&gt;这台机器原本用 Docker。换 Podman 的原因很实际：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;拉镜像的代理&lt;&#x2F;strong&gt;：podman 拉取是客户端行为，&lt;code&gt;export HTTPS_PROXY&lt;&#x2F;code&gt; 直接生效；docker 是 daemon 拉，客户端 export 无效，必须改 &lt;code&gt;docker.service.d&lt;&#x2F;code&gt; 并重启 daemon（我不想动 Docker 配置，也不想重启跑着服务的 Docker）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;权限&lt;&#x2F;strong&gt;：rootless podman socket 天然属于用户，gateway 不需要 docker 组、不用改 socket 权限；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;podman-docker&lt;&#x2F;code&gt; 提供 &lt;code&gt;docker&lt;&#x2F;code&gt; CLI 兼容层，旧脚本基本无痛。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install -y podman podman-compose podman-docker passt uidmap slirp4netns
+systemctl --user enable --now podman.socket
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后让网关切到 podman 驱动：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;toml&quot; class=&quot;language-toml &quot;&gt;&lt;code class=&quot;language-toml&quot; data-lang=&quot;toml&quot;&gt;# ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;gateway.toml
+[openshell.gateway]
+compute_drivers = [&amp;quot;podman&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl --user restart openshell-gateway
+journalctl --user -u openshell-gateway -n 20 | grep -i driver
+# INFO openshell_driver_podman::driver: Connected to Podman ... rootless=true rootless_network_cmd=pasta
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;坑：卸载 Docker 时 purge &lt;code&gt;containerd.io&lt;&#x2F;code&gt; 会&lt;strong&gt;连带删掉 &lt;code&gt;runc&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（podman 当时用的 OCI runtime），正在跑的沙箱容器直接变 unhealthy&#x2F;Error，补装 &lt;code&gt;apt install runc&lt;&#x2F;code&gt; 后重建沙箱即可。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;3-la-jing-xiang&quot;&gt;3. 拉镜像&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export https_proxy=http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808
+podman pull ghcr.io&amp;#x2F;nvidia&amp;#x2F;openshell&amp;#x2F;supervisor:0.0.116
+podman pull ghcr.io&amp;#x2F;nvidia&amp;#x2F;openshell-community&amp;#x2F;sandboxes&amp;#x2F;pi:latest
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;pi 镜像是上游构建好的（&lt;code&gt;RUN npm install -g @earendil-works&#x2F;pi-coding-agent&lt;&#x2F;code&gt;，pi 0.77.0），沙箱里&lt;strong&gt;零安装&lt;&#x2F;strong&gt;。但它体积不小——3.58GB，解剖一下（&lt;code&gt;podman history&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;层&lt;&#x2F;th&gt;&lt;th&gt;大小&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;npm 全局包：opencode-ai + @openai&#x2F;codex + @github&#x2F;copilot + tar&#x2F;hono&lt;&#x2F;td&gt;&lt;td&gt;1.87 GB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Node.js 22 + npm 11 + build-essential&#x2F;git&#x2F;vim&#x2F;nano&lt;&#x2F;td&gt;&lt;td&gt;618 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Claude Code（官方 native 安装）&lt;&#x2F;td&gt;&lt;td&gt;481 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;uv + Python 3.14 + &lt;code&gt;&#x2F;sandbox&#x2F;.venv&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;~265 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Ubuntu 24.04 noble 底座&lt;&#x2F;td&gt;&lt;td&gt;81 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;apt 系统工具（curl&#x2F;dnsutils&#x2F;iproute2&#x2F;iptables&#x2F;nftables&#x2F;ping&#x2F;nc&#x2F;traceroute…）&lt;&#x2F;td&gt;&lt;td&gt;72 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;gh CLI&lt;&#x2F;td&gt;&lt;td&gt;41 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;pi 本体&lt;&#x2F;strong&gt;（&lt;code&gt;@earendil-works&#x2F;pi-coding-agent&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;td&gt;157 MB&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;也就是说，base 镜像是个&quot;agent 全家桶&quot;（四个 coding agent CLI + 完整 Node 编译链 + Python 工具链），pi 只是最上面薄薄一层。3.58GB 里 pi 自己只占 4%；自建 BYOC 时 &lt;code&gt;FROM base&lt;&#x2F;code&gt; 也继承这些，真想瘦身得绕开 base、自己搭 OpenShell 所需的 supervisor&#x2F;sandbox 用户与 &lt;code&gt;&#x2F;etc&#x2F;openshell&lt;&#x2F;code&gt; 骨架。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ping-zheng-bu-luo-di-provider-zhan-wei-fu-l7-ti-huan&quot;&gt;凭证不落地：provider + 占位符 + L7 替换&lt;&#x2F;h1&gt;
+&lt;p&gt;模型 key 的最终形态是：&lt;strong&gt;agent 进程只拿到占位符，真值只存在 supervisor 内存里，代理在发往上游的请求上替换&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;先写一个 provider profile（自定义类型）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;yaml&quot; class=&quot;language-yaml &quot;&gt;&lt;code class=&quot;language-yaml&quot; data-lang=&quot;yaml&quot;&gt;# xiaomi-token-plan-cn-provider.yaml
+id: xiaomi-token-plan-cn
+category: inference
+inference_capable: true
+credentials:
+  - name: api_key
+    env_vars: [XIAOMI_TOKEN_PLAN_CN_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+endpoints:
+  - host: token-plan-cn.xiaomimimo.com
+    port: 443
+    protocol: rest          # ← L7：必须，否则代理看不到明文、无法替换
+    access: read-write
+    enforcement: enforce
+binaries:
+  - &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;pi
+  - &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;node
+  # ... node_modules 里的 cli.js 等
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;导入并用文件喂 key（key 不进命令行历史）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell provider profile import -f xiaomi-token-plan-cn-provider.yaml
+XIAOMI_TOKEN_PLAN_CN_API_KEY=&amp;quot;$(cat ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;hermes-key)&amp;quot; \
+  openshell provider create --name hermes-xiaomi --type xiaomi-token-plan-cn \
+  --credential XIAOMI_TOKEN_PLAN_CN_API_KEY
+shred -u ~&amp;#x2F;.config&amp;#x2F;openshell&amp;#x2F;hermes-key
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;机制&lt;&#x2F;strong&gt;：沙箱里 &lt;code&gt;env&lt;&#x2F;code&gt; 看到的是 &lt;code&gt;openshell:resolve:env:XIAOMI_TOKEN_PLAN_CN_API_KEY&lt;&#x2F;code&gt;；supervisor 的代理对 L7 端点做 TLS 终结（临时 CA，私钥只在内存），解析明文 HTTP 后把占位符替换成真 key，再用真实根 CA 重新加密发往上游。&lt;code&gt;provider update&lt;&#x2F;code&gt; 到运行中沙箱约 &lt;strong&gt;15s&lt;&#x2F;strong&gt; 同步，运行中的进程无需重启。&lt;&#x2F;p&gt;
+&lt;p&gt;踩过的坑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;credentialed endpoint 必须 L7&lt;&#x2F;strong&gt;。pi 镜像自带的 policy 里 &lt;code&gt;token-plan-cn.xiaomimimo.com&lt;&#x2F;code&gt; 是裸 CONNECT 隧道，运行时会报 &lt;code&gt;credentialed endpoint requires L7 inspection; raw tunnel is not explicitly allowed&lt;&#x2F;code&gt;（deny 日志 &lt;code&gt;[policy:hermes engine:credentials]&lt;&#x2F;code&gt;）。把端点改成 &lt;code&gt;protocol: rest&lt;&#x2F;code&gt; 才通。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;provider attach 的校验读的是沙箱创建时 spec 里的 policy&lt;&#x2F;strong&gt;，不是后续 &lt;code&gt;policy set&lt;&#x2F;code&gt; 的 revision。所以 policy 和 &lt;code&gt;--provider&lt;&#x2F;code&gt; 要在 &lt;code&gt;sandbox create&lt;&#x2F;code&gt; 时一次给全；对已存在沙箱事后 attach 带凭证的 provider 会报 L4-only。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;hermes-policy-yaml-zi-duan-xiang-jie&quot;&gt;hermes-policy.yaml 字段详解&lt;&#x2F;h1&gt;
+&lt;p&gt;policy 分&lt;strong&gt;静态段&lt;&#x2F;strong&gt;（创建时锁定，改了要重建沙箱）和&lt;strong&gt;动态段&lt;&#x2F;strong&gt;（&lt;code&gt;network_policies&lt;&#x2F;code&gt;，可 &lt;code&gt;policy set --wait&lt;&#x2F;code&gt; 热更）。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;字段&lt;&#x2F;th&gt;&lt;th&gt;类别&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;version&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;schema 版本，固定 &lt;code&gt;1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;filesystem_policy.include_workdir&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;把 driver 工作目录（&lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt;）纳入可写&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;filesystem_policy.read_only&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;read_write&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;白名单模型：只读&#x2F;可写路径，&lt;strong&gt;未列出的路径不可访问&lt;&#x2F;strong&gt;；由 supervisor 用 Landlock LSM + 挂载落实&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;landlock.compatibility&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;best_effort&lt;&#x2F;code&gt;：内核支持就启用，不支持则降级&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;process.run_as_user&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;run_as_group&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;静态&lt;&#x2F;td&gt;&lt;td&gt;agent 进程降权身份（pi 镜像里是 &lt;code&gt;sandbox&lt;&#x2F;code&gt;，uid 998）；禁止 root&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;network_policies.&amp;lt;key&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;一条规则 = endpoints × binaries；&lt;strong&gt;规则里每个二进制都能访问该规则所有端点&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;host&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;port&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;目标；省略 &lt;code&gt;protocol&lt;&#x2F;code&gt; = 裸 CONNECT 隧道（L4，只能看 host:port）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;protocol: rest&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;L7：代理终结 TLS、解析 HTTP、按 method&#x2F;path 判、可替换凭证占位符&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;access&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;预设：&lt;code&gt;read-only&lt;&#x2F;code&gt; = GET&#x2F;HEAD&#x2F;OPTIONS；&lt;code&gt;read-write&lt;&#x2F;code&gt; 全放&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;rules[].allow{method,path}&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;L7 方法&#x2F;路径白名单（如 git 只放 clone&#x2F;fetch，禁 push）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;endpoint &lt;code&gt;allow_encoded_slash&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;允许路径里的 &lt;code&gt;%2F&lt;&#x2F;code&gt;（npm scoped 包必须）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;binaries[].path&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;动态&lt;&#x2F;td&gt;&lt;td&gt;允许使用该规则的执行者（支持 glob）；代理按 &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;exe&lt;&#x2F;code&gt; 的&lt;strong&gt;真实路径&lt;&#x2F;strong&gt;匹配（软链不算）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;code&gt;filesystem_policy&lt;&#x2F;code&gt; 的 whitelist 效果实测：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- sh -c &amp;#x27;id; ls &amp;#x2F;home&amp;#x27;
+uid=998(sandbox) gid=998(sandbox) groups=998(sandbox)
+ls: cannot open directory &amp;#x27;&amp;#x2F;home&amp;#x27;: Permission denied
+
+$ openshell sandbox exec -n hermes -- sh -c &amp;#x27;touch &amp;#x2F;usr&amp;#x2F;x; touch &amp;#x2F;sandbox&amp;#x2F;ok&amp;#x27;
+touch: cannot touch &amp;#x27;&amp;#x2F;usr&amp;#x2F;x&amp;#x27;: Permission denied   # 只读
+$ touch &amp;#x2F;sandbox&amp;#x2F;ok                               # 可写
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;网络白名单：未列端点直接 403，且每次放行&#x2F;拒绝都有 OCSF 日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- sh -c &amp;#x27;curl -sS https:&amp;#x2F;&amp;#x2F;example.com&amp;#x27;
+curl: (56) CONNECT tunnel failed, response 403
+
+$ openshell logs hermes --tail
+NET:OPEN [MED] DENIED &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;curl -&amp;gt; example.com:443 [reason:endpoint not allowed by any policy]
+HTTP:POST [INFO] ALLOWED POST http:&amp;#x2F;&amp;#x2F;token-plan-cn.xiaomimimo.com:443&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions [policy:hermes engine:l7]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;创建沙箱：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell sandbox create --name hermes --from pi --provider hermes-xiaomi \
+  --policy .&amp;#x2F;hermes-policy.yaml --detach
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;sha-xiang-quan-xian-bian-jie-mei-you-root-ye-mei-you-sudo&quot;&gt;沙箱权限边界：没有 root，也没有 sudo&lt;&#x2F;h1&gt;
+&lt;p&gt;把 agent 关进沙箱，&quot;它能不能自己提权&quot;是第一个要回答的问题。实测结论：&lt;strong&gt;不能，而且这是三层设计&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;policy 层&lt;&#x2F;strong&gt;：&lt;code&gt;process.run_as_user&lt;&#x2F;code&gt; 显式值只接受 &lt;code&gt;sandbox&lt;&#x2F;code&gt; 或 UID&#x2F;GID &lt;code&gt;1..4294967294&lt;&#x2F;code&gt;，&lt;code&gt;0&lt;&#x2F;code&gt;（root）会被 schema 直接拒绝（&quot;root and the invalid identity sentinel are rejected&quot;）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;supervisor 层&lt;&#x2F;strong&gt;：就算删掉 &lt;code&gt;process&lt;&#x2F;code&gt; 段走镜像 OCI &lt;code&gt;USER&lt;&#x2F;code&gt; fallback，源码 &lt;code&gt;resolve_required_oci_user()&lt;&#x2F;code&gt; 也显式拒绝 &lt;code&gt;OCI USER &#x27;...&#x27; selects root&lt;&#x2F;code&gt;、数值 UID 0、解析到 UID 0 的用户、primary GID 0、root 组&#x2F;GID 0——自建镜像写 &lt;code&gt;USER root&lt;&#x2F;code&gt; 也起不来。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;运行时层&lt;&#x2F;strong&gt;：agent 进程 &lt;code&gt;NoNewPrivs=1&lt;&#x2F;code&gt;、&lt;code&gt;CapEff=0&lt;&#x2F;code&gt;，seccomp 禁 &lt;code&gt;mount&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ptrace&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;bpf&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;unshare(CLONE_NEWUSER)&lt;&#x2F;code&gt; 等逃逸原语，Landlock 文件策略照旧。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;实测：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- sh -c &amp;#x27;id; grep -E &amp;quot;NoNewPrivs|CapEff&amp;quot; &amp;#x2F;proc&amp;#x2F;self&amp;#x2F;status; command -v sudo || echo no-sudo&amp;#x27;
+uid=998(sandbox) gid=998(sandbox) groups=998(sandbox)
+NoNewPrivs:	1
+CapEff:	0000000000000000
+no-sudo
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;改时间也不可能&lt;&#x2F;strong&gt;：容器没有独立实时钟（&lt;code&gt;CLOCK_REALTIME&lt;&#x2F;code&gt; 是内核全局的，time namespace 只虚拟化 &lt;code&gt;MONOTONIC&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;BOOTTIME&lt;&#x2F;code&gt;），&lt;code&gt;date -s&lt;&#x2F;code&gt; 需要 &lt;code&gt;CAP_SYS_TIME&lt;&#x2F;code&gt; 且按 init user namespace 校验，rootless 用户命名空间里（连 &lt;code&gt;podman exec -u root&lt;&#x2F;code&gt;）都拿不到：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- date -s &amp;quot;2020-01-01 00:00:00&amp;quot;
+date: cannot set date: Operation not permitted
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;shi-zhong-gong-xiang-shi-qu-ge-zi&quot;&gt;时钟共享，时区各自&lt;&#x2F;h2&gt;
+&lt;p&gt;容器和宿主共享同一个内核时钟（实测两边 &lt;code&gt;date -u&lt;&#x2F;code&gt; 逐秒一致、&lt;code&gt;&#x2F;proc&#x2F;self&#x2F;ns&#x2F;time&lt;&#x2F;code&gt; inode 相同），所以宿主机改时钟沙箱必然跟着变；&lt;strong&gt;不共享的是时区&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;视角&lt;&#x2F;th&gt;&lt;th&gt;显示&lt;&#x2F;th&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;宿主&lt;&#x2F;td&gt;&lt;td&gt;16:33 CST&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;&#x2F;etc&#x2F;localtime&lt;&#x2F;code&gt; = Asia&#x2F;Shanghai&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;openshell sandbox exec&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;16:33 CST&lt;&#x2F;td&gt;&lt;td&gt;gateway 给会话注入宿主 &lt;code&gt;TZ=Asia&#x2F;Shanghai&lt;&#x2F;code&gt;（实测客户端 &lt;code&gt;TZ=&lt;&#x2F;code&gt; 覆盖无效）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;podman exec&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;08:33 UTC&lt;&#x2F;td&gt;&lt;td&gt;容器 &lt;code&gt;&#x2F;etc&#x2F;localtime&lt;&#x2F;code&gt; = &lt;code&gt;Etc&#x2F;UTC&lt;&#x2F;code&gt;（镜像默认）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Hermes 长驻进程&lt;&#x2F;td&gt;&lt;td&gt;08:33 UTC&lt;&#x2F;td&gt;&lt;td&gt;无 &lt;code&gt;TZ&lt;&#x2F;code&gt; 环境变量，走容器默认&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;改宿主时区后，沙箱里&quot;没变&quot;的就是后两类（Hermes dashboard&#x2F;gateway 都算）。统一到 CST：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;podman exec -u root &amp;lt;容器&amp;gt; ln -sf &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;zoneinfo&amp;#x2F;Asia&amp;#x2F;Shanghai &amp;#x2F;etc&amp;#x2F;localtime
+# 然后重启 dashboard&amp;#x2F;gateway（glibc 对时区文件有进程级缓存，不重启不生效）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;（改动在容器可写层，&lt;code&gt;stop&#x2F;start&lt;&#x2F;code&gt; 保留、&lt;code&gt;delete&lt;&#x2F;code&gt; 丢；要永久就做进 BYOC 镜像。）&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;podman-exec-rao-kai-supervisor-de-hou-men&quot;&gt;podman exec：绕开 supervisor 的后门&lt;&#x2F;h2&gt;
+&lt;p&gt;OpenShell 的约束都在 supervisor 里，而容器本身是宿主 rootless podman 管理的。从 dut 上直接 &lt;code&gt;podman exec&lt;&#x2F;code&gt; 可以进同一个容器，但它&lt;strong&gt;不是&lt;&#x2F;strong&gt; &lt;code&gt;openshell exec&lt;&#x2F;code&gt; 的等价物：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;维度&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;openshell sandbox exec&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;podman exec&lt;&#x2F;code&gt;（默认 root）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;身份&lt;&#x2F;td&gt;&lt;td&gt;sandbox (998)，受 &lt;code&gt;run_as_user&lt;&#x2F;code&gt; 约束&lt;&#x2F;td&gt;&lt;td&gt;root（容器 &lt;code&gt;Config.User=0:0&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Landlock 文件策略&lt;&#x2F;td&gt;&lt;td&gt;生效（写 &lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; → Permission denied）&lt;&#x2F;td&gt;&lt;td&gt;不生效（root 可写 &lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;网络策略&lt;&#x2F;td&gt;&lt;td&gt;生效（私网 403）&lt;&#x2F;td&gt;&lt;td&gt;仍生效（netns 级代理，私网超时）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;OCSF 审计&lt;&#x2F;td&gt;&lt;td&gt;有记录&lt;&#x2F;td&gt;&lt;td&gt;无记录&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;生命周期&lt;&#x2F;td&gt;&lt;td&gt;openshell 管 stop&#x2F;start&#x2F;delete&#x2F;forward&lt;&#x2F;td&gt;&lt;td&gt;gateway 不感知，别用 podman stop&#x2F;rm&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;注意 root 的 capability 里 &lt;code&gt;CAP_DAC_OVERRIDE&lt;&#x2F;code&gt; 被 drop：&lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 属 sandbox 用户 755，root 反而写不进去（要 &lt;code&gt;-u sandbox&lt;&#x2F;code&gt;）；写 &lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt;、装包没问题。&lt;&#x2F;p&gt;
+&lt;p&gt;这给了我们一条&quot;给沙箱补系统工具&quot;的路子——但直接 apt 会失败：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;E: Failed to fetch store:&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;apt&amp;#x2F;lists&amp;#x2F;partial&amp;#x2F;... rename failed, Permission denied
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原因：&lt;code&gt;&#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;partial&lt;&#x2F;code&gt; 属 &lt;code&gt;_apt&lt;&#x2F;code&gt;，而 root 缺 &lt;code&gt;CAP_DAC_OVERRIDE&lt;&#x2F;code&gt;。解法（实测装通 &lt;code&gt;sl&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;C=openshell-default--hermes-&amp;lt;id&amp;gt;
+podman exec -u root $C chown -R root:root &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;apt&amp;#x2F;lists &amp;#x2F;var&amp;#x2F;cache&amp;#x2F;apt
+podman exec -u root $C apt-get -o APT::Sandbox::User=root update
+podman exec -u root $C apt-get -o APT::Sandbox::User=root -y --no-install-recommends install &amp;lt;pkg&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;装完 Hermes 直接可用（工具在 &lt;code&gt;&#x2F;usr&#x2F;bin&lt;&#x2F;code&gt;，policy 的 &lt;code&gt;binaries: &#x2F;usr&#x2F;**&lt;&#x2F;code&gt; 也允许它走网络）。局限：改动在容器可写层（&lt;code&gt;sandbox delete&lt;&#x2F;code&gt;&#x2F;重建丢，不在 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 卷）、绕过策略与审计、容器里没有 systemd（服务类工具起不来）、别 &lt;code&gt;apt-get upgrade&lt;&#x2F;code&gt;。要持久化就写进 BYOC 镜像的构建期。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;sha-xiang-nei-jia-zhuang-hermes-lu-xian-xuan-ze-yu-chi-jiu-hua&quot;&gt;沙箱内加装 Hermes：路线选择与持久化&lt;&#x2F;h1&gt;
+&lt;p&gt;Hermes 不在 pi 镜像里，有两个装法：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;路线 A：运行时安装&lt;&#x2F;strong&gt;——在运行中的沙箱里跑官方安装器，装到 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&lt;&#x2F;code&gt;（本文的做法）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;路线 B：BYOC 镜像&lt;&#x2F;strong&gt;——写 Dockerfile &lt;code&gt;FROM&lt;&#x2F;code&gt; 社区 base&#x2F;pi 镜像再装 Hermes，构建时网络不受 policy 限制，重建不丢。注意上游&lt;strong&gt;没有现成的 hermes 沙箱镜像&lt;&#x2F;strong&gt;（OpenShell-Community 的 &lt;code&gt;sandboxes&#x2F;&lt;&#x2F;code&gt; 只有 base&#x2F;droid&#x2F;gemini&#x2F;nvidia-gpu&#x2F;ollama&#x2F;pi&#x2F;sdg，&lt;code&gt;--from hermes&lt;&#x2F;code&gt; 会 403）；&lt;code&gt;--from&lt;&#x2F;code&gt; 也接受本地 Dockerfile 目录或完整镜像引用。NousResearch 官方的 hermes-agent 镜像（debian + s6-overlay）&lt;strong&gt;不能&lt;&#x2F;strong&gt;直接当 OpenShell 沙箱镜像：它没有 supervisor&#x2F;sandbox 用户和 &lt;code&gt;&#x2F;etc&#x2F;openshell&lt;&#x2F;code&gt; 布局，ENTRYPOINT &lt;code&gt;&#x2F;init&lt;&#x2F;code&gt; 与 supervisor 注入冲突，BYOC 必须 &lt;code&gt;FROM&lt;&#x2F;code&gt; 社区 base&#x2F;pi 自己装。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;我这次先用 A 快速验证。&lt;strong&gt;持久化边界&lt;&#x2F;strong&gt;要说清楚：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;位置&lt;&#x2F;th&gt;&lt;th&gt;stop&#x2F;start&lt;&#x2F;th&gt;&lt;th&gt;sandbox delete&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt;（podman 命名卷）&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;宿主 &lt;code&gt;~&#x2F;.local&#x2F;share&#x2F;containers&#x2F;storage&#x2F;volumes&#x2F;openshell-sandbox-&amp;lt;id&amp;gt;-workspace&#x2F;_data&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;容器可写层（&lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 外）&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 是只读 policy，装不了全局包&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;pi 本体&lt;&#x2F;td&gt;&lt;td&gt;保留&lt;&#x2F;td&gt;&lt;td&gt;丢&lt;&#x2F;td&gt;&lt;td&gt;但它在镜像里，重建自动有&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;所以路线 A 装的东西随卷走，但 &lt;code&gt;sandbox delete&lt;&#x2F;code&gt; 就没了；长期用建议路线 B 把它固化进镜像。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;补记（2026-09-13）：表中「&lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 只读」是相对沙箱内进程（Landlock）说的；从宿主用 &lt;code&gt;podman exec -u root&lt;&#x2F;code&gt; 可以写 &lt;code&gt;&#x2F;usr&lt;&#x2F;code&gt; 并 apt 装包（见后文「权限边界」节），但同样只活在容器可写层，&lt;code&gt;sandbox delete&lt;&#x2F;code&gt; 照样丢。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;lu-xian-a-shi-cao&quot;&gt;路线 A 实操&lt;&#x2F;h2&gt;
+&lt;blockquote&gt;
+&lt;p&gt;更新（2026-09-13）：早期版本要先给 policy 加 &lt;code&gt;hermes_install&lt;&#x2F;code&gt;（安装端点）和 &lt;code&gt;hermes_model&lt;&#x2F;code&gt;（模型端点）两条专用规则；2026-09 网络放开后两条都已删除（单条 &lt;code&gt;open_internet&lt;&#x2F;code&gt; 覆盖公网 80&#x2F;443），下面的 &lt;code&gt;policy set&lt;&#x2F;code&gt; 只是确保最新 policy 生效，不再是安装的前置条件。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell policy set hermes --policy hermes-policy.yaml --wait
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装（装到 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;openshell sandbox exec -n hermes --timeout 1500 -- bash -lc \
+  &amp;#x27;curl -fsSL https:&amp;#x2F;&amp;#x2F;hermes-agent.nousresearch.com&amp;#x2F;install.sh | bash&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安装器是&lt;strong&gt;用户态安装&lt;&#x2F;strong&gt;（&lt;code&gt;hermes --version&lt;&#x2F;code&gt; 自报 &lt;code&gt;Install method: git&lt;&#x2F;code&gt;）：&lt;code&gt;&#x2F;sandbox&#x2F;.hermes&#x2F;hermes-agent&lt;&#x2F;code&gt; 是 git checkout（&lt;code&gt;hermes update&lt;&#x2F;code&gt; 即 git pull），自带 Python venv、Node 运行时和 uv，全落在 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 卷里——所以不需要 root&#x2F;apt（沙箱里也没有，见上节）。&lt;&#x2F;p&gt;
+&lt;p&gt;两个坑：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;uv 解释器真实路径&lt;&#x2F;strong&gt;：Hermes 的 venv python 是指向 &lt;code&gt;&#x2F;sandbox&#x2F;.uv&#x2F;python&#x2F;cpython-3.11.x&#x2F;bin&#x2F;python3.11&lt;&#x2F;code&gt; 的软链，OPA 按 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 的真实 exe 匹配——&lt;code&gt;hermes_model&lt;&#x2F;code&gt; 的 binaries 只写 &lt;code&gt;&#x2F;sandbox&#x2F;.hermes&#x2F;**&lt;&#x2F;code&gt; 会被 deny，必须加上 &lt;code&gt;&#x2F;sandbox&#x2F;.uv&#x2F;python&#x2F;**&lt;&#x2F;code&gt;（现由 &lt;code&gt;open_internet&lt;&#x2F;code&gt; 的 &lt;code&gt;&#x2F;sandbox&#x2F;**&lt;&#x2F;code&gt; 通配覆盖）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;npm 的 &lt;code&gt;%2F&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：Web UI 构建时 scoped 包路径带 &lt;code&gt;%2F&lt;&#x2F;code&gt;，裸隧道端点会被 http-parser 拒绝；&lt;code&gt;registry.npmjs.org&lt;&#x2F;code&gt; 要配 &lt;code&gt;protocol: rest&lt;&#x2F;code&gt; + &lt;code&gt;allow_encoded_slash: true&lt;&#x2F;code&gt;（现由 &lt;code&gt;open_internet&lt;&#x2F;code&gt; 全局覆盖）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;模型接入（命名 provider + 环境变量占位符）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;hermes config set providers.xiaomi-token-plan-cn.base_url https:&amp;#x2F;&amp;#x2F;token-plan-cn.xiaomimimo.com&amp;#x2F;v1
+hermes config set providers.xiaomi-token-plan-cn.key_env XIAOMI_TOKEN_PLAN_CN_API_KEY
+hermes config set model.provider xiaomi-token-plan-cn
+hermes config set model.default mimo-v2.5
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;$ openshell sandbox exec -n hermes -- hermes -z &amp;quot;Reply with exactly one word: pong&amp;quot;
+pong
+# 日志：HTTP:POST ALLOWED ...&amp;#x2F;v1&amp;#x2F;chat&amp;#x2F;completions [policy:hermes_model engine:l7]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;hermes-web-ui-zi-dai-ren-zheng-bu-xu-yao-caddy&quot;&gt;Hermes Web UI：自带认证，不需要 caddy&lt;&#x2F;h1&gt;
+&lt;p&gt;Hermes 自带 &lt;strong&gt;BasicAuthProvider&lt;&#x2F;strong&gt;（&lt;code&gt;dashboard.basic_auth.*&lt;&#x2F;code&gt;，scrypt 密码哈希 + HMAC 签名会话），所以不用反代加认证，直接绑 &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt; 暴露即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 沙箱内：生成随机密码、算 scrypt 哈希写进配置
+PW=$(openssl rand -base64 18)
+HASH=$(.&amp;#x2F;venv&amp;#x2F;bin&amp;#x2F;python -c &amp;#x27;from plugins.dashboard_auth.basic import hash_password; import sys; print(hash_password(sys.argv[1]))&amp;#x27; &amp;quot;$PW&amp;quot;)
+hermes config set dashboard.basic_auth.username admin
+hermes config set dashboard.basic_auth.password_hash &amp;quot;$HASH&amp;quot;
+hermes config set dashboard.basic_auth.secret &amp;quot;$(openssl rand -hex 32)&amp;quot;
+
+# 绑 0.0.0.0 起服务（有认证才允许非 loopback）
+setsid nohup hermes dashboard --no-open --host 0.0.0.0 &amp;gt; &amp;#x2F;sandbox&amp;#x2F;.hermes&amp;#x2F;logs&amp;#x2F;dashboard.log 2&amp;gt;&amp;amp;1 &amp;lt; &amp;#x2F;dev&amp;#x2F;null &amp;amp;
+
+# 宿主：把沙箱端口转发到 LAN
+openshell forward start 0.0.0.0:9119 hermes -d
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证门禁：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;GET &amp;#x2F;                -&amp;gt; 302（跳登录页）
+GET &amp;#x2F;api&amp;#x2F;sessions    -&amp;gt; 401（未认证）
+POST &amp;#x2F;auth&amp;#x2F;password-login（provider: basic）-&amp;gt; 200 并下发 cookie
+带 cookie 再访问 &amp;#x2F;api&amp;#x2F;sessions -&amp;gt; 200
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意两点：一是 &lt;strong&gt;HTTP 明文&lt;&#x2F;strong&gt;（无 TLS），LAN 内密码明文传输，介意就再套 caddy TLS；二是 &lt;code&gt;openshell forward&lt;&#x2F;code&gt; 的 listener 在跑 CLI 的机器上，且 &lt;code&gt;forward stop&#x2F;start&lt;&#x2F;code&gt; 有时会卡住不退出（SSH channel 不关，之前专门写过一篇排查），实际转发通常已经生效，&lt;code&gt;openshell forward list&lt;&#x2F;code&gt; 确认即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;cai-keng-qing-dan&quot;&gt;踩坑清单&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;credentialed endpoint&lt;&#x2F;code&gt; 必须 L7（&lt;code&gt;protocol: rest&lt;&#x2F;code&gt;），否则代理只能看到裸隧道，凭证替换失败；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;provider attach&lt;&#x2F;code&gt; 校验读创建时 spec 的 policy——policy 和 &lt;code&gt;--provider&lt;&#x2F;code&gt; 要 &lt;code&gt;sandbox create&lt;&#x2F;code&gt; 一起给；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;provider update&lt;&#x2F;code&gt; 到沙箱约 15s 同步，别急着测；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;openshell policy get&lt;&#x2F;code&gt; 输出带表格头（&lt;code&gt;Version: … ---&lt;&#x2F;code&gt;），回灌前要截 &lt;code&gt;---&lt;&#x2F;code&gt; 后的纯 YAML；&lt;&#x2F;li&gt;
+&lt;li&gt;OPA 按 &lt;code&gt;&#x2F;proc&lt;&#x2F;code&gt; 真实 exe 匹配 binaries，venv&#x2F;软链要写真实路径（uv python）；&lt;&#x2F;li&gt;
+&lt;li&gt;npm scoped 包需要 &lt;code&gt;allow_encoded_slash: true&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;purge &lt;code&gt;containerd.io&lt;&#x2F;code&gt; 会删 &lt;code&gt;runc&lt;&#x2F;code&gt;，podman 沙箱容器会变 Error；&lt;&#x2F;li&gt;
+&lt;li&gt;沙箱里跑不了 tcpdump（没二进制 + &lt;code&gt;CapEff=0&lt;&#x2F;code&gt; + policy 无 capability 配置）；抓包在宿主做，明文 HTTP 看 &lt;code&gt;openshell logs&lt;&#x2F;code&gt; 的 OCSF 事件。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;沙箱内没有 root&#x2F;sudo&#x2F;apt 是设计&lt;&#x2F;strong&gt;：policy schema 拒 &lt;code&gt;0&lt;&#x2F;code&gt;&#x2F;root，supervisor 连 OCI &lt;code&gt;USER root&lt;&#x2F;code&gt;&#x2F;UID0&#x2F;GID0 都拒，运行时 &lt;code&gt;NoNewPrivs=1&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;CapEff=0&lt;&#x2F;code&gt;&#x2F;seccomp&#x2F;Landlock；&lt;code&gt;date -s&lt;&#x2F;code&gt; 同样 EPERM。宿主侧 &lt;code&gt;podman exec -u root&lt;&#x2F;code&gt; 是唯一 root 路径（见「权限边界」节）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;podman exec -u root&lt;&#x2F;code&gt; 里 apt 报 &lt;code&gt;rename failed, Permission denied&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：&lt;code&gt;&#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;partial&lt;&#x2F;code&gt; 属 &lt;code&gt;_apt&lt;&#x2F;code&gt;，root 缺 &lt;code&gt;CAP_DAC_OVERRIDE&lt;&#x2F;code&gt;；先 &lt;code&gt;chown -R root:root&lt;&#x2F;code&gt; 两个 apt 目录 + &lt;code&gt;-o APT::Sandbox::User=root&lt;&#x2F;code&gt; 即可（实测装通 &lt;code&gt;sl&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;宿主改时区沙箱不跟&lt;&#x2F;strong&gt;：时钟共享、时区各自（容器 &lt;code&gt;&#x2F;etc&#x2F;localtime=Etc&#x2F;UTC&lt;&#x2F;code&gt;）；只有 &lt;code&gt;openshell sandbox exec&lt;&#x2F;code&gt; 会话由 gateway 注入宿主 TZ，Hermes 长驻进程是 UTC。统一 = 软链 &lt;code&gt;&#x2F;etc&#x2F;localtime&lt;&#x2F;code&gt; + 重启 dashboard&#x2F;gateway。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;OpenShell 的价值在于它把「文件、进程、网络、凭证」四件事做成了一个可声明、可热更、可审计的策略层，而容器只是执行载体：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;文件：Landlock 白名单，agent 只看得到 &lt;code&gt;&#x2F;sandbox&lt;&#x2F;code&gt; 和只读系统目录；&lt;&#x2F;li&gt;
+&lt;li&gt;网络：白名单 + L7 检查，未列端点 403，全部留 OCSF 日志；&lt;&#x2F;li&gt;
+&lt;li&gt;凭证：占位符 + 代理替换，真 key 不进 agent 进程——这是普通容器&#x2F;namespace 方案做不到的部分；&lt;&#x2F;li&gt;
+&lt;li&gt;进程：无 root&#x2F;sudo 是硬边界（policy schema + supervisor OCI fallback 双拒，运行时零 capability + seccomp），系统工具走构建期镜像或宿主 &lt;code&gt;podman exec -u root&lt;&#x2F;code&gt; 后门（容器层，重建丢）；&lt;&#x2F;li&gt;
+&lt;li&gt;扩展：沙箱里可以再装别的 agent（本文的 Hermes），代价是持久化要自己规划（卷 vs BYOC 镜像）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;如果你只是想要「文件隔离 + 用宿主工具」，bubblewrap&#x2F;Landlock 更轻；但一旦涉及「模型 key 不能被 agent 读走」，OpenShell 这种带凭证注入的代理沙箱是最省心的方案。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>微信 Linux 版启动失败：apt 装了依赖却没装全</title>
+        <published>2026-08-02T18:02:16+08:00</published>
+        <updated>2026-08-02T18:02:16+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/"/>
+        <id>https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/wechat-gnome-launch-failure/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;Ubuntu 上通过 &lt;code&gt;apt install ~&#x2F;下载&#x2F;WeChatLinux_x86_64.deb&lt;&#x2F;code&gt; 安装了微信 Linux 版，但从 GNOME 应用菜单点击图标后&lt;strong&gt;没有任何反应&lt;&#x2F;strong&gt;，窗口不出现，进程直接退出。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;ding-wei-zhi-jie-yun-xing-na-dao-bao-cuo&quot;&gt;定位：直接运行拿到报错&lt;&#x2F;h1&gt;
+&lt;p&gt;从桌面点图标失败只能看到&quot;无反应&quot;，先绕过桌面环境，直接跑二进制拿错误信息：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat
+&amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat: error while loading shared libraries:
+libxcb-icccm.so.4: cannot open shared object file: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;原因清楚了：缺少动态库 &lt;code&gt;libxcb-icccm.so.4&lt;&#x2F;code&gt;，对应 Debian&#x2F;Ubuntu 包 &lt;code&gt;libxcb-icccm4&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-wan-yi-ge-you-que-yi-ge&quot;&gt;补完一个又缺一个&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo apt-get install -y libxcb-icccm4
+$ &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;wechat
+libxcb-image.so.0: cannot open shared object file: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;再装 &lt;code&gt;libxcb-image0&lt;&#x2F;code&gt;，又报 &lt;code&gt;libxcb-render-util.so.0&lt;&#x2F;code&gt;……典型的&quot;补完一个又缺一个&quot;。与其一个个试，不如一次性查出所有缺失：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ldd &amp;#x2F;opt&amp;#x2F;wechat&amp;#x2F;wechat | grep &amp;quot;not found&amp;quot;
+	libxcb-image.so.0 =&amp;gt; not found
+	libxcb-render-util.so.0 =&amp;gt; not found
+	libxcb-keysyms.so.1 =&amp;gt; not found
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;ldd&lt;&#x2F;code&gt; 直接列出全部缺失，不用再来回跑二进制。一次装齐：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ sudo apt-get install -y libxcb-image0 libxcb-render-util0 libxcb-keysyms1
+$ ldd &amp;#x2F;opt&amp;#x2F;wechat&amp;#x2F;wechat | grep &amp;quot;not found&amp;quot;   # 空，依赖齐全
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;从 GNOME 启动微信，正常。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gen-yin-deb-yuan-shu-ju-sheng-ming-de-yi-lai-bu-quan&quot;&gt;根因：deb 元数据声明的依赖不全&lt;&#x2F;h1&gt;
+&lt;p&gt;问题来了：明明用 &lt;code&gt;apt install&lt;&#x2F;code&gt; 装的，为什么依赖没有自动装上？&lt;&#x2F;p&gt;
+&lt;p&gt;查看 deb 包的元数据就明白了：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ dpkg-deb -f ~&amp;#x2F;下载&amp;#x2F;WeChatLinux_x86_64.deb Package Version Architecture
+wechat
+4.1.1.8
+amd64
+
+$ dpkg-deb -f ~&amp;#x2F;下载&amp;#x2F;WeChatLinux_x86_64.deb Depends
+fonts-noto-cjk | google-noto-cjk-fonts
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;腾讯的 deb 包只声明了一个字体依赖&lt;&#x2F;strong&gt;，而二进制实际运行需要的 4 个库：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;缺失库&lt;&#x2F;th&gt;&lt;th&gt;对应包&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-icccm.so.4&lt;&#x2F;td&gt;&lt;td&gt;libxcb-icccm4&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-image.so.0&lt;&#x2F;td&gt;&lt;td&gt;libxcb-image0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-render-util.so.0&lt;&#x2F;td&gt;&lt;td&gt;libxcb-render-util0&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;libxcb-keysyms.so.1&lt;&#x2F;td&gt;&lt;td&gt;libxcb-keysyms1&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;全部没有写入 &lt;code&gt;Depends&lt;&#x2F;code&gt; 字段。apt 只能根据包元数据解析依赖，元数据里没声明的它无从知道，自然也不会安装——等到运行时动态链接器报错才暴露。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带说明：&lt;code&gt;apt install .&#x2F;xxx.deb&lt;&#x2F;code&gt; 与 &lt;code&gt;dpkg -i&lt;&#x2F;code&gt; 的区别在于前者会自动解析并安装&lt;strong&gt;已声明&lt;&#x2F;strong&gt;的依赖；但本案中缺失的库根本未声明，用哪个都装不上，只能手动补。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;桌面图标启动失败先跑二进制&lt;&#x2F;strong&gt;：绕过桌面环境的静默失败，拿到真实报错&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;缺库报错用 &lt;code&gt;ldd &amp;lt;binary&amp;gt; | grep &quot;not found&quot;&lt;&#x2F;code&gt; 一次性查全&lt;&#x2F;strong&gt;，不要补完一个再试一次&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;apt 装了依赖&quot;没生效&quot;时，先查 deb 元数据&lt;&#x2F;strong&gt;：&lt;code&gt;dpkg-deb -f xxx.deb Depends&lt;&#x2F;code&gt;，确认是打包疏漏还是安装方式问题。微信 deb 的 &lt;code&gt;Depends&lt;&#x2F;code&gt; 只声明了字体，4 个 libxcb 运行库全部缺失，这是腾讯打包的锅，不是 apt 的错&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>apt本地仓库</title>
+        <published>2025-12-08T13:35:58+08:00</published>
+        <updated>2025-12-08T13:35:58+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/12/apt本地仓库/"/>
+        <id>https://moxuetianya.github.io/2025/12/apt本地仓库/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/12/apt本地仓库/">&lt;h1 id=&quot;pei-zhi-ben-di-debianyuan-cang-ku-fang-an&quot;&gt;配置本地Debian源仓库方案&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install reprepro apt-rdepends
+sudo mkdir -p &amp;#x2F;srv&amp;#x2F;localrepo&amp;#x2F;{conf,packages}
+sudo chmod -R 755 &amp;#x2F;srv&amp;#x2F;localrepo
+sudo chown peter:peter &amp;#x2F;srv&amp;#x2F;localrepo
+
+sudo tee &amp;#x2F;srv&amp;#x2F;localrepo&amp;#x2F;conf&amp;#x2F;distributions &amp;lt;&amp;lt;EOF
+Origin: LocalRepo
+Label: LocalRepo
+Codename: bookworm
+Architectures: amd64
+Components: main
+Description: Minimal local Debian repo
+EOF
+
+mkdir -p &amp;#x2F;tmp&amp;#x2F;debs
+cd &amp;#x2F;tmp&amp;#x2F;debs
+pkgs=(&amp;quot;nginx&amp;quot; &amp;quot;curl&amp;quot;)
+for pkg in ${pkgs}; do
+  apt-rdepends $pkg | grep -v &amp;quot;^ &amp;quot;
+done &amp;gt; &amp;#x2F;tmp&amp;#x2F;pkglist
+while read pkg; do
+    apt download &amp;quot;$pkg&amp;quot;
+done &amp;lt; &amp;#x2F;tmp&amp;#x2F;pkglist
+
+cd &amp;#x2F;srv&amp;#x2F;localrepo
+for deb in &amp;#x2F;tmp&amp;#x2F;debs&amp;#x2F;*.deb; do
+    reprepro includedeb bookworm &amp;quot;$deb&amp;quot;
+done
+
+echo &amp;quot;deb [trusted=yes, arch=amd64] file:&amp;#x2F;&amp;#x2F;&amp;#x2F;srv&amp;#x2F;localrepo bookworm main&amp;quot; | sudo tee &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list.d&amp;#x2F;localrepo.list
+
+# 每次新增包都要
+reprepro export
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;zi-dong-di-gui-la-qu-bao-ji-yi-lai-dao-ben-di-cang-ku&quot;&gt;自动递归拉取包及依赖到本地仓库&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 你也可以让 reprepro 自动“抓取”远程仓库的包 + 所有依赖：
+sudo tee &amp;#x2F;srv&amp;#x2F;localrepo&amp;#x2F;conf&amp;#x2F;updates&amp;lt;&amp;lt;EOF
+Name: debian
+Suite: bookworm
+Components: main
+Architectures: amd64
+VerifyRelease: false
+Method: http:&amp;#x2F;&amp;#x2F;deb.debian.org&amp;#x2F;debian
+EOF
+
+# 然后：
+reprepro update
+# ⚠️ 但 reprepro update 会拉 component 的所有包，不适合最小仓库，所以推荐手动 includedeb。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>apt 中的keyrings(gpg)</title>
+        <published>2025-11-25T10:59:41+08:00</published>
+        <updated>2025-11-25T10:59:41+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/"/>
+        <id>https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/apt 中的keyrings(gpg)/">&lt;h1 id=&quot;apt-gpg-zuo-yong&quot;&gt;apt gpg 作用&lt;&#x2F;h1&gt;
+&lt;p&gt;在 APT 的工作流程中，GPG 签名验证（signed-by= 指定的公钥）是在 “获取 Release 文件并校验其完整性与真实性” 阶段起作用的，具体发生在 apt update 的早期阶段，早于包列表下载和安装决策。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;解析 sources.list ，识别源 URL 和组件 ( bookworm , stable)&lt;&#x2F;li&gt;
+&lt;li&gt;下载 InRelease 或 Release + Release.gpg 文件： → https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;debian&#x2F;dists&#x2F;bookworm&#x2F;InRelease
+或 → ...&#x2F;Release + ...&#x2F;Release.gpg 关键阶段&lt;&#x2F;li&gt;
+&lt;li&gt;用 &#x2F;etc&#x2F;apt&#x2F;keyrings&#x2F;docker.asc 中的公钥验证 InRelease&#x2F;Release.gpg 签名 ️ GPG 认证生效点&lt;&#x2F;li&gt;
+&lt;li&gt;若验证失败 → 立即报错退出 （如 NO_PUBKEY , GPG error , signature invalid ）&lt;&#x2F;li&gt;
+&lt;li&gt;若验证成功 → 解析 Release 文件中的 SHA256 &#x2F; SHA512 校验和 （哈希校验，非 GPG）&lt;&#x2F;li&gt;
+&lt;li&gt;下载 Packages.gz 等索引文件，并用 Release 中的哈希值校验完整性&lt;&#x2F;li&gt;
+&lt;li&gt;建立本地包数据库（ &#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;...  ）&lt;&#x2F;li&gt;
+&lt;li&gt;apt install 时仅校验 .deb 包哈希（来自 Packages ）， 不再 GPG 验证&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 故意破坏签名验证（删掉 keyring）
+sudo rm &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc
+sudo apt update 2&amp;gt;&amp;amp;1 | grep -A2 -B2 &amp;quot;GPG\|NO_PUBKEY&amp;quot;
+# → 报错：The following signatures couldn&amp;#x27;t be verified...
+# 2. 或临时禁用验证（危险！仅测试）
+sudo apt -o Acquire::Check-Valid-Until=false \
+         -o Acquire::AllowInsecureRepositories=true \
+         -o Acquire::AllowDowngradeToInsecureRepositories=true \
+         update
+
+# → 仍可能失败，因为 signed-by 指定了强制 key，除非改 sources.list 去掉 signed-by
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;shi-yong-jing-xiang-yuan-mirror-de-apt-fu-wu-huan-neng-zheng-chang-gpg-ren-zheng-ma&quot;&gt;使用镜像源（mirror）的 APT 服务，还能正常 GPG 认证吗？&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;可以，只要镜像同步了完整的 dists&#x2F; 目录（含 InRelease &#x2F; Release + Release.gpg）——绝大多数合规镜像都做到了。&lt;&#x2F;li&gt;
+&lt;li&gt;APT 的 GPG 校验不依赖源服务器域名&#x2F;IP，只校验：
+文件内容是否被篡改（哈希匹配）
+Release 文件是否由可信私钥签名（GPG 签名校验）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;yan-zheng-shi-cao-tui-jian&quot;&gt;验证实操（推荐）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 下载 InRelease（中科大镜像）
+wget https:&amp;#x2F;&amp;#x2F;mirrors.ustc.edu.cn&amp;#x2F;docker-ce&amp;#x2F;linux&amp;#x2F;debian&amp;#x2F;dists&amp;#x2F;bookworm&amp;#x2F;InRelease
+
+# 2. 用你本地的 docker.asc 公钥验证
+gpg --keyring &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc \
+    --verify InRelease
+# 应输出：Good signature from &amp;quot;Docker Release (CE deb) ...&amp;quot;
+
+# 3. 对比原始源（应完全一致）
+diff InRelease \
+  &amp;lt;(curl -s https:&amp;#x2F;&amp;#x2F;download.docker.com&amp;#x2F;linux&amp;#x2F;debian&amp;#x2F;dists&amp;#x2F;bookworm&amp;#x2F;InRelease)
+# → 无输出（完全相同）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;bao-cuo-pai-cha&quot;&gt;报错排查&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;gpg: [don&amp;#x27;t know]: invalid packet (ctb=2d)
+gpg: keydb_search failed: 无效的数据包
+gpg: 无法检查签名：缺少公钥
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;诊断依据
+你从 https:&#x2F;&#x2F;download.docker.com&#x2F;linux&#x2F;debian&#x2F;gpg 下载的 gpg 文件（3.7KB）是 ASCII-armored 公钥&lt;&#x2F;li&gt;
+&lt;li&gt;但 --keyring &#x2F;path&#x2F;to&#x2F;file 默认期望的是 二进制格式的 keyring（或 GnuPG native keybox）&lt;&#x2F;li&gt;
+&lt;li&gt;当你直接把 ASCII-armored .asc 传给 --keyring，GPG 会把它当二进制解析 → 遇到 -----BEGIN 这种文本头 → 解析为“无效数据包”（ctb=2d 是 0x2d = &#x27;-&#x27; 字符）→ 失败 ❌&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xian-dearmor-cheng-er-jin-zhi-zai-yan-zheng-tui-jian&quot;&gt;先 dearmor 成二进制，再验证（推荐）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 确保 docker.asc 是 ASCII-armored（检查开头）
+head -n2 &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc
+# 应输出：-----BEGIN PGP PUBLIC KEY BLOCK-----
+# 2. 转成二进制格式（例如 docker.gpg）
+sudo gpg --dearmor -o &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.gpg &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc
+# 3. 用 .gpg（二进制）验证
+gpg --keyring &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.gpg \
+    --verify .&amp;#x2F;InRelease
+# ✅ 此时应显示：Good signature from &amp;quot;Docker Release (CE deb)...&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;bu-zhi-ding-keyring-er-shi-xian-dao-ru-gong-yao-dao-lin-shi-keyring&quot;&gt;不指定 --keyring，而是先导入公钥到临时 keyring&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 创建临时 home
+mkdir -p &amp;#x2F;tmp&amp;#x2F;gpghome &amp;amp;&amp;amp; chmod 700 &amp;#x2F;tmp&amp;#x2F;gpghome
+# 导入公钥（自动 dearmor）
+gpg --homedir &amp;#x2F;tmp&amp;#x2F;gpghome --import &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc
+# 用临时 keyring 验证
+gpg --homedir &amp;#x2F;tmp&amp;#x2F;gpghome --verify .&amp;#x2F;InRelease
+# 清理
+rm -rf &amp;#x2F;tmp&amp;#x2F;gpghome
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wei-shen-me-apt-ben-shen-neng-gong-zuo&quot;&gt;为什么 apt 本身能工作？&lt;&#x2F;h2&gt;
+&lt;p&gt;因为 APT 内部 自动处理 dearmor！ 当你在 sources.list 写：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;deb [signed-by=&amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.asc] ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;APT 会： 检测 .asc 后缀或文件内容含 -----BEGIN → 自动 dearmor 后加载&lt;&#x2F;p&gt;
+&lt;p&gt;不依赖 gpg CLI 行为 → 所以 apt update 正常，但你手动用 gpg --keyring 却失败。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 查看二进制 keyring 内容
+gpg --keyring &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.gpg --list-packets &amp;lt;&amp;#x2F;dev&amp;#x2F;null
+# 应显示 pub, sub 等 key packets，无 &amp;quot;invalid packet&amp;quot;
+
+# 或直接看指纹（对比官网）
+gpg --keyring &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;keyrings&amp;#x2F;docker.gpg --with-fingerprint --list-keys
+# 应含：7EA0 A9C3 F273 FCD8 （即你日志中的 RSA 密钥 ID）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结：&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;.asc 是文本格式，不能直接作 --keyring；必须 --dearmor 转 .gpg 二进制。&lt;&#x2F;li&gt;
+&lt;li&gt;APT 能自动处理，但 gpg CLI 不会 —— 这是常见坑点&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>apt download下载离线安装包</title>
+        <published>2025-10-23T13:29:40+08:00</published>
+        <updated>2025-10-23T13:29:40+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/apt download下载离线安装包/"/>
+        <id>https://moxuetianya.github.io/2025/10/apt download下载离线安装包/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/apt download下载离线安装包/">&lt;h1 id=&quot;fang-an-yi-yum-apt-xia-zai-chi-xian-bao-tui-jian-xin-shou&quot;&gt;方案一：yum &#x2F; apt 下载离线包（推荐新手）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;centos-rhel-xia-zai-rpm-bao&quot;&gt;CentOS &#x2F; RHEL（下载 rpm 包）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 首先安装 yum-plugin-downloadonly 插件
+yum install yum-plugin-downloadonly -y
+# 使用下面命令下载指定的包及其依赖项
+yum install --downloadonly 软件包名
+# 例如：下载nginx
+yum install --downloadonly nginx
+# 默认下载路径
+ll &amp;#x2F;var&amp;#x2F;cache&amp;#x2F;yum&amp;#x2F;x86_64&amp;#x2F;7&amp;#x2F;base&amp;#x2F;packages
+ll &amp;#x2F;var&amp;#x2F;cache&amp;#x2F;yum&amp;#x2F;x86_64&amp;#x2F;7&amp;#x2F;epel&amp;#x2F;packages
+# 指定下载路径（推荐）
+yum install --downloadonly --downloaddir=&amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F; nginx
+# 参数解释
+--downloadonly                          # 只下载包不安装
+--downloaddir=&amp;#x2F;your&amp;#x2F;custom&amp;#x2F;path&amp;#x2F;        # 指定下载路径
+# 查看下载后的包
+ls &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F;
+# centos-indexhtml-7-9.el7.centos.noarch.rpm
+# gperftools-libs-2.6.1-1.el7.x86_64.rpm
+# nginx-1.20.1-10.el7.x86_64.rpm
+# nginx-filesystem-1.20.1-10.el7.noarch.rpm
+# openssl11-libs-1.1.1k-7.el7.x86_64.rpm
+# 打包传输到内网
+cd &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;
+tar -czf nginx-offline.tar.gz nginx&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-an-zhuang&quot;&gt;========== 内网机器安装 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 解压后进入目录
+tar -xzf nginx-offline.tar.gz
+cd nginx&amp;#x2F;
+# 方法1：使用rpm命令
+rpm -ivh *.rpm
+# 方法2：使用yum localinstall（推荐，自动处理依赖）
+yum localinstall -y *.rpm
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ubuntu-debian-xia-zai-deb-bao&quot;&gt;Ubuntu &#x2F; Debian（下载 deb 包）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载deb包
+apt --download-only install 软件包名
+# 例如：下载nginx
+apt --download-only install nginx
+# 默认下载路径
+ll &amp;#x2F;var&amp;#x2F;cache&amp;#x2F;apt&amp;#x2F;archives&amp;#x2F;
+# 指定下载路径
+mkdir -p &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx
+apt -o dir::cache::archives=&amp;quot;&amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;quot; install --download-only nginx
+# 参数解释
+--download-only                                    # 只下载包不安装
+-o dir::cache::archives=&amp;quot;&amp;#x2F;your&amp;#x2F;custom&amp;#x2F;path&amp;quot;       # 指定下载路径
+# 打包传输
+cd &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;
+tar -czf nginx-offline.tar.gz nginx&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-an-zhuang-1&quot;&gt;========== 内网机器安装 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;tar -xzf nginx-offline.tar.gz
+cd nginx&amp;#x2F;
+# 安装所有deb包
+dpkg -i *.deb
+# 如果遇到依赖问题，执行
+apt install -f
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;opensuse-suse-xia-zai-rpm-bao&quot;&gt;openSUSE &#x2F; SUSE（下载 rpm 包）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载包及依赖
+zypper install --download-only 软件包名
+# 例如：下载nginx
+zypper install --download-only nginx
+# 默认下载路径
+ll &amp;#x2F;var&amp;#x2F;cache&amp;#x2F;zypp&amp;#x2F;packages&amp;#x2F;
+# 指定下载目录
+zypper --pkg-cache-dir=&amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx install --download-only nginx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-an-zhuang-2&quot;&gt;========== 内网机器安装 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F;
+rpm -ivh *.rpm
+# 或
+zypper install --no-refresh *.rpm
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;alpine-linux-xia-zai-apk-bao&quot;&gt;Alpine Linux（下载 apk 包）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 下载包到指定目录
+apk fetch --recursive --output &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F; nginx
+# 参数解释
+--recursive    # 下载所有依赖
+--output       # 指定输出目录
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-an-zhuang-3&quot;&gt;========== 内网机器安装 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F;
+apk add --allow-untrusted *.apk
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;fang-an-er-tong-bu-wan-zheng-cang-ku-gua-he-da-gui-mo-nei-wang-huan-jing&quot;&gt;方案二：同步完整仓库（适合大规模内网环境）&lt;&#x2F;h1&gt;
+&lt;p&gt;如果内网机器很多，每次都手动下载包太麻烦。可以搭建本地 yum&#x2F;apt 仓库。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;centos-shi-yong-reposync-tong-bu-cang-ku&quot;&gt;CentOS 使用 reposync 同步仓库&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装同步工具
+yum install yum-utils createrepo -y
+# 同步base仓库（根据需要选择仓库）
+reposync -r base -p &amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;
+# 同步epel仓库
+reposync -r epel -p &amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;
+# 创建仓库元数据
+createrepo &amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;base&amp;#x2F;
+createrepo &amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;epel&amp;#x2F;
+# 打包传输到内网
+cd &amp;#x2F;data&amp;#x2F;
+tar -czf local-repo.tar.gz local-repo&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-pei-zhi-ben-di-cang-ku&quot;&gt;========== 内网机器配置本地仓库 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 解压仓库文件
+tar -xzf local-repo.tar.gz -C &amp;#x2F;data&amp;#x2F;
+# 配置yum源
+cat &amp;gt; &amp;#x2F;etc&amp;#x2F;yum.repos.d&amp;#x2F;local.repo &amp;lt;&amp;lt;EOF
+[local-base]
+name=Local Base Repository
+baseurl=file:&amp;#x2F;&amp;#x2F;&amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;base
+enabled=1
+gpgcheck=0
+
+[local-epel]
+name=Local EPEL Repository
+baseurl=file:&amp;#x2F;&amp;#x2F;&amp;#x2F;data&amp;#x2F;local-repo&amp;#x2F;epel
+enabled=1
+gpgcheck=0
+EOF
+
+# 清理缓存并测试
+yum clean all
+yum makecache
+yum repolist
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;ubuntu-shi-yong-apt-mirror-tong-bu-cang-ku&quot;&gt;Ubuntu 使用 apt-mirror 同步仓库&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装同步工具
+apt install apt-mirror -y
+
+# 编辑配置文件
+vim &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;mirror.list
+# 修改内容如下：
+set base_path    &amp;#x2F;data&amp;#x2F;apt-mirror
+deb http:&amp;#x2F;&amp;#x2F;mirrors.aliyun.com&amp;#x2F;ubuntu focal main restricted universe multiverse
+deb http:&amp;#x2F;&amp;#x2F;mirrors.aliyun.com&amp;#x2F;ubuntu focal-updates main restricted universe multiverse
+
+# 开始同步（注意：完整同步需要很大空间，100GB+）
+apt-mirror
+
+# 打包核心部分传输到内网
+cd &amp;#x2F;data&amp;#x2F;apt-mirror&amp;#x2F;mirror&amp;#x2F;mirrors.aliyun.com&amp;#x2F;
+tar -czf ubuntu-repo.tar.gz ubuntu&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-pei-zhi-ben-di-yuan&quot;&gt;========== 内网机器配置本地源 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 配置本地源
+cat &amp;gt; &amp;#x2F;etc&amp;#x2F;apt&amp;#x2F;sources.list &amp;lt;&amp;lt;EOF
+deb [trusted=yes] file:&amp;#x2F;&amp;#x2F;&amp;#x2F;data&amp;#x2F;ubuntu-repo focal main restricted universe multiverse
+deb [trusted=yes] file:&amp;#x2F;&amp;#x2F;&amp;#x2F;data&amp;#x2F;ubuntu-repo focal-updates main restricted universe multiverse
+EOF
+
+# 更新并测试
+apt update
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;fang-an-san-rong-qi-jing-xiang-chi-xian-dao-ru-gua-he-rong-qi-hua-ying-yong&quot;&gt;方案三：容器镜像离线导入（适合容器化应用）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;lian-wang-ji-qi-cao-zuo&quot;&gt;========== 联网机器操作 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 拉取镜像
+docker pull nginx:latest
+docker pull mysql:8.0
+
+# 导出镜像为tar文件
+docker save nginx:latest -o nginx-latest.tar
+docker save mysql:8.0 -o mysql-8.0.tar
+
+# 或批量导出
+docker save $(docker images -q) -o all-images.tar
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;nei-wang-ji-qi-cao-zuo&quot;&gt;========== 内网机器操作 ==========&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 导入镜像
+docker load -i nginx-latest.tar
+docker load -i mysql-8.0.tar
+
+# 查看导入的镜像
+docker images
+
+# 使用镜像
+docker run -d -p 80:80 nginx:latest
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;chang-jian-wen-ti-pai-cha&quot;&gt;常见问题排查&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wen-ti-1-yi-lai-bao-ban-ben-chong-tu&quot;&gt;问题1：依赖包版本冲突&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;症状：安装时提示依赖版本不匹配&lt;&#x2F;li&gt;
+&lt;li&gt;解决：强制安装或降级&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;rpm -ivh --force --nodeps xxx.rpm  # 不推荐，可能导致系统问题
+# 更好的办法：在联网机器上模拟内网环境再下载
+yum --installroot=&amp;#x2F;data&amp;#x2F;test-env install nginx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wen-ti-2-nei-wang-ji-qi-xi-tong-ban-ben-he-lian-wang-ji-qi-bu-yi-zhi&quot;&gt;问题2：内网机器系统版本和联网机器不一致&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;症状：下载的包在内网无法安装&lt;&#x2F;li&gt;
+&lt;li&gt;解决：确保两边系统版本一致&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;#x2F;etc&amp;#x2F;os-release  # 查看系统版本
+# 或者使用Docker容器模拟相同环境下载
+docker run -it --rm -v &amp;#x2F;data&amp;#x2F;pkgs:&amp;#x2F;pkgs centos:7 bash
+yum install --downloadonly --downloaddir=&amp;#x2F;pkgs&amp;#x2F;nginx nginx
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wen-ti-3-xia-zai-de-bao-bu-quan-an-zhuang-shi-huan-shi-ti-shi-que-yi-lai&quot;&gt;问题3：下载的包不全，安装时还是提示缺依赖&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;原因：可能是内网机器已安装的包版本和下载的依赖不匹配&lt;&#x2F;li&gt;
+&lt;li&gt;解决：使用 yumdownloader 下载所有依赖&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;yum install yum-utils -y
+yumdownloader --resolve --destdir=&amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx nginx
+
+# 参数解释
+--resolve    # 解析并下载所有依赖
+--destdir    # 指定下载目录
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;shi-yong-ji-qiao-zong-jie&quot;&gt;实用技巧总结&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;模拟内网环境下载&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;ul&gt;
+&lt;li&gt;在联网机器上创建和内网相同的干净环境&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;docker run -it --rm -v &amp;#x2F;data:&amp;#x2F;data centos:7 bash
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;在容器内下载，确保依赖准确&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;批量下载多个软件&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;ul&gt;
+&lt;li&gt;创建软件列表&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cat &amp;gt; software-list.txt &amp;lt;&amp;lt;EOF
+nginx
+mysql-server
+git
+vim
+EOF
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;批量下载&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;while read pkg; do
+  yum install --downloadonly --downloaddir=&amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;$pkg $pkg
+done &amp;lt; software-list.txt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;3&quot;&gt;
+&lt;li&gt;检查下载是否完整&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;ul&gt;
+&lt;li&gt;列出所有rpm包及依赖关系&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;rpm -qpR &amp;#x2F;data&amp;#x2F;pkgs&amp;#x2F;nginx&amp;#x2F;*.rpm
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;mp.weixin.qq.com&#x2F;s&#x2F;bmTND8Se398a1XdB4J5YYA?poc_token=HIi8-WijPaouTTo4Dbrcz5nkTRaeCJf5j-M5tgnw&quot;&gt;转载地址&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+</feed>
