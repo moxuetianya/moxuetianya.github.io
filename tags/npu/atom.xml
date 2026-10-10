@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - npu</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/npu/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-14T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/npu/atom.xml</id>
+    <entry xml:lang="en">
+        <title>服务器管理口（BMC&#x2F;iBMC）排查与配置指南：NPU 与 GPU 服务器实测</title>
+        <published>2026-08-13T16:36:14+08:00</published>
+        <updated>2026-08-14T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/npu-gpu-bmc-management-port/"/>
+        <id>https://moxuetianya.github.io/2026/08/npu-gpu-bmc-management-port/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/npu-gpu-bmc-management-port/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;家里&#x2F;机房两台服务器需要确认管理口（BMC）是否开启、如何查看与配置，供后续远程带外管理（KVM、开关机、看硬件状态）参考：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;NPU 服务器&lt;&#x2F;strong&gt;（&lt;code&gt;ssh npu&lt;&#x2F;code&gt;）：华为 Atlas，aarch64（Kunpeng），BMC 芯片为华为 iBMC（Hi171x）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;GPU 服务器&lt;&#x2F;strong&gt;（&lt;code&gt;ssh gpu&lt;&#x2F;code&gt;）：x86_64，BMC 为 AMI（Supermicro 系）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-yi-bu-que-ren-fu-wu-qi-you-mei-you-bmc&quot;&gt;第一步：确认服务器有没有 BMC&lt;&#x2F;h1&gt;
+&lt;p&gt;登录服务器后，几个命令快速判断管理芯片是否存在：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ls &amp;#x2F;dev&amp;#x2F;ipmi*                      # 有 &amp;#x2F;dev&amp;#x2F;ipmi0 说明 IPMI&amp;#x2F;BMC 设备在位
+lspci | grep -iE &amp;#x27;bmc|ipmi|ast|management&amp;#x27;
+# Atlas:  Huawei Hi171x Series [iBMC Intelligent Management system chip w&amp;#x2F;VGA support]
+# x86:    ASPEED Graphics Family &amp;#x2F; AST1150
+dmesg | grep -iE &amp;#x27;ipmi|bmc&amp;#x27;        # IPMI message handler &amp;#x2F; ipmi_si probing
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;两台服务器都有 &lt;code&gt;&#x2F;dev&#x2F;ipmi0&lt;&#x2F;code&gt;，BMC 硬件在位。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-bu-an-zhuang-ipmitool-bing-cha-kan-guan-li-kou-zhuang-tai&quot;&gt;第二步：安装 ipmitool 并查看管理口状态&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# Ubuntu: 需要 root（&amp;#x2F;dev&amp;#x2F;ipmi0 默认 root 权限）
+sudo apt-get install -y ipmitool
+sudo ipmitool lan print 1          # 查看管理口 LAN 配置
+sudo ipmitool mc info              # 查看 BMC 固件信息
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;npu-fu-wu-qi-atlas-ibmc-shi-ce-jie-guo&quot;&gt;NPU 服务器（Atlas iBMC）实测结果&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;IP Address Source       : DHCP Address
+IP Address              : 0.0.0.0          ← 未启用&amp;#x2F;未接入网络
+MAC Address             : b0:4f:a6:0d:2f:f1
+Default Gateway IP      : 0.0.0.0
+Firmware Revision       : 3.03
+IPMI Version            : 2.0
+Manufacturer ID         : 2011             ← Huawei
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：管理口硬件在位但未开启（DHCP 且 IP 为 0.0.0.0），需要配置静态 IP 并接网线到专用 MGMT 口。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gpu-fu-wu-qi-ami-bmc-shi-ce-jie-guo&quot;&gt;GPU 服务器（AMI BMC）实测结果&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;IP Address Source       : Static Address
+IP Address              : 10.10.10.10      ← 已配置（可能是出厂默认）
+Subnet Mask             : 255.255.255.0
+MAC Address             : 8c:1a:f3:11:59:a1
+Default Gateway IP      : 10.10.10.1
+SNMP Community String   : AMI
+Firmware Revision       : 1.12
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：管理口已开启，静态 IP &lt;code&gt;10.10.10.10&#x2F;24&lt;&#x2F;code&gt;，网关 &lt;code&gt;10.10.10.1&lt;&#x2F;code&gt;。注意该网段与业务网（192.168.6.0&#x2F;22）隔离，直接访问需要路由或直连管理口。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-san-bu-pei-zhi-guan-li-kou-ip&quot;&gt;第三步：配置管理口 IP&lt;&#x2F;h1&gt;
+&lt;p&gt;用 &lt;code&gt;ipmitool lan set&lt;&#x2F;code&gt; 从操作系统内直接配置（无需进 BIOS）。&lt;strong&gt;实测完整命令序列&lt;&#x2F;strong&gt;（NPU 服务器上验证通过）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 改为静态 IP
+sudo ipmitool lan set 1 ipsrc static
+# 2. 设置管理口 IP 与子网掩码
+sudo ipmitool lan set 1 ipaddr 192.168.6.10
+sudo ipmitool lan set 1 netmask 255.255.252.0
+# 3. 设置网关 —— 注意：defgw 必须带 ipaddr 子命令！
+#    直接写 `sudo ipmitool lan set 1 defgw 192.168.6.1` 会报错：
+#    &amp;quot;LAN set default gateway Commands: ipaddr, macaddr&amp;quot;
+sudo ipmitool lan set 1 defgw ipaddr 192.168.6.1
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;实测踩坑&lt;&#x2F;strong&gt;：&lt;code&gt;defgw&lt;&#x2F;code&gt; 不是直接给 IP，而是子命令集合，必须写成 &lt;code&gt;defgw ipaddr &amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;（或 &lt;code&gt;defgw macaddr &amp;lt;MAC&amp;gt;&lt;&#x2F;code&gt;），否则命令报错。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;改完验证&lt;&#x2F;strong&gt;（配置写入 ≠ 链路通了）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool lan print 1 | grep -iE &amp;#x27;IP Address|gateway&amp;#x27;   # 确认配置已生效
+ping -c 2 192.168.6.10                                       # 通 = 链路+网络正常
+ip neigh | grep 192.168.6.10                                 # 有 lladdr = ARP 解析成功
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;NPU 实测结果&lt;&#x2F;strong&gt;：配置成功写入（&lt;code&gt;IP Address Source: Static&lt;&#x2F;code&gt;、&lt;code&gt;192.168.6.10&#x2F;22&lt;&#x2F;code&gt;、网关 &lt;code&gt;192.168.6.1&lt;&#x2F;code&gt;），但 ping 不通、ARP &lt;code&gt;INCOMPLETE&lt;&#x2F;code&gt; —— 说明&lt;strong&gt;管理口网线没插&#x2F;没接到交换机&lt;&#x2F;strong&gt;，物理链路未通。配置 IP 后必须插网线才生效，这是配置正确但连不上的最常见原因。&lt;&#x2F;p&gt;
+&lt;p&gt;注意事项：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;管理口是专用 MGMT 口&lt;&#x2F;strong&gt;，不是业务网口（业务口在 Atlas 上是 I350 四口，管理口是独立小口，MAC &lt;code&gt;b0:4f:a6:0d:2f:f1&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;改完后需把网线插到管理口，并在能路由到该网段的地方访问&lt;&#x2F;li&gt;
+&lt;li&gt;Atlas 出厂默认管理 IP 通常是 &lt;code&gt;192.168.1.2&lt;&#x2F;code&gt;，AMI 系默认常用 &lt;code&gt;10.10.10.10&lt;&#x2F;code&gt;（GPU 本机就是）&lt;&#x2F;li&gt;
+&lt;li&gt;管理口建议与业务网分开 VLAN，或按需调整到可达网段&lt;&#x2F;li&gt;
+&lt;li&gt;GPU 服务器（AMI BMC）按同样命令即可改（改前记下当前值：&lt;code&gt;10.10.10.10&#x2F;24&lt;&#x2F;code&gt;，网关 &lt;code&gt;10.10.10.1&lt;&#x2F;code&gt;，改完用 &lt;code&gt;lan print 1&lt;&#x2F;code&gt; 确认）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-si-bu-shi-yong-guan-li-kou&quot;&gt;第四步：使用管理口&lt;&#x2F;h1&gt;
+&lt;p&gt;BMC 开启且 IP 可达后，三种方式：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;1. Web 界面（推荐）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;https:&amp;#x2F;&amp;#x2F;&amp;lt;管理IP&amp;gt;     # iBMC: 默认用户 Administrator；AMI: 常见 ADMIN&amp;#x2F;ADMIN
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;可远程 KVM 桌面、开关机、看硬件健康（传感器&#x2F;SEL 日志）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;2. SSH 进 BMC&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh Administrator@&amp;lt;管理IP&amp;gt;     # iBMC 命令行
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;3. IPMI 命令（带外电源管理）&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; power status   # 看电源状态
+ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; power on       # 开机
+ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; sel list        # 看系统事件日志
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;bu-chong-ipmi-tong-dao-channel-xiang-jie&quot;&gt;补充：IPMI 通道（channel）详解&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;code&gt;ipmitool lan set 1&lt;&#x2F;code&gt; 里的 &lt;code&gt;1&lt;&#x2F;code&gt; 是 &lt;strong&gt;channel 编号&lt;&#x2F;strong&gt;。BMC 内部有多个通道（编号 0~15），每个通道是不同通信介质，对应不同用途。&lt;strong&gt;通道是 BMC 内部的通信媒介，不是物理网口&lt;&#x2F;strong&gt;，多数通道由 BMC 后台自动工作，无需用户操作。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;cha-kan-tong-dao&quot;&gt;查看通道&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool channel info &amp;lt;n&amp;gt;     # 看单个通道（n = 0~15）
+# 循环列出所有有效通道：
+for c in $(seq 0 15); do echo -n &amp;quot;ch$c: &amp;quot;; sudo ipmitool channel info $c 2&amp;gt;&amp;amp;1 | grep &amp;#x27;Channel Medium Type&amp;#x27;; done
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;tong-dao-lei-xing-yu-yong-tu&quot;&gt;通道类型与用途&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;Channel&lt;&#x2F;th&gt;&lt;th&gt;介质&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;用户操作&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;1&lt;&#x2F;td&gt;&lt;td&gt;802.3 LAN&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;专用管理口&lt;&#x2F;strong&gt;（Dedicated BMC 网口，&lt;code&gt;lan set 1&lt;&#x2F;code&gt; 操作的就是它）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lan print 1&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;lan set 1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;2&lt;&#x2F;td&gt;&lt;td&gt;Serial&#x2F;Modem&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;SOL&lt;&#x2F;strong&gt;：串口重定向，远程看 BIOS&#x2F;POST&#x2F;内核启动日志，系统崩了也能进 BIOS&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ipmitool sol activate&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;4&lt;&#x2F;td&gt;&lt;td&gt;SMBus v2.0&lt;&#x2F;td&gt;&lt;td&gt;BMC ↔ 主板传感器&#x2F;EEPROM 通信总线&lt;&#x2F;td&gt;&lt;td&gt;无（自动）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;5&#x2F;14&#x2F;15&lt;&#x2F;td&gt;&lt;td&gt;System Interface&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;KCS 系统接口&lt;&#x2F;strong&gt;：OS 内 &lt;code&gt;&#x2F;dev&#x2F;ipmi0&lt;&#x2F;code&gt; 与 BMC 通信的通道（本地跑 ipmitool 就是它）&lt;&#x2F;td&gt;&lt;td&gt;本地 &lt;code&gt;ipmitool sdr list&lt;&#x2F;code&gt; 等&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;6&#x2F;10&lt;&#x2F;td&gt;&lt;td&gt;IPMB (I2C)&lt;&#x2F;td&gt;&lt;td&gt;BMC 内部管理总线：连接电源、背板、风扇板等管理芯片&lt;&#x2F;td&gt;&lt;td&gt;无（自动）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;7&#x2F;8&lt;&#x2F;td&gt;&lt;td&gt;802.3 LAN&lt;&#x2F;td&gt;&lt;td&gt;共享 LAN（Share LAN）或同口别名，见下&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lan print 7&#x2F;8&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;san-ge-lan-tong-dao-san-ge-wu-li-wang-kou&quot;&gt;三个 LAN 通道 ≠ 三个物理网口&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;NPU 服务器（华为 iBMC）实测&lt;&#x2F;strong&gt;：只有 ch1 一个 LAN 通道（&lt;code&gt;lan print 2&lt;&#x2F;code&gt; 报 &quot;Invalid channel: 2&quot;），其余是 IPMB&#x2F;System Interface。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;GPU 服务器（AMI BMC）实测&lt;&#x2F;strong&gt;：有 ch1&#x2F;ch7&#x2F;ch8 三个 LAN 通道。通过对比 MAC 判断物理口归属：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;ch1: 8c:1a:f3:11:59:a1   ← 专用管理口
+ch7: 8c:1a:f3:11:59:a2   ← MAC 独立，OS 里无对应网口（未引出机箱的口）
+ch8: 8c:1a:f3:11:59:a1   ← MAC 与 ch1 相同 = ch1 的别名&amp;#x2F;同口，忽略
+eno1: 8c:1a:f3:11:59:a3  ← 业务口
+eno2: 8c:1a:f3:11:59:a4  ← 业务口
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;结论&lt;&#x2F;strong&gt;：三个 LAN 通道实际只有 &lt;strong&gt;1 个物理管理口&lt;&#x2F;strong&gt;（a1）。真正的管理口 = ch1。MAC 编号连续（a1~a4）说明同一网卡控制器生产。判断方法：&lt;code&gt;lan print 7&#x2F;8&lt;&#x2F;code&gt; 的 MAC 与 &lt;code&gt;ip link&lt;&#x2F;code&gt; 里业务口的 MAC 对比——相同才是共享 LAN（复用业务网口），独立 MAC 则是独立物理口或固件别名。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ge-tong-dao-de-shi-ji-yong-fa&quot;&gt;各通道的实际用法&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;SOL（ch2）— 远程串口控制台&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; sol activate
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;前提：BMC Web 界面启用 SOL，内核启动参数带 &lt;code&gt;console=ttyS0&lt;&#x2F;code&gt;（AMI 默认一般已配好）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;KCS（ch5&#x2F;14&#x2F;15）— 本地 ipmitool 的默认通道&lt;&#x2F;strong&gt;（不带 &lt;code&gt;-I lanplus -H&lt;&#x2F;code&gt; 时自动走它）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool sdr list            # 全部传感器（温度&amp;#x2F;风扇&amp;#x2F;电源电压）
+sudo ipmitool sensor list         # 同上，更详细
+sudo ipmitool sel list            # 系统事件日志（上次宕机原因）
+sudo ipmitool fru print           # 硬件 FRU 信息（型号&amp;#x2F;序列号）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;NPU 实测输出（华为 5104-00715）：&lt;code&gt;Inlet Temp 23°C &#x2F; CPU1 Core 50°C &#x2F; Power 390W&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;共享 LAN（ch7&#x2F;8）&lt;&#x2F;strong&gt;：若要在 BMC Web 界面 → Network 开启 &quot;Share LAN&quot;，BMC 复用业务网口，无需插管理口网线。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-chong-mei-deng-lu-fu-wu-qi-shi-ru-he-fang-wen-guan-li-kou-dai-wai-fang-wen&quot;&gt;补充：没登录服务器时如何访问管理口（带外访问）&lt;&#x2F;h1&gt;
+&lt;p&gt;管理口是&lt;strong&gt;带外&lt;&#x2F;strong&gt;的——不依赖服务器 OS，只要管理口本身联网（网线 + IP 可达）就能直接访问。OS 进不去、系统没装、崩溃时都能用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;1-zhi-dao-ip-zhi-jie-fang-wen&quot;&gt;1. 知道 IP：直接访问&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;https:&amp;#x2F;&amp;#x2F;&amp;lt;管理IP&amp;gt;     # 浏览器
+ssh &amp;lt;用户&amp;gt;@&amp;lt;管理IP&amp;gt;  # SSH 进 BMC
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;2-bu-zhi-dao-ip-shi-ru-he-zhao-dao&quot;&gt;2. 不知道 IP 时如何找到&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;出厂默认 IP&lt;&#x2F;strong&gt;（电脑配同网段静态 IP，网线直连管理口）：
+&lt;ul&gt;
+&lt;li&gt;华为 iBMC：&lt;code&gt;192.168.1.2&#x2F;24&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;AMI&#x2F;Supermicro：多数出厂 &lt;strong&gt;DHCP&lt;&#x2F;strong&gt;（接公司网络后去 DHCP 服务器按 MAC 查），部分型号固定 &lt;code&gt;10.10.10.10&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;扫描发现&lt;&#x2F;strong&gt;（管理口已接交换机）：&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;arp -a                    # 邻居表里找新出现的 MAC
+nmap -sn 192.168.6.0&amp;#x2F;24   # 网段扫描
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;MAC 对照&lt;&#x2F;strong&gt;：管理口 MAC 印在机箱贴纸&#x2F;手册上，&lt;code&gt;arp -a&lt;&#x2F;code&gt; 匹配到即是&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;3-mo-ren-zhang-hao-mi-ma&quot;&gt;3. 默认账号密码&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;厂商&lt;&#x2F;th&gt;&lt;th&gt;默认账号&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;华为 iBMC&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Administrator&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;Admin@9000&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;AMI (Supermicro)&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ADMIN&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;ADMIN&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;一般印在机箱侧面标签。忘记&#x2F;改过密码的恢复方式：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;iBMC：机箱上恢复默认跳线&#x2F;按钮，或 USB 串口线接 M3 micro-USB 口进 CLI 恢复&lt;&#x2F;li&gt;
+&lt;li&gt;AMI：进 BIOS → BMC 设置 → 恢复出厂&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;4-wang-luo-che-di-bu-tong-shi&quot;&gt;4. 网络彻底不通时&lt;&#x2F;h2&gt;
+&lt;p&gt;USB 串口线直连管理串口（华为 M3 micro-USB 口）进 iBMC CLI，查 IP &#x2F; 恢复默认 &#x2F; 直接命令行操作。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-chong-xiu-gai-zhong-zhi-guan-li-kou-mi-ma&quot;&gt;补充：修改&#x2F;重置管理口密码&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;yong-ipmitool-xiu-gai-mi-ma&quot;&gt;用 ipmitool 修改密码&lt;&#x2F;h2&gt;
+&lt;p&gt;先查用户 ID（NPU 实测 &lt;code&gt;Administrator&lt;&#x2F;code&gt; 是 ID 2）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool user list 1                    # 查看用户列表与 ID
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;本地修改&lt;&#x2F;strong&gt;（登录服务器后，零停机，&lt;strong&gt;不需要旧密码&lt;&#x2F;strong&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool user set password 2 &amp;lt;新密码&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;带外修改&lt;&#x2F;strong&gt;（从任意机器走管理口网络，&lt;strong&gt;需要旧密码&lt;&#x2F;strong&gt;——先要认证）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;旧密码&amp;gt; user set password 2 &amp;lt;新密码&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;为什么本地不需要旧密码？&lt;&#x2F;strong&gt; 两种通道的信任模型不同：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方式&lt;&#x2F;th&gt;&lt;th&gt;通道&lt;&#x2F;th&gt;&lt;th&gt;需要旧密码？&lt;&#x2F;th&gt;&lt;th&gt;原理&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;登录服务器后本地 ipmitool&lt;&#x2F;td&gt;&lt;td&gt;KCS 系统接口（&#x2F;dev&#x2F;ipmi0）&lt;&#x2F;td&gt;&lt;td&gt;不需要&lt;&#x2F;td&gt;&lt;td&gt;BMC 把系统接口视为物理可信路径，OS root 权限即认证本身&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;通过管理口网络（lanplus）&lt;&#x2F;td&gt;&lt;td&gt;LAN 通道&lt;&#x2F;td&gt;&lt;td&gt;需要&lt;&#x2F;td&gt;&lt;td&gt;网络访问必须先通过用户名+密码认证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;本质：&lt;strong&gt;本地 = 物理可信域，带外 = 网络身份认证域&lt;&#x2F;strong&gt;。这也是安全设计——管理员忘记 BMC 密码时仍能从 OS 内重置，不会彻底锁死。&lt;&#x2F;p&gt;
+&lt;p&gt;其他用户管理命令：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ipmitool user enable 2                  # 启用用户
+sudo ipmitool user disable 2                 # 禁用用户
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：新密码不能与当前相同；华为 iBMC 密码要求 8~20 位且含大写&#x2F;小写&#x2F;数字&#x2F;特殊字符中至少三类。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wang-ji-mi-ma-shi-ru-he-reset-bu-xu-yao-ting-ji&quot;&gt;忘记密码时如何 reset（不需要停机）&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;情况&lt;&#x2F;th&gt;&lt;th&gt;方法&lt;&#x2F;th&gt;&lt;th&gt;停机要求&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;能登录 OS&lt;&#x2F;td&gt;&lt;td&gt;本地 &lt;code&gt;ipmitool user set password&lt;&#x2F;code&gt;（见上）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;零停机&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;不能登录 OS&lt;&#x2F;td&gt;&lt;td&gt;机箱恢复按钮&#x2F;跳线 → 恢复出厂（含默认密码）&lt;&#x2F;td&gt;&lt;td&gt;需断电物理操作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;不能登录 OS&lt;&#x2F;td&gt;&lt;td&gt;华为 M3 串口进 iBMC CLI&lt;&#x2F;td&gt;&lt;td&gt;不需停机，但 CLI 用同一套账号，忘光则无效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;不能登录 OS（AMI）&lt;&#x2F;td&gt;&lt;td&gt;BIOS → BMC 设置 → 恢复出厂&lt;&#x2F;td&gt;&lt;td&gt;需重启系统进 BIOS&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;关键原理&lt;&#x2F;strong&gt;：BMC 是独立小系统，&lt;strong&gt;重启&#x2F;复位 BMC 不影响 OS 运行&lt;&#x2F;strong&gt;（仅 KVM&#x2F;SOL 短暂断几秒）。所谓&quot;停机&quot;只来自物理操作（跳线&#x2F;按钮）和进 BIOS 这两条路径，改密码&#x2F;恢复出厂本身不动业务。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;bu-chong-tong-guo-guan-li-kou-zhong-zhuang-xi-tong-yuan-cheng-gua-zai-iso-kvm&quot;&gt;补充：通过管理口重装系统（远程挂载 ISO + KVM）&lt;&#x2F;h1&gt;
+&lt;p&gt;管理口（BMC）可以完整重装系统：&lt;strong&gt;远程挂载 ISO 当虚拟光驱 + KVM 远程控制台看到屏幕并操作&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;shen-me-shi-kvm&quot;&gt;什么是 KVM？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;KVM = Keyboard + Video + Mouse&lt;&#x2F;strong&gt;（键盘、显示、鼠标）。不是多键鼠，而是&quot;虚拟一套键鼠 + 屏幕&quot;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Video&lt;&#x2F;strong&gt;：服务器的显卡输出（屏幕画面）通过管理口实时传到浏览器显示&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Keyboard&#x2F;Mouse&lt;&#x2F;strong&gt;：浏览器里的鼠标键盘输入回传给服务器&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre&gt;&lt;code&gt;你的浏览器 ←网络(管理口)→ 服务器 BMC → 虚拟显卡+虚拟键鼠 → 服务器主机
+（你看到的画面）                        （KVM 芯片捕获&amp;#x2F;注入）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;特点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;KVM 是&lt;strong&gt;带外&lt;&#x2F;strong&gt;的：系统没装、卡在 BIOS、系统崩溃时都能看到屏幕并操作&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Web 界面能看到 BIOS&lt;&#x2F;strong&gt;：开机自检（POST）、BIOS 设置、GRUB、安装界面全过程可见可操作&lt;&#x2F;li&gt;
+&lt;li&gt;一台服务器同一时间只能被一个 KVM 会话控制（单控），不同于 IPMI 命令可多会话&lt;&#x2F;li&gt;
+&lt;li&gt;NPU 的 iBMC 和 GPU 的 AMI 都支持，Web 界面找&quot;远程控制台 &#x2F; Remote Console &#x2F; iKVM&quot;入口&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zhong-zhuang-xi-tong-wan-zheng-liu-cheng&quot;&gt;重装系统完整流程&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;浏览器访问 &lt;code&gt;https:&#x2F;&#x2F;&amp;lt;管理IP&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（iBMC 默认用户 &lt;code&gt;Administrator&lt;&#x2F;code&gt;；AMI 常见 &lt;code&gt;ADMIN&#x2F;ADMIN&lt;&#x2F;code&gt;）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;打开远程控制台（KVM）&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Virtual Media &#x2F; 虚拟光驱&lt;&#x2F;strong&gt; → 挂载 ISO 镜像（上传本地文件或填 HTTP 下载链接）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;设置下次从虚拟光驱启动&lt;&#x2F;strong&gt;（BMC 里设 boot order，或用命令）：&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; chassis bootdev cdrom   # 下次从虚拟光驱启动
+ipmitool -I lanplus -H &amp;lt;管理IP&amp;gt; -U &amp;lt;用户&amp;gt; -P &amp;lt;密码&amp;gt; chassis power reset      # 重启
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;KVM 窗口&lt;&#x2F;strong&gt;里即可看到安装界面（BIOS → 安装器全流程），正常安装&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;注意事项：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;装完把启动顺序改回硬盘：&lt;code&gt;chassis bootdev disk&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;替代方案：&lt;strong&gt;PXE 网络启动&lt;&#x2F;strong&gt;（&lt;code&gt;chassis bootdev pxe&lt;&#x2F;code&gt; + 同网段 PXE 服务器，数据流走业务网口）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SOL 串口只能文本安装&lt;&#x2F;strong&gt;（Ubuntu Server 文本安装器），不支持图形界面&lt;&#x2F;li&gt;
+&lt;li&gt;ISO 挂载的数据流走管理口网线，一般 1GbE，速度可接受&lt;&#x2F;li&gt;
+&lt;li&gt;挂载 ISO 后需在 BIOS 里允许虚拟光驱启动&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;判断 BMC 是否在位：&lt;code&gt;&#x2F;dev&#x2F;ipmi0&lt;&#x2F;code&gt; + &lt;code&gt;lspci&lt;&#x2F;code&gt; + &lt;code&gt;dmesg&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;查看管理口是否开启：&lt;code&gt;sudo ipmitool lan print 1&lt;&#x2F;code&gt; —— IP 为 &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt;（DHCP 未拿到）说明未开启，有具体 IP 说明已开启&lt;&#x2F;li&gt;
+&lt;li&gt;配置：&lt;code&gt;ipmitool lan set 1&lt;&#x2F;code&gt; 系列命令，静态 IP&#x2F;掩码&#x2F;网关&lt;&#x2F;li&gt;
+&lt;li&gt;使用：Web（&lt;code&gt;https:&#x2F;&#x2F;&amp;lt;IP&amp;gt;&lt;&#x2F;code&gt;）、SSH、IPMI over LAN&lt;&#x2F;li&gt;
+&lt;li&gt;现状记录：NPU（Atlas iBMC）管理口未开启待配置；GPU（AMI）已开启 &lt;code&gt;10.10.10.10&#x2F;24&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - Shell</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/shell/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-09T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/shell/atom.xml</id>
+    <entry xml:lang="en">
+        <title>systemd-run --working-directory 的 ~ 不展开：一次 status=200&#x2F;CHDIR 排查</title>
+        <published>2026-10-09T00:00:00+00:00</published>
+        <updated>2026-10-09T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/10/systemd-run-working-directory-chdir/"/>
+        <id>https://moxuetianya.github.io/2026/10/systemd-run-working-directory-chdir/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/10/systemd-run-working-directory-chdir/">&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;一条很普通的 &lt;code&gt;systemd-run --user&lt;&#x2F;code&gt; 后台服务命令：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemd-run --user --working-directory=~&amp;#x2F;project&amp;#x2F;agent-code&amp;#x2F; --unit opencode \
+  --setenv OPENCODE_SERVER_PASSWORD=&amp;quot;&amp;lt;密码&amp;gt;&amp;quot; \
+  ~&amp;#x2F;.opencode&amp;#x2F;bin&amp;#x2F;opencode serve --hostname 192.168.5.68 --port 4096
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;systemd-run&lt;&#x2F;code&gt; 本身不报任何错，正常打印 &lt;code&gt;Running as unit: opencode.service&lt;&#x2F;code&gt;，但服务立刻挂掉。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha&quot;&gt;排查&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ systemctl --user status opencode --no-pager -l
+× opencode.service - [systemd-run] &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;.opencode&amp;#x2F;bin&amp;#x2F;opencode serve ...
+     Loaded: loaded (&amp;#x2F;run&amp;#x2F;user&amp;#x2F;1000&amp;#x2F;systemd&amp;#x2F;transient&amp;#x2F;opencode.service; transient)
+  Transient: yes
+     Active: failed (Result: exit-code) since Fri 2026-10-09 12:01:35 CST; 2min 15s ago
+   Duration: 32ms
+    Process: 3358420 ExecStart=&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;.opencode&amp;#x2F;bin&amp;#x2F;opencode serve ... (code=exited, status=200&amp;#x2F;CHDIR)
+  Main PID: 3358420 (code=exited, status=200&amp;#x2F;CHDIR)
+
+10月 09 12:01:35 debian13 (opencode)[3358420]: opencode.service: Changing to the requested working directory failed: No such file or directory
+10月 09 12:01:35 debian13 (opencode)[3358420]: opencode.service: Failed at step CHDIR spawning &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;.opencode&amp;#x2F;bin&amp;#x2F;opencode: No such file or directory
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;两个疑点：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;目录明明存在&lt;&#x2F;strong&gt;：&lt;code&gt;ls -ld ~&#x2F;project&#x2F;agent-code&#x2F;&lt;&#x2F;code&gt; 输出正常，&lt;code&gt;drwxrwxr-x&lt;&#x2F;code&gt; 权限也没问题；&lt;&#x2F;li&gt;
+&lt;li&gt;同一条命令里，二进制路径 &lt;code&gt;~&#x2F;.opencode&#x2F;bin&#x2F;opencode&lt;&#x2F;code&gt; 显然展开成功了——unit 描述里已经是 &lt;code&gt;&#x2F;home&#x2F;peter&#x2F;.opencode&#x2F;bin&#x2F;opencode&lt;&#x2F;code&gt;，偏偏 &lt;code&gt;--working-directory=&lt;&#x2F;code&gt; 后面的没展开。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;yuan-yin-de-zhan-kai-gui-ze-bi-xiang-xiang-zhong-ke-ke&quot;&gt;原因：&lt;code&gt;~&lt;&#x2F;code&gt; 的展开规则比想象中苛刻&lt;&#x2F;h2&gt;
+&lt;p&gt;shell 对 &lt;code&gt;~&lt;&#x2F;code&gt; 的 tilde expansion 只发生在两种位置：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;单词开头&lt;&#x2F;strong&gt;（&lt;code&gt;~&#x2F;.opencode&#x2F;bin&#x2F;opencode&lt;&#x2F;code&gt;）——所以二进制路径展开成功；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;真正的赋值上下文&lt;&#x2F;strong&gt;（&lt;code&gt;X=~&#x2F;x&lt;&#x2F;code&gt;、&lt;code&gt;export X=~&#x2F;x&lt;&#x2F;code&gt;、命令前缀赋值 &lt;code&gt;X=~&#x2F;x cmd&lt;&#x2F;code&gt;）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;而 &lt;code&gt;--working-directory=~&#x2F;project&#x2F;agent-code&#x2F;&lt;&#x2F;code&gt; 这个单词以 &lt;code&gt;--&lt;&#x2F;code&gt; 开头，&lt;code&gt;=&lt;&#x2F;code&gt; 前面是 &lt;code&gt;-&lt;&#x2F;code&gt;，&lt;strong&gt;不是合法的变量名&lt;&#x2F;strong&gt;，shell 不认为它是赋值样式单词，&lt;code&gt;~&lt;&#x2F;code&gt; 原样透传。systemd 拿到字面量 &lt;code&gt;~&#x2F;project&#x2F;agent-code&#x2F;&lt;&#x2F;code&gt;，而 systemd 侧（包括 unit 文件）&lt;strong&gt;从不做任何 &lt;code&gt;~&lt;&#x2F;code&gt; 展开&lt;&#x2F;strong&gt;，CHDIR 一个叫 &lt;code&gt;~&lt;&#x2F;code&gt; 的目录自然 ENOENT。&lt;&#x2F;p&gt;
+&lt;p&gt;四个 shell 实测矩阵（2026-10，bash 5.2 &#x2F; zsh 5.9 &#x2F; dash 0.5.12）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;写法&lt;&#x2F;th&gt;&lt;th&gt;bash&lt;&#x2F;th&gt;&lt;th&gt;zsh&lt;&#x2F;th&gt;&lt;th&gt;sh&#x2F;dash&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;~&#x2F;x&lt;&#x2F;code&gt;（词首）&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;--opt=~&#x2F;x&lt;&#x2F;code&gt;（命令参数）&lt;&#x2F;td&gt;&lt;td&gt;❌ 不展开&lt;&#x2F;td&gt;&lt;td&gt;❌ 不展开&lt;&#x2F;td&gt;&lt;td&gt;❌ 不展开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;VAR=~&#x2F;x&lt;&#x2F;code&gt;（命令参数）&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;td&gt;❌ 不展开&lt;&#x2F;td&gt;&lt;td&gt;❌ 不展开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;真赋值 &lt;code&gt;X=~&#x2F;x&lt;&#x2F;code&gt; &#x2F; 前缀赋值&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;td&gt;✅ 展开&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;第二、三行是容易踩的组合坑：bash 会把「长得像赋值」的参数做 tilde 展开（&lt;code&gt;echo VAR=~&#x2F;bin&lt;&#x2F;code&gt; 能展开），让人误以为 &lt;code&gt;=&lt;&#x2F;code&gt; 后面的 &lt;code&gt;~&lt;&#x2F;code&gt; 都能展开；但 &lt;code&gt;--opt=~&#x2F;x&lt;&#x2F;code&gt; 因为 &lt;code&gt;=&lt;&#x2F;code&gt; 前带连字符不属于合法标识符，&lt;strong&gt;任何 shell 都不展开&lt;&#x2F;strong&gt;。别赌 shell 行为，这类位置一律别用 &lt;code&gt;~&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带解读一下 &lt;code&gt;status=200&#x2F;CHDIR&lt;&#x2F;code&gt;：systemd 把 200+ 的退出码留给自身 exec 流程各步骤的失败标记（200=CHDIR，201=NICE，202=FDS，203=EXEC……），最出名的是 203&#x2F;EXEC——shell 脚本没写 shebang 时报的那个。看到 &lt;code&gt;200&#x2F;CHDIR&lt;&#x2F;code&gt; 就直接指向 &lt;code&gt;WorkingDirectory&lt;&#x2F;code&gt; 不可达，与程序本身无关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-jue&quot;&gt;解决&lt;&#x2F;h2&gt;
+&lt;p&gt;推荐直接用绝对路径：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemd-run --user --working-directory=&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;agent-code --unit opencode \
+  --setenv OPENCODE_SERVER_PASSWORD=&amp;quot;&amp;lt;密码&amp;gt;&amp;quot; \
+  ~&amp;#x2F;.opencode&amp;#x2F;bin&amp;#x2F;opencode serve --hostname 192.168.5.68 --port 4096
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;不想写死用户名可以用 &lt;code&gt;$HOME&lt;&#x2F;code&gt;（参数展开发生在单词任意位置，不受 tilde 规则限制）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemd-run --user --working-directory=&amp;quot;$HOME&amp;#x2F;project&amp;#x2F;agent-code&amp;quot; --unit opencode ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fu-keng-shi-bai-de-transient-unit-zhan-yong-unit-ming&quot;&gt;附坑：失败的 transient unit 占用 unit 名&lt;&#x2F;h2&gt;
+&lt;p&gt;修复后直接重跑 &lt;code&gt;systemd-run --unit opencode ...&lt;&#x2F;code&gt; 会再吃一记：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ systemd-run --user --unit opencode ...
+Failed to start transient service unit: Unit opencode.service was already loaded or has a fragment file.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;失败的 transient unit 仍占着名字，先清掉再跑：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl --user reset-failed opencode.service
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;systemd-run&lt;&#x2F;code&gt; 报 &lt;code&gt;status=200&#x2F;CHDIR&lt;&#x2F;code&gt; 时第一件事：&lt;code&gt;systemctl --user status&lt;&#x2F;code&gt; 看日志里实际收到的 &lt;code&gt;WorkingDirectory&lt;&#x2F;code&gt; 路径，&lt;code&gt;~&lt;&#x2F;code&gt; 没展开是最常见原因；&lt;&#x2F;li&gt;
+&lt;li&gt;shell 的 tilde expansion 只认「词首」和「真赋值上下文」，&lt;code&gt;--长选项=~&#x2F;x&lt;&#x2F;code&gt; 在所有主流 shell 都不展开——给程序传的路径参数一律用绝对路径或 &lt;code&gt;$HOME&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;transient unit 失败后名字会被占用，&lt;code&gt;reset-failed&lt;&#x2F;code&gt; 清理后再重跑。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>从当前位置打开 Terminal</title>
+        <published>2019-12-26T00:00:00+08:00</published>
+        <updated>2019-12-26T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2019/12/keep-terminal-cwd/"/>
+        <id>https://moxuetianya.github.io/2019/12/keep-terminal-cwd/</id>
+        
+        <summary type="html">&lt;h1 id=&quot;cong-dang-qian-wei-zhi-da-kai-terminal&quot;&gt;从当前位置打开 Terminal&lt;&#x2F;h1&gt;
+&lt;p&gt;我们有很多工作区时，每次打开一个 Terminal 都需要先 cd 到和上一个 Terminal 一样的位置再开始工作。
+这个过程既然是固定的，那就一定能自动化。&lt;&#x2F;p&gt;
+&lt;p&gt;Harttle 遇到的具体场景是，&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;i3wm.org&#x2F;&quot;&gt;i3wm&lt;&#x2F;a&gt; 有 workspace（工作区）的概念，每个工作区可以打开任意多个 Terminal。
+我希望同一个工作区的 Terminal 打开时都有一样的 CWD（Current Working Directory），
+不同的工作区有不同的 CWD。即：&lt;strong&gt;打开 Terminal 时，自动 cd 到当前工作区其他 Terminal 所在的位置&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;本文基于 Reddit 上的一个小脚本展开，这一思路适用所有 Terminal Emulator 和 Desktop Environment（尽管我只有 Window Manager 也是适用的）。&lt;&#x2F;p&gt;
+&lt;div&gt;
+</summary>
+        
+    </entry>
+</feed>

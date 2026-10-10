@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - ballooning</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/ballooning/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-11T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/ballooning/atom.xml</id>
+    <entry xml:lang="en">
+        <title>libvirt 虚拟机内存管理</title>
+        <published>2025-10-29T10:51:16+08:00</published>
+        <updated>2026-10-11T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/"/>
+        <id>https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/10/libvirt 虚拟机内存管理/">&lt;h1 id=&quot;libvirt-windowsxu-ni-ji-nei-cun-zhan-yong-guo-gao&quot;&gt;libvirt windows虚拟机内存占用过高&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xu-ni-ji-nei-cun-ce-lue&quot;&gt;虚拟机内存策略&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;QEMU 在虚拟机启动时，一次性分配固定的内存。
+这部分内存被 预留并映射到宿主机进程（qemu-system-x86_64）。
+从宿主机的角度看，这些内存都是“被占用的”。
+即使 Windows 内部只使用很少，也不会被宿主机回收。&lt;&#x2F;li&gt;
+&lt;li&gt;💡 换句话说：
+没有 balloon 驱动 = 没有动态回收机制。
+QEMU 不知道 Windows 里面的内存使用情况，它只能把所有内存都“留给”虚拟机进程。&lt;&#x2F;li&gt;
+&lt;li&gt;Windows 内存管理的特性加剧了现象
+Windows 客户机即便空闲，也会：
+启动缓存与系统文件预取；
+启动 SuperFetch &#x2F; SysMain；
+各种服务预分配内存池；
+内核会尽量“占用”空闲内存以提高 I&#x2F;O 性能（File Cache）。
+因此在任务管理器中看似“使用很多内存”，其实很多是 可释放缓存（Standby Memory）。
+但宿主机（Linux + libvirt）看不到“哪些是可回收的”，于是整块都算“已用内存”。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ballooning-ru-he-jie-jue-zhe-ge-wen-ti&quot;&gt;Ballooning 如何解决这个问题？&lt;&#x2F;h2&gt;
+&lt;p&gt;Ballooning 的作用是 建立 Guest 与 Host 之间的内存使用反馈通道：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;Guest 内 balloon 驱动 作为一个“伪设备”，可以向 Windows 内存管理器 申请分配内存（就像一个普通程序申请内存一样）；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Windows 会从其空闲内存池中分配给 balloon 驱动；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;但 balloon 驱动 不会真正使用这些内存，只是“持有”它；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;由于这部分内存被 balloon 占用，QEMU 就知道：Guest 实际可用内存减少了，可以将对应物理页从宿主机释放；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;宿主机内存压力大时，libvirt 可通过 virsh setmem 命令 增大 balloon 大小，从而“回收”虚拟机内存。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Linux 虚拟机也一样：没有 balloon 驱动（如 virtio_balloon 模块未加载），同样会高占内存；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;现代替代方案：virtio-mem（动态内存插拔）比 balloon 更灵活，但 Windows 支持有限，balloon 仍是主流；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;内存共享（KSM）不能替代 balloon：KSM 只能合并完全相同的内存页（如多个 Win10 虚拟机的系统 DLL），对私有数据无效。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;libvirt-qemu-zhi-chi-windows-xu-ni-ji-de-nei-cun-ballooning-dong-tai-nei-cun-guan-li&quot;&gt;libvirt&#x2F;QEMU 支持 Windows 虚拟机的内存 ballooning（动态内存管理）&lt;&#x2F;h2&gt;
+&lt;p&gt;需要在 宿主机与客户机两边都正确配置&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;windows 虚拟机上安装 virtio-win-xxx.iso 中的ballooning(其他的可以不安装，容易引起问题)&lt;&#x2F;li&gt;
+&lt;li&gt;配置虚拟机配置&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;memballoon model=&amp;#x27;virtio&amp;#x27;&amp;gt;
+  &amp;lt;stats period=&amp;#x27;10&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;memballoon&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;hr &#x2F;&gt;
+&lt;h1 id=&quot;shi-zhan-linux-guest-nei-cun-32g-heng-100-cockpit-yu-htop-da-jia-2026-10-geng-xin&quot;&gt;实战：Linux guest 内存 32G 恒 100%，cockpit 与 htop 打架（2026-10 更新）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;一台 32G 的 Ubuntu 24.04 开发机（16 vCPU，跑了一年）：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;guest 内 htop：&lt;strong&gt;6.13G &#x2F; 31.3G&lt;&#x2F;strong&gt;（约 20%）；&lt;&#x2F;li&gt;
+&lt;li&gt;cockpit-machines 占用率卡片：&lt;strong&gt;32.0 &#x2F; 32 GiB，恒 100%&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;宿主机 &lt;code&gt;ps&lt;&#x2F;code&gt;：QEMU 进程 RSS ≈ 32 GiB。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;第一反应是&quot;是不是没装 qemu-guest-agent &#x2F; 没有 memballoon&quot;——都装了且工作正常：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ virsh dommemstat ubuntu.code
+actual 33554432
+unused 32681168      ← balloon 驱动提供，guest 空闲 31.2G
+available 32781204
+rss 33512528         ← QEMU 进程 RSS，涨满
+swap_in&amp;#x2F;out、major&amp;#x2F;minor_fault、disk_caches ...   ← qemu-guest-agent 提供
+
+$ virsh qemu-agent-command ubuntu.code &amp;#x27;{&amp;quot;execute&amp;quot;:&amp;quot;guest-ping&amp;quot;}&amp;#x27;
+{&amp;quot;return&amp;quot;:{}}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cockpit-na-zhang-qia-pian-de-zhen-shi-yu-yi&quot;&gt;cockpit 那张卡片的真实语义&lt;&#x2F;h2&gt;
+&lt;p&gt;解包前端（&lt;code&gt;gunzip -c &#x2F;usr&#x2F;share&#x2F;cockpit&#x2F;machines&#x2F;index.js.gz&lt;&#x2F;code&gt;）找到采集逻辑：cockpit-machines
+调用 &lt;code&gt;org.libvirt.Domain&lt;&#x2F;code&gt; 的 &lt;code&gt;GetStats(flags=CPU_TOTAL|BALLOON|VCPU, 0)&lt;&#x2F;code&gt;，从返回里取
+&lt;strong&gt;&lt;code&gt;balloon.rss&lt;&#x2F;code&gt;（QEMU 进程在宿主机上的 RSS）&lt;&#x2F;strong&gt;，除以 XML 的 &lt;code&gt;currentMemory&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;内存占用 % = balloon.rss &amp;#x2F; currentMemory    ← 宿主机视角，不是 guest 视角
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;（busctl 实测掩码：1=STATE、2=CPU_TOTAL、&lt;strong&gt;4=BALLOON&lt;&#x2F;strong&gt;、8=VCPU、16=BLOCK；
+&lt;code&gt;virsh dommemstat&lt;&#x2F;code&gt; 的 unused&#x2F;available 才是 guest 视角。）&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wei-shen-me-rss-zhi-zhang-bu-die&quot;&gt;为什么 RSS 只涨不跌&lt;&#x2F;h2&gt;
+&lt;p&gt;三个事实叠加：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;guest 每摸过一页内存，这页就永久留在 QEMU 的 RSS 里——&lt;strong&gt;包括 page cache&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;guest 内核&quot;闲着不如缓存&quot;，把 25G 拿去做 page cache，完全合理；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;balloon 从不自动归还&lt;&#x2F;strong&gt;：没有主动挤气球动作，QEMU RSS 只增不减。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;于是 guest 用 6G、cache 25G、RSS 32G、cockpit 恒 100%——每一层都&quot;没坏&quot;，是机制如此。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-fa-freepagereporting-zi-dong-gui-huan&quot;&gt;解法：freePageReporting（自动归还）&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;memballoon model=&amp;#x27;virtio&amp;#x27; freePageReporting=&amp;#x27;on&amp;#x27;&amp;gt;
+  &amp;lt;stats period=&amp;#x27;5&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;memballoon&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;guest 内核周期性把空闲页报告给 QEMU（madvise DONTNEED），宿主机 RSS 自动回落；
+guest 需要时&lt;strong&gt;立刻拿回&lt;&#x2F;strong&gt;（弹性归还，不像 &lt;code&gt;setmem&lt;&#x2F;code&gt; 是硬上限）。要求：guest 内核 ≥5.7、
+libvirt ≥6.10、QEMU 设备属性存在（&lt;code&gt;qemu-system-x86_64 -device virtio-balloon-pci,help&lt;&#x2F;code&gt;
+可见 &lt;code&gt;free-page-reporting&lt;&#x2F;code&gt;）。生效需要关机再开机（memballoon 不能热改属性）。&lt;&#x2F;p&gt;
+&lt;p&gt;对比：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;virsh setmem&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;freePageReporting&lt;&#x2F;code&gt;&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;语义&lt;&#x2F;td&gt;&lt;td&gt;硬上限（guest 可见内存变小）&lt;&#x2F;td&gt;&lt;td&gt;弹性归还（guest 内存不缩水）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;生效&lt;&#x2F;td&gt;&lt;td&gt;立即，可逆&lt;&#x2F;td&gt;&lt;td&gt;需重启一次，之后全自动&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;cockpit 卡片&lt;&#x2F;td&gt;&lt;td&gt;仍 ~100%（分母同步变小）&lt;&#x2F;td&gt;&lt;td&gt;跟随真实占用动态变化&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;san-ge-keng-define-jing-mo-bo-chi-shi-lu&quot;&gt;三个坑（define 静默剥离实录）&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;freePageReporting&lt;&#x2F;code&gt; 是 &lt;code&gt;&amp;lt;memballoon&amp;gt;&lt;&#x2F;code&gt; 的属性，不是子元素&lt;&#x2F;strong&gt;。写成子元素
+&lt;code&gt;&amp;lt;freePageReporting on=&#x27;on&#x27;&#x2F;&amp;gt;&lt;&#x2F;code&gt; 时 &lt;code&gt;virsh define&lt;&#x2F;code&gt; &lt;strong&gt;不报错但静默剥离&lt;&#x2F;strong&gt;——不带
+&lt;code&gt;--validate&lt;&#x2F;code&gt; 的 define 不跑 RNG schema，宽松解析器直接忽略不认识的元素。加了
+&lt;code&gt;--validate&lt;&#x2F;code&gt; 才会报 &lt;code&gt;Extra element devices in interleave&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;漏写 &lt;code&gt;on=&#x27;on&#x27;&lt;&#x2F;code&gt; 也不行&lt;&#x2F;strong&gt;：&lt;code&gt;&amp;lt;freePageReporting&#x2F;&amp;gt;&lt;&#x2F;code&gt; 解析为默认 off，格式化输出时省略，
+同样静默消失。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;define 会顺带丢 &lt;code&gt;&amp;lt;stats period&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;（balloon 统计采集周期，cockpit&#x2F;dommemstat 依赖），
+define 后必须 &lt;code&gt;virsh dumpxml --inactive &amp;lt;vm&amp;gt;&lt;&#x2F;code&gt; 复查。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;define 成功的判据不是命令退出码，而是&lt;strong&gt;复查存储结果&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh define --validate &amp;#x2F;path&amp;#x2F;to&amp;#x2F;vm.xml
+virsh dumpxml --inactive &amp;lt;vm&amp;gt; | grep -A3 &amp;#x27;&amp;lt;memballoon&amp;#x27;   # 必须肉眼确认
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启后验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;pgrep -f &amp;#x27;qemu-system.*&amp;lt;vm&amp;gt;&amp;#x27; | head -1 | xargs -I{} cat &amp;#x2F;proc&amp;#x2F;{}&amp;#x2F;cmdline | tr &amp;#x27;\0&amp;#x27; &amp;#x27;\n&amp;#x27; | grep free-page-reporting
+# → free-page-reporting=on
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiang-guan-yue-du&quot;&gt;相关阅读&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;同一台 VM 的 cockpit 图形 console 消失问题：
+&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;10&#x2F;cockpit-machines-console-only-spice-socket&#x2F;&quot;&gt;cockpit-machines 只剩串口 console&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

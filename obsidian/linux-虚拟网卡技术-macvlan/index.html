@@ -1,0 +1,561 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux 虚拟网卡技术：Macvlan | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Docker有好几种网络模式，这里介绍下bridge和macvlan两种模式" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/linux-虚拟网卡技术-macvlan/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/linux-虚拟网卡技术-macvlan/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/linux-虚拟网卡技术-macvlan/" />
+  <meta property="og:description" content="Docker有好几种网络模式，这里介绍下bridge和macvlan两种模式" />
+  <meta name="twitter:description" content="Docker有好几种网络模式，这里介绍下bridge和macvlan两种模式" />
+  <meta property="og:title" content="Linux 虚拟网卡技术：Macvlan | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux 虚拟网卡技术：Macvlan | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-07-12" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/linux-虚拟网卡技术-macvlan/">Linux 虚拟网卡技术：Macvlan</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 03, 2024 <span class="rpad"></span>更新: 七月 12, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/he-ji/">合集</a>  #<a href="https://moxuetianya.github.io/tags/wang-luo/">网络</a> </span>
+
+    
+
+
+<h2 id="dockerde-bridgehe-macvlanliang-chong-wang-luo-mo-shi">Docker的bridge和macvlan两种网络模式</h2>
+<p>Docker有好几种网络模式，这里介绍下bridge和macvlan两种模式</p>
+<p><strong>Bridge模式</strong></p>
+<pre><code>    Bridge模式是Docker默认的网络模式，当Docker进程启动时，会在主机上创建一个名为docker0的虚拟网桥，用来连接宿主机和容器，此主机上的Docker容器都会连接到这个虚拟网桥上，虚拟网桥的工作方式和物理交换机类似，这样所有容器就通过交换机连在了一个二层网络中。
+</code></pre>
+<p>看一下实际创建容器后的情况</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker0-bridge-host-route.png" alt="" /></p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker0-bridge-route.png" alt="" /></p>
+<p>上面两个图是宿主机上看到的，创建了一个docker0的网桥，ip是172.17.0.1/16，并且创建了一个路由，ip在172.17.0.0/16段的都会都会转到docker0网桥上。</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-container-eth0-route.png" alt="" /></p>
+<p>上图是从容器内部看到的，容器有eth0这个网卡对外通信，ip是172.17.0.2/16，跟docker0在同一网段，路由里default via 172.17.0.1指定了容器的网关是docker0</p>
+<p>并且容器的eth0还是eth0@if45，就是45网卡的一个接口</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-host-veth-peer.png" alt="" /></p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-host-veth-pair.png" alt="" /></p>
+<p>上面是宿主机的网卡信息，可以看到有一个编号45的"veth" 开头的网卡，这是一个 veth 设备，而 veth 设备总是成对出现的，另一半就是上面容器内的那个eth0，并且查看网桥信息也能看到这个veth的设备跟docker0网桥是绑定关系。</p>
+<p>通过上面的基本上就明确网络的模式了，Docker利用 veth pair技术，在宿主机上创建了两个虚拟网络接口 veth0 和 veth1（veth pair技术的特性可以保证无论哪一个veth 接收到网络报文，都会无条件地传输给另一方），Docker将veth pair设备的一端放在新创建的容器中，并命名为eth0（容器的网卡，从docker0子网中分配一个IP给容器使用，并设置docker0的IP地址为容器的默认网关），另一端放在主机中，以vethxxx这样类似的名字命名，并将这个网络设备加入到docker0网桥中。可以通过brctl show命令查看，这样容器和网桥就可以相互通信了。网络结构如下图：</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-bridge-topology.png" alt="" /></p>
+<p><strong>容器与宿主机通信</strong> : 在桥接模式下，Docker Daemon将veth0附加到docker0网桥上，保证宿主机的报文有能力发往veth0。再将veth1 添加到Docker 容器所属的网络命名空间，保证宿主机的网络报文若发往 veth0 可以立即被 veth1 收到。</p>
+<p><strong>容器与外界通信</strong> : 容器如果需要联网，则需要采用 NAT（是一种在 ip 数据包通过路由器或防火墙时，重写来源 ip 地址或目的 ip 地址的技术） 方式。准确的说，是 NATP (网络地址端口转换) 方式。NATP 包含两种转换方式：SNAT 和 DNAT 。</p>
+<ul>
+<li><strong>宿主机外访问容器时（修改数据包的目的地址）：</strong></li>
+</ul>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-bridge-dnat-flow.png" alt="" /></p>
+<p>由于容器的 IP 与端口对外都是不可见的，所以数据包的目的地址为<strong>宿主机</strong>的<strong>ip</strong> 和<strong>端口</strong>，为 192.168.1.10:24 。</p>
+<p>数据包经过路由器发给宿主机 eth0，再经 eth0 转发给 docker0 网桥。由于存在 DNAT 规则，会将数据包的目的地址转换为<strong>容器</strong>的<strong>ip</strong> 和<strong>端口</strong>，为 172.17.0.n:24 。</p>
+<p>宿主机上的 docker0 网桥识别到容器 ip 和端口，于是将数据包发送附加到 docker0 网桥上的 veth0 接口，veth0 接口再将数据包发送给容器内部的 veth1 接口，容器接收数据包并作出响应。</p>
+<p>整个过程如下图：</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-bridge-dnat-packet-flow.png" alt="" /></p>
+<ul>
+<li><strong>容器访问宿主机之外时（修改数据包的源地址）</strong></li>
+</ul>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-bridge-snat-outbound.png" alt="" /></p>
+<p>此时数据包的源地址为<strong>容器</strong>的<strong>ip</strong> 和<strong>端口</strong>，为 172.17.0.n:24，容器内部的 veth1 接口将数据包发往 veth0 接口，到达 docker0 网桥。</p>
+<p>宿主机上的 docker0 网桥发现数据包的目的地址为外界的 IP 和端口，便会将数据包转发给 eth0 ，并从 eth0 发出去。由于存在 SNAT 规则，会将数据包的源地址转换为<strong>宿主机</strong>的<strong>ip</strong> 和<strong>端口</strong>，为 192.168.1.10:24 。</p>
+<p>由于路由器可以识别到宿主机的 ip 地址，所以再将数据包转发给外界，外界接受数据包并作出响应。这时候，在外界看来，这个数据包就是从 192.168.1.10:24 上发出来的，Docker 容器对外是不可见的。</p>
+<p>整个过程如下图：</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/docker-bridge-snat-flow.png" alt="" /></p>
+<p><strong>macvlan模式</strong></p>
+<p>macvlan本身是linxu kernel的模块，本质上是一种网卡虚拟化技术。其功能是允许在同一个物理网卡上虚拟出多个网卡，通过不同的MAC地址在数据链路层进行网络数据的转发，一块网卡上配置多个 MAC 地址（即多个 interface），每个interface可以配置自己的IP，Docker的macvlan网络实际上就是使用了Linux提供的macvlan驱动</p>
+<p>因为多个MAC地址的网络数据包都是从同一块网卡上传输，所以需要打开网卡的混杂模式ip link set eth0 promisc on;</p>
+<p>创建macvlan网络不同于桥接模式，需要指定网段和网关，并且都得是真实存在的，例如docker network create -d macvlan --subnet=10.9.8.0/24 --gateway=10.9.8.254 -o parent=eth0 macvlan-test</p>
+<p>macvlan模式不依赖网桥，所以brctl show查看并没有创建新的bridge，但是查看容器的网络，会看到虚拟网卡对应了一个interface是2</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/macvlan-container-interface.png" alt="" /></p>
+<p>查看宿主机的网络，2正是虚机的网卡</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/macvlan-container-network-topology.png" alt="" /></p>
+<p>可见，容器的 eth0 就是宿主机的eth0通过macvlan虚拟出来的interface。容器的interface直接与主机的网卡连接，这种方案使得容器无需通过NAT和端口映射就能与外网直接通信（只要有网关），在网络上看起来与其他独立主机没有区别。当前网络结构如图所示：<img src="/obsidian/assets/docker-bridge-macvlan/docker-macvlan-network-topology.png" alt="" /></p>
+<p>macvlan会独占主机的网卡，也就是说一个网卡只能创建一个macvlan 网络，否则会报错，为了能支持更多的macvlan网络，macvlan不仅可以连接到interface（如eth0），也可以连接到网卡的子接口sub-interface（如eth0.xxx）。</p>
+<p>VLAN 是现代网络常用的网络虚拟化技术，它可以将物理的二层网络划分成多达 4094 个逻辑网络，这些逻辑网络在二层上是隔离的，每个逻辑网络（即 VLAN）由 VLAN ID 区分，VLAN ID 的取值为 1-4094。Linux 的网卡也能支持 VLAN（apt-get install vlan），同一个 interface可以收发多个VLAN 的数据包，不过前提是要创建 VLAN的 sub-interface。比如希望 eth0同时支持 VLAN10 和 VLAN20，则需创建 sub-interface eth0.10 和 eth0.20。创建的子接口是可以看到的，如下如</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/vlan-sub-interface-list.png" alt="" /></p>
+<p>在交换机上，如果某个端口只能收发单个VLAN的数据，该port为Access模式，如果支持多个VLAN，则为Trunk模式，要实现多个macvlan，网卡要接在交换机的 trunk口上。</p>
+<p>例如给网卡创建了10、20两个子接口后，分别创建容器后的网络结构如下图：</p>
+<p><img src="/obsidian/assets/docker-bridge-macvlan/macvlan-vlan-subinterface-topology.png" alt="" /></p>
+<h3 id="dockerkua-zhu-ji-tong-xin-zhi-macvlan">Docker跨主机通信之macvlan</h3>
+<p>macvlan 本身是 linxu kernel 模块，其功能是允许在同一个物理网卡上配置多个虚拟网卡，即多个 interface，每个 interface 可以配置自己的 IP。macvlan 本质上是一种网卡虚拟化技术。</p>
+<p>macvlan 的最大优点是性能极好，相比其他方式，macvlan 不需要创建 Linux bridge，而是直接通过interface 连接到物理网络。</p>
+<p><img src="/obsidian/assets/docker-macvlan-cross-host/macvlan-principle.png" alt="" /></p>
+<h3 id="0-zhun-bei-shi-yan-huan-jing">0、准备实验环境</h3>
+<p>我们会使用 node1和 node2 上单独的网卡创建 macvlan。为保证多个 MAC 地址的网络包都可以从网卡通过，我们需要打开网卡的混杂模式。</p>
+<pre><code>ip link set enp0s3 promisc on
+</code></pre>
+<p>确保 enp0s3 状态 UP 并且 promisc 模式已经生效。</p>
+<p>因为  node2 和 node3 是 VirtualBox 虚拟机，还需要在网卡配置选项页中设置混杂模式。</p>
+<p>当前实验环境拓扑图如下：</p>
+<p><img src="/obsidian/assets/docker-macvlan-cross-host/macvlan-lab-topology.png" alt="" /></p>
+<h3 id="1-xiang-tong-macvlan-wang-luo-zhi-jian-de-tong-xin">1、相同 macvlan 网络之间的通信</h3>
+<p>分别在 node2 和 node3 中创建 macvlan 网络 macvlan1：</p>
+<pre><code>docker network create -d macvlan --subnet=172.16.5.0&#x2F;24 --gateway=172.16.5.1 -o parent=enp0s3 macvlan1
+</code></pre>
+<p>这条命令中，</p>
+<ul>
+<li><code>-d</code> 指定 Docker 网络 driver</li>
+<li><code>--subnet</code> 指定 macvlan 网络所在的网络</li>
+<li><code>--gateway</code> 指定网关</li>
+<li><code>-o parent</code> 指定用来分配 macvlan 网络的物理网卡</li>
+</ul>
+<p>之后可以看到当前主机的网络环境，其中出现了 macvlan 网络：</p>
+<pre><code>docker network ls
+NETWORK ID          NAME                DRIVER              SCOPE
+2c49b5f1a0f2        bridge              bridge              local
+1651b429a674        host                host                local
+1d34c56c6448        macvlan1            macvlan             local
+4f2664e6f883        none                null                local
+</code></pre>
+<p>在 node1 中运行容器 busybox1 并连接到 macvlan1。</p>
+<pre><code>docker run -itd --name busybox1 --ip=172.16.5.2 --network macvlan1 busybox
+</code></pre>
+<p>这条命令中，</p>
+<ul>
+<li><code>--ip</code> 指定容器 busybox1使用的 IP，这样做的目的是防止自动分配，造成 IP 冲突</li>
+<li><code>--network</code> 指定 macvlan 网络</li>
+</ul>
+<p>同样在 node2 中运行容器 busybox2：</p>
+<pre><code>docker run -itd --name busybox2 --ip=172.16.5.3 --network macvlan1 busybox
+</code></pre>
+<p>验证 busybox1 和 busybox2 的连通性。</p>
+<p>busybox2 能够 ping 通 busybox1 的 IP 172.16.10.2</p>
+<pre><code>docker exec -it busybox2 &#x2F;bin&#x2F;sh
+&#x2F; # ping 172.16.5.2
+PING 172.16.5.2 (172.16.5.2): 56 data bytes
+64 bytes from 172.16.5.2: seq=0 ttl=64 time=0.615 ms
+</code></pre>
+<h3 id="2-bu-tong-macvlan-wang-luo-zhi-jian-de-tong-xin">2、不同 macvlan 网络之间的通信</h3>
+<p>macvlan 会独占主机的物理网卡，也就是说一个物理网卡只能创建一个 macvlan 网络，否则会报错：</p>
+<pre><code>docker network create -d macvlan --subnet=172.16.20.0&#x2F;24 --gateway=172.16.20.1 -o parent=enp0s3 macvlan2
+Error response from daemon: network dm-1d34c56c6448 is already using parent interface enp0s3
+</code></pre>
+<p>如果我们想创建多个 macvlan 网络就得用多张网卡，但主机的物理网卡数量是有限的。</p>
+<p>如何支持更多的 macvlan 网络呢？</p>
+<p>好在 macvlan 不仅可以连接到 interface（如 enp0s3），也可以连接到 sub-interface（如 enp0s33.100）。</p>
+<p><strong>注意</strong></p>
+<p>在交换机上,如果某个 port 只能收发单个 VLAN 的数据,该 port 为 Access 模式. 如果支持多 VLAN,则为 Trunk 模式.enp0s3 要接在交换机的 trunk 口上</p>
+<p>接下来，我们来看看不同 macvlan 网络之间的连通性，拓扑环境如下：</p>
+<p><img src="/obsidian/assets/docker-macvlan-cross-host/macvlan-multi-network-topology.png" alt="" /></p>
+<h4 id="2-1-chuang-jian-zi-jie-kou">2.1  创建子接口</h4>
+<p>首先分别在两台主机上将物理网口 创建出两个 VLAN 子接口</p>
+<p>配置vlan需要vconfig命令,由于centos7上没有自带vconfig命令,所以需要安装vconfig</p>
+<pre><code>#确认内核是够载入了802.1q模组
+lsmod|grep 8021q
+#如果没载入使用这个命令载入模组
+modprobe -a 8021q
+#配置epel源
+yum install epel-release -y
+#安装vconfig
+yum install vconfig -y
+#通过ip -a或者ifconfig -a查看是否生效
+</code></pre>
+<pre><code>## 使用 vconfig 命令在 enp0s3 配置两个 VLAN
+#node2 和 node3
+vconfig add enp0s3 100
+vconfig add enp0s3 200
+
+## 设置 VLAN 的 REORDER_HDR 参数，默认就行了
+#node2 和 node3
+vconfig set_flag enp0s3.100 1 1
+vconfig set_flag enp0s3.200 1 1
+
+## 启用接口
+## node2 和 node3
+ifconfig enp0s3.100 up
+ifconfig enp0s3.200 up
+</code></pre>
+<h4 id="2-2-chuang-jian-macvlan">2.2 创建macvlan</h4>
+<p>分别在 node2 和 node3 上基于两个 VLAN 子接口创建 2 个 macvlan 网络，mac10 和 mac20</p>
+<pre><code>#node2 和 node3
+docker network create -d macvlan --subnet=172.16.10.0&#x2F;24 --gateway=172.16.10.1 -o parent=enp0s3.100 mac10
+docker network create -d macvlan --subnet=172.16.20.0&#x2F;24 --gateway=172.16.20.1 -o parent=enp0s3.200 mac20
+</code></pre>
+<h4 id="2-3-chuang-jian-rong-qi">2.3  创建容器</h4>
+<p>分别在 node2 和 node3 上运行容器，并指定不同的 macvlan 网络</p>
+<pre><code>## node2
+docker run -itd --name box1 --ip=172.16.10.10 --network mac10 busybox
+docker run -itd --name box2 --ip=172.16.20.10 --network mac20 busybox
+
+## node3
+docker run -itd --name box3 --ip=172.16.10.11 --network mac10 busybox
+docker run -itd --name box4 --ip=172.16.20.11 --network mac20 busybox
+</code></pre>
+<p>通过验证，box1 和 box3，box2 和 box4 在同一 macvlan 网络下，互相可以 ping 通，box1 和 box2，box3 和 box4 在不同的 macvlan 网络下，互相 ping 不通。</p>
+<pre><code>[root@tuling2 ~]# docker exec -it box1 ifconfig
+eth0      Link encap:Ethernet  HWaddr 02:42:AC:10:0A:0A
+          inet addr:172.16.10.10  Bcast:172.16.10.255  Mask:255.255.255.0
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:0
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+
+[root@tuling2 ~]# docker exec -it box1 ping 172.16.10.11
+PING 172.16.10.11 (172.16.10.11): 56 data bytes
+64 bytes from 172.16.10.11: seq=0 ttl=64 time=2.781 ms
+64 bytes from 172.16.10.11: seq=1 ttl=64 time=1.106 ms
+</code></pre>
+<p>这个原因也很明确，不同 macvlan 网络处于不同的网络，而且通过 VLAN 隔离，自然 ping 不了。</p>
+<p>但这也只是在二层上通不了，通过三层的路由是可以通的，我们这就来验证下。</p>
+<p>重新找一台主机 node1，通过打开 <code>ip_forward</code> 把它改造成一台路由器，用来打通两个 macvlan 网络，大概的图示如下所示：</p>
+<p><img src="/obsidian/assets/docker-macvlan-cross-host/macvlan-cross-host-routing.png" alt="" /></p>
+<h4 id="2-4-kai-qi-lu-you-zhuan-fa">2.4  开启路由转发</h4>
+<p>首先对 node1执行 <code>sysctl -w net.ipv4.ip_forward=1</code> 打开路由开关。</p>
+<h4 id="2-5-she-zhi-wang-guan">2.5 设置网关</h4>
+<p>然后创建两个 VLAN 子接口，一个作为 macvlan 网络 mac10 的网关，一个作为 mac20 的网关。</p>
+<pre><code>vconfig add enp0s3 100
+vconfig add enp0s3 200
+vconfig set_flag enp0s3.100 1 1
+vconfig set_flag enp0s3.200 1 1
+
+## 对 vlan 子接口配置网关 IP 并启用
+ifconfig enp0s3.100 172.16.10.1 netmask 255.255.255.0 up
+ifconfig enp0s3.200 172.16.20.1 netmask 255.255.255.0 up
+</code></pre>
+<h4 id="2-6-she-zhi-iptables">2.6 设置IPtables</h4>
+<p>添加 iptables 规则，转发不同 VLAN 的数据包</p>
+<pre><code> iptables -t nat -A POSTROUTING -o enp0s3.100 -j MASQUERADE
+ iptables -t nat -A POSTROUTING -o enp0s3.200 -j MASQUERADE
+
+ iptables -A FORWARD -i enp0s3.100 -o enp0s3.200 -m state --state RELATED,ESTABLISHED -j ACCEPT
+ iptables -A FORWARD -i enp0s3.200 -o enp0s3.100 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+ iptables -A FORWARD -i enp0s3.100 -o enp0s3.200 -j ACCEPT
+ iptables -A FORWARD -i enp0s3.200 -o enp0s3.100 -j ACCEPT
+</code></pre>
+<p>这样之后再从 box1 ping box2 和 box4，就可以 ping 通了。</p>
+<pre><code>[root@tuling2 ~]# docker exec -it box1 ping 172.16.10.11
+PING 172.16.10.11 (172.16.10.11): 56 data bytes
+64 bytes from 172.16.10.11: seq=0 ttl=64 time=2.603 ms
+^C
+--- 172.16.10.11 ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min&#x2F;avg&#x2F;max = 2.603&#x2F;2.603&#x2F;2.603 ms
+[root@tuling2 ~]# docker exec -it box1 ping 172.16.20.11
+PING 172.16.20.11 (172.16.20.11): 56 data bytes
+64 bytes from 172.16.20.11: seq=0 ttl=63 time=2.771 ms
+64 bytes from 172.16.20.11: seq=1 ttl=63 time=0.833 ms
+64 bytes from 172.16.20.11: seq=2 ttl=63 time=1.834 ms
+</code></pre>
+<p>下面我们分析数据包是如何从 box1（172.16.10.10）到达 box4（172.16.20.11）的。</p>
+<p>我们在创建容器的时候指定了网关 <code>172.16.10.1</code>，所以数据包自然会被路由到 node1 的接口。看下 node1 的路由</p>
+<pre><code>[root@tuling1 ~]# route -n
+Kernel IP routing table
+Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
+0.0.0.0         192.168.1.1     0.0.0.0         UG    0      0        0 enp0s3
+169.254.0.0     0.0.0.0         255.255.0.0     U     1002   0        0 enp0s3
+172.16.10.0     0.0.0.0         255.255.255.0   U     0      0        0 enp0s3.100
+172.16.20.0     0.0.0.0         255.255.255.0   U     0      0        0 enp0s3.200
+172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
+192.168.1.0     0.0.0.0         255.255.255.0   U     0      0        0 enp0s3
+</code></pre>
+<p>可以看到，去往 <code>172.16.10.0/24</code> 网段的数据包会从 enp0s3.100 出去，同理 <code>172.16.20.0/24</code> 网段也是，再加上 node1 的 <code>ip_forward</code> 打开，这就打通了两个 macvlan 网络之间的通路。</p>
+<h3 id="zong-jie">总结</h3>
+<p>macvlan 是一种网卡虚拟化技术，能够将一张网卡虚拟出多张网卡。</p>
+<p>在 Docker 中，macvlan 只支持 bridge 模式。</p>
+<p>相同 macvlan 可以通信，不同 macvlan 二层无法通信，可以借助三层路由完成通信。</p>
+<h4 id="jie-shao">介绍</h4>
+<pre><code>   macvlan 本身是 linxu kernel 模块，其功能是允许在同一个物理网卡上配置多个 MAC 地址，即多个 interface，每个 interface 可以配置自己的 IP。**macvlan 本质上是一种网卡虚拟化技术(最大优点是性能极好)**
+
+  可以在linux命令行执行`lsmod | grep macvlan` 查看当前内核是否加载了该driver；如果没有查看到，可以通过`modprobe macvlan`来载入，然后重新查看。内核代码路径&#x2F;drivers&#x2F;net&#x2F;macvlan.c
+
+   Macvlan 允许你在主机的一个网络接口上配置多个虚拟的网络接口，这些网络 `interface` 有自己独立的 MAC 地址，也可以配置上 IP 地址进行通信。Macvlan 下的虚拟机或者容器网络和主机在同一个网段中，共享同一个广播域。Macvlan 和 `Bridge` 比较相似，但因为它省去了 Bridge 的存在，所以配置和调试起来比较简单，而且效率也相对高。除此之外，Macvlan 自身也完美支持 `VLAN`。
+</code></pre>
+<h4 id="gong-zuo-mo-shi-bridge-vs-macvlan">工作模式(Bridge VS MACVlan)</h4>
+<p>Bridge Mode</p>
+<ul>
+<li>Bridge 是二层设备，仅用来处理二层的通讯。</li>
+<li>Bridge 使用 MAC 地址表来决定怎么转发帧（<code>Frame</code>）。</li>
+<li>Bridge 会从 host 之间的通讯数据包中学习 MAC 地址。</li>
+<li>可以是硬件设备，也可以是纯软件实现(例如：<code>Linux Bridge</code>)。</li>
+</ul>
+<p>提示:</p>
+<pre><code>    **Bridge 有可能会遇到二层环路，如有需要，可以开启 STP 来防止出现环路。**
+</code></pre>
+<p>MACVlan Mode</p>
+<ul>
+<li>可让使用者在同一张实体网卡上设定多个 MAC 地址。</li>
+<li>上述设定的 MAC 地址的网卡称为子接口（<code>sub interface</code>）；而实体网卡则称为父接口（<code>parent interface</code>）。</li>
+<li><code>parent interface</code> 可以是一个物理接口（eth0），可以是一个 802.1q 的子接口（eth0.10），也可以是 <code>bonding</code> 接口。</li>
+<li>可在 parent/sub interface 上设定的不只是 MAC 地址，IP 地址同样也可以被设定。</li>
+<li><code>sub interface</code> 无法直接与 <code>parent interface</code> 通讯 (带有 sub interface 的 VM 或容器无法与 host 直接通讯)。</li>
+<li>若 VM 或容器需要与 host 通讯，那就必须额外建立一个 <code>sub interface</code> 给 host 用。</li>
+<li>sub interface 通常以 <code>mac0@eth0</code> 的形式来命名以方便区別。</li>
+</ul>
+<h4 id="macvlanmo-shi">MACVlan模式</h4>
+<ul>
+<li>Bridge：属于同一个parent接口的macvlan接口之间挂到同一个bridge上，可以二层互通（macvlan接口都无法与parent 接口互通）。</li>
+<li>VPEA（Virtual Ethernet Port Aggregator）：所有接口的流量都需要到外部switch才能够到达其他接口。</li>
+<li>Private：接口只接受发送给自己MAC地址的报文。</li>
+<li>Passthru: 父接口和相应的MacVLAN接口捆绑在一起，这种模式每个父接口只能和一个 Macvlan 虚拟网卡接口进行捆绑，并且 Macvlan 虚拟网卡接口继承父接口的 MAC 地址。</li>
+</ul>
+<p>前三种模式示意图:</p>
+<p><img src="/obsidian/assets/linux-macvlan/macvlan-modes-diagram.png" alt="image" /></p>
+<h4 id="shi-yan">实验</h4>
+<p>Bridge Mode:创建了两个macvlan接口，分别放到两个netns中；然后验证这两个macvlan口之间客户互通。</p>
+<p>设置网卡混杂模式(PROMISC网卡混杂标志)：
+[root@localhost ~]#ifconfig ens224 promisc[root@localhost ~]# ifconfig ens224
+ens224: flags=4419&lt;UP,BROADCAST,RUNNING,<strong>PROMISC</strong>,MULTICAST&gt;  mtu 1500
+………………</p>
+<p>创建两个macvlan接口，其parent接口都是ens224</p>
+<p>[root@localhost ~]# ip link add link ens224 name macv1 type macvlan mode bridge
+[root@localhost ~]# ip link add link ens224 name macv2 type macvlan mode bridge</p>
+<p>查看接口状态:</p>
+<p><img src="/obsidian/assets/linux-macvlan/macvlan-interfaces-status.png" alt="image" /></p>
+<p>创建namespace
+[root@localhost ~]# ip netns add net1
+[root@localhost ~]# ip netns add net2</p>
+<p>将macvlan接口插入到namespace
+[root@localhost ~]# ip link set macv1 netns net1
+[root@localhost ~]# ip link set macv2 netns net2</p>
+<p>设置网卡IP,设置网卡UP状态
+ip netns exec net1 ip addr add 52.1.1.151/24 dev macv1
+ip netns exec net2 ip addr add 52.1.1.152/24 dev macv2</p>
+<p>设置网卡IP,设置网卡UP状态
+[root@localhost ~]#ip netns exec net1 ip addr add 52.1.1.151/24 dev macv1[root@localhost ~]#ip netns exec net2 ip addr add 52.1.1.152/24 dev macv2
+[root@localhost ~]#ip netns exec net1 ip link set macv1 up[root@localhost ~]#ip netns exec net2 ip link set macv2 up</p>
+<p>查看网卡状态
+[root@localhost ~]# ip netns exec net1 ip a
+1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN group default qlen 1000
+link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+4: macv1@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+link/ether 4e:a1:51:a9:3f:ef brd ff:ff:ff:ff:ff:ff link-netnsid 0
+inet 52.1.1.151/24 scope global eth0
+valid_lft forever preferred_lft forever
+[root@localhost ~]# ip netns exec net2 ip a
+1: lo: &lt;LOOPBACK&gt; mtu 65536 qdisc noop state DOWN group default qlen 1000
+link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+5: macv2@if3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc noqueue state UNKNOWN group default qlen 1000
+link/ether fe:b5:85:c1:77:c1 brd ff:ff:ff:ff:ff:ff link-netnsid 0
+inet 52.1.1.152/24 scope global macv2
+valid_lft forever preferred_lft forever</p>
+<p>ping测试结果:
+net1和net2无法ping通宿主机,ping自己也不通.2个容器互相ping没有问题</p>
+<p>更改容器内网卡名字</p>
+<p>ip netns exec net1 ip link set mac1 name eth0</p>
+<h4 id="ipvlan">ipvlan</h4>
+<p>IPVlan 和 macvlan 类似，都是从一个主机接口虚拟出多个虚拟网络接口。一个重要的区别就是所有的虚拟接口都有相同的 macv 地址，而拥有不同的 ip 地址。因为所有的虚拟接口要共享 mac 地址，所有有些需要注意的地方：</p>
+<ul>
+<li>DHCP 协议分配 ip 的时候一般会用 mac 地址作为机器的标识。这个情况下，客户端动态获取 ip 的时候需要配置唯一的 ClientID 字段，并且 DHCP server 也要正确配置使用该字段作为机器标识，而不是使用 mac 地址</li>
+</ul>
+<blockquote>
+<p>Ipvlan 是 linux kernel 比较新的特性，linux kernel 3.19 开始支持 ipvlan，但是比较稳定推荐的版本是 &gt;=4.2（因为 docker 对之前版本的支持有 bug）,具体代码见内核目录：<code>/drivers/net/ipvlan/</code></p>
+</blockquote>
+<h4 id="ipvlanmo-shi">ipvlan模式</h4>
+<p>L2:</p>
+<pre><code> ipvlan L2 模式和 macvlan bridge 模式工作原理很相似，父接口作为交换机来转发子接口的数据。同一个网络的子接口可以通过父接口来转发数据，而如果想发送到其他网络，报文则会通过父接口的路由转发出去。
+</code></pre>
+<p>L3:</p>
+<pre><code> ipvlan 有点像路由器的功能，它在各个虚拟网络和主机网络之间进行不同网络报文的路由转发工作。只要父接口相同，即使虚拟机&#x2F;容器不在同一个网络，也可以互相 ping 通对方，因为 ipvlan 会在中间做报文的转发工作。
+</code></pre>
+<p>模式架构图:</p>
+<p><img src="/obsidian/assets/linux-macvlan/ipvlan-mode-architecture.png" alt="image" /></p>
+<h4 id="shi-yan-1">实验</h4>
+<p>创建IPVlan L3模式
+[root@localhost ~]#ip link add link ens224 ipvlan1 type ipvlan mode l3[root@localhost ~]#ip link add link ens224 ipvlan2 type ipvlan mode l3</p>
+<p>注意看ipvlan1 和ipvlan2 的MAC地址跟ens224的一样
+[root@localhost ~]# ip link
+1: lo: &lt;LOOPBACK,UP,LOWER_UP&gt; mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT group default qlen 1000
+link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00
+2: ens192: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+link/ether 00:0c:29:05:18:ac brd ff:ff:ff:ff:ff:ff
+3: ens224: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+link/ether <strong>00:0c:29:05:18:b6</strong> brd ff:ff:ff:ff:ff:ff
+4: ipvlan1@enp0s3: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN group default qlen 1000
+link/ether <strong>00:0c:29:05:18:b6</strong> brd ff:ff:ff:ff:ff:ff
+5: ipvlan2@enp0s3: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN group default qlen 1000
+link/ether <strong>00:0c:29:05:18:b6</strong> brd ff:ff:ff:ff:ff:ff</p>
+<p>创建ns绑定接口
+[root@localhost ~]#ip net add net-1[root@localhost ~]#ip net add net-2
+[root@localhost ~]#ip link set ipvlan1 netns net-1[root@localhost ~]#ip link set ipvlan2 netns net-2</p>
+<p>配置IP
+[root@localhost ~]#ip net exec net-1 ip addr add 10.0.2.18/24 dev ipvlan1[root@localhost ~]#ip net exec net-2 ip addr add 10.0.3.19/24 dev ipvlan2
+[root@localhost ~]#ip net exec net-1 ip link set ipvlan1 up[root@localhost ~]#ip net exec net-2 ip link set ipvlan2 up</p>
+<p>增加路由
+[root@localhost ~]#ip net exec net-1 route add default dev ipvlan1[root@localhost ~]#ip net exec net-2 route add default dev ipvlan2</p>
+<p>ping测试
+2个ns可以正常互相ping通,无法ping通宿主机IP</p>
+<p>抓取ARP报文，结果无法在L3模式中抓到ARP，说明二层广播和组播都不处理，工作在L3.(这就是和L2模式的区别)
+[root@localhost ~]#ip net exec net-1 tcpdump -ni ipvlan1 -p arp</p>
+<p>创建L2模式，其余操作跟L3一样
+ip link add link enp0s3 ipvlan1 type ipvlan mode l2
+ip link add link enp0s3 ipvlan2 type ipvlan mode l2</p>
+<p>区别在于L2可以在2个ns中抓取到ARP报文</p>
+<p>总结:
+ipvlan L3模式中外部网络默认情况下是不知道 ipvlan 虚拟出来的网络的，如果不在外部路由器上配置好对应的路由规则，ipvlan 的网络是不能被外部直接访问的。</p>
+<h5 id="wen-ti-jie-shao">问题介绍</h5>
+<p>最近在做将项目放入<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=docker&amp;spm=1001.2101.3001.7020">docker</a>容器中启动，运行。项目中需要开启DHCP服务，不运行不知道，一运行就发现问题了，由于docker容器和其宿主机不在一个广播域内，所以在容器中启动的DHCP服务收不到宿主机局域网内的广播报文，就无法正常进行DHCP服务的工作</p>
+<h5 id="fang-an">方案</h5>
+<p>通过查阅资料和官方文档，发现macvlan这种网络模式可以是容器直接连接到物理网络，解决我们的问题。但是官网同时说了这种模式只支持Linux系统下的docker，对于windows和Mac系统下不支持。但是我是需要运行在windows系统下的，所以我采用的方式是在windows下安装一个Linux虚拟机，然后在虚拟机中运行docker。
+官网链接：<a rel="noopener" target="_blank" href="https://docs.docker.com/network/network-tutorial-macvlan/">https://docs.docker.com/network/network-tutorial-macvlan/</a></p>
+<h5 id="bu-zou">步骤</h5>
+<p>1.开启虚拟机网卡的混杂模式（对于直接在Linux系统下的不需要此步骤）
+在VirtualBox下选择安装的虚拟机，点击设置，选择左侧网络菜单，选择网卡进行如下配置。</p>
+<blockquote>
+<p>连接方式：连接方式需要选择桥接网卡，使虚拟机和windows宿主机在同一局域网内
+界面名称：在windows cmd窗口执行<code>ipconfig /all</code> ,查看对应物理网卡的描述，在界面名称选择需要桥接的物理网卡
+混杂模式：选择全部允许（如果在启动后修改混杂模式，建议进行重启后尝试；我在虚拟机启动中修改混杂模式为拒绝后，发现ping立马不通，再改回全部允许也ping不通，需要重启）</p>
+</blockquote>
+<p><img src="/obsidian/assets/docker-macvlan-lan/virtualbox-bridged-network.png" alt="在这里插入图片描述" />
+<img src="/obsidian/assets/docker-macvlan-lan/virtualbox-bridged-network-2.png" alt="在这里插入图片描述" /></p>
+<p>2.设置Linux系统网卡开启混杂模式
+在终端输入<code>ip link set enp0s8 promisc on</code> 开启网卡接口enp0s8的混杂模式，enp0s8根据实际配置网卡填写
+在终端输入<code>ifconfig</code>查看是否开启混杂模式，显示有PROMISC即为混杂模式已开启
+<img src="/obsidian/assets/docker-macvlan-lan/ifconfig-promisc-mode-check.png" alt="在这里插入图片描述" />
+3.创建docker network，启动容器</p>
+<pre><code>docker network create -d macvlan --subnet=192.168.50.0&#x2F;24 --gateway=192.168.50.1 -o parent=enp0s8 mymacvlan
+</code></pre>
+<p>–subnet 填写enp0s8网卡网段 parent= 填写需要连接到宿主机物理网络的对应网卡
+<img src="/obsidian/assets/docker-macvlan-lan/docker-macvlan-network-create.png" alt="在这里插入图片描述" />
+执行命令 <code>docker run -itd --network=mymacvlan --ip=192.168.50.20 --name=centos-test centos</code> 进行启动容器
+–network：指定为上面创建的网络
+–ip：指定IP地址，如果不指定的话会自动分配。建议自己指定，可避免IP地址冲突问题
+启动完成后，通过docker exec 进入容器中，进行操作，查看IP地址，ping windows，使用tcpdump抓包进行查看能否收到<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=DHCP&amp;spm=1001.2101.3001.7020">DHCP</a>广播包。发现能ping通windows和与windows相通的机器，能抓包到DHCP包。大功告成。
+容器和Linux宿主机是不能ping通的
+<img src="/obsidian/assets/docker-macvlan-lan/macvlan-container-same-lan.png" alt="在这里插入图片描述" />
+至此，就已经完成了需要容器和其宿主机某一网卡在同一局域网内，可以接收宿主机的物理网络啦。在使用此种方式启动时，可以不用映射端口，可以直接使用容器IP+端口进行访问了。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/linux-虚拟网卡技术-macvlan-2/">&#8249; Linux 虚拟网卡技术：Macvlan</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/搭建属于自己的cloudflare反代ip-tanglu-s-blog/"> 搭建属于自己的cloudflare反代IP | tanglu's blog &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#dockerde-bridgehe-macvlanliang-chong-wang-luo-mo-shi">Docker的bridge和macvlan两种网络模式</a>
+        </div>
+        <div class="hpad">
+          <a href="#dockerkua-zhu-ji-tong-xin-zhi-macvlan"><small>- Docker跨主机通信之macvlan</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#0-zhun-bei-shi-yan-huan-jing"><small>- 0、准备实验环境</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-xiang-tong-macvlan-wang-luo-zhi-jian-de-tong-xin"><small>- 1、相同 macvlan 网络之间的通信</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-bu-tong-macvlan-wang-luo-zhi-jian-de-tong-xin"><small>- 2、不同 macvlan 网络之间的通信</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-1-chuang-jian-zi-jie-kou"><small>· 2.1  创建子接口</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-2-chuang-jian-macvlan"><small>· 2.2 创建macvlan</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-3-chuang-jian-rong-qi"><small>· 2.3  创建容器</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-4-kai-qi-lu-you-zhuan-fa"><small>· 2.4  开启路由转发</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-5-she-zhi-wang-guan"><small>· 2.5 设置网关</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-6-she-zhi-iptables"><small>· 2.6 设置IPtables</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#jie-shao"><small>· 介绍</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gong-zuo-mo-shi-bridge-vs-macvlan"><small>· 工作模式(Bridge VS MACVlan)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#macvlanmo-shi"><small>· MACVlan模式</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-yan"><small>· 实验</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ipvlan"><small>· ipvlan</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ipvlanmo-shi"><small>· ipvlan模式</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-yan-1"><small>· 实验</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

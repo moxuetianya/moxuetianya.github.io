@@ -1,0 +1,551 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="记录 libvirt 外部快照链的删除机制（block-commit 合并与活动层 pivot），及 Debian AppArmor 导致删除报 Permission denied 的排查与绕过。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/10/libvirt-external-snapshot-delete/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/10/libvirt-external-snapshot-delete/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/10/libvirt-external-snapshot-delete/" />
+  <meta property="og:description" content="记录 libvirt 外部快照链的删除机制（block-commit 合并与活动层 pivot），及 Debian AppArmor 导致删除报 Permission denied 的排查与绕过。" />
+  <meta name="twitter:description" content="记录 libvirt 外部快照链的删除机制（block-commit 合并与活动层 pivot），及 Debian AppArmor 导致删除报 Permission denied 的排查与绕过。" />
+  <meta property="og:title" content="libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱 | 墨雪天琊" />
+  <meta name="twitter:title" content="libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-09" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/10/libvirt-external-snapshot-delete/">libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 09, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/xu-ni-hua-yu-rong-qi/">虚拟化与容器</a>] #<a href="https://moxuetianya.github.io/tags/libvirt/">libvirt</a>  #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/kvm/">kvm</a>  #<a href="https://moxuetianya.github.io/tags/an-quan/">安全</a>  #<a href="https://moxuetianya.github.io/tags/diao-shi/">调试</a>  #<a href="https://moxuetianya.github.io/tags/debian/">debian</a> </span>
+
+    
+
+
+<h1 id="bei-jing">背景</h1>
+<p>清理一台 Debian 13 宿主机上 <code>debian13</code> 虚拟机的快照链：它积累了 4～5 层外部快照（含两个带内存的完整快照），目标是合并到只保留两个纯磁盘快照。</p>
+<p>过程中踩了两个坑：</p>
+<ol>
+<li>对运行中的 VM 误建了<strong>内部快照</strong>（不带 <code>--disk-only</code>），VM 被暂停、24G 内存写进了 qcow2，并发命令撞上域锁超时；</li>
+<li>删除外部快照时报 <code>block-commit: Could not open '...': Permission denied</code>，根因是 <strong>Debian 的 libvirt + AppArmor 已知 bug</strong>：动态生成的 profile 给只读 backing 层加了 <code>deny ... w</code>，而 block-commit 必须要写 backing 层。</li>
+</ol>
+<p>本文把外部快照链的原理、删除的真实机制、这两个坑的完整排查过程整理成文，后半部分附带 qcow2 / blockcommit 的常用命令速查。</p>
+<h1 id="yi-wai-bu-kuai-zhao-lian-ji-chu">一、外部快照链基础</h1>
+<h2 id="1-1-qcow2-overlay-yu-backing-file">1.1 QCOW2 overlay 与 backing file</h2>
+<p>qcow2 支持 copy-on-write：以一个完整镜像为 <strong>backing file</strong>，在其上创建 <strong>overlay</strong>，overlay 只保存相对 backing 被改过的数据块。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 手动创建一层 overlay
+qemu-img create -f qcow2 -b base.qcow2 -F qcow2 overlay.qcow2
+
+# 查看整个 backing 链
+qemu-img info --backing-chain overlay.qcow2
+</code></pre>
+<p>要点：</p>
+<ul>
+<li>它是<strong>块级</strong> diff（簇，通常 64KiB）：读的时候 overlay 里没有的簇逐层向下穿透；写的时候以簇为单位分配到最顶层；</li>
+<li><code>qemu-img info</code> 里的 <code>disk size</code>（实际占用）和 <code>virtual size</code>（表观容量）是两回事，文件"看起来 130G"不等于要搬 130G 数据；</li>
+<li>libvirt 对外部快照层的格式有要求：<strong>默认 qcow2</strong>，且只接受 qcow2 或 qed（源码 <code>qemuSnapshotPrepareDiskExternal</code> 里对格式做了白名单校验）。即使原盘是 raw，新建的快照层也会是 qcow2，raw 只当最底层的 backing。</li>
+</ul>
+<h2 id="1-2-lian-shang-mei-ge-wen-jian-dao-di-zhuang-liao-shen-me">1.2 链上每个文件到底装了什么</h2>
+<p>这是最容易误会的地方。以实际的链为例：</p>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">[活动层 RW] debian13.snap-20261009-20      ← 该快照创建后至今的增量
+   └── debian13.2026-10-09T09:37            ← 16:13~17:37 的增量
+         └── debian13.2026-10-09T08:13      ← 9&#x2F;16~10&#x2F;9 的增量
+               └── debian13.snap-20260916-10   ← 6&#x2F;25~9&#x2F;16 的增量
+                     └── debian13.snap-20260625-17
+                           └── debian13.qcow2   ← 原始数据（链底）
+</code></pre>
+<p>libvirt 的命名规则是：创建快照时<strong>新建的 overlay 用快照名命名</strong>（文档：把原文件名最后一个点之后的部分替换为快照名）。</p>
+<p>所以：</p>
+<ul>
+<li><strong>名为快照 X 的文件不是 X 的还原数据</strong>，而是"X 之后的新增写入"；</li>
+<li>X 的还原点 = 它对应文件<strong>下面</strong>的整条链的冻结内容（+ 内存文件，如果有）；</li>
+<li>快照 XML 里的 <code>&lt;domain&gt;</code> 段记录的是"创建快照前的 domain"，其中磁盘 source 指向的才是快照数据所在的那层。</li>
+</ul>
+<p>这解释了为什么删除快照时"数据不会丢"：删除做的是把文件里的增量合并进下层，链上的数据总和不变。</p>
+<h2 id="1-3-nei-bu-kuai-zhao-vs-wai-bu-kuai-zhao">1.3 内部快照 vs 外部快照</h2>
+<table><thead><tr><th></th><th>内部快照</th><th>外部快照</th></tr></thead><tbody>
+<tr><td>存储位置</td><td>当前 qcow2 文件内部（snapshot 表）</td><td>每层一个独立 qcow2 文件</td></tr>
+<tr><td>是否产生新文件</td><td>否</td><td>是</td></tr>
+<tr><td>运行中 VM + 内存</td><td>写进 qcow2 内部，<strong>需要暂停 VM 且很慢</strong></td><td>内存单独存 <code>.save</code> 文件</td></tr>
+<tr><td>回滚</td><td>依赖 qcow2 内部表</td><td>创建新 overlay 指向链上某点</td></tr>
+<tr><td>链长度影响</td><td>单文件变大</td><td>文件数量变多</td></tr>
+<tr><td>与另一种混用</td><td>尽量别混</td><td>尽量别混</td></tr>
+</tbody></table>
+<p>对运行中的 VM 执行：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 外部&quot;纯磁盘&quot;快照：秒级、不暂停、无内存文件
+virsh snapshot-create-as debian13 snap-20261009-20 --disk-only --atomic
+
+# 不带 --disk-only（默认）会做内部全系统快照：
+#   - 暂停 VM 数分钟
+#   - 内存 + 磁盘状态写进活动 qcow2 内部
+virsh snapshot-create-as debian13 snap-xxx --atomic     # ← 坑，见第三节
+</code></pre>
+<h2 id="1-4-nei-cun-kuai-zhao-yu-save-wen-jian">1.4 内存快照与 <code>.save</code> 文件</h2>
+<p>带内存的完整快照在 XML 里长这样：</p>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;state&gt;running&lt;&#x2F;state&gt;
+&lt;memory snapshot=&#x27;external&#x27; file=&#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.2026-10-09T09:37.save&#x27;&#x2F;&gt;
+</code></pre>
+<ul>
+<li><code>.save</code> 是 libvirt 的 <strong>save image</strong>（头部 magic 为 <code>LibvirtQemudSave</code>，后面接 QEMU 的 vmstate 流），<strong>不是 qcow2</strong>，大小约等于 VM 内存；</li>
+<li><code>snapshot-revert</code> 恢复 running 状态快照时必须打开它，<strong>删掉就等于这个快照无法恢复</strong>（没有"忽略内存、只回滚磁盘"的开关）；</li>
+<li>正确地删除整个快照时，<code>.save</code> 会被一并清理；<strong>不要手动 <code>rm</code></strong>；</li>
+<li><code>virsh snapshot-delete --metadata</code> 只删元数据、不做磁盘合并，属于危险操作，生产环境别用。</li>
+</ul>
+<h1 id="er-shan-chu-kuai-zhao-shi-dao-di-fa-sheng-liao-shen-me">二、删除快照时到底发生了什么</h1>
+<p><code>virsh snapshot-delete</code> <strong>不是删文件</strong>，而是先做在线 block-commit：把被删层已分配的数据块合并进它的 backing 层，重接上层指针，最后才删除文件与元数据。</p>
+<h2 id="2-1-shan-zhong-jian-ceng-fei-dang-qian-kuai-zhao">2.1 删中间层（非当前快照）</h2>
+<p>例如删除 <code>snap-20260625-17</code>：</p>
+<ul>
+<li>把该层增量合并进下层（对最老的快照就是合并进 <code>debian13.qcow2</code>）；</li>
+<li>把上层文件的 backing 指针改指到合并后的结果（libvirt 调 <code>qemu-img rebase -u</code>）；</li>
+<li>活动层完全不动，VM 无感，只是链缩短。</li>
+</ul>
+<h2 id="2-2-shan-dang-qian-kuai-zhao-active-commit-pivot">2.2 删当前快照：active commit + pivot</h2>
+<p>libvirt 源码 <code>qemuSnapshotDiscardExternal</code> 里的关键分支：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">unsigned int commitFlags = VIR_DOMAIN_BLOCK_COMMIT_DELETE;
+
+if (data-&gt;merge) {
+    if (data-&gt;domDisk-&gt;src == data-&gt;diskSrc) {          &#x2F;* 删的是当前快照 *&#x2F;
+        commitFlags |= VIR_DOMAIN_BLOCK_COMMIT_ACTIVE;  &#x2F;* 活动层 commit *&#x2F;
+        autofinalize = VIR_TRISTATE_BOOL_YES;
+    }
+    qemuBlockCommit(vm, domDisk, parentDiskSrc, diskSrc, prevDiskSrc, ...);
+}
+</code></pre>
+<p>“活动层被吸收进下一层”的含义：</p>
+<ol>
+<li>QEMU 把活动层里已分配的数据复制进它的 backing 层（合并目标永远是<strong>链上更老的那一层</strong>）；</li>
+<li>复制完成后做一次 graph pivot：把"活动层"指针从旧文件切到 backing 层，之后新写入落在新的活动层上；</li>
+<li>再删掉旧活动层文件和它的 <code>.save</code>，current 指针回到父快照。</li>
+</ol>
+<p>区别：</p>
+<table><thead><tr><th></th><th>删中间层</th><th>删当前层</th></tr></thead><tbody>
+<tr><td>合并方向</td><td>向下一层</td><td>向下一层</td></tr>
+<tr><td>活动层</td><td>不动</td><td>commit 完成后 pivot 到下一层</td></tr>
+<tr><td>VM 感受</td><td>全程无感</td><td>commit 期间照常运行，最后切换有毫秒级 I/O 停顿</td></tr>
+<tr><td>数据总量</td><td>不变</td><td>不变</td></tr>
+</tbody></table>
+<p>所以<strong>删除顺序无所谓</strong>，最终链的内容一致；每个快照失去的只是"回到那个时间点"的能力。</p>
+<h2 id="2-3-shan-chu-de-wai-bu-yue-shu">2.3 删除的外部约束</h2>
+<p>libvirt 11.3 对删除外部快照的校验（<code>qemuSnapshotDeleteValidate</code>）：</p>
+<ul>
+<li>有其它活动 block job 时不能删；</li>
+<li><code>--children</code> / <code>--children-only</code> <strong>不支持</strong>（会报 <code>deletion of external disk snapshots with children not supported</code>）；</li>
+<li>非当前、多子、或不在当前活动链上的非叶快照会被拒绝——拒绝是保护；</li>
+<li>上一次删除未完成（元数据里有 <code>&lt;snapshotDeleteInProgress/&gt;</code>）时，相关快照会被拒绝删除，必须把未完成的那次删除<strong>重新执行并跑完</strong>来清除标记。</li>
+</ul>
+<p>另外：运行中的 VM 即使文件被误删，QEMU 手里还持有 fd，可能暂时无感；但重启或重开文件时就再也打不开了——<strong>永远不要手动 rm 链上的文件</strong>。</p>
+<h1 id="san-keng-yi-bu-dai-disk-only-de-nei-bu-kuai-zhao-yu-suo-chao-shi">三、坑一：不带 --disk-only 的内部快照 + 域锁超时</h1>
+<h2 id="3-1-xian-xiang">3.1 现象</h2>
+<ul>
+<li><code>virsh snapshot-list</code> 里冒出一个 <code>状态 = running</code> 的新快照；</li>
+<li>磁盘目录里<strong>没有任何新文件</strong>；</li>
+<li>活动层 qcow2 从 59M 暴涨到 25G；</li>
+<li>VM 一度显示"已暂停"；</li>
+<li>紧接着再敲 snapshot 命令，报：</li>
+</ul>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">error: 操作超时：无法获取状态更改锁（由 monitor=remoteDispatchDomainSnapshotCreateXML 持有）
+</code></pre>
+<h2 id="3-2-yuan-yin">3.2 原因</h2>
+<p>对运行中的 VM，不带 <code>--disk-only</code> 的 <code>snapshot-create-as</code> 默认创建<strong>内部全系统快照</strong>：</p>
+<ul>
+<li>暂停 VM，用 savevm 把内存（本例 24G）+ 磁盘状态写进活动 qcow2 内部；</li>
+<li>整个过程可能持续数分钟，期间域锁一直被占；</li>
+<li>第二条命令只是在等锁，等到超时就报"无法获取状态更改锁"。</li>
+</ul>
+<p>验证方式：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virsh snapshot-info debian13 &lt;name&gt;       # 位置：内部
+virsh snapshot-dumpxml debian13 &lt;name&gt;    # &lt;memory snapshot=&#x27;internal&#x27;&#x2F;&gt;、&lt;disk snapshot=&#x27;internal&#x27;&#x2F;&gt;
+</code></pre>
+<h2 id="3-3-chu-li-yu-jing-yan">3.3 处理与经验</h2>
+<ul>
+<li>等它完成或直接 <code>virsh snapshot-delete</code> 删掉这个内部快照（内存数据会从 qcow2 里回收）；</li>
+<li><strong>对运行中的 VM 要磁盘快照，必须带 <code>--disk-only --atomic</code></strong>；</li>
+<li>看到"无法获取状态更改锁 / 操作超时"时：先 <code>virsh domjobinfo</code> / <code>virsh list</code> 看是否有并发操作在跑，<strong>不要反复重敲命令</strong>——每次重试都会去抢同一个锁。</li>
+</ul>
+<h1 id="si-keng-er-snapshot-delete-bao-permission-denied-apparmor">四、坑二：snapshot-delete 报 Permission denied（AppArmor）</h1>
+<h2 id="4-1-xian-xiang">4.1 现象</h2>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">sudo virsh snapshot-delete --domain debian13 &quot;2026-10-09T09:37&quot;
+error: 删除快照失败：2026-10-09T09:37
+error: 内部错误：无法执行 QEMU 命令 &#x27;block-commit&#x27;：
+Could not open &#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.2026-10-09T08:13&#x27;: Permission denied
+</code></pre>
+<p>报错的文件不是待删快照本身，而是它的<strong>合并目标层</strong>（backing 层）。</p>
+<h2 id="4-2-pai-cha-guo-cheng">4.2 排查过程</h2>
+<ol>
+<li>排除常见原因：文件属主和权限正常（<code>libvirt-qemu:libvirt-qemu 0600</code>，QEMU 也以 libvirt-qemu 运行）；<code>qemu-img check</code> 无异常；没有 block job 在跑；</li>
+<li>检查 libvirt 动态生成的 AppArmor 文件清单：</li>
+</ol>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cat &#x2F;etc&#x2F;apparmor.d&#x2F;libvirt&#x2F;libvirt-&lt;uuid&gt;.files
+</code></pre>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">  &quot;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.2026-10-09T08:13&quot; rk,
+  # don&#x27;t audit writes to readonly files
+  deny &quot;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.2026-10-09T08:13&quot; w,
+</code></pre>
+<ol start="3">
+<li>结论：AppArmor 规则把只读 backing 层的<strong>写权限 deny 了</strong>，而 block-commit 恰好要写进这一层；</li>
+<li>关键细节：<strong>AppArmor 的 deny 规则优先级高于 allow</strong>。文件后面虽然还有 <code>rwk</code> 允许规则，也无法覆盖前面的 deny。</li>
+</ol>
+<h2 id="4-3-zhe-shi-yi-zhi-bug-bu-shi-ni-de-lian-pi-liao">4.3 这是已知 bug，不是你的链坏了</h2>
+<ul>
+<li>Debian bug <strong>#1093955</strong>、<strong>#1061725</strong> 记录的都是同一现象；</li>
+<li>Ubuntu 有一个补丁 <code>virt-aa-helper: Ask for no deny rule for readonly disks</code>，Debian trixie 的 libvirt 11.3 尚未包含；</li>
+<li>和文件名无关：<code>debian13.qcow2</code>、<code>debian13.snap-20260625-17</code> 这些不带冒号的普通名字，同样带着 <code>deny ... w</code>；</li>
+<li>症状在各种发行版/文件系统上都有人报告（Gentoo 论坛也有同款 <code>Could not open ...: Permission denied</code>）。</li>
+</ul>
+<h2 id="4-4-profile-shi-zen-me-lai-de">4.4 profile 是怎么来的</h2>
+<ul>
+<li><code>/etc/apparmor.d/libvirt/libvirt-&lt;uuid&gt;</code>：由 libvirt 从 <code>TEMPLATE.qemu</code> 复制生成的每 VM profile，<strong>用 UUID 命名</strong>（UUID 是稳定唯一标识，改名不影响沙箱绑定）；</li>
+<li><code>/etc/apparmor.d/libvirt/libvirt-&lt;uuid&gt;.files</code>：<code>virt-aa-helper</code> 按 domain XML 动态生成，VM 启动/磁盘变化时重建，头部写着 <code>DO NOT EDIT ... MANAGED BY LIBVIRT</code>；</li>
+<li>问题就出在这个自动生成的 deny 规则上。</li>
+</ul>
+<h2 id="4-5-lin-shi-rao-guo">4.5 临时绕过</h2>
+<p>在删除操作前临时卸载该 VM 的 profile，操作完再装回：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">UUID=$(virsh domuuid debian13)
+
+# 1) 确认 profile 已加载
+sudo aa-status | grep &quot;$UUID&quot;
+
+# 2) 卸载（等于临时解除这台 VM 的 AppArmor 限制）
+sudo apparmor_parser -R &#x2F;etc&#x2F;apparmor.d&#x2F;libvirt&#x2F;libvirt-&quot;$UUID&quot;
+
+# 3) ...执行快照删除...
+
+# 4) 恢复
+sudo apparmor_parser -r &#x2F;etc&#x2F;apparmor.d&#x2F;libvirt&#x2F;libvirt-&quot;$UUID&quot;
+</code></pre>
+<p>注意事项：</p>
+<ul>
+<li><code>aa-complain</code>（complain 模式）<strong>没用</strong>——deny 规则在 complain 下依然生效；</li>
+<li><code>apparmor_parser</code> 在 <code>apparmor</code> 包里；也可以用 <code>apt install apparmor-utils</code> 后改用 <code>aa-disable</code> / <code>aa-enforce</code>（aa-disable 还会建 disable 符号链接，防止重启后自动加载）；</li>
+<li>恢复 profile 后，<strong>正在运行的 QEMU 进程要等 VM 下次重启才会重新被限制</strong>（profile 只在 exec 时挂载）；</li>
+<li>不推荐的做法：改 <code>/etc/libvirt/qemu.conf</code> 把 <code>security_driver</code> 设为 <code>"none"</code>——那是整体关闭安全驱动，还要重启 VM。</li>
+</ul>
+<h1 id="wu-wan-zheng-cao-zuo-ji-lu-runbook">五、完整操作记录（Runbook）</h1>
+<p>针对"保留两个纯磁盘快照、删掉含内存的快照"的实际步骤：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 0. 检查
+sudo virsh list
+sudo virsh snapshot-list --domain debian13 --topological --parent
+sudo virsh domjobinfo debian13        # 应为&quot;任务类型：无&quot;
+df -h &#x2F;var
+
+# 1. 临时卸载 AppArmor profile
+UUID=$(virsh domuuid debian13)
+sudo apparmor_parser -R &#x2F;etc&#x2F;apparmor.d&#x2F;libvirt&#x2F;libvirt-&quot;$UUID&quot;
+
+# 2. 按顺序删除（每条等它跑完；另开终端可观察合并进度）
+#    先删带遗留标记那条，成功后会清掉其父快照上的 snapshotDeleteInProgress
+sudo virsh snapshot-delete --domain debian13 2026-10-09T09:37
+sudo virsh snapshot-delete --domain debian13 2026-10-09T08:13
+sudo virsh snapshot-delete --domain debian13 snap-20260625-17
+
+#    进度观察：
+#    watch -n 2 &#x27;sudo virsh blockjob debian13 vda --info&#x27;
+
+# 3. 恢复 AppArmor
+sudo apparmor_parser -r &#x2F;etc&#x2F;apparmor.d&#x2F;libvirt&#x2F;libvirt-&quot;$UUID&quot;
+
+# 4. 验收
+sudo virsh snapshot-list --domain debian13 --topological --parent
+sudo virsh domblklist debian13 --details
+ls -lh &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F; | grep debian13    # 对应的 .save 应消失
+</code></pre>
+<h3 id="ru-he-cha-kan-shan-chu-block-commit-jin-du">如何查看删除（block-commit）进度</h3>
+<p><code>snapshot-delete</code> 把合并任务提交给后台后，用 <code>blockjob --info</code> 看进度（建议配 <code>watch</code> 刷新）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 空闲时
+sudo virsh blockjob debian13 vda --info
+# 没有 vda 的当前块作业
+
+# 合并进行中（实时百分比）
+watch -n 2 &#x27;sudo virsh blockjob debian13 vda --info&#x27;
+# 块指派: [97.60 %]
+</code></pre>
+<p>由于任务跑在 libvirt/QEMU 后台，<strong>终端断开、被覆盖都不影响执行</strong>——重新开一个终端继续观察即可，千万不要 kill 进程。</p>
+<p>除百分比外，还可以从"文件侧"确认任务在推进而不是卡死：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 隔几秒分别执行，观察合并目标文件的大小&#x2F;时间戳是否持续变化
+stat -c &#x27;%n size=%s mtime=%y&#x27; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.qcow2
+# size=207242067968 mtime=2026-10-09 21:00:43
+# 6 秒后再看：
+stat -c &#x27;%n size=%s mtime=%y&#x27; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.qcow2
+# size=207779004416 mtime=2026-10-09 21:00:50
+</code></pre>
+<p>百分比 + 文件增长速度可以粗略估算剩余时间（本例最后删除的那层合并耗时约 38 分钟，最后 2.4% 在几分钟内跑完）。</p>
+<p>完成的信号（三个都查一遍最稳）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 1) blockjob 回到&quot;无作业&quot;
+sudo virsh blockjob debian13 vda --info      # 没有 vda 的当前块作业
+
+# 2) 快照元数据里被删的快照消失
+sudo virsh snapshot-list --domain debian13 --topological --parent
+
+# 3) 被删层的 qcow2 文件消失、活动链收敛
+ls -lh &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F; | grep debian13
+</code></pre>
+<p>两个小坑：</p>
+<ul>
+<li><code>domjobinfo</code> 在块作业进行中不一定可用：本例中它报 <code>error: 内部错误：无效的作业统计类型</code>，所以进度以 <code>blockjob --info</code> 为准；</li>
+<li><code>ps</code> 里能看到 <code>sudo</code>/<code>virsh</code> 进程只能说明"客户端还在等"，真正的判据是上面 1）～3）。</li>
+</ul>
+<p>要点：</p>
+<ul>
+<li>先删"链上有未完成删除标记"的那条（顺序不能反，否则父快照会被标记拒绝）；</li>
+<li>每条 <code>snapshot-delete</code> 是在线 block-commit，按数据量可能要几分钟到几十分钟，<strong>不要 Ctrl-C</strong>；</li>
+<li>如果删除又报 Permission denied：<code>sudo aa-status | grep "$UUID"</code> 看看 profile 是否被重新加载，再卸载一次重试。</li>
+</ul>
+<h1 id="liu-wei-shen-me-zhe-me-man-block-commit-de-xing-neng-zhang">六、为什么这么慢：block-commit 的性能账</h1>
+<p>实际清理中，最后删除 <code>snap-20260625-17</code> 这一步耗时约 <strong>38 分钟</strong>（20:23 → 21:02）。看起来"只有百来 G"，为什么会花这么久？把账算清楚就不奇怪了。</p>
+<h2 id="6-1-shi-ji-ban-yun-liang-bi-biao-guan-da-xiao-da">6.1 实际搬运量比"表观大小"大</h2>
+<ul>
+<li>最后删除的 <code>debian13.snap-20260625-17</code> 表观大小 176 GiB（≈189GB）；</li>
+<li>删除是<strong>级联</strong>的：先删的 <code>snap-20260916-10</code> 不是凭空消失，而是被合并进了下一层（即 6/25 这层）——实测中 6/25 文件从 130G 涨到 176G 就是证据。所以最后一步搬的是"多轮合并后"的整坨数据；</li>
+<li>表观大小 ≠ 实际拷贝量：<code>ls -l</code> 是文件长度，实际占用要看 <code>qemu-img info</code> 的 <code>disk size</code>（allocated）。</li>
+</ul>
+<h2 id="6-2-shi-ce-su-lu-zhi-you-90mb-s">6.2 实测速率只有 ~90MB/s</h2>
+<p>观察合并目标文件（base）的增长：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">stat -c &#x27;%n size=%s mtime=%y&#x27; &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;debian13.qcow2
+# 21:00:43  size=207242067968
+# 21:00:50  size=207779004416
+# 6.2 秒增长 537MB ≈ 87MB&#x2F;s
+</code></pre>
+<p>对账：<code>176GiB ≈ 189GB ÷ ~87MB/s ≈ 37 分钟</code>，与 20:23 → 21:02 的实测吻合。</p>
+<h2 id="6-3-wei-shen-me-nvme-shang-ye-man">6.3 为什么 NVMe 上也慢</h2>
+<p>block-commit 不是顺序拷贝：</p>
+<ol>
+<li><strong>簇级随机 I/O</strong>：按 64KiB 簇从上层读、判断 backing 层有没有、再写入合并目标——本质是随机小 IO；</li>
+<li><strong>qcow2 元数据写放大</strong>：写一个数据簇还要分配簇、更新 L2 表、更新 refcount 块，元数据自身也是 CoW；</li>
+<li><strong>碎片</strong>：base 是 150G+ 的大文件，经历多轮快照/合并后碎片化严重，分配更慢；</li>
+<li><strong>单线程 block 层</strong>：block job 与 guest I/O 在同一 aio 上下文里协作调度，并会刻意不拖慢 guest；</li>
+<li><strong>在线执行</strong>：VM 一直在跑，磁盘 I/O 会互相竞争。</li>
+</ol>
+<p>结论：<strong>慢是慢在机制，不是卡住</strong>——进度一直在走（最后观察到 97.60%），只是 qcow2 的随机 I/O + 元数据开销把有效速率压到了百 MB/s 量级。</p>
+<h2 id="6-4-xia-ci-ru-he-geng-kuai">6.4 下次如何更快</h2>
+<table><thead><tr><th>做法</th><th>说明</th></tr></thead><tbody>
+<tr><td>关机后删除/合并（离线 commit）</td><td>不与 guest I/O 竞争，通常明显更快</td></tr>
+<tr><td>关机后用 <code>qemu-img convert</code> 生成独立镜像</td><td>顺序写为主，比随机 commit 快；但需重建/重挂磁盘</td></tr>
+<tr><td>别攒链：每次只合 1～2 层</td><td>单次数据量小、碎片少，避免"最后一口吃 200G"</td></tr>
+<tr><td>避开 VM 高负载时段</td><td>减少 I/O 争抢</td></tr>
+<tr><td>预估数据量看 <code>qemu-img info</code> 的 <code>disk size</code></td><td>按实际占用而非表观大小估算时间</td></tr>
+<tr><td><code>virsh blockjob &lt;dom&gt; &lt;disk&gt; --raw</code></td><td>输出原始进度详情（字节数），便于精确估算</td></tr>
+</tbody></table>
+<h1 id="qi-qemu-img-blockcommit-su-cha">七、qemu-img / blockcommit 速查</h1>
+<h2 id="6-1-jian-lian-yu-kan-lian">6.1 建链与看链</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">qemu-img create -f qcow2 -b base.qcow2 -F qcow2 overlay.qcow2
+qemu-img info --backing-chain overlay.qcow2
+virsh domblklist debian13 --details
+</code></pre>
+<h2 id="6-2-libvirt-ceng-mian-de-he-bing-tui-jian-ke-zai-xian">6.2 libvirt 层面的合并（推荐，可在线）</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># blockcommit：把 top 层合并到 base 层（自下而上地缩短链）
+virsh blockcommit debian13 vda --base &#x2F;path&#x2F;sn1.qcow2 --top &#x2F;path&#x2F;sn3.qcow2 --wait --verbose
+
+# 把活动层合并进 base 并切换（等价于删&quot;当前快照&quot;的合并动作）
+virsh blockcommit debian13 vda --active --pivot --wait --verbose
+
+# blockpull：把 backing 链的数据合并进活动层（反向）
+virsh blockpull debian13 vda --base &#x2F;path&#x2F;sn1.qcow2 --wait --verbose
+</code></pre>
+<h2 id="6-3-qemu-img-ceng-mian-de-cao-zuo-ting-ji-shi-yong-zhu-yi-yuan-shu-ju-tong-bu">6.3 qemu-img 层面的操作（停机时用，注意元数据同步）</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 只改 backing 指针、不搬数据（unsafe mode，危险：必须确认指向的确实是对应数据）
+qemu-img rebase -u -b &#x2F;path&#x2F;sn1.qcow2 &#x2F;path&#x2F;sn3.qcow2
+
+# 默认 rebase：会把数据一起搬过去再改指针
+qemu-img rebase -b &#x2F;path&#x2F;sn1.qcow2 &#x2F;path&#x2F;sn3.qcow2
+
+# ⚠️ 危险：把当前层数据写回 backing 文件，会污染 base 镜像
+qemu-img commit &#x2F;path&#x2F;vm-disk.qcow2
+
+# 去掉 backing，把 backing 数据并入当前文件
+qemu-img rebase -b &quot;&quot; &#x2F;path&#x2F;vm-disk.qcow2
+
+# 生成不带 backing 的独立镜像（推荐用于迁移&#x2F;彻底拆链）
+qemu-img convert -f qcow2 -O qcow2 vm-disk.qcow2 vm-disk-standalone.qcow2
+</code></pre>
+<p>注意：VM 由 libvirt 管理时，优先用 <code>virsh</code> 的 blockcommit/blockpull/snapshot-delete——它们会同步更新 libvirt 元数据。手动 <code>qemu-img</code> 操作会让宿主机上的链与 libvirt 记录不一致，之后再用快照/删除功能容易出错。</p>
+<h1 id="ba-jing-yan-zong-jie">八、经验总结</h1>
+<ol>
+<li><strong>快照链是串联结构</strong>：任何一环缺失，上层都打不开；永远不要 <code>rm</code>/<code>mv</code> 链上的文件，删除只走 <code>virsh snapshot-delete</code>。</li>
+<li><strong>删除快照 = 向下合并 + 重接链</strong>：当前数据和其它快照的还原点都不受影响，失去的只是被删快照的回滚能力。删当前快照多一次活动层 pivot。</li>
+<li><strong>对运行中的 VM 建磁盘快照必须 <code>--disk-only --atomic</code></strong>：否则默认是内部全系统快照（暂停 VM、内存写进 qcow2、极慢）。</li>
+<li><strong>内存快照的 <code>.save</code> 删不得</strong>：它决定 running 状态快照能否恢复；也不要 <code>--metadata</code> 式删除。</li>
+<li><strong>"无法获取状态更改锁 / 操作超时" = 有并发操作</strong>：先 <code>domjobinfo</code>/<code>snapshot-list</code> 看状态，别重复敲命令。</li>
+<li><strong>Debian + AppArmor 的 <code>deny ... w</code> 坑</strong>：<code>snapshot-delete</code> 报 <code>Could not open '...': Permission denied</code> 时，查 <code>/etc/apparmor.d/libvirt/libvirt-&lt;uuid&gt;.files</code>，临时 <code>apparmor_parser -R</code> / <code>-r</code> 绕过（complain 模式无效）。</li>
+<li><strong>删除失败的收尾</strong>：元数据里会出现 <code>&lt;snapshotDeleteInProgress/&gt;</code>，重新执行那次删除并跑完即可清除。</li>
+<li><strong>链别攒太长</strong>：及时合并（本文场景就是攒了 4～5 层后的一次清理），合并前预留充足磁盘空间。</li>
+<li><strong>查看删除/合并进度</strong>：<code>virsh blockjob &lt;domain&gt; &lt;disk&gt; --info</code> 看百分比；任务在后台执行，终端断开不影响，但别 kill 进程；判定完成的依据是"无 block job + 快照元数据消失 + 文件消失"。</li>
+<li><strong>大链合并很慢</strong>：实测有效速率约 90MB/s（簇级随机 IO + qcow2 元数据写放大），能关机就离线合并，或者别攒链、定期小批量清理。</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/">&#8249; cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/windows-openssh-server-guide/"> Windows 开启 SSH 与远程桌面完整指南：OpenSSH、WSL、家庭版 RDPWrap 与 Remmina 调优 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing">背景</a>
+        </div>
+        <div>
+          <a href="#yi-wai-bu-kuai-zhao-lian-ji-chu">一、外部快照链基础</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-1-qcow2-overlay-yu-backing-file"><small>- 1.1 QCOW2 overlay 与 backing file</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-2-lian-shang-mei-ge-wen-jian-dao-di-zhuang-liao-shen-me"><small>- 1.2 链上每个文件到底装了什么</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-3-nei-bu-kuai-zhao-vs-wai-bu-kuai-zhao"><small>- 1.3 内部快照 vs 外部快照</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-4-nei-cun-kuai-zhao-yu-save-wen-jian"><small>- 1.4 内存快照与 .save 文件</small></a>
+        </div>
+        <div>
+          <a href="#er-shan-chu-kuai-zhao-shi-dao-di-fa-sheng-liao-shen-me">二、删除快照时到底发生了什么</a>
+        </div>
+        <div class="hpad">
+          <a href="#2-1-shan-zhong-jian-ceng-fei-dang-qian-kuai-zhao"><small>- 2.1 删中间层（非当前快照）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-2-shan-dang-qian-kuai-zhao-active-commit-pivot"><small>- 2.2 删当前快照：active commit + pivot</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-3-shan-chu-de-wai-bu-yue-shu"><small>- 2.3 删除的外部约束</small></a>
+        </div>
+        <div>
+          <a href="#san-keng-yi-bu-dai-disk-only-de-nei-bu-kuai-zhao-yu-suo-chao-shi">三、坑一：不带 --disk-only 的内部快照 + 域锁超时</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-xian-xiang"><small>- 3.1 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-yuan-yin"><small>- 3.2 原因</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-chu-li-yu-jing-yan"><small>- 3.3 处理与经验</small></a>
+        </div>
+        <div>
+          <a href="#si-keng-er-snapshot-delete-bao-permission-denied-apparmor">四、坑二：snapshot-delete 报 Permission denied（AppArmor）</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-xian-xiang"><small>- 4.1 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-pai-cha-guo-cheng"><small>- 4.2 排查过程</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-zhe-shi-yi-zhi-bug-bu-shi-ni-de-lian-pi-liao"><small>- 4.3 这是已知 bug，不是你的链坏了</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-4-profile-shi-zen-me-lai-de"><small>- 4.4 profile 是怎么来的</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-5-lin-shi-rao-guo"><small>- 4.5 临时绕过</small></a>
+        </div>
+        <div>
+          <a href="#wu-wan-zheng-cao-zuo-ji-lu-runbook">五、完整操作记录（Runbook）</a>
+        </div>
+        <div class="hpad">
+          <a href="#ru-he-cha-kan-shan-chu-block-commit-jin-du"><small>- 如何查看删除（block-commit）进度</small></a>
+        </div>
+        <div>
+          <a href="#liu-wei-shen-me-zhe-me-man-block-commit-de-xing-neng-zhang">六、为什么这么慢：block-commit 的性能账</a>
+        </div>
+        <div class="hpad">
+          <a href="#6-1-shi-ji-ban-yun-liang-bi-biao-guan-da-xiao-da"><small>- 6.1 实际搬运量比&quot;表观大小&quot;大</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-2-shi-ce-su-lu-zhi-you-90mb-s"><small>- 6.2 实测速率只有 ~90MB&#x2F;s</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-3-wei-shen-me-nvme-shang-ye-man"><small>- 6.3 为什么 NVMe 上也慢</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-4-xia-ci-ru-he-geng-kuai"><small>- 6.4 下次如何更快</small></a>
+        </div>
+        <div>
+          <a href="#qi-qemu-img-blockcommit-su-cha">七、qemu-img &#x2F; blockcommit 速查</a>
+        </div>
+        <div class="hpad">
+          <a href="#6-1-jian-lian-yu-kan-lian"><small>- 6.1 建链与看链</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-2-libvirt-ceng-mian-de-he-bing-tui-jian-ke-zai-xian"><small>- 6.2 libvirt 层面的合并（推荐，可在线）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-3-qemu-img-ceng-mian-de-cao-zuo-ting-ji-shi-yong-zhu-yi-yuan-shu-ju-tong-bu"><small>- 6.3 qemu-img 层面的操作（停机时用，注意元数据同步）</small></a>
+        </div>
+        <div>
+          <a href="#ba-jing-yan-zong-jie">八、经验总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,206 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - git-lfs</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/git-lfs/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-01T22:31:33+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/git-lfs/atom.xml</id>
+    <entry xml:lang="en">
+        <title>给本地裸仓库启用 Git LFS：1.6GB 媒体历史迁移实录</title>
+        <published>2026-10-01T22:31:33+08:00</published>
+        <updated>2026-10-01T22:31:33+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/10/git-lfs-local-bare-repo-migration/"/>
+        <id>https://moxuetianya.github.io/2026/10/git-lfs-local-bare-repo-migration/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/10/git-lfs-local-bare-repo-migration/">&lt;h1 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h1&gt;
+&lt;p&gt;一个生日视频剪辑项目，仓库里堆了近 200 个手机拍摄的照片&#x2F;视频，仓库结构是&quot;本地裸仓库做远端&quot;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;工作副本：&lt;code&gt;~&#x2F;project&#x2F;birthday&lt;&#x2F;code&gt;（编辑、提交）&lt;&#x2F;li&gt;
+&lt;li&gt;裸仓库：&lt;code&gt;~&#x2F;project&#x2F;repos&#x2F;birthday&lt;&#x2F;code&gt;（&lt;code&gt;git init --bare&lt;&#x2F;code&gt; 的产物，作为 &lt;code&gt;origin&lt;&#x2F;code&gt; 接收 push）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;问题：历史里的 mp4&#x2F;jpg 全是普通 git blob，裸仓库已经膨胀到 &lt;strong&gt;1.60 GiB&lt;&#x2F;strong&gt;，每次全量克隆都要拖走全部历史。目标是让这个仓库支持 Git LFS，并且&lt;strong&gt;把已有历史里的媒体也迁进 LFS&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;guan-jian-ren-zhi-lfs-dui-xiang-chuan-shu-bu-zou-git-zhi-neng-xie-yi&quot;&gt;关键认知：LFS 对象传输不走 git 智能协议&lt;&#x2F;h1&gt;
+&lt;p&gt;LFS 最容易被误解的一点：大文件内容不在 git 对象库里（库里只存几十字节的指针文件），传输走的是&lt;strong&gt;独立通道&lt;&#x2F;strong&gt;。服务端要求取决于远端形式，分三档：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;远端形式&lt;&#x2F;th&gt;&lt;th&gt;服务端要求&lt;&#x2F;th&gt;&lt;th&gt;传输机制&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;本地路径 &#x2F; &lt;code&gt;file:&#x2F;&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;零配置&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lfs-standalone-file&lt;&#x2F;code&gt; 传输代理，直接写 &lt;code&gt;&amp;lt;仓库&amp;gt;&#x2F;lfs&#x2F;objects&#x2F;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ssh:&#x2F;&#x2F;git@host&#x2F;repo&lt;&#x2F;code&gt;（裸仓库）&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;服务器装 git-lfs ≥ 3.0 即可&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;客户端经 SSH 执行 &lt;code&gt;git-lfs-transfer&lt;&#x2F;code&gt;，对象走 SSH 通道落盘服务器仓库的 &lt;code&gt;lfs&#x2F;objects&#x2F;&lt;&#x2F;code&gt;，认证就是 SSH 公钥，无需 HTTP 服务&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GitHub &#x2F; GitLab &#x2F; Gitea 等平台&lt;&#x2F;td&gt;&lt;td&gt;平台内置&lt;&#x2F;td&gt;&lt;td&gt;HTTPS LFS API（&lt;code&gt;&amp;lt;repo&amp;gt;&#x2F;info&#x2F;lfs&lt;&#x2F;code&gt;）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;也就是说 &lt;code&gt;ssh:&#x2F;&#x2F;git@host&#x2F;repo&lt;&#x2F;code&gt; 是&lt;strong&gt;原生支持&lt;&#x2F;strong&gt;的，条件只是服务器上那个 git 用户能执行 &lt;code&gt;git-lfs&lt;&#x2F;code&gt;（3.0+，apt 装的版本一般满足）。若服务器没装，push 会报 &lt;code&gt;git-lfs-authenticate: command not found&lt;&#x2F;code&gt;。另外 standalone 模式（本地&#x2F;SSH）&lt;strong&gt;不支持 &lt;code&gt;git lfs lock&lt;&#x2F;code&gt; 文件锁&lt;&#x2F;strong&gt;，要锁就得用托管平台或自建 LFS API。&lt;&#x2F;p&gt;
+&lt;p&gt;本地路径场景可以用 &lt;code&gt;git lfs env&lt;&#x2F;code&gt; 验证，能看到传输代理列表里有 &lt;code&gt;lfs-standalone-file&lt;&#x2F;code&gt;、endpoint 直接指向裸仓库且无需认证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ git lfs env | grep -iE &amp;#x27;endpoint|UploadTransfers&amp;#x27;
+Endpoint=file:&amp;#x2F;&amp;#x2F;&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;repos&amp;#x2F;birthday (auth=none)
+UploadTransfers=basic,lfs-standalone-file,ssh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qian-yi-quan-liu-cheng&quot;&gt;迁移全流程&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-chu-shi-hua-she-zhi-gen-zong-gui-ze&quot;&gt;1. 初始化 + 设置跟踪规则&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;cd ~&amp;#x2F;project&amp;#x2F;birthday
+git lfs install                       # 全局装 smudge&amp;#x2F;clean 过滤器（每台机器一次）
+git lfs track &amp;quot;*.mp4&amp;quot; &amp;quot;*.jpg&amp;quot; &amp;quot;*.jpeg&amp;quot; &amp;quot;*.png&amp;quot; &amp;quot;*.mov&amp;quot; &amp;quot;*.gif&amp;quot;
+git add .gitattributes &amp;amp;&amp;amp; git commit -m &amp;quot;chore: 启用 git lfs&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;git lfs track&lt;&#x2F;code&gt; 本质是往 &lt;code&gt;.gitattributes&lt;&#x2F;code&gt; 写过滤器规则：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;时机坑&lt;&#x2F;strong&gt;：如果一个大文件在 &lt;code&gt;track&lt;&#x2F;code&gt; 之前就已经 &lt;code&gt;git add&lt;&#x2F;code&gt; 进了 index，index 里存的还是全量 blob（add 时刻就完成了 clean 过滤）。必须重新 &lt;code&gt;git add&lt;&#x2F;code&gt; 一次让 LFS 过滤器生效，否则提交进去仍是完整大文件。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-zhong-gui-yi-hua-rang-gong-zuo-shu-bian-gan-jing&quot;&gt;2. 重归一化，让工作树变干净&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;track&lt;&#x2F;code&gt; 之后 &lt;code&gt;git status&lt;&#x2F;code&gt; 会冒出一大堆 &lt;code&gt; M&lt;&#x2F;code&gt; 的媒体文件——不是真的被改了，而是 HEAD 里还是全量 blob、工作区文件经过滤器比对出了差异。用 renormalize 提交消除：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git add --renormalize .
+git commit -m &amp;quot;chore: 已跟踪媒体文件重归一化为 LFS 指针&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;3-zhong-xie-quan-bu-li-shi&quot;&gt;3. 重写全部历史&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git lfs migrate import --everything --include=&amp;quot;*.mp4,*.jpg,*.jpeg,*.png,*.mov,*.gif&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;migrate: Rewriting commits: 100% (16&amp;#x2F;16), done.
+migrate: Updating refs: ..., done.
+migrate: checkout: ..., done.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;16 个提交全部重写、哈希全变，历史中的媒体 blob 替换为 LFS 指针。抽查重写后最早那条素材提交，照片内容已经是指针：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ git cat-file -p b80dd68:pictures&amp;#x2F;IMG_20260923_113450.jpg
+version https:&amp;#x2F;&amp;#x2F;git-lfs.github.com&amp;#x2F;spec&amp;#x2F;v1
+oid sha256:a69f81f1a10188c9381d1e29d9b922ea3bc0a19befe105f9b5e1439869840392
+size 5849437
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;4-force-push-liang-bian-gc&quot;&gt;4. force push + 两边 gc&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ git push --force origin master
+Uploading LFS objects: 100% (187&amp;#x2F;187), 0 B | 0 B&amp;#x2F;s, done.
+To &amp;#x2F;home&amp;#x2F;peter&amp;#x2F;project&amp;#x2F;repos&amp;#x2F;birthday
+ + 64e2e62...1449fb0 master -&amp;gt; master (forced update)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;187 个 LFS 对象（1.9G）经 standalone 传输直接落盘裸仓库 &lt;code&gt;lfs&#x2F;objects&#x2F;&lt;&#x2F;code&gt;。随后两边回收旧 blob：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git -C ~&amp;#x2F;project&amp;#x2F;repos&amp;#x2F;birthday gc --prune=now           # 裸仓库
+git reflog expire --expire-unreachable=now --all &amp;amp;&amp;amp; git gc --prune=now   # 工作副本
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;5-yan-shou-quan-xin-ke-long-sha256-dui-bi&quot;&gt;5. 验收：全新克隆 + sha256 对比&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;GIT_LFS_SKIP_SMUDGE=1 git clone ~&amp;#x2F;project&amp;#x2F;repos&amp;#x2F;birthday &amp;#x2F;tmp&amp;#x2F;verify   # 秒级，只拿指针
+cd &amp;#x2F;tmp&amp;#x2F;verify
+git lfs pull --include=pictures&amp;#x2F;IMG_20260923_113450.jpg                # 按需拉单个对象
+sha256sum pictures&amp;#x2F;IMG_20260923_113450.jpg
+# a69f81f1...0392 —— 与源文件、与指针 oid 三方一致
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;xiao-guo&quot;&gt;效果&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;项目&lt;&#x2F;th&gt;&lt;th&gt;迁移前&lt;&#x2F;th&gt;&lt;th&gt;迁移后&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;裸仓库 git 对象（size-pack）&lt;&#x2F;td&gt;&lt;td&gt;1.60 GiB&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;123.03 KiB&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;媒体存储&lt;&#x2F;td&gt;&lt;td&gt;git blob（进每次克隆）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lfs&#x2F;objects&#x2F;&lt;&#x2F;code&gt; 187 个对象，1.9G&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;全新克隆&lt;&#x2F;td&gt;&lt;td&gt;必拉 1.6G 历史&lt;&#x2F;td&gt;&lt;td&gt;秒级，媒体按需 &lt;code&gt;git lfs pull&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;ji-chu-pei-zhi-yu-chang-yong-ming-ling-su-cha&quot;&gt;基础配置与常用命令速查&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;pei-zhi-lei&quot;&gt;配置类&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs install&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全局装 smudge&#x2F;clean 过滤器 + 本仓库 hooks（pre-push 等），每台机器一次&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs track &quot;*.mp4&quot;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;添加跟踪规则（写 &lt;code&gt;.gitattributes&lt;&#x2F;code&gt;），&lt;strong&gt;之后&lt;&#x2F;strong&gt; add 的文件才走 LFS&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs track&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;不带参数：列出当前所有跟踪规则&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs untrack &quot;*.mp4&quot;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;移除规则&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git add --renormalize .&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;规则变更后，把已跟踪文件按新过滤器重新入库（老文件补转 LFS 指针）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs env&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看 endpoint、可用传输代理等运行时配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;cha-kan-zhuang-tai-lei&quot;&gt;查看状态类&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs ls-files&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;列出当前受 LFS 管理的文件（oid 前缀 + 路径）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs ls-files -n&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;只列路径（配合 grep&#x2F;wc 好用）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs ls-files -s&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;附带对象大小&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs track&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;列出跟踪规则本身（区别于上面列文件）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git check-attr filter -- &amp;lt;path&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;验证单个路径是否命中规则：&lt;code&gt;filter: lfs&lt;&#x2F;code&gt; 命中，&lt;code&gt;unspecified&lt;&#x2F;code&gt; 未命中&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;chuan-shu-lei&quot;&gt;传输类&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git push&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;git pull&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;正常用即可，hooks 自动传输 LFS 对象，日常无感&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs pull&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;把当前 commit 需要的对象拉全并填充工作区&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs fetch --all&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;拉全量对象（不含填充工作区）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs push origin master --all&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;把本地全部 LFS 对象推到远端（备份场景）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;GIT_LFS_SKIP_SMUDGE=1 git clone &amp;lt;url&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;克隆时不拉媒体，先拿代码；之后 &lt;code&gt;git lfs pull&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;git lfs pull --include=&quot;&amp;lt;路径&amp;gt;&quot;&lt;&#x2F;code&gt; 按需拉&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs logs last&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;传输失败时看最近错误日志&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;li-shi-qian-yi-yu-kong-jian-lei&quot;&gt;历史迁移与空间类&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs migrate info --everything&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;迁移前分析：按大小列出值得转 LFS 的文件类型&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs migrate import --everything --include=&quot;*.mp4,*.jpg&quot;&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;重写全部历史（哈希会变，需 force push）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git lfs prune&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;清理本地 &lt;code&gt;.git&#x2F;lfs&#x2F;objects&lt;&#x2F;code&gt; 中远端已持有的对象缓存（裸仓库已是全量备份时安全）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;git count-objects -vH&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;看 git 对象库体积（迁移前后对比用）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h1 id=&quot;cai-keng-ji-lu&quot;&gt;踩坑记录&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;keng-1-migrate-ba-wei-gen-zong-wen-jian-ye-suan-dirty&quot;&gt;坑 1：migrate 把未跟踪文件也算 dirty&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;git lfs migrate import&lt;&#x2F;code&gt; 内部用 &lt;code&gt;git status --porcelain&lt;&#x2F;code&gt; 判断工作区是否干净——&lt;strong&gt;未跟踪文件（&lt;code&gt;??&lt;&#x2F;code&gt;）也算&lt;&#x2F;strong&gt;。几个 &lt;code&gt;__pycache__&#x2F;*.pyc&lt;&#x2F;code&gt; 就会触发确认：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;migrate: override changes in your working copy?  All uncommitted changes will be lost! [y&amp;#x2F;N]
+migrate: working copy must not be dirty
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;非交互环境下默认选 N 直接中止。解法：先把该忽略的写进 &lt;code&gt;.gitignore&lt;&#x2F;code&gt; 并提交，&lt;code&gt;git status --porcelain&lt;&#x2F;code&gt; 输出为空再跑 migrate。顺带一提 &lt;code&gt;git status --short&lt;&#x2F;code&gt; 里的未跟踪文件和 &lt;code&gt;git lfs migrate&lt;&#x2F;code&gt; 的判定是一致的。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-2-yan-zheng-li-shi-shi-wu-yong-zhong-xie-qian-de-jiu-ha-xi&quot;&gt;坑 2：验证历史时误用重写前的旧哈希&lt;&#x2F;h2&gt;
+&lt;p&gt;gc 之前旧对象还在对象库里，&lt;code&gt;git cat-file -p &amp;lt;旧哈希&amp;gt;:&amp;lt;路径&amp;gt;&lt;&#x2F;code&gt; 依然能查到——查出来是&lt;strong&gt;原始二进制&lt;&#x2F;strong&gt;。验证迁移效果必须先通过 &lt;code&gt;git log --diff-filter=A --format=%H -- &amp;lt;路径&amp;gt;&lt;&#x2F;code&gt; 拿到重写后的新哈希再查。&lt;&#x2F;p&gt;
+&lt;p&gt;这个坑还连带了终端事故：二进制直接喷进终端，乱码 + 终端状态损坏（错位、字符集错乱）。恢复手段的差别：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;作用&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;clear&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;只清屏，不修复终端状态&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;tput reset&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;reset&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;重新初始化终端：回显、字符集、键位、制表位全恢复&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;stty sane&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;只修复行纪律层（回显、控制键）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;先试 &lt;code&gt;printf &#x27;\e[0m\e[?25h&#x27;&lt;&#x2F;code&gt;（重置样式 + 恢复光标），不行再 &lt;code&gt;reset&lt;&#x2F;code&gt;。预防：看可疑对象先 &lt;code&gt;file&lt;&#x2F;code&gt; 判断类型，或过 &lt;code&gt;xxd&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;strings&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;head -c&lt;&#x2F;code&gt; 管道。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-3-track-zhi-qian-yi-zan-cun-de-wen-jian-bu-hui-zi-dong-zhuan&quot;&gt;坑 3：track 之前已暂存的文件不会自动转&lt;&#x2F;h2&gt;
+&lt;p&gt;前文&quot;时机坑&quot;的展开：&lt;code&gt;git add&lt;&#x2F;code&gt; 在暂存时刻就完成 clean 过滤并落了 blob，后配置的 &lt;code&gt;.gitattributes&lt;&#x2F;code&gt; 对 index 里已有的条目不追溯。已暂存的大文件要重新 &lt;code&gt;git add&lt;&#x2F;code&gt; 一次。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-4-qian-yi-hou-ha-xi-quan-bian&quot;&gt;坑 4：迁移后哈希全变&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;migrate&lt;&#x2F;code&gt; 重写所有提交 + force push 后，其他位置的旧克隆会分叉。旧克隆要么 &lt;code&gt;git fetch &amp;amp;&amp;amp; git reset --hard origin&#x2F;master&lt;&#x2F;code&gt;，要么重新克隆。还好 standalone 模式下对象都在本地磁盘，操作成本只是几秒钟。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;shi-zhan-chu-li-yuan-cheng-yi-zhong-xie-li-shi-de-lfs-cang-ku&quot;&gt;实战：处理远程已重写历史的 LFS 仓库&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;wen-ti-chang-jing&quot;&gt;问题场景&lt;&#x2F;h2&gt;
+&lt;p&gt;在另一台机器上完成了 LFS 迁移并 force push 后，本地工作副本出现分支偏离：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;console&quot; class=&quot;language-console &quot;&gt;&lt;code class=&quot;language-console&quot; data-lang=&quot;console&quot;&gt;$ git status
+位于分支 master
+您的分支和 &amp;#x27;smyl&amp;#x2F;master&amp;#x27; 出现了偏离，
+并且分别有 13 和 16 处不同的提交。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;本地 master 还保留着原始的大文件（mp4&#x2F;jpg 是完整二进制），而远程 &lt;code&gt;smyl&#x2F;master&lt;&#x2F;code&gt; 已经是 LFS 指针。189 个文件与远程不同。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-jue-bu-zou&quot;&gt;解决步骤&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-tong-bu-yuan-cheng-fen-zhi&quot;&gt;1. 同步远程分支&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git fetch smyl
+git reset --hard smyl&amp;#x2F;master
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-chu-li-lfs-ren-zheng-wen-ti&quot;&gt;2. 处理 LFS 认证问题&lt;&#x2F;h3&gt;
+&lt;p&gt;如果遇到 &lt;code&gt;git-lfs-authenticate: command not found&lt;&#x2F;code&gt; 错误，说明 SSH 认证链路有问题。临时跳过 smudge 过滤器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git lfs install --skip-smudge
+git reset --hard smyl&amp;#x2F;master
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-hui-fu-lfs-wen-jian&quot;&gt;3. 恢复 LFS 文件&lt;&#x2F;h3&gt;
+&lt;p&gt;重置后文件会变成 LFS 指针（几十字节的文本文件）。检查本地缓存中有哪些对象可用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;find .git&amp;#x2F;lfs&amp;#x2F;objects -type f | wc -l    # 查看本地缓存对象数量
+git lfs ls-files -l | grep &amp;lt;oid前缀&amp;gt;     # 查看对象对应哪个文件
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;恢复可用的文件：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git lfs checkout -- pictures&amp;#x2F;VID_20260927_100423.mp4  # 恢复单个文件
+git lfs checkout                                       # 恢复所有本地可用文件
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-yan-zheng-hui-fu-jie-guo&quot;&gt;4. 验证恢复结果&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;file .&amp;#x2F;pictures&amp;#x2F;VID_20260927_100423.mp4
+# 输出：ISO Media, MP4 v2 [ISO 14496-14]  ✓ 实际文件
+# 而不是：ASCII text                       ✗ 仍然是指针
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;guan-jian-fa-xian&quot;&gt;关键发现&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;本地缓存有限&lt;&#x2F;strong&gt;：只有迁移前就存在的 LFS 对象会留在本地缓存中&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;指针 vs 实际文件&lt;&#x2F;strong&gt;：&lt;code&gt;file&lt;&#x2F;code&gt; 命令可以快速区分——&lt;code&gt;ASCII text&lt;&#x2F;code&gt; 是指针，&lt;code&gt;ISO Media&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;JPEG image&lt;&#x2F;code&gt; 是实际文件&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;按需恢复&lt;&#x2F;strong&gt;：&lt;code&gt;git lfs checkout&lt;&#x2F;code&gt; 只恢复本地缓存中已有的对象，缺失的对象需要 &lt;code&gt;git lfs pull&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;认证链路&lt;&#x2F;strong&gt;：SSH 方式需要服务器安装 &lt;code&gt;git-lfs ≥ 3.0&lt;&#x2F;code&gt;，否则会报 &lt;code&gt;git-lfs-authenticate: command not found&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;本地路径&#x2F;SSH 裸仓库用 LFS 的门槛极低：客户端装 git-lfs（≥3.0），远端零配置或只装个包&lt;&#x2F;li&gt;
+&lt;li&gt;存量历史用 &lt;code&gt;git lfs migrate import --everything&lt;&#x2F;code&gt; 一步迁移，配合两边 &lt;code&gt;gc --prune=now&lt;&#x2F;code&gt;，git 对象库从 1.60 GiB 降到 123 KiB&lt;&#x2F;li&gt;
+&lt;li&gt;迁移前把工作区收拾干净（.gitignore + renormalize 提交），躲开 migrate 的 dirty 校验&lt;&#x2F;li&gt;
+&lt;li&gt;裸仓库目录现在就是完整备份（git 历史 + &lt;code&gt;lfs&#x2F;objects&#x2F;&lt;&#x2F;code&gt; 全量对象），直接打包即可迁移&lt;&#x2F;li&gt;
+&lt;li&gt;日常 add&#x2F;commit&#x2F;push 完全无感，需要省磁盘时 &lt;code&gt;git lfs prune&lt;&#x2F;code&gt; 清本地缓存&lt;&#x2F;li&gt;
+&lt;li&gt;远程已重写历史时，用 &lt;code&gt;git reset --hard &amp;lt;remote&amp;gt;&#x2F;&amp;lt;branch&amp;gt;&lt;&#x2F;code&gt; 同步，配合 &lt;code&gt;git lfs checkout&lt;&#x2F;code&gt; 恢复本地可用文件&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

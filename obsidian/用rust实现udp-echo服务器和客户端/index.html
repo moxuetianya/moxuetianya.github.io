@@ -1,0 +1,398 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>用Rust实现UDP Echo服务器和客户端 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="今天，我们先来看一看​如何用Rust实现基于UDP协议的Echo服务器和客户端，然后通过微调代码，来验证几个有趣的有关UDP协议的细节问题。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/用rust实现udp-echo服务器和客户端/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/用rust实现udp-echo服务器和客户端/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/用rust实现udp-echo服务器和客户端/" />
+  <meta property="og:description" content="今天，我们先来看一看​如何用Rust实现基于UDP协议的Echo服务器和客户端，然后通过微调代码，来验证几个有趣的有关UDP协议的细节问题。" />
+  <meta name="twitter:description" content="今天，我们先来看一看​如何用Rust实现基于UDP协议的Echo服务器和客户端，然后通过微调代码，来验证几个有趣的有关UDP协议的细节问题。" />
+  <meta property="og:title" content="用Rust实现UDP Echo服务器和客户端 | 墨雪天琊" />
+  <meta name="twitter:title" content="用Rust实现UDP Echo服务器和客户端 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-04-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/用rust实现udp-echo服务器和客户端/">用Rust实现UDP Echo服务器和客户端</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 四月 25, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/rust/">Rust</a>] #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/ying-jian/">硬件</a>  #<a href="https://moxuetianya.github.io/tags/wang-luo/">网络</a> </span>
+
+    
+
+
+<h1 id="yong-rustshi-xian-udp-echofu-wu-qi-he-ke-hu-duan">用Rust实现UDP Echo服务器和客户端</h1>
+<p>今天，我们先来看一看<strong>如何用Rust实现基于UDP协议的Echo服务器和客户端</strong>，然后通过微调代码，来验证几个有趣的有关UDP协议的细节问题。</p>
+<h2 id="udp-echofu-wu-qi">UDP Echo服务器</h2>
+<p>UDP Echo服务器的主要代码片段（完整的代码在文末）如下所示。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    &#x2F;&#x2F; ...
+
+    let address = &quot;127.0.0.1:1234&quot;;
+    serve(address).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+}
+
+pub fn serve(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    let server_socket = UdpSocket::bind(address)?;
+    loop {
+        let mut buffer = [0u8; 1024];
+        let (size, src) = server_socket.recv_from(&amp;mut buffer)?;
+        debug!(&quot;Handling data from {}&quot;, src);
+        print!(&quot;{}&quot;, str::from_utf8(&amp;buffer[..size])?);
+        server_socket.send_to(&amp;buffer, src)?;
+    }
+}
+</code></pre>
+<p>相较于TCP Echo服务器（参考<a rel="noopener" target="_blank" title="https://juejin.cn/post/7269660552677392424" href="https://juejin.cn/post/7269660552677392424">用Rust实现TCP Echo服务器</a>），UDP Echo服务器要简单不少，不但没有<code>listen()</code>和<code>accept()</code>之类的系统调用，也不需要为每个客户端都创建一个新线程。数据通过<em>所有客户端共享的</em>?<sup>（待确认）</sup>套接字<code>server_socket</code>到达UDP Echo服务器后，服务器就将数据再通过这个套接字原样返回，仅此而已。</p>
+<p>我们可以先用telnet来测试一下UDP Echo服务器。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run
+$ telnet 127.0.0.1 1234
+Trying 127.0.0.1...
+Connected to localhost.
+Escape character is &#x27;^]&#x27;.
+hello
+hello
+</code></pre>
+<p>输入了<code>hello</code>，也返回了<code>hello</code>，一切正常。</p>
+<h2 id="udp-echoke-hu-duan">UDP Echo客户端</h2>
+<p>接下来，我们再来看看UDP Echo客户端的代码片段。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    &#x2F;&#x2F; ...
+
+    let address = &quot;127.0.0.1:1234&quot;;
+    send_to(address).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+}
+
+pub fn send_to(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    let socket = UdpSocket::bind(&quot;127.0.0.1:0&quot;)?;
+    loop {
+        let mut input = String::new();
+        io::stdin().read_line(&amp;mut input)?;
+        socket.send_to(input.as_bytes(), address)?;
+        let mut buffer = [0u8; 1024];
+        socket.recv_from(&amp;mut buffer).expect(&quot;failed to receive&quot;);
+        print!(&quot;{}&quot;, str::from_utf8(&amp;buffer).expect(&quot;failed to convertto String&quot;));
+    }
+}
+</code></pre>
+<p>客户端的逻辑同样非常简单，只是绑定端口<code>0</code>（<code>0</code>表示让操作系统提供一个未使用的端口号），然后发送数据，最后读取服务器返回的数据。 与TCP Echo客户端（参考<a rel="noopener" target="_blank" title="https://juejin.cn/post/7270830083739598848" href="https://juejin.cn/post/7270830083739598848">用Rust实现TCP Echo客户端</a>）最大的不同点在于，UDP在发送数据之前既无须建立连接，也不会检查服务端是否存在（如果服务端不存在会发生什么呢？）。</p>
+<p>让我们再来运行一下UDP Echo客户端。这里有一个小技巧，可以把客户端的代码放到<code>src/bin/client.rs</code>中，这样就可以使用<code>cargo run --bin efern</code>来运行客户端程序了。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run --bin client
+   Compiling udp-echo v0.1.0 (&#x2F;Users&#x2F;huyi&#x2F;Projects&#x2F;z-huyi&#x2F;rust&#x2F;udp-echo)
+    Finished dev [unoptimized + debuginfo] target(s) in 2.48s
+     Running `target&#x2F;debug&#x2F;client`
+hello
+hello
+</code></pre>
+<p>很好，一切正常。</p>
+<h2 id="you-guan-udpxie-yi-de-xi-jie-wen-ti">有关UDP协议的细节问题</h2>
+<p>UDP Echo服务器和客户端的代码看起来很简单，但其中隐藏了一些有趣的问题，如</p>
+<ul>
+<li>如果客户端发送的数据量大于服务端中缓冲区（<code>let mut buffer = [0u8; 1024];</code>）的大小会发生什么？</li>
+<li>客户端一次最多能够发送多少数据？发送的数据量有上限吗？</li>
+<li>如果服务端不存在或未启动会发生什么呢？客户端能感知到数据没有成功发送吗？</li>
+</ul>
+<p>下面我们通过微调代码来看看这几个问题的答案。</p>
+<h3 id="q1-ru-guo-ke-hu-duan-fa-song-de-shu-ju-liang-da-yu-fu-wu-duan-zhong-huan-chong-qu-de-da-xiao-hui-fa-sheng-shen-me">Q1. 如果客户端发送的数据量大于服务端中缓冲区的大小会发生什么？</h3>
+<p>为了回答这个问题，我们只需减小服务端的缓冲区的大小，然后重新编译运行服务端。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">pub fn serve(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    let server_socket = UdpSocket::bind(address)?;
+    loop {
+        &#x2F;&#x2F; let mut buffer = [0u8; 1024];
+        let mut buffer = [0u8; 10];
+        &#x2F;&#x2F; ...
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run
+error: `cargo run` could not determine which binary to run. Use the `--bin` option to specify a binary, or the `default-run` manifest key.
+available binaries: client, udp-echo
+$ cargo run --bin udp-echo
+</code></pre>
+<p>注意，由于我们在<code>src/bin/</code>中创建了客户端的源文件，此时<code>cargo</code>就不知道要运行的是哪个程序了，所以需要通过<code>--bin udp-echo</code>（<code>udp-echo</code>是执行<code>cargo new</code>时指定的名字）指明要运行的是服务端的程序。</p>
+<p>从下面客户端的输出可以看出，服务端只是简单丢弃了第10个字符（字节）之后的数据，并没有产生任何错误。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run --bin client
+# ...
+hello world!
+hello worl
+</code></pre>
+<p><code>recv_from()</code>方法的注释也指出，丢弃超过缓冲区大小的数据是预期的行为：</p>
+<blockquote>
+<p>Receives a single datagram message on the socket. On success, returns the number of bytes read and the origin.</p>
+<p>The function must be called with valid byte array buf of sufficient size to hold the message bytes. <strong>If a message is too long to fit in the supplied buffer, excess bytes may be discarded.</strong></p>
+</blockquote>
+<p>那客户端一次能够发送的数据量有上限吗？</p>
+<h3 id="q2-udpke-hu-duan-yi-ci-zui-duo-neng-gou-fa-song-duo-shao-shu-ju">Q2. UDP客户端一次最多能够发送多少数据？</h3>
+<p>我们编写一个模拟通过UDP发送大量数据的函数，验证一下发送的数据量是不是存在上限。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    &#x2F;&#x2F; ...
+
+    let address = &quot;127.0.0.1:1234&quot;;
+    &#x2F;&#x2F; send_to(address).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+    for i in 10..=20 {
+        send_nbytes_to(address, 1 &lt;&lt; i).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+    }
+}
+
+pub fn send_to(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    &#x2F;&#x2F; ...
+}
+
+pub fn send_nbytes_to(address: &amp;str, nbytes: usize) -&gt; Result&lt;(), failure::Error&gt; {
+    let socket = UdpSocket::bind(&quot;127.0.0.1:0&quot;)?;
+    let input = &quot;x&quot;.to_string().repeat(nbytes);
+    debug!(&quot;Sending {} bytes to {}&quot;, input.len(), address);
+    socket.send_to(input.as_bytes(), address).expect(&quot;couldn&#x27;t send data&quot;);
+    return Ok(());
+}
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">cargo run --bin client
+# ...
+[2023-10-25T07:30:31Z DEBUG client] Sending 1024 bytes to 127.0.0.1:1234
+[2023-10-25T07:30:31Z DEBUG client] Sending 2048 bytes to 127.0.0.1:1234
+[2023-10-25T07:30:31Z DEBUG client] Sending 4096 bytes to 127.0.0.1:1234
+[2023-10-25T07:30:31Z DEBUG client] Sending 8192 bytes to 127.0.0.1:1234
+[2023-10-25T07:30:31Z DEBUG client] Sending 16384 bytes to 127.0.0.1:1234
+thread &#x27;main&#x27; panicked at &#x27;couldn&#x27;t send data: Os { code: 40, kind: Uncategorized, message: &quot;Message too long&quot; }&#x27;, src&#x2F;bin&#x2F;client.rs:34:47
+
+</code></pre>
+<p>可以看到，在macOS上运行时，当待发送的数据达到16384字节时就报错了。这与macOS上的如下配置有关（参考<a rel="noopener" target="_blank" title="https://stackoverflow.com/questions/22819214/udp-message-too-long%EF%BC%89%E3%80%82" href="https://link.juejin.cn/?target=https%3A%2F%2Fstackoverflow.com%2Fquestions%2F22819214%2Fudp-message-too-long%25EF%25BC%2589%25E3%2580%2582">stackoverflow.com/questions/2…</a></p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ sysctl -a | fgrep net.inet.udp.maxdgram
+net.inet.udp.maxdgram: 9216
+</code></pre>
+<p>显然，16384大于9216。但在Linux上运行UDP Echo客户端，情况又有所不同了。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ uname -a
+Linux ubuntu-bionic 4.15.0-121-generic #123-Ubuntu SMP Mon Oct 5 16:16:40 UTC 2020 x86_64 x86_64 x86_64 GNU&#x2F;Linux
+
+$ cargo run --bin client
+# ...
+[2023-10-25T10:36:43Z DEBUG client] Sending 1024 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 2048 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 4096 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 8192 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 16384 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 32768 bytes to 127.0.0.1:1234
+[2023-10-25T10:36:43Z DEBUG client] Sending 65536 bytes to 127.0.0.1:1234
+thread &#x27;main&#x27; panicked at src&#x2F;bin&#x2F;client.rs:34:47:
+couldn&#x27;t send data: Os { code: 90, kind: Uncategorized, message: &quot;Message too long&quot; }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+</code></pre>
+<p>但如果改成<code>65507</code>又是可以发送成功的，</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run --bin client
+# ...
+[2023-10-25T10:44:22Z DEBUG client] Sending 65507 bytes to 127.0.0.1:1234
+[2023-10-25T10:44:22Z DEBUG client] Sending 65508 bytes to 127.0.0.1:1234
+thread &#x27;main&#x27; panicked at src&#x2F;bin&#x2F;client.rs:35:47:
+couldn&#x27;t send data: Os { code: 90, kind: Uncategorized, message: &quot;Message too long&quot; }
+
+</code></pre>
+<p>那么问题来了，<strong>在Linux中，UDP包（数据报）的大小上限到底是如何决定的？</strong></p>
+<p>如果你不想太过关注细节，那么答案是<strong>因为承载UDP数据的IP数据包的最大长度为65535字节</strong>，再减去IP数据包的首部和UDP数据包（数据报）的首部，就只剩下65507了。</p>
+<p>好了，细节来了。</p>
+<p>UDP不同于TCP，没有分割来自上层（应用层）的数据（示例代码中的若干个字符'x'）的机制。UDP会把接收到的数据原样传递到下一层的IP层。而IP数据包的大小是有上限的，这是因为在IP数据包首部中，表示数据包总长度（首部长度+数据长度，单位字节）的字段只有16比特，16比特所能表示的最大数值是2^16 - 1 = 65535。</p>
+<p>因此，UDP的最大负载（实际数据）大小的计算方法是：</p>
+<p>UDP的最大负载 = IP数据包的最大长度 -（IP首部大小（无选项））-（UDP首部大小） = 65535 - 20 - 8 = 65507</p>
+<p>其实，IP数据包也并不是总能够以最大包长65535传输的，这是因为IP的下层数据链路层具有最大传输单元MTU这个属性。不同类型的数据链路的使用目的不同，可承载的MTU也就不同，例如以太网的默认MTU是1500字节，而FDDI是4352字节。</p>
+<p>为了能够发送超过数据链路层MTU的数据，IP提供了称为IP fragmentation的数据分割机制。IP需要根据数据链路层的MTU来分割IP数据包（类似点外卖时，有些大菜要分成多个打包盒装），并对分割后的小包进行编号。当这些小包到达目的主机后，目的主机需要将这些小包按照序号重新连接在一起，重新组装成完整的IP数据包。</p>
+<p>总之，使用UDP时，发送的数据量存在上限。</p>
+<h3 id="udpke-hu-duan-neng-fou-gan-zhi-udpfu-wu-duan-bu-cun-zai-ni">UDP客户端能否感知UDP服务端不存在呢？</h3>
+<p>要回答这个问题，最简单的方法还是修改UDP客户端的代码，只需要修改服务端的地址即可。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    &#x2F;&#x2F; ...
+    &#x2F;&#x2F; let address = &quot;127.0.0.1:1234&quot;;
+    let address = &quot;127.0.0.1:1235&quot;;
+    &#x2F;&#x2F; ...
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ cargo run --bin client
+...
+message
+# (no echo)
+</code></pre>
+<p>可以看到，即使经过长时间等待，输入的<code>message</code>也没有原样输出，但也没有报错。要弄清楚按下回车键后到底发生了什么，需要使用Wireshark。</p>
+<p>我们先启动Wireshark，并输入<code>udp.port == 1235</code>作为过滤条件，然后再次启动UDP Echo客户端并输入<code>message</code>。可以看到，伴随着UDP的数据包，还有一个ICMP的数据包，提示“Destination unreachable (Port unreachable)”。</p>
+<p><img src="/obsidian/assets/rust-udp-echo/wireshark-udp-icmp-unreachable.webp" alt="3.udp-icmp.png" /></p>
+<p>也就是说，理论上可以通过捕获这个ICMP的包来判断服务端是否可达。但在Rust中如何实现，还需要进一步研究（<code>recv_from()</code>是阻塞的，也没法通过它的返回值判断）。</p>
+<p>好了，现在我们知道了如何用Rust实现UDP Echo服务器和客户端，也了解了有关UDP协议的一些细节。</p>
+<h2 id="fu">附</h2>
+<p>Cargo.toml</p>
+<pre data-lang="toml" class="language-toml "><code class="language-toml" data-lang="toml">[package]
+name = &quot;udp-echo&quot;
+version = &quot;0.1.0&quot;
+edition = &quot;2021&quot;
+
+# See more keys and their definitions at https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;cargo&#x2F;reference&#x2F;manifest.html
+
+[dependencies]
+log = &quot;0.4&quot;
+env_logger = &quot;0.6.1&quot;
+failure = &quot;0.1.5&quot;
+</code></pre>
+<p>main.rs UDP Echo服务器</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[macro_use]
+extern crate log;
+use std::env;
+use std::net::UdpSocket;
+use std::str;
+
+fn main() {
+    env::set_var(&quot;RUST_LOG&quot;, &quot;debug&quot;);
+    env_logger::init();
+
+    let address = &quot;127.0.0.1:1234&quot;;
+    serve(address).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+}
+
+pub fn serve(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    let server_socket = UdpSocket::bind(address)?;
+    loop {
+        let mut buffer = [0u8; 10];
+        let (size, src) = server_socket.recv_from(&amp;mut buffer)?;
+        debug!(&quot;Handling data from {}&quot;, src);
+        print!(&quot;{}&quot;, str::from_utf8(&amp;buffer[..size])?);
+        server_socket.send_to(&amp;buffer, src)?;
+    }
+}
+</code></pre>
+<p>src/bin/client.rs UDP Echo客户端</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[macro_use]
+extern crate log;
+use std::env;
+use std::net::UdpSocket;
+use std::{io, str};
+
+fn main() {
+    env::set_var(&quot;RUST_LOG&quot;, &quot;debug&quot;);
+    env_logger::init();
+
+    let address = &quot;127.0.0.1:1235&quot;;
+    send_to(address).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+    &#x2F;&#x2F; for i in 10..=20 {
+    &#x2F;&#x2F;     send_nbytes_to(address, 1 &lt;&lt; i).unwrap_or_else(|e| error!(&quot;{}&quot;, e));
+    &#x2F;&#x2F; }
+}
+
+pub fn send_to(address: &amp;str) -&gt; Result&lt;(), failure::Error&gt; {
+    let socket = UdpSocket::bind(&quot;127.0.0.1:0&quot;)?;
+    loop {
+        let mut input = String::new();
+        io::stdin().read_line(&amp;mut input)?;
+        socket.send_to(input.as_bytes(), address)?;
+        let mut buffer = [0u8; 1024];
+        socket.recv_from(&amp;mut buffer).expect(&quot;failed to receive&quot;);
+        print!(&quot;{}&quot;, str::from_utf8(&amp;buffer).expect(&quot;failed to convertto String&quot;));
+    }
+}
+
+pub fn send_nbytes_to(address: &amp;str, nbytes: usize) -&gt; Result&lt;(), failure::Error&gt; {
+    let socket = UdpSocket::bind(&quot;127.0.0.1:0&quot;)?;
+    let input = &quot;x&quot;.to_string().repeat(nbytes);
+    debug!(&quot;Sending {} bytes to {}&quot;, input.len(), address);
+    socket.send_to(input.as_bytes(), address).expect(&quot;couldn&#x27;t send data&quot;);
+    return Ok(());
+}
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/深入-rust-1.63-新特性-scoped-thread/">&#8249; 深入 Rust 1.63 新特性 Scoped Thread</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/issue24-实现一个简单的crt/"> issue24 实现一个简单的CRT &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yong-rustshi-xian-udp-echofu-wu-qi-he-ke-hu-duan">用Rust实现UDP Echo服务器和客户端</a>
+        </div>
+        <div class="hpad">
+          <a href="#udp-echofu-wu-qi"><small>- UDP Echo服务器</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#udp-echoke-hu-duan"><small>- UDP Echo客户端</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#you-guan-udpxie-yi-de-xi-jie-wen-ti"><small>- 有关UDP协议的细节问题</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#q1-ru-guo-ke-hu-duan-fa-song-de-shu-ju-liang-da-yu-fu-wu-duan-zhong-huan-chong-qu-de-da-xiao-hui-fa-sheng-shen-me"><small>· Q1. 如果客户端发送的数据量大于服务端中缓冲区的大小会发生什么？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#q2-udpke-hu-duan-yi-ci-zui-duo-neng-gou-fa-song-duo-shao-shu-ju"><small>· Q2. UDP客户端一次最多能够发送多少数据？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#udpke-hu-duan-neng-fou-gan-zhi-udpfu-wu-duan-bu-cun-zai-ni"><small>· UDP客户端能否感知UDP服务端不存在呢？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu"><small>- 附</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

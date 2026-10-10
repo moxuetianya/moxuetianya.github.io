@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - apparmor</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/apparmor/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-11-22T19:48:07+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/apparmor/atom.xml</id>
+    <entry xml:lang="en">
+        <title>apparmor调试 启动虚拟机失败排查</title>
+        <published>2025-11-22T19:48:07+08:00</published>
+        <updated>2025-11-22T19:48:07+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/apparmor调试 启动虚拟机失败排查/"/>
+        <id>https://moxuetianya.github.io/2025/11/apparmor调试 启动虚拟机失败排查/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/apparmor调试 启动虚拟机失败排查/">&lt;h1 id=&quot;virsh-qi-dong-xu-ni-ji-bao-cuo&quot;&gt;virsh 启动虚拟机报错&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo virsh start 107-debian12
+error: 启动域 &amp;#x27;107-debian12&amp;#x27; 失败
+error: 内部错误：连接监控的过程中进程退出: 2025-11-22T11:42:17.483457Z qemu-system-x86_64: -blockdev {&amp;quot;driver&amp;quot;:&amp;quot;file&amp;quot;,&amp;quot;filename&amp;quot;:&amp;quot;&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;107&amp;#x2F;vm-107-disk-1.qcow2&amp;quot;,&amp;quot;node-name&amp;quot;:&amp;quot;libvirt-2-storage&amp;quot;,&amp;quot;auto-read-only&amp;quot;:true,&amp;quot;discard&amp;quot;:&amp;quot;unmap&amp;quot;}: Could not open &amp;#x27;&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;107&amp;#x2F;vm-107-disk-1.qcow2&amp;#x27;: Permission denied
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cha-kan-apparmorde-pei-zhi-he-zhuang-tai&quot;&gt;查看apparmor的配置和状态&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# AppArmor 策略由 内核模块 (apparmor.ko) 强制执行
+# apparmor.service 只负责加载&amp;#x2F;卸载 profile
+# aa-teardown 或 apparmor_parser -R 才能移除策略
+# 手动 systemctl stop apparmor 不 unload 内核模块 → 残留策略继续生效
+sudo systemctl enable --now apparmor.service
+sudo systemctl reload libvirtd
+
+sudo dmesg | grep -i &amp;quot;apparmor\|denied&amp;quot; | tail -5
+sudo journalctl -k --since &amp;quot;10 minutes ago&amp;quot; | grep -i denied
+
+# 临时禁用 AppArmor（仅测试用）卸载所有 profile（立即解除限制）
+sudo aa-teardown
+# 禁用内核模块（彻底关闭）
+sudo systemctl stop apparmor
+sudo rmmod apparmor   # 若报 busy，先 aa-teardown
+
+# 手动扩展 libvirt AppArmor 策略（精准修复）
+# 编辑全局 libvirt 模板
+sudo nano &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;abstractions&amp;#x2F;libvirt-qemu
+# Allow access to custom image directories
+&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;107&amp;#x2F;** rwk,
+# rwk = 读+写+加锁（主磁盘需要）
+
+# 重载策略
+sudo apparmor_parser -r &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;abstractions&amp;#x2F;libvirt-*
+
+# 确认 AppArmor 真正关闭（若选方案 2）
+sudo aa-status | grep &amp;quot;apparmor module&amp;quot;
+# 检查是否还有 DENIED
+sudo dmesg -T | grep -i &amp;quot;denied.*qcow2&amp;quot;
+# 临时解决方案：禁用特定配置文件
+sudo aa-complain &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;libvirt-f681fad3-a70e-44c7-b91b-98a111906d5a
+sudo aa-disable &amp;#x2F;etc&amp;#x2F;apparmor.d&amp;#x2F;libvirt-f681fad3-a70e-44c7-b91b-98a111906d5a
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

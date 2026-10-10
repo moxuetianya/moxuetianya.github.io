@@ -1,0 +1,397 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>操作系统——什么是内存屏障？ | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="CPU乱序执行在单线程环境下是一种很好的优化手段，但是在多线程环境下，就会出现数据不一致的问题，因此就可以通过内存屏障这个机制来处理这个问题。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/操作系统-什么是内存屏障/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/操作系统-什么是内存屏障/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/操作系统-什么是内存屏障/" />
+  <meta property="og:description" content="CPU乱序执行在单线程环境下是一种很好的优化手段，但是在多线程环境下，就会出现数据不一致的问题，因此就可以通过内存屏障这个机制来处理这个问题。" />
+  <meta name="twitter:description" content="CPU乱序执行在单线程环境下是一种很好的优化手段，但是在多线程环境下，就会出现数据不一致的问题，因此就可以通过内存屏障这个机制来处理这个问题。" />
+  <meta property="og:title" content="操作系统——什么是内存屏障？ | 墨雪天琊" />
+  <meta name="twitter:title" content="操作系统——什么是内存屏障？ | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-01-24" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/操作系统-什么是内存屏障/">操作系统——什么是内存屏障？</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 一月 24, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a> </span>
+
+    
+
+
+<h1 id="cao-zuo-xi-tong-shen-me-shi-nei-cun-ping-zhang">操作系统——什么是内存屏障？</h1>
+<h3 id="nei-cun-ping-zhang"><strong>内存屏障</strong></h3>
+<p>CPU乱序执行在单线程环境下是一种很好的优化手段，但是在多线程环境下，就会出现数据不一致的问题，因此就可以通过内存屏障这个机制来处理这个问题。</p>
+<p>1.写内存屏障(Store Memory Barrier)：在指令后插入Store Barrier，能让写入缓存中最新数据更新写入主内存中，让其他线程可见。强制写入主内存，这种显示调用，不会让CPU去进行指令重排序
+2.读内存屏障(Load Memory Barrier)：在指令后插入Load Barrier，可以让高速缓存中的数据失效，强制重新从主内存中加载数据。也是不会让CPU去进行指令重排。</p>
+<h2 id="yi-ji-suan-ji-cpuyi-ji-duo-ji-huan-cun"><strong>一、计算机CPU以及多级缓存</strong></h2>
+<p>现代CPU现在比现代的内存系统快得多。为了弥合这一鸿沟，CPU使用复杂的缓存系统，这些系统可以有效地快速生成硬件哈希表，而无需链接。</p>
+<p>下面是一张从美团的技术博客———— <strong>《高性能队列——Disruptor》</strong>  讲解<em><strong>伪共享</strong></em> 时的配图：</p>
+<p><img src="/obsidian/assets/memory-barrier/cpu-cache-l1-l2-l3.jpg" alt="" /></p>
+<ul>
+<li>L1、L2、L3分别表示一级缓存、二级缓存、三级缓存，越靠近CPU的缓存，速度越快，容量也越小。</li>
+<li>L1 缓存很小但很快，并且紧靠着在使用它的CPU内核；</li>
+<li>L2 大一些，也慢一些，并且<strong>仍然只能被一个单独的CPU核使用</strong>；</li>
+<li>L3 更大、更慢，并且<strong>被单个插槽上的所有CPU核共享</strong>；</li>
+<li>最后是主存（内存），<strong>被全部插槽上的所有CPU核共享</strong>。</li>
+</ul>
+<p>另外，线程之间共享一份数据的时候，需要一个线程把数据写回主存，而另一个线程访问主存中相应的数据。</p>
+<h2 id="er-memory-barrier"><strong>二、Memory Barrier</strong></h2>
+<p>接着就是  <strong>《Disruptor Paper》</strong>  中 Memory Barriers 一节中的论述：</p>
+<p>这些缓存通过<strong>消息传递协议</strong>与其他处理器缓存系统保持一致。</p>
+<p>此外，处理器具有“存储缓冲区”来卸载对这些缓存的写入，以及“使队列失效”，以便缓存一致性协议能够在即将发生写入时快速确认失效消息，从而提高效率。</p>
+<p><strong>读内存屏障</strong>通过在无效队列中标记一个点来指示 CPU 上的加载指令来执行它，以便更改进入其缓存。 这使它对在读取屏障之前排序的写入操作具有一致的视图。</p>
+<p><strong>写屏障</strong>通过在存储缓冲区中标记一个点来命令 CPU 上的存储指令执行它，从而通过其缓存刷新写出。 这个屏障提供了一个有序的视图，了解在写入屏障之前发生了什么存储操作。</p>
+<p>在Java内存模型中，volatile字段的读写分别实现读写屏障。</p>
+<h2 id="san-huan-cun-yi-zhi-xing-xie-yi-mesi"><strong>三、缓存一致性协议————MESI</strong></h2>
+<p>MESI 协议是 <strong>Cache line</strong> 四种状态的首字母的缩写，分别是修改（Modified）态、独占（Exclusive）态、共享（Shared）态和失效（Invalid）态。 Cache 中缓存的每个 Cache Line 都必须是这四种状态中的一种。</p>
+<h2 id="3-1-cache-de-zhuang-tai"><strong>3.1 Cache 的状态：</strong></h2>
+<table><thead><tr><th>Cache块状态</th><th>详细解释</th><th>简要说明</th></tr></thead><tbody>
+<tr><td>修改态（Modified）</td><td>如果该 Cache Line 在多个 Cache 中都有备份，那么只有一个备份能处于这种状态，并且“dirty”标志位被置上。拥有修改态 Cache Line 的 Cache 需要在某个合适的时候把该 Cache Line 写回到内存中。但是在写回之前，任何处理器对该 Cache Line在内存中相对应的内存块都不能进行读操作。 Cache Line 被写回到内存中之后，其状态就由修改态变为共享态。</td><td>当前CPU cache拥有最新数据（最新的cache line），其他CPU拥有失效数据（cache line的状态是invalid），虽然当前CPU中的数据和主存是不一致的，但是以当前CPU的数据为准；</td></tr>
+<tr><td>独占态（Exclusive）</td><td>和修改状态一样，如果该 Cache Line 在多个 Cache 中都有备份，那么只有一个备份能处于这种状态，但是“dirty”标志位没有置上，因为它是和主内存内容保持一致的一份拷贝。如果产生一个读请求，它就可以在任何时候变成共享态。相应地，如果产生了一个写请求，它就可以在任何时候变成修改态。</td><td>只有当前CPU中有数据，其他CPU中没有改数据，当前CPU的数据和主存中的数据是一致的；</td></tr>
+<tr><td>共享态（Shared）</td><td>意味着该 Cache Line 可能在多个 Cache 中都有备份，并且是相同的状态，它是和内存内容保持一致的一份拷贝，而且可以在任何时候都变成其他三种状态。</td><td>当前CPU和其他CPU中都有共同数据，并且和主存中的数据一致；</td></tr>
+<tr><td>失效态（Invalid）</td><td>该 Cache Line 要么已经不在 Cache 中，要么它的内容已经过时。一旦某个Cache Line 被标记为失效，那它就被当作从来没被加载到 Cache 中；</td><td>当前CPU中的数据失效，数据应该从主存中获取，其他CPU中可能有数据也可能无数据，当前CPU中的数据和主存被认为是不一致的；</td></tr>
+</tbody></table>
+<h2 id="3-2-cache-de-cao-zuo"><strong>3.2 Cache 的操作：</strong></h2>
+<p>MESI协议中，每个cache的控制器不仅知道自己的操作（local read和local write），每个核心的缓存控制器通过监听也知道其他CPU中cache的操作（remote read和remote write），进而再确定自己cache中共享数据的状态是否需要调整。</p>
+<table><thead><tr><th>操作类型</th><th>操作说明</th></tr></thead><tbody>
+<tr><td>local read</td><td>读本地cache中的数据</td></tr>
+<tr><td>local write</td><td>将数据写到本地cache</td></tr>
+<tr><td>remote read</td><td>其他核心发生read</td></tr>
+<tr><td>remote write</td><td>其他核心发生write</td></tr>
+</tbody></table>
+<p>在维基百科 <strong>MSI protocol</strong>，国内可能打不开维基百科链接，可以看看 TheFreeDictionary<strong>MSI protocol</strong>，对于操作的定义很详尽：</p>
+<p>Cache块的状态从一种状态过渡到另一种状态，通常有两大类刺激因素：</p>
+<ol>
+<li>第一个刺激因素是处理器的特定读写请求。例如：处理器P1在其缓存中有一个块X，并且有来自处理器的从该块读取或写入的请求。</li>
+<li>第二个刺激因素来自另一个处理器。例如：处理器P2的缓存中没有缓存块或缓存块中不是最新数据，当前处理器P1通过连接所有处理器的总线收到来自处理器P2的“刺激”。</li>
+</ol>
+<p>总线请求在侦测器（Snoopers）的帮助下被监视，侦测器监视所有总线事务。</p>
+<p>以下是不同类型的处理器请求和总线侧请求：</p>
+<ul>
+<li>
+<p>处理器对缓存的请求包括以下操作：</p>
+<ul>
+<li>处理器读缓存块请求（PrRd: The processor requests to read a Cache block.）</li>
+<li>处理器写缓存块请求（PrWr: The processor requests to write a Cache block.）</li>
+</ul>
+</li>
+<li>
+<p>总线侧请求包括以下操作：</p>
+</li>
+<li>
+<p>总线读请求（BusRd）: 表明正有其他处理器请求读取缓存块。</p>
+</li>
+<li>
+<p>总线写请求（BusRdX）：表明正有其他处理器请求写入一个它的缓存中不存在的缓存块。</p>
+</li>
+<li>
+<p>总线更新请求（BusUpgr）：表明有其他处理器请求写入一个已经保存在缓存中的缓存块。</p>
+</li>
+<li>
+<p>总线“回写”请求（Flush）：表明其他处理器正在回写一整块缓存块到主存中。</p>
+</li>
+<li>
+<p>总线“缓存到缓存的传输”请求（FlushOpt）：整个缓存块发布在总线上，以便将其提供给另一个处理器。</p>
+</li>
+</ul>
+<blockquote>
+<p>如果将数据块从主存转移到缓存的延迟大于从缓存转移到缓存的延迟（在基于总线的系统中通常是这样），则这种缓存到缓存的转移可以减少读未命中延迟。但在多核架构中，一致性保持在二级缓存级别，片上三级缓存可能更快从三级缓存而不是从另一个二级缓存获取丢失的块。</p>
+</blockquote>
+<p>侦测（Snooping）操作：在侦测系统中，总线上的所有缓存监视（或侦测）所有总线事务。每个缓存都有其存储的每个物理内存块的共享状态副本。根据所用协议的状态图更改块的状态。总线的两侧都有侦测者：</p>
+<ul>
+<li>处理器/缓存端的侦测器。</li>
+<li>内存侧的监听功能由内存控制器完成。</li>
+</ul>
+<p>每个缓存块都有自己的4种状态Finite State Machine（MESI）。表1.1和表1.2显示了与不同输入有关的状态转换和特定状态下的响应：</p>
+<p>Table 1.1 状态转换和对各种处理器操作的响应</p>
+<table><thead><tr><th>初始状态</th><th>处理器操作</th><th>响应</th></tr></thead><tbody>
+<tr><td>Invalid(I)</td><td>PrRd</td><td>1. 向总线发出BusRd信号；2. 其他缓存看到BusRd，检查是否有有效副本，通知发送方缓存；3. 如果其他缓存具有有效副本，则状态转换为共享Shared(S)；4. 如果其他缓存没有有效副本(必须确保所有其他缓存都已报告) ，则状态转换为共享Exclusive(E)；5. 若其他缓存具有副本，则其中一个缓存发送值，否则从主存获取；</td></tr>
+<tr><td></td><td>PrWr</td><td>1. 在总线上发出BusRdX信号；2. 在请求程序缓存中状态转换为Modified(M)；3. 如果其他缓存有副本，则发送值，否则从主存获取；4. 如果其他缓存有副本，它们将看到BusRdX信号并使其副本无效；5. 写入缓存块修改该值；</td></tr>
+<tr><td>Exclusive(E)</td><td>PrRd</td><td>1. 没有生成总线事务；2. 状态保持不变；3. 对块的读取命中缓存；</td></tr>
+<tr><td></td><td>PrWr</td><td>1. 没有生成总线事务；2. 状态从Exclusive(E)转换到Modified(M)；3. 对块的写入命中缓存；</td></tr>
+<tr><td>Shared(S)</td><td>PrRd</td><td>1. 没有生成总线事务；2. 状态保持不变；3. 对块的读取命中缓存；</td></tr>
+<tr><td></td><td>PrWr</td><td>1. 在总线上发出BusUpgr信号；2. 状态从Shared(S)转换到Modified(M)；3. 其他缓存看到BusUpgr并将其块副本标记为Invalid(I)。</td></tr>
+<tr><td>Modified(M)</td><td>PrRd</td><td>1. 没有生成总线事务；2. 状态保持不变；3. 对块的读取命中缓存；</td></tr>
+<tr><td></td><td>PrWr</td><td>1. 没有生成总线事务；2. 状态保持不变；3. 对块的写入命中缓存；</td></tr>
+</tbody></table>
+<p>Table 1.2 状态转换和对各种总线操作的响应</p>
+<table><thead><tr><th>初始状态</th><th>总线操作</th><th>响应</th><th>备注</th></tr></thead><tbody>
+<tr><td>Invalid(I)</td><td>BusRd</td><td>没有状态变化。信号被忽略；</td><td></td></tr>
+<tr><td></td><td>BusRdX</td><td>没有状态变化。信号被忽略；</td><td></td></tr>
+<tr><td></td><td>BusUpgr</td><td>没有状态变化。信号被忽略；</td><td></td></tr>
+<tr><td>Exclusive(E)</td><td>BusRd</td><td>1. 状态由Exclusive转换为Shared（因为它意味着在其他缓存中进行读取）；2. 将FlushOpt信号和块内容一起发送到总线；</td><td></td></tr>
+<tr><td></td><td>BusRdX</td><td>1. 状态由Exclusive转换为Invalid；2. 将FlushOpt信号和现在已无效的块中的数据一起发送到总线；</td><td>1. 发生PrWr的处理器缓存将接收已失效的块中的数据，因为缓存到缓存的传输通常比内存到缓存的传输延迟要短；2. 有且仅有一个缓存状态是Exclusive，其他缓存状态是Invalid(I)，因此不会有BusUpgr操作；</td></tr>
+<tr><td>Shared(S)</td><td>BusRd</td><td>1. 无状态变化（其他缓存在此块上执行读取，因此仍然共享）；2. 可以将FlushOpt和块的内容一起放在总线上（设计选择，哪个共享状态的缓存可以执行此操作）；</td><td></td></tr>
+<tr><td></td><td>BusUpgr</td><td>1. 状态从Shared转换为Invalid，已发送BusUpgr的缓存状态变为Modified(M)；2. 可以将FlushOpt和块的内容一起放在总线上（设计选择，哪个共享状态的缓存可以执行此操作）；</td><td>对其他Shared(S)状态的缓存的PrWr操作，向总线发出了BusUpgr信号；</td></tr>
+<tr><td></td><td>BusRdX</td><td>1. 状态从Shared转换为Invalid，已发送BusR的缓存状态变为Modified(M)；2. 可以将FlushOpt和块的内容一起放在总线上（设计选择，哪个共享状态的缓存可以执行此操作）；</td><td>英文原文中没有这一项，但是我感觉这种情况是存在的：因为Shared和Invalid状态的缓存是可以共存的，此时对Invalid缓存的PrWr操作会使所有其他Shared缓存副本无效；</td></tr>
+<tr><td>Modified(M)</td><td>BusRd</td><td>1. 状态由Modified转换为Shared；2.把FlushOpt和数据放在总线上。由BusRd的发送方和内存控制器接收，写入主内存；</td><td></td></tr>
+<tr><td></td><td>BusRdX</td><td>1. 状态从Modified转换为Invalid；2.把FlushOpt和数据放在总线上。由BusRdX的发送方和内存控制器接收，写入主内存；</td><td></td></tr>
+</tbody></table>
+<p>仅当缓存行处于<strong>Modified</strong>或<strong>Exclusive</strong>状态时，才能自由执行写操作。如果缓存处于<strong>Shared</strong>(S)状态，则必须首先使所有其他缓存副本无效。这通常通过一种称为“请求所有权”（RFO，Request For Ownership）的广播操作来完成。</p>
+<p>保存处于<strong>Modified</strong>状态的行的缓存 必须侦测（截获）对对应主存位置的所有尝试读取（来自系统中的所有其他缓存），并插入其保存的数据。</p>
+<ul>
+<li>这可以通过强制读取退出（即稍后重试），然后将数据写入主内存并将缓存行更改为<strong>Shared</strong>状态来实现。</li>
+<li>也可以通过将数据从Modified的缓存发送到执行读取的缓存来完成。
+注意，只有读未命中时才需要监听（协议确保，如果任何其他缓存可以执行读命中，则Modified缓存将不存在）。</li>
+</ul>
+<p>保存处于Shared状态的行的缓存必须侦听来自其他缓存的invalidate或request-for-ownership广播，并在匹配时丢弃该行（通过将其移动到无效状态）。</p>
+<p>Modified状态和Exclusive状态总是精确的：即，它们与系统中真正的缓存行所有权情况相匹配。
+Shared状态可能不精确：如果另一个缓存丢弃共享行，此缓存可能成为该缓存行的唯一所有者，但不会提升为独占状态。其他缓存在丢弃缓存行时不会广播通知，并且此缓存在不保留共享副本数的情况下无法使用此类通知。</p>
+<p>从这个意义上说，Exclusive状态是一种机会主义优化：如果CPU想要修改处于Shared状态的缓存行，则需要一个总线事务来使所有其他缓存副本无效。状态Exclusive允许在没有总线事务的情况下修改缓存行。</p>
+<h2 id="3-3-cun-chu-huan-chong-qu-he-wu-xiao-dui-lie"><strong>3.3 存储缓冲区和无效队列</strong></h2>
+<p>MESI协议在其简单、直接的实现中表现出两个特殊的性能问题。</p>
+<ul>
+<li>首先，当写入无效缓存行时，从另一个CPU获取缓存行时会有很长的延迟。</li>
+<li>其次，将缓存行移动到Invalid状态非常耗时。
+为了减轻这些延迟，CPU实现<strong>存储缓冲区</strong>和<strong>无效队列</strong>。</li>
+</ul>
+<h2 id="3-4-cun-chu-huan-chong-qu"><strong>3.4 存储缓冲区</strong></h2>
+<p>写入无效缓存行时使用存储缓冲区。由于写操作仍将继续，CPU会发出一条读无效消息（因此有问题的缓存行和存储该内存地址的所有其他CPU缓存行都将失效），然后将写操作推入存储缓冲区，在缓存行最终到达缓存时执行。</p>
+<p>存储缓冲区存在的直接后果是，当CPU提交写操作时，该写操作不会立即写入缓存。因此，每当CPU需要读取缓存行时，它首先必须扫描自己的存储缓冲区，以确定是否存在相同的缓存行，因为有可能相同的缓存行以前由相同的CPU写入，但尚未写入缓存（前面的写入仍在存储缓冲区中等待）。请注意，虽然CPU可以读取其存储缓冲区中自己以前的写操作，但在将这些写操作从存储缓冲区刷新到缓存之前，其他CPU无法看到这些写操作-CPU无法扫描其他CPU的存储缓冲区。</p>
+<h2 id="3-5-wu-xiao-dui-lie"><strong>3.5 无效队列</strong></h2>
+<p>关于无效消息，CPU实现了无效队列，通过该队列，刚收到的无效请求会立即得到确认，但实际上不会被执行。相反，无效消息只需进入一个无效队列，并尽快（但不一定立即）进行处理。因此，CPU可以忽略其缓存中的缓存线实际上无效的事实，因为无效队列包含已接收但尚未应用的无效。请注意，与存储缓冲区不同，CPU不能扫描无效队列，因为CPU和无效队列在物理上位于缓存的两侧。</p>
+<p>因此，需要内存屏障。</p>
+<ol>
+<li>存储(写)屏障将刷新存储缓冲区，确保所有写操作都已应用于该CPU的缓存。</li>
+<li>读屏障将刷新无效队列，从而确保其他CPU的所有写操作对刷新CPU可见。</li>
+</ol>
+<p>此外，内存管理单元不扫描存储缓冲区，导致类似问题。即使在单线程处理器中也可以看到这种效果。</p>
+<blockquote>
+<p>Request-For-Ownership 广播
+所有权读取（RFO）是缓存一致性协议中的一种操作，它结合了读取和无效广播。
+该操作是由试图写入处于Shared或Invalid状态的缓存行的处理器发出的。该操作会导致所有其他缓存将该行的状态设置为Invalid。
+所有权读取事务是一种旨在写入该内存地址的读取操作。因此，此操作是独占的。
+它将数据带到缓存中，并使保存此内存行的所有其他处理器缓存失效。在上表中称为“<strong>BusRdX</strong>”。</p>
+</blockquote>
+<h2 id="4-shi-li-yu-wen-ti"><strong>4、示例与问题：</strong></h2>
+<h2 id="4-1-yin-ru-store-bufferhou-chu-xian-de-wen-ti-1"><strong>4.1 引入store buffer后出现的问题1</strong></h2>
+<p>试考虑如下代码，a和b的初始值为0</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">a = 1;
+b = a + 1;
+assert(b == 2);
+</code></pre>
+<p>大致过程如下图所示：</p>
+<p><img src="/obsidian/assets/memory-barrier/store-buffer-problem.jpg" alt="" /></p>
+<ol>
+<li>a,b假设在内存中的同一个Cache Block中；</li>
+<li>CPU 0 开始执行代码 <code>a = 1</code></li>
+<li>CPU 0 未命中 a 的缓存，处理器发出 PrWr 信号，同时将 BusRdX 信号放到总线上，使保存此缓存行的所有其他处理器的缓存失效</li>
+<li>CPU 0 将写入操作保存在了存储缓冲区</li>
+<li>因为其他处理器没有 a 的缓存行的副本，所以从主存中获取</li>
+<li>CPU 0 现在开始执行 <code>b = a + 1</code> 了</li>
+<li>CPU 0 从它的缓存中读取了 a ，值为 0，并用于计算。（此时，主存传输给Cache 0 的数据才刚刚到，还未来得及将存储缓冲区的写操作作用到缓存）</li>
+<li>CPU 0 根据缓存中获取到的 a = 0，计算出了 b 的值为 1</li>
+<li>CPU 0 根据存储缓冲区中的写操作，将 Cache 0 中的缓存行上 a 的值更新为 1</li>
+<li>CPU 0 用 b = 1 修改了缓存块</li>
+<li>CPU 0 执行 <code>assert(b == 2)</code>，结果为 false</li>
+</ol>
+<p>出现问题的原因是我们有两份”a”的拷贝，一份在cache-line中，一份在store buffer中。硬件设计师的解决办法是“store forwarding”，当执行PrRr操作时，会同时从cache和store buffer里读取。也就是说，当进行一次PrRr操作，如果store-buffer里有该数据，则CPU会从store-buffer里直接取出数 据，而不经过cache。因为“store forwarding”是硬件实现，我们并不需要太关心。</p>
+<h2 id="4-2-yin-ru-store-bufferhou-chu-xian-de-wen-ti-2"><strong>4.2 引入store buffer后出现的问题2</strong></h2>
+<p>假如我们让CPU 0 执行：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void flag(void) {
+  a = 1;
+  b = 1;
+}
+</code></pre>
+<p>让 CPU 1 执行：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void judge(void) {
+  while (b = 0) continue;
+  assert(a == 1);
+}
+</code></pre>
+<p><img src="/obsidian/assets/memory-barrier/store-buffer-stale-read-problem.jpg" alt="" /></p>
+<ol>
+<li>CPU 0 执行<code>a = 1</code>。缓存行不在CPU0的缓存中，CPU0处理器进行PrWr操作，并将“a”的新值放到存储缓冲区，与此同时发送一个“BusRdX”消息，使保存此内存行的所有其他处理器缓存失效，个人感觉在没有引入Invalidation Queue的情况下，这里应该是阻塞等待响应的，但是因为CPU 1 此时没有缓存副本，所以不会有任何实际的操作，直接返回ACK即可，CPU 0 最终从内存中获取包含“a”的值的缓存行；</li>
+<li>CPU 1 执行<code>while (b == 0) continue</code>，但是包含“b”的缓存行不在缓存中，它发送一个PrRr消息，并将BusRd放到总线上；</li>
+<li>CPU 0 执行<code>b = 1</code>，它已经在缓存行中有“b”的值了(换句话说，缓存行已经处于“modified”或者“exclusive”状态)，因此它存储新的“b”值在它的缓存行中；</li>
+<li>CPU 0 接收到BusRd消息，并且发送FlushOpt带着缓存行中的最新的“b”的值到总线上，同时将缓存行设置为“shared”状态；</li>
+<li>CPU 1 接收到包含“b”值的缓存行，并将其值写到它的缓存行中，内存控制器也接收到“b”值的缓存行，更新内存块；</li>
+<li>CPU 1 现在结束执行<code>while (b == 0) continue</code>，因为它发现“b”的值是1，它开始处理下一条语句。</li>
+<li>CPU 1 执行<code>assert(a == 1)</code>，并且，由于CPU 1 工作在旧的“a”的值，因此验证失败。</li>
+<li>CPU 0 把存储缓冲区的“a”的值写入到它的缓存 Cache 0 中，个人感觉这个地方可以再次修改缓存行为“Modified”状态，并再次发送“BusRdX”消息到总线，使保存此内存行的所有其他处理器缓存失效，（但是这里我没查阅资料，如果讲得不对，欢迎指正）</li>
+</ol>
+<p>总而言之，可能出现这类情况，b已经赋值了，但是a还没有，所以出现了<code>b = 1, a = 0</code>的情况。对于这类问题，硬件设计者也爱莫能助，因为CPU无法知道变量之间的关联关系。所以硬件设计者提供了<code>memory barrier</code>指令，让软件来告诉CPU这类关系</p>
+<p>解决办法是：使用硬件设计者提供的“内存屏障”来修改代码：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void foo(void)
+{
+    a = 1;
+    smp_mb();&#x2F;&#x2F; 强制刷新store-buffer，再继续进行后面的赋值
+    b = 1;
+}
+</code></pre>
+<h2 id="4-3-invalidate-queuede-yin-ru"><strong>4.3 Invalidate Queue的引入</strong></h2>
+<p>store buffer一般很小，所以CPU执行几个store操作就会填满, 这时候CPU必须等待invalidation ACK消息（得到invalidation ACK消息后会将storebuffer中的数据存储到cache中，然后将其从store buffer中移除），来释放store buffer缓冲区空间。</p>
+<p>“Invalidation ACK”消息需要如此长的时间，其原因之一是它们必须确保相应的缓存行实际变成无效了。如果缓存比较忙的话，这个使无效操作可能被延迟。例如，如果CPU密集的装载或者存储数据，并且这些数据都在缓存中。另外，如果在一个较短的时间内，大量的“使无效”消息到达，一个特定的CPU会忙于处理它们。这会使得其他CPU陷于停顿。但是，在发送应答前，CPU 不必真正的使无效缓存行。它可以将使无效消息排队。并且它明白，在发送更多的关于该缓存行的消息前，需要处理这个消息。</p>
+<p>一个带Invalidation Queue的CPU可以迅速应答一个Invalidation Ack消息，而不必等待相应的行真正变成无效状态。于是乎出现了下面的组织架构：</p>
+<p><img src="/obsidian/assets/memory-barrier/invalidation-queue-architecture.jpg" alt="" /></p>
+<p>这样可以提高效率，但是仍然无法避免<code>4.2 引入store buffer后出现的问题2</code> 中存在的问题。</p>
+<ol>
+<li>CPU0执行<code>a=1</code>。因为cache-line是shared状态，所以新值放到store-buffer里，并传递invalidate消息来通知CPU1</li>
+<li>CPU1执行 while(b==0) continue;但是b不再CPU1-cache中，所以发送read消息</li>
+<li>CPU1接受到CPU0的invalidate消息，将其排队，然后返回ACK消息</li>
+<li>CPU0接收到来自CPU1的ACK消息，然后执行smp_mb()，将a从store-buffer移到cache-line中。（内存屏蔽在此处生效了）</li>
+<li>CPU0执行b=1;因为已经包含了该cache-line，所以将b的新值写入cache-line</li>
+<li>CPU0接收到了read消息，于是传递包含b新值的cache-line给CPU1，并标记为shared状态</li>
+<li>CPU1接收到包含b的cache-line</li>
+<li>CPU1继续执行while(b==0) continue;因为为假所以进行下一个语句</li>
+<li>CPU1执行assert(a==1)，因为a的旧值依然在CPU1-cache中，断言失败</li>
+</ol>
+<p>尽管断言失败了，但是CPU1还是处理了队列中的invalidate消息，并真的invalidate了包含a的cache-line，但是为时已晚</p>
+<p>出现问题的原因是，当CPU排队某个invalidate消息后，并做错了应答Invalidate Ack, 但是在它还没有处理这个消息之前，就再次读取了位于cache中的数据，该数据此时本应该已经失效，但由于未处理invalidate消息导致使用错误。</p>
+<p>解决方法是在bar()中也增加一个memory barrier：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void bar(void)
+{
+    while (b == 0) continue;
+    smp_mb();
+    assert(a == 1);
+}
+</code></pre>
+<p>综上所述，smp_mb();既可以用来处理storebuffer中的数据，也可以用来处理Invalidation Queue中的Invalid消息。
+实际上，memory barrier确实可以细分为“write memory barrier(wmb)”和“read memory barrier(rmb)”。rmb只处理Invalidate Queues，wmb只处理store buffer。</p>
+<p>代码最终修改为：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void foo(void)
+{
+    a = 1;
+    smp_wmb();&#x2F;*CPU1要使用该值，因此需要及时更新处理store buffer中的数据*&#x2F;
+    b = 1;
+}
+void bar(void)
+
+{
+
+while (b == 0) continue;
+
+smp_rmb();&#x2F;由于CPU0修改了a值，使用此值时及时处理Invalidation Queue中的消息&#x2F;
+
+assert(a == 1);
+
+}
+</code></pre>
+<p>原文地址：<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//www.cnblogs.com/peifx/p/16206963.html%23top">https://www.</a><strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//www.cnblogs.com/peifx/p/16206963.html%23top">cnblogs.com/peifx/p/162</a></strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//www.cnblogs.com/peifx/p/16206963.html%23top">06963.html#top</a></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/c-雅兰亭库-yalantinglibs-介绍及使用-序列化、json和结构体转换、协程/">&#8249; c++雅兰亭库 (yalantinglibs) 介绍及使用(序列化、json和结构体转换、协程)</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/高效cc-调试/"> 高效CC++调试 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cao-zuo-xi-tong-shen-me-shi-nei-cun-ping-zhang">操作系统——什么是内存屏障？</a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-cun-ping-zhang"><small>- 内存屏障</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-ji-suan-ji-cpuyi-ji-duo-ji-huan-cun"><small>- 一、计算机CPU以及多级缓存</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#er-memory-barrier"><small>- 二、Memory Barrier</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-huan-cun-yi-zhi-xing-xie-yi-mesi"><small>- 三、缓存一致性协议————MESI</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-cache-de-zhuang-tai"><small>- 3.1 Cache 的状态：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-cache-de-cao-zuo"><small>- 3.2 Cache 的操作：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-cun-chu-huan-chong-qu-he-wu-xiao-dui-lie"><small>- 3.3 存储缓冲区和无效队列</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-4-cun-chu-huan-chong-qu"><small>- 3.4 存储缓冲区</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-5-wu-xiao-dui-lie"><small>- 3.5 无效队列</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-shi-li-yu-wen-ti"><small>- 4、示例与问题：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-yin-ru-store-bufferhou-chu-xian-de-wen-ti-1"><small>- 4.1 引入store buffer后出现的问题1</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-yin-ru-store-bufferhou-chu-xian-de-wen-ti-2"><small>- 4.2 引入store buffer后出现的问题2</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-invalidate-queuede-yin-ru"><small>- 4.3 Invalidate Queue的引入</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

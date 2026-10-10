@@ -1,0 +1,244 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>多线程调试必杀技 - GDB的non-stop模式 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="调试器（如VS2008和老版GDB）往往只支持all-stop模式，调试多线程程序时，如果某个线程断在一个断点上，你的调试器会让整个程序freeze，直到你co" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/多线程调试必杀技-gdb的non-stop模式/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/多线程调试必杀技-gdb的non-stop模式/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/多线程调试必杀技-gdb的non-stop模式/" />
+  <meta property="og:description" content="调试器（如VS2008和老版GDB）往往只支持all-stop模式，调试多线程程序时，如果某个线程断在一个断点上，你的调试器会让整个程序freeze，直到你co" />
+  <meta name="twitter:description" content="调试器（如VS2008和老版GDB）往往只支持all-stop模式，调试多线程程序时，如果某个线程断在一个断点上，你的调试器会让整个程序freeze，直到你co" />
+  <meta property="og:title" content="多线程调试必杀技 - GDB的non-stop模式 | 墨雪天琊" />
+  <meta name="twitter:title" content="多线程调试必杀技 - GDB的non-stop模式 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-01-11" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/多线程调试必杀技-gdb的non-stop模式/">多线程调试必杀技 - GDB的non-stop模式</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 一月 11, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/c/">C++</a>  #<a href="https://moxuetianya.github.io/tags/ebpf-yu-guan-ce/">eBPF 与观测</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a>  #<a href="https://moxuetianya.github.io/tags/diao-shi/">调试</a> </span>
+
+    
+
+
+<h1 id="duo-xian-cheng-diao-shi-bi-sha-ji-gdbde-non-stopmo-shi">多线程调试必杀技 - GDB的non-stop模式</h1>
+<hr />
+<h2 id="duo-xian-cheng-diao-shi-zhi-tong">多线程调试之痛</h2>
+<p>调试器（如VS2008和老版GDB）往往只支持all-stop模式，调试多线程程序时，如果某个线程断在一个断点上，你的调试器会让整个程序freeze，直到你continue这个线程，程序中的其他线程才会继续运行。这个限制使得被调试的程序不能够像真实环境中那样运行--当某个线程断在一个断点上，让其他线程并行运行。</p>
+<p>GDBv7.0引入的non-stop模式使得这个问题迎刃而解。在这个模式下，</p>
+<ul>
+<li>当某个或多个线程断在一个断点上，其他线程仍会并行运行</li>
+<li>你可以选择某个被断的线程，并让它继续运行</li>
+</ul>
+<p>让我们想象一下，有了这个功能后</p>
+<ul>
+<li>当其他线程断在断点上时，程序里的定时器线程可以正常的运行了，从而避免不必要得超时</li>
+<li>当其他线程断在断点上时，程序里的watchdog线程可以正常的运行了，从而避免嵌入式硬件以为系统崩溃而重启</li>
+<li>可以控制多个线程运行的顺序，从而重现deadlock场景了。由于GDB可以用python脚本驱动调试，理论上可以对程序在不同的线程运行顺序下进行自动化测试。</li>
+</ul>
+<p>因此，non-stop模式理所当然成为多线程调试“必杀技”。这2009年下半年之后发布的Linux版本里都带有GDBv7.0之后的版本。很好奇，不知道VS2010里是不是也支持类似的调试模式了。</p>
+<h2 id="yan-shi-gdbde-non-stopmo-shi">演示GDB的non-stop模式</h2>
+<p>让破砂锅用一个C++小程序在Ubuntu Linux  09.10下demo这个必杀技。虽然我的demo使用命令行版gdb，如果你喜欢图形化的调试器，Eclipse2009年5月之后的版本可以轻松的调 用这个功能，详情参见Eclipse参见<a rel="noopener" target="_blank" href="http://live.eclipse.org/node/723">http://live.eclipse.org/node/723</a></p>
+<ol>
+<li>编译以下程序nonstop</li>
+</ol>
+<blockquote>
+<p>1// gdb non-stop mode demo
+2// build instruction: g++ -g -o nonstop nonstop.cpp -lboost_thread
+3
+4#include &lt;iostream&gt;5#include &lt;boost/thread/thread.hpp&gt;
+6
+7struct op
+8{
+9        op(int id): m_id(id) {}
+10
+11        void operator()()
+12        {
+13                std::cout &lt;&lt; m_id &lt;&lt; " begin" &lt;&lt; std::endl;
+14                std::cout &lt;&lt; m_id &lt;&lt; " end" &lt;&lt; std::endl;
+15        }
+16
+17        int m_id;
+18};
+19
+20int main(int argc, char ** argv)
+21{
+22        boost::thread t1(op(1)), t2(op(2)), t3(op(3));
+23        t1.join(); t2.join(); t3.join();
+24        return 0;
+25}
+26</p>
+</blockquote>
+<ol>
+<li>把一下3行添加到~/.gdbinit来打开non-stop模式</li>
+</ol>
+<pre data-lang="gcc" class="language-gcc "><code class="language-gcc" data-lang="gcc">set target-async 1
+set pagination off
+set non-stop on
+</code></pre>
+<ol start="3">
+<li>启动gdb,设断点,运行.可以看到主线程1是running,3个子线程都断在断点上,而不是只有一个子线程断在断点上.</li>
+</ol>
+<blockquote>
+<p>~/devroot/nonstop$ gdb ./nonstop
+GNU gdb (GDB) 7.0-ubuntu
+Reading symbols from /home/frankwu/devroot/nonstop/nonstop...done.
+(gdb) break 14
+Breakpoint 1 at 0x402058: file nonstop.cpp, line 14.
+(gdb) break 24
+Breakpoint 3 at 0x401805: file nonstop.cpp, line 24.
+(gdb) run
+Starting program: /home/frankwu/devroot/nonstop/nonstop
+[Thread debugging using libthread_db enabled]
+[New Thread 0x7ffff6c89910 (LWP 2762)]
+[New Thread 0x7ffff6488910 (LWP 2763)]
+1 begin
+Breakpoint 1, op::operator() (this=0x605118) at nonstop.cpp:14
+14                  std::cout &lt;&lt; m_id &lt;&lt; " end" &lt;&lt; std::endl;
+2 begin
+Breakpoint 1, op::operator() (this=0x605388) at nonstop.cpp:14
+14                  std::cout &lt;&lt; m_id &lt;&lt; " end" &lt;&lt; std::endl;
+[New Thread 0x7ffff5c87910 (LWP 2764)]
+3 begin
+Breakpoint 1, op::operator() (this=0x605618) at nonstop.cpp:14
+14                  std::cout &lt;&lt; m_id &lt;&lt; " end" &lt;&lt; std::endl;
+(gdb) info threads
+4 Thread 0x7ffff5c87910 (LWP 2764)  op::operator() (this=0x605618) at nonstop.cpp:14
+3 Thread 0x7ffff6488910 (LWP 2763)  op::operator() (this=0x605388) at nonstop.cpp:14
+2 Thread 0x7ffff6c89910 (LWP 2762)  op::operator() (this=0x605118) at nonstop.cpp:14
+* 1 Thread 0x7ffff7fe3710 (LWP 2759)  (running)</p>
+</blockquote>
+<ol start="4">
+<li>让线程3继续运行,注意我顾意把主线程1也continue,这是我发现的workaround,否则gdb不能切回thread 1.</li>
+</ol>
+<blockquote>
+<p>(gdb) thread apply 3 1 continueThread 3 (Thread 0x7ffff6488910 (LWP 2763)):
+Continuing.Thread 1 (Thread 0x7ffff7fe3710 (LWP 2759)):
+Continuing.
+Cannot execute this command while the selected thread is running.
+2 end
+[Thread 0x7ffff6488910 (LWP 2763) exited]warning: Unknown thread 3.Thread 1 (Thread 0x7ffff7fe3710 (LWP 2759)):
+Continuing.
+Cannot execute this command while the selected thread is running.
+(gdb) info threads
+4 Thread 0x7ffff5c87910 (LWP 2764)  op::operator() (this=0x605618) at nonstop.cpp:14
+2 Thread 0x7ffff6c89910 (LWP 2762)  op::operator() (this=0x605118) at nonstop.cpp:14
+* 1 Thread 0x7ffff7fe3710 (LWP 2759)  (running)</p>
+</blockquote>
+<ol start="5">
+<li>让另外两个线程继续运行而结束,主线程断在第24行,最后结束.</li>
+</ol>
+<blockquote>
+<p>(gdb) thread apply 4 2 1 continueThread 4 (Thread 0x7ffff5c87910 (LWP 2764)):
+Continuing.Thread 2 (Thread 0x7ffff6c89910 (LWP 2762)):
+Continuing.Thread 1 (Thread 0x7ffff7fe3710 (LWP 2759)):
+Continuing.
+Cannot execute this command while the selected thread is running.
+3 end
+1 end
+[Thread 0x7ffff5c87910 (LWP 2764) exited]
+[Thread 0x7ffff6c89910 (LWP 2762) exited]Breakpoint 3, main (argc=1, argv=0x7fffffffe348) at nonstop.cpp:24
+24          return 0;</p>
+</blockquote>
+<blockquote>
+<p>(gdb) continue
+Thread 1 (Thread 0x7ffff7fe3710 (LWP 2759)):
+Continuing.Program exited normally.</p>
+</blockquote>
+<h2 id="can-kao-zi-liao">参考资料</h2>
+<p><a rel="noopener" target="_blank" title="Debugging with GDB" href="http://sourceware.org/gdb/download/onlinedocs/gdb/Non_002dStop-Mode.html#Non_002dStop-Mode">Debugging with GDB</a></p>
+<p><a rel="noopener" target="_blank" title="Reverse Debugging, Multi-Process and Non-Stop Debugging Come to the CDT" href="http://live.eclipse.org/node/723">Reverse Debugging, Multi-Process and Non-Stop Debugging Come to the CDT</a></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/cmake-conan-2.0-接入指南/">&#8249; cmake-conan 2.0 接入指南</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/通过-ebpf-socket-filter-或-syscall-trace-追踪-http-请求等七层协议/"> 通过 eBPF socket filter 或 syscall trace 追踪 HTTP 请求等七层协议 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#duo-xian-cheng-diao-shi-bi-sha-ji-gdbde-non-stopmo-shi">多线程调试必杀技 - GDB的non-stop模式</a>
+        </div>
+        <div class="hpad">
+          <a href="#duo-xian-cheng-diao-shi-zhi-tong"><small>- 多线程调试之痛</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-shi-gdbde-non-stopmo-shi"><small>- 演示GDB的non-stop模式</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#can-kao-zi-liao"><small>- 参考资料</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

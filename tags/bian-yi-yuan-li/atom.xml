@@ -1,0 +1,1807 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - 编译原理</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/bian-yi-yuan-li/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2024-11-27T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/bian-yi-yuan-li/atom.xml</id>
+    <entry xml:lang="en">
+        <title>用Rust学习解析器组合器 combinator</title>
+        <published>2024-11-27T00:00:00+00:00</published>
+        <updated>2024-11-27T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/用rust学习解析器组合器-combinator/"/>
+        <id>https://moxuetianya.github.io/obsidian/用rust学习解析器组合器-combinator/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/用rust学习解析器组合器-combinator/">&lt;h1 id=&quot;yong-rustxue-xi-jie-xi-qi-zu-he-qi-combinator&quot;&gt;用Rust学习解析器组合器 combinator&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;fucking-translation&#x2F;blog&#x2F;blob&#x2F;main&#x2F;src&#x2F;lang&#x2F;rust&#x2F;01-%E7%94%A8Rust%E5%AD%A6%E4%B9%A0%E8%A7%A3%E6%9E%90%E5%99%A8%E7%BB%84%E5%90%88%E5%99%A8.md&quot;&gt;https:&#x2F;&#x2F;github.com&#x2F;fucking-translation&#x2F;blog&#x2F;blob&#x2F;main&#x2F;src&#x2F;lang&#x2F;rust&#x2F;01-用Rust学习解析器组合器.md&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;本文向已是 Rust 程序员的人们传授解析器组合子的基础知识。它假定不涉及其他知识，并将解释与 Rust 没有直接关系的所有内容，以及为达到此目的使用 Rust 的一些令人意外的特性。如果你不了解 Rust，他不会教你 Rust 的内容，但是这样的话，同样也无法更好的教你解析器和组合子的知识。如果你想要学习 Rust 语言，我推荐 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;book&#x2F;&quot;&gt;Rust 编程语言&lt;&#x2F;a&gt; 这本书。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;beginner-s-mind&quot;&gt;Beginner&#x27;s Mind&lt;&#x2F;h2&gt;
+&lt;p&gt;当每个程序员发现自己需要解析器时，它们的生活将变得有意义。&lt;&#x2F;p&gt;
+&lt;p&gt;初级程序员将会问：“什么是解析器？”。
+中级程序员将会说：“这很简单，我将写一串正则表达式”。
+高级程序员将会说：“退一步考虑问题，我知道&lt;code&gt;Lex&lt;&#x2F;code&gt;(词法分析器)和&lt;code&gt;Yacc&lt;&#x2F;code&gt;(语法解析器)”&lt;&#x2F;p&gt;
+&lt;p&gt;初级程序员的想法是正确的。&lt;&#x2F;p&gt;
+&lt;p&gt;不是说正则表达式不好(但是请不要用正则表达式写复杂的解析器)。使用经过 &lt;code&gt;数千年 (millennia)&lt;&#x2F;code&gt; 磨练至完美的解析器和词法分析生成器之类的强大工具并不是没有乐趣可言。但是从头开始一点一点学习解析器将更有趣。这两者只是对当前实际问题的抽象，如果你直接选择正则表达式或者解析器生成工具，你将失去这一份乐趣。在初学者眼中，正如人们说的：本来(解决这个问题)有很多种方法，但是在专家眼里，已经形成思维定视，只会选择一种他们最习惯的方式。 在本文中我们将从头开始学习如何构建解析器，基于被称为解析器组合子的函数式编程语言的通用技术。一旦你掌握了它们的基本概念，它们的优势将非常巨大，同时又非常接近第一原理。因为这里唯一的抽象是你将在基础的组合子之上构建你自己的抽象。所有这些，你必须先构建它们，才能使用它们。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;how-to-work-through-this-article&quot;&gt;How To Work Through This Article&lt;&#x2F;h2&gt;
+&lt;p&gt;强烈建议你初始化一个 Rust 项目，并且在&lt;code&gt;src&#x2F;lib.rs&lt;&#x2F;code&gt;中书写你阅读到的代码片段(你可以直接从页面上直接复制，但是最好还是自己手敲，因为这样会自动确保你完整阅读代码)。本文将按序介绍你需要的每段代码。请注意，有时会引入你先前编写功能的最新版本，这时，你需要将旧版本替换为新版本。&lt;&#x2F;p&gt;
+&lt;p&gt;该代码是使用 2018 年语言版本的&lt;code&gt;rustc&lt;&#x2F;code&gt;的 1.34.0 版本编写的。你应该尽可能使用最新版本的编译器，只要你确保你使用的是 2018 的版本即可(检查&lt;code&gt;Cargo.toml&lt;&#x2F;code&gt;文件中是否包含&lt;code&gt;edition = &quot;2018&quot;&lt;&#x2F;code&gt;)。代码不需要任何的外部依赖。&lt;&#x2F;p&gt;
+&lt;p&gt;如果要运行本文中的测试用例，请执行&lt;code&gt;cargo test&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;the-xcruciating-markup-language&quot;&gt;The Xcruciating Markup Language&lt;&#x2F;h2&gt;
+&lt;p&gt;我们将用简化的 XML 格式写一个解析器，如下所示：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;parent-element&amp;gt;
+  &amp;lt;single-element attribute=&amp;quot;value&amp;quot; &amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;parent-element&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;XML 元素使用&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;符号开头和一个由字母组成的标志符开头，后面可以根任意数量的字母，数字和&lt;code&gt;-&lt;&#x2F;code&gt;。后面跟一些空格，以及一些属性对的可选列表：前面定义一个标识符，后面跟一个&lt;code&gt;=&lt;&#x2F;code&gt;符号和一个双引号字符串，最后以&lt;code&gt;&#x2F;&amp;gt;&lt;&#x2F;code&gt;结尾来表示一个没有子节点的单个元素。或者用&lt;code&gt;&amp;gt;&lt;&#x2F;code&gt;表示后面跟了一串子节点，最终是一个以&lt;code&gt;&amp;lt;&#x2F;&lt;&#x2F;code&gt;开头的结束标签，后跟一个必须与开始标识匹配的标志符，然后以&lt;code&gt;&amp;gt;&lt;&#x2F;code&gt;结束。&lt;&#x2F;p&gt;
+&lt;p&gt;这就是我们将要支持的特性。没有命名空间，没有文本节点，其余的都没有，并且没有模式校验。我们甚至都不会自寻烦恼，去实现字符串的转义引号(&lt;code&gt;\&quot;&lt;&#x2F;code&gt;) - 它们由第一个双引号开始，到下一个双引号结束，就是这样。如果你想在实际字符串中使用双引号，你可以将这个不合理的要求转移到其他地方。&lt;&#x2F;p&gt;
+&lt;p&gt;我们将用下面的结构体来解析这些元素。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[derive(Clone, Debug, PartialEq, Eq)]
+struct Element {
+    name: String,
+    attributes: Vec&amp;lt;(String, String)&amp;gt;,
+    children: Vec&amp;lt;Element&amp;gt;,
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;没有花哨的类型，仅仅用字符串表示名称(那是每个标签开始的标志符)，用字符串元组表示属性(标志符和对应的值)，还有一个看起来和父元素完全一样的子元素列表。&lt;&#x2F;p&gt;
+&lt;p&gt;(如果你正在输入，请加上那一系列的&lt;code&gt;derive&lt;&#x2F;code&gt;，你将在后面用到它们)。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;defining-the-parser&quot;&gt;Defining The Parser&lt;&#x2F;h2&gt;
+&lt;p&gt;好了，是时候编写解析器了。&lt;&#x2F;p&gt;
+&lt;p&gt;解析是从数据流中派生结构的过程。解析器就是要弄清楚该结构的工具。&lt;&#x2F;p&gt;
+&lt;p&gt;在我们即将探索的知识中，解析器最简单的一种形式就是一个函数，该函数接受一些输入并返回解析后的输出以及输入的其余部分，或者是一个错误信息：“我无法解析该输入”。&lt;&#x2F;p&gt;
+&lt;p&gt;事实证明，简而言之，更复杂的解析器看起来也是如此。如果你要获取友好的错误提示，你可能会使输入，输出和错误的含义复杂化，但是解析器的特征依然如此：消费输入并产生解析后的数据以及输入的其余部分，或者会让你知道无法将输入解析成输出。&lt;&#x2F;p&gt;
+&lt;p&gt;让我们将其(解析器)写成函数的形式。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;Fn(Input) -&amp;gt; Result&amp;lt;(Input, Output), Error&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;更具体的说，就我们而言，我们希望可以填充这些类型，就像下面代码块所示。因为我们要做的是将一个字符串转化为&lt;code&gt;Element&lt;&#x2F;code&gt;结构体，并且在这方面我们不想陷入错综复杂的错误提示中，所以当我们不能够解析输入的字符串时，只需返回一段提示错误的字符串即可。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, Element), &amp;amp;str&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我们使用字符串切片(&lt;code&gt;&amp;amp;str&lt;&#x2F;code&gt;)，是因为他是指向字符串的有效指针。我们可以进一步对其进行切片，通过切掉已解析的部分来消耗输入，并将余下的输入和结果一起返回。&lt;&#x2F;p&gt;
+&lt;p&gt;可能使用&lt;code&gt;&amp;amp;[u8]&lt;&#x2F;code&gt;类型作为输入(一串字节数组，如果将输入的字节限制在&lt;code&gt;ASCII&lt;&#x2F;code&gt;范围内，则&lt;code&gt;u8&lt;&#x2F;code&gt;和&lt;code&gt;char&lt;&#x2F;code&gt;相对应)会看起来更加干净，尤其是字符串切片(&lt;code&gt;&amp;amp;str&lt;&#x2F;code&gt;)的行为和大多数切片的行为有所不同。你不能够通过一个数字来检索它们，你必须使用一个分片&lt;code&gt;input[0..1]&lt;&#x2F;code&gt;。另一方面，它们对于解析字符串有很多有用的函数，而字节切片没有。&lt;&#x2F;p&gt;
+&lt;p&gt;事实上，我们通常都需要依赖这些函数而不是像&lt;code&gt;input[0]&lt;&#x2F;code&gt;这样对他进行索引。因为 Rust 的字符串是&lt;code&gt;UTF-8&lt;&#x2F;code&gt;格式的，这些索引并不总是对应于单个字符，所以对于我们来说，让标准库为我们处理这些问题更好。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;our-first-parser&quot;&gt;Our First Parser&lt;&#x2F;h2&gt;
+&lt;p&gt;让我们来一起写一个解析器，只需要关注字符串中的第一个字符并判断它是否是字母&lt;code&gt;a&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn the_letter_a(input: &amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, ()), &amp;amp;str&amp;gt; {
+  match input.chars().next() {
+      Some(&amp;#x27;a&amp;#x27;) =&amp;gt; Ok((&amp;amp;input[&amp;#x27;a&amp;#x27;.len_utf8()..], ())),
+      _ =&amp;gt; Err(input),
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首先，我们来看一下输入和输入和输出的类型：和上面讨论的一样，我们让字符串切片作为输入，并返回携带&lt;code&gt;(&amp;amp;str, ())&lt;&#x2F;code&gt;元组或者错误类型&lt;code&gt;&amp;amp;str&lt;&#x2F;code&gt;的&lt;code&gt;Result&lt;&#x2F;code&gt;。&lt;code&gt;(&amp;amp;str, ())&lt;&#x2F;code&gt;元组比较有趣：正如我们所说的，我们想要返回一个包含下一次待解析的输入和输出。&lt;code&gt;&amp;amp;str&lt;&#x2F;code&gt;是下一次输入，解析返回的结果仅仅是一个单元类型&lt;code&gt;()&lt;&#x2F;code&gt;。因为如果解析成功，只可能有一种结果(我们找到了字母&lt;code&gt;a&lt;&#x2F;code&gt;)，但是这里我们并不需要返回字母&lt;code&gt;a&lt;&#x2F;code&gt;，我们只需要告诉调用者我们成功发现了字母&lt;code&gt;a&lt;&#x2F;code&gt;即可。&lt;&#x2F;p&gt;
+&lt;p&gt;然后，让我们看下解析器本身的代码。我们从提取输入的第一个字符开始：&lt;code&gt;input.chars().next()&lt;&#x2F;code&gt;。依靠标准库来避免带来的 Unicode 编码问题并不是在开玩笑 - 我们要求它为字符串的字符提供一个&lt;code&gt;chars()&lt;&#x2F;code&gt;迭代器，然后从中取出第一项。该项是封装在&lt;code&gt;Option&amp;lt;char&amp;gt;&lt;&#x2F;code&gt;中的&lt;code&gt;char&lt;&#x2F;code&gt;类型，因此是&lt;code&gt;Option&amp;lt;char&amp;gt;&lt;&#x2F;code&gt;，如果它的值为&lt;code&gt;None&lt;&#x2F;code&gt;则表示我们尝试在空字符串中提取一个&lt;code&gt;char&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;更糟的是，&lt;code&gt;char&lt;&#x2F;code&gt;可能并不是你想的那样是 Unicode 字符。它很可能就是 Unicode 所说的“&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.unicode.org&#x2F;glossary&#x2F;#grapheme_cluster&quot;&gt;字素簇&lt;&#x2F;a&gt;”，它可以由几个&lt;code&gt;char&lt;&#x2F;code&gt;组成，实际上代表“&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.unicode.org&#x2F;glossary&#x2F;#unicode_scalar_value&quot;&gt;标量值&lt;&#x2F;a&gt;”，大约比字素簇低两级。但是这种方式太疯狂了，出于我们(讲解)的目的，我们可能根本不会看到除 ASCII 之外的字符集，所以这种情况我们不做讨论。&lt;&#x2F;p&gt;
+&lt;p&gt;我们模式匹配上了&lt;code&gt;Some(&#x27;a&#x27;)&lt;&#x2F;code&gt;，这是我们正在寻找的特定结果，如果匹配上，则返回结果&lt;code&gt;Ok((&amp;amp;input[&#x27;a&#x27;.len_utf8()..], ()))&lt;&#x2F;code&gt;。也就是说，我们在字符串切片中删除了刚刚解析的&lt;code&gt;&#x27;a&#x27;&lt;&#x2F;code&gt;并返回剩余部分以及我们的解析结果(一个空的&lt;code&gt;()&lt;&#x2F;code&gt;)。考虑到 Unicode 怪物，我们在切片之前向标准库询问了&lt;code&gt;&#x27;a&#x27;&lt;&#x2F;code&gt;在 UTF-8 编码中的长度，但是，请永远不要假设 Unicode 怪物。&lt;&#x2F;p&gt;
+&lt;p&gt;如果我们匹配到其他的&lt;code&gt;Some(char)&lt;&#x2F;code&gt;或者&lt;code&gt;None&lt;&#x2F;code&gt;，我们将返回一个错误。你可能还记得，我们的错误类型目前还是解析失败时的字符串切片，也就是作为&lt;code&gt;input&lt;&#x2F;code&gt;传入的字符串切片。它不以&lt;code&gt;&#x27;a&#x27;&lt;&#x2F;code&gt;开头，因此这是我们的错误。但这不是一个大的错误，但是至少比“其他地方出了问题”要好一些。&lt;&#x2F;p&gt;
+&lt;p&gt;虽然我们不需要使用此解析器解析 XML，但是我们要做的第一件事就是查找&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;，因此我们可能需要一些相似的东西。我们还需要专门解析&lt;code&gt;&amp;gt;&lt;&#x2F;code&gt;，&lt;code&gt;&#x2F;&lt;&#x2F;code&gt;，&lt;code&gt;=&lt;&#x2F;code&gt;，因此我们可以创建一个函数为我们想要的字符构建一个解析器？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;a-parser-builder&quot;&gt;A Parser Builder&lt;&#x2F;h2&gt;
+&lt;p&gt;我们想象一下：编写一个函数，可以为任意长度的静态字符串(而不仅仅是单个字符)生成一个解析器。这种方式甚至更容易，因为一个字符串切片已经是一个合法的 UTF-8 字符串切片，我们不需要再去考虑 Unicode 怪物。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn match_literal(expected: &amp;amp;&amp;#x27;static str)
+    -&amp;gt; impl Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, ()), &amp;amp;str&amp;gt;
+{
+    move |input| match input.get(0..expected.len()) {
+        Some(next) if next == expected =&amp;gt; {
+            Ok((&amp;amp;input[expected.len()..], ()))
+        }
+        _ =&amp;gt; Err(input),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这个函数看起来有点不同。&lt;&#x2F;p&gt;
+&lt;p&gt;我们先看下类型。我们的函数看起来不再像是一个解析器，它将我们期望的字符串作为参数，并返回一个看似解析器的东西。它是一个返回函数的函数 - 换言之，是一个高阶函数。基本上，我们在编写一个函数，该函数可以构建一个类似之前的&lt;code&gt;the_letter_a&lt;&#x2F;code&gt;函数。&lt;&#x2F;p&gt;
+&lt;p&gt;因此，我们不是在函数体中完成工作，而是返回一个闭包用来处理这些事情，该闭包与我们之前解析器的类型签名相匹配。&lt;&#x2F;p&gt;
+&lt;p&gt;模式匹配看起来是一样的，除了我们不能直接匹配字符串字面量，因为我们不知道它具体是什么，所以我们使用匹配条件&lt;code&gt;if next == expected&lt;&#x2F;code&gt;代替。否则它和以前完全一样，只是在闭包的主体内。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;testing-our-parser&quot;&gt;Testing Our Parser&lt;&#x2F;h2&gt;
+&lt;p&gt;我们来为它编写测试用例，确保这个函数没有问题。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn literal_parser() {
+    let parse_joe = match_literal(&amp;quot;Hello Joe!&amp;quot;);
+    assert_eq!(
+        Ok((&amp;quot;&amp;quot;, ())),
+        parse_joe(&amp;quot;Hello Joe!&amp;quot;)
+    );
+    assert_eq!(
+        Ok((&amp;quot; Hello Robert!&amp;quot;, ())),
+        parse_joe(&amp;quot;Hello Joe! Hello Robert!&amp;quot;)
+    );
+    assert_eq!(
+        Err(&amp;quot;Hello Mike!&amp;quot;),
+        parse_joe(&amp;quot;Hello Mike!&amp;quot;)
+    );
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首先，我们构建了一个解析器：&lt;code&gt;match_literal(&quot;Hello Joe!&quot;)&lt;&#x2F;code&gt;。它应该消耗字符串&lt;code&gt;&quot;Hello Joe!&quot;&lt;&#x2F;code&gt;并返回字符串的剩余部分，或者失败并返回整个字符串。&lt;&#x2F;p&gt;
+&lt;p&gt;在第一种情况下，我们为它提供了它期望的确切字符串，并看到它返回了一个空字符串以及&lt;code&gt;()&lt;&#x2F;code&gt;值，这表示“我们解析了期望的字符串，并且不需要将它真的返回”。&lt;&#x2F;p&gt;
+&lt;p&gt;在第二种情况下，我们提供了字符串&lt;code&gt;&quot;Hello Joe! Hello Robert!&quot;&lt;&#x2F;code&gt;，并且我们看到它确实消耗了字符串&lt;code&gt;&quot;Hello Joe!&quot;&lt;&#x2F;code&gt;并且返回了输入字符串的剩余部分：&lt;code&gt;&quot;Hello Robert!&quot;&lt;&#x2F;code&gt;(包括空格)。&lt;&#x2F;p&gt;
+&lt;p&gt;在第三种情况下，我们提供了一个不正确的输入&lt;code&gt;&quot;Hello Mike!&quot;&lt;&#x2F;code&gt;，并注意到该函数拒绝了这个输入并返回了一个错误。不是说 Mike 作为一般规则是不正确的，而是它不是此解析器所需要的。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;exercises&quot;&gt;Exercises&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;你能在标准库中找到一个关于&lt;code&gt;str&lt;&#x2F;code&gt;类型的方法，让你编写&lt;code&gt;match_literal()&lt;&#x2F;code&gt;时不必做麻烦的&lt;code&gt;get&lt;&#x2F;code&gt;索引吗？&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;a-parser-for-something-less-specific&quot;&gt;A Parser For Something Less Specific&lt;&#x2F;h2&gt;
+&lt;p&gt;我们可以继续解析&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;，&lt;code&gt;&amp;gt;&lt;&#x2F;code&gt;，&lt;code&gt;=&lt;&#x2F;code&gt;以及&lt;code&gt;&amp;lt;&#x2F;&lt;&#x2F;code&gt;和&lt;code&gt;&#x2F;&amp;gt;&lt;&#x2F;code&gt;。我们几乎已经完成了。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;之后需要识别的部分是元素名称。我们不能通过简单的字符串比较做到这一点。但是我们可以使用正则表达式。&lt;&#x2F;p&gt;
+&lt;p&gt;但是我们需要克制一下自己，这将是一个很容易在简单代码中复用的正则表达式，我们不需要为此引入&lt;code&gt;regex&lt;&#x2F;code&gt;库。让我们尝试一下是否可以只使用 Rust 标准库来编写自己的解析器。&lt;&#x2F;p&gt;
+&lt;p&gt;回顾元素名称标志符的规则：首位是字母，后跟零个或多个字母，数字或&lt;code&gt;-&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn identifier(input: &amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, String), &amp;amp;str&amp;gt; {
+    let mut matched = String::new();
+    let mut chars = input.chars();
+
+    match chars.next() {
+        Some(next) if next.is_alphabetic() =&amp;gt; matched.push(next),
+        _ =&amp;gt; return Err(input),
+    }
+
+    while let Some(next) = chars.next() {
+        if next.is_alphanumeric() || next == &amp;#x27;-&amp;#x27; {
+            matched.push(next);
+        } else {
+            break;
+        }
+    }
+
+    let next_index = matched.len();
+    Ok((&amp;amp;input[next_index..], matched))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;与往常一样，我们首先查看类型。这次我们不是编写函数来构建解析器，只需要编写解析器本身，就像第一次一样。这里显著的区别是，我们返回元组中的&lt;code&gt;String&lt;&#x2F;code&gt;和剩余的输入，而不是&lt;code&gt;()&lt;&#x2F;code&gt;的结果类型。这个&lt;code&gt;String&lt;&#x2F;code&gt;将包含我们刚刚解析的标志符。&lt;&#x2F;p&gt;
+&lt;p&gt;考虑到这一点，我们首先创建一个空字符串并将称之为&lt;code&gt;matched&lt;&#x2F;code&gt;。它是我们将要返回的结果值。我们在&lt;code&gt;input&lt;&#x2F;code&gt;中获取一个字符的迭代器，我们将对其进行拆解。&lt;&#x2F;p&gt;
+&lt;p&gt;第一步是查看前面是否有字母。我们从迭代器中取出第一个字符并检查它是否是一个字母：&lt;code&gt;next.is_alphabetic()&lt;&#x2F;code&gt;。Rust 标准库当然是帮我们来处理 Unicode 的 - 这将匹配任何字母表中的字母，而不仅仅是 ASCII。如果它是一个字母，我们将它放入我们的&lt;code&gt;matched&lt;&#x2F;code&gt;字符串中，如果不是，显然我们不是在查看元素标志符，所以我们立即返回一个错误。&lt;&#x2F;p&gt;
+&lt;p&gt;第二步，我们不断从迭代器中取出字符，将它们放入我们正在构建的字符串中，直到我们找到一个既不是&lt;code&gt;is_alphanumeric()&lt;&#x2F;code&gt;(就像是&lt;code&gt;is_alphabetic()&lt;&#x2F;code&gt;，它只是不能匹配字母表中的任何数字)也不是破折号&lt;code&gt;&#x27;-&#x27;&lt;&#x2F;code&gt;的字符。&lt;&#x2F;p&gt;
+&lt;p&gt;当我们第一次看到不符合这些条件的字符时，意味着我们已经完成了解析，所以我们跳出循环并返回我们构建的&lt;code&gt;String&lt;&#x2F;code&gt;，记住去掉我们在&lt;code&gt;input&lt;&#x2F;code&gt;中消耗的字符。如果迭代器用完了字符，意味着我们到达了&lt;code&gt;input&lt;&#x2F;code&gt;的末尾。&lt;&#x2F;p&gt;
+&lt;p&gt;值得注意的是，当我们看到不是字母数字 (alphanumeric) 或破折号(&lt;code&gt;-&lt;&#x2F;code&gt;)的内容时，我们不会返回错误。一旦我们匹配了第一个字母，我们就已经有足够的东西来创建一个有效的标志符。而且在我们解析完标志符以后，输入字符串中有更多待解析的字符是非常正常的，所以我们只是停止解析并返回我们的结果，只有当我们找不到第一个字母时，我们才真正的返回错误，因为在这种情况下，肯定没有标志符。&lt;&#x2F;p&gt;
+&lt;p&gt;还记得我们要将 XML 文档解析成的&lt;code&gt;Element&lt;&#x2F;code&gt;结构吗？&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;struct Element {
+    name: String,
+    attributes: Vec&amp;lt;(String, String)&amp;gt;,
+    children: Vec&amp;lt;Element&amp;gt;,
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我们实际上只是完成了解析器的第一部分，&lt;code&gt;name&lt;&#x2F;code&gt;字段。我们解析器返回的字符串就在那里。它也是解析每个&lt;code&gt;attribute&lt;&#x2F;code&gt;第一部分需要的解析器。&lt;&#x2F;p&gt;
+&lt;p&gt;让我们对其进行测试。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn identifier_parser() {
+    assert_eq!(
+        Ok((&amp;quot;&amp;quot;, &amp;quot;i-am-an-identifier&amp;quot;.to_string())),
+        identifier(&amp;quot;i-am-an-identifier&amp;quot;)
+    );
+    assert_eq!(
+        Ok((&amp;quot; entirely an identifier&amp;quot;, &amp;quot;not&amp;quot;.to_string())),
+        identifier(&amp;quot;not entirely an identifier&amp;quot;)
+    );
+    assert_eq!(
+        Err(&amp;quot;!not at all an identifier&amp;quot;),
+        identifier(&amp;quot;!not at all an identifier&amp;quot;)
+    );
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我们可以在第一种情况中看到，字符串&lt;code&gt;&quot;i-am-an-identifier&quot;&lt;&#x2F;code&gt;被完整解析，只留下空的字符串。在第二种情况中，解析器返回&lt;code&gt;&quot;not&quot;&lt;&#x2F;code&gt;作为标志符，并且字符串的剩余部分作为剩余的输入返回。在第三种情况中，解析彻底 (outright) 失败，因为它找到的第一个字符不是字母。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;combinators&quot;&gt;Combinators&lt;&#x2F;h2&gt;
+&lt;p&gt;现在，我们已经可以解析&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;，以及之后的标志符了，但是我们需要同时将它们进行解析，以便在这里可以取得进展。因此接下来将编写另一个解析器的构造函数，它将两个解析器作为输入并返回一个新的解析器，并按顺序解析它们。换言之，它是一个解析器组合子，因为它将两个解析器组合成一个新的解析器。让我们看看我们是否能够做到这一点。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn pair&amp;lt;P1, P2, R1, R2&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, (R1, R2)), &amp;amp;str&amp;gt;
+where
+    P1: Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, R1), &amp;amp;str&amp;gt;,
+    P2: Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, R2), &amp;amp;str&amp;gt;,
+{
+    move |input| match parser1(input) {
+        Ok((next_input, result1)) =&amp;gt; match parser2(next_input) {
+            Ok((final_input, result2)) =&amp;gt; Ok((final_input, (result1, result2))),
+            Err(err) =&amp;gt; Err(err),
+        },
+        Err(err) =&amp;gt; Err(err),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里有点复杂，但是你知道该怎么做：从查看类型开始。&lt;&#x2F;p&gt;
+&lt;p&gt;首先，我们有四种类型变量：&lt;code&gt;P1&lt;&#x2F;code&gt;，&lt;code&gt;P2&lt;&#x2F;code&gt;，&lt;code&gt;R1&lt;&#x2F;code&gt;以及&lt;code&gt;R2&lt;&#x2F;code&gt;。这是 Parser1，Parser2，Result1，Result2 的缩写。&lt;code&gt;P1&lt;&#x2F;code&gt;，&lt;code&gt;P2&lt;&#x2F;code&gt;是函数，你会注意到它们遵循解析器函数的既定模式 (established pattern)：就像返回值，它们将&lt;code&gt;&amp;amp;str&lt;&#x2F;code&gt;作为输入并返回一个&lt;code&gt;Result&lt;&#x2F;code&gt;类型，该&lt;code&gt;Result&lt;&#x2F;code&gt;类型可能是一个包含剩余输入以及解析结果的二元组，或者是一个错误。&lt;&#x2F;p&gt;
+&lt;p&gt;但是查看每个函数的结果类型：&lt;code&gt;P1&lt;&#x2F;code&gt;如果解析成功，将会产生&lt;code&gt;R1&lt;&#x2F;code&gt;，&lt;code&gt;P2&lt;&#x2F;code&gt;同理会产生&lt;code&gt;R2&lt;&#x2F;code&gt;。最终解析器的结果 - 从我们的函数返回的结果 - 是&lt;code&gt;(R1, R2)&lt;&#x2F;code&gt;。因此该解析器的工作是先在输入上运行解析器&lt;code&gt;P1&lt;&#x2F;code&gt;，然后在&lt;code&gt;P1&lt;&#x2F;code&gt;返回的剩余输入上运行&lt;code&gt;P2&lt;&#x2F;code&gt;，如果这两个解析器都执行成功，则我们将两个解析器返回的结果组合进元组&lt;code&gt;(R1, R2)&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;查看代码，我们看到这也正是它所做得。我们首先在输入上运行第一个解析器，然后是第二个解析器，接着将两个结果组合成一个元组并返回。如果这些解析器中的任何一个执行失败，我们会立即返回它给出的错误。&lt;&#x2F;p&gt;
+&lt;p&gt;这样，我们应该能够结合之前的两个解析器&lt;code&gt;match_literal&lt;&#x2F;code&gt;和&lt;code&gt;identifier&lt;&#x2F;code&gt;来实际解析 XML 标签的第一部分(``)。让我们编写测试用例看它是否正确。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn pair_combinator() {
+    let tag_opener = pair(match_literal(&amp;quot;&amp;lt;&amp;quot;), identifier);
+    assert_eq!(
+        Ok((&amp;quot;&amp;#x2F;&amp;gt;&amp;quot;, ((), &amp;quot;my-first-element&amp;quot;.to_string()))),
+        tag_opener(&amp;quot;&amp;lt;my-first-element&amp;#x2F;&amp;gt;&amp;quot;)
+    );
+    assert_eq!(Err(&amp;quot;oops&amp;quot;), tag_opener(&amp;quot;oops&amp;quot;));
+    assert_eq!(Err(&amp;quot;!oops&amp;quot;), tag_opener(&amp;quot;&amp;lt;!oops&amp;quot;));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;它看起来成功了！但是看下结果类型：&lt;code&gt;((), String)&lt;&#x2F;code&gt;。很明显，我们只关心右边的值 - &lt;code&gt;String&lt;&#x2F;code&gt;。这种情况相当普遍 - 我们的一些解析器只匹配输入中的模式但不产生值，因此可以安全的忽略他们的输出。为了适应这种模式，我们将使用&lt;code&gt;pair&lt;&#x2F;code&gt;组合子编写另外两个组合子&lt;code&gt;left&lt;&#x2F;code&gt;，它丢弃第一个解析器的结果，只返回第二个，以及它的相反数&lt;code&gt;right&lt;&#x2F;code&gt;，我们想在上面的测试中使用&lt;code&gt;right&lt;&#x2F;code&gt;而不是&lt;code&gt;pair&lt;&#x2F;code&gt; - 它可以丢弃二元组左边的&lt;code&gt;()&lt;&#x2F;code&gt;只保留右边的&lt;code&gt;String&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;enter-the-functor&quot;&gt;Enter The Functor&lt;&#x2F;h2&gt;
+&lt;p&gt;在我们深入讨论之前，先介绍另一个组合子：&lt;code&gt;map&lt;&#x2F;code&gt;，它将使编写这两个解析器更加简单。&lt;&#x2F;p&gt;
+&lt;p&gt;这个组合子有一个目的：改变结果的类型。例如，假设你有一个解析器返回&lt;code&gt;((), String)&lt;&#x2F;code&gt;，但是你希望能够将其返回值类型修改为&lt;code&gt;String&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;为了做到这点，我们传入一个函数，该函数知道如何将原始类型转换成新的类型。在我们的示例中，该函数十分简单：&lt;code&gt;|(_left, right)| right&lt;&#x2F;code&gt;。它的一般格式就像&lt;code&gt;Fn(A) -&amp;gt; B&lt;&#x2F;code&gt;，其中&lt;code&gt;A&lt;&#x2F;code&gt;是解析器的原始类型，&lt;code&gt;B&lt;&#x2F;code&gt;是期望的新类型。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn map&amp;lt;P, F, A, B&amp;gt;(parser: P, map_fn: F) -&amp;gt; impl Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, B), &amp;amp;str&amp;gt;
+where
+    P: Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, A), &amp;amp;str&amp;gt;,
+    F: Fn(A) -&amp;gt; B,
+{
+    move |input| match parser(input) {
+        Ok((next_input, result)) =&amp;gt; Ok((next_input, map_fn(result))),
+        Err(err) =&amp;gt; Err(err),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这些类型说明什么？&lt;code&gt;P&lt;&#x2F;code&gt;是我们的解析器。它在成功时将返回&lt;code&gt;A&lt;&#x2F;code&gt;。&lt;code&gt;F&lt;&#x2F;code&gt;是我们将用于将&lt;code&gt;P&lt;&#x2F;code&gt;映射到我们的返回值中的函数，它看起来和&lt;code&gt;P&lt;&#x2F;code&gt;很像，但是它的返回值类型是&lt;code&gt;B&lt;&#x2F;code&gt;而不是&lt;code&gt;A&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;在代码中，我们运行&lt;code&gt;parser(input)&lt;&#x2F;code&gt;，如果执行成功，我们将拿到&lt;code&gt;result&lt;&#x2F;code&gt;并在其上运行函数&lt;code&gt;map_fn(result)&lt;&#x2F;code&gt;，然后将&lt;code&gt;A&lt;&#x2F;code&gt;转换成&lt;code&gt;B&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;实际上，我们可以稍微放纵 (indulge) 一下自己并缩短一下这个函数，因为&lt;code&gt;map&lt;&#x2F;code&gt;实际上是处理&lt;code&gt;Result&lt;&#x2F;code&gt;的一种常见模式：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn map&amp;lt;P, F, A, B&amp;gt;(parser: P, map_fn: F) -&amp;gt; impl Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, B), &amp;amp;str&amp;gt;
+where
+    P: Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, A), &amp;amp;str&amp;gt;,
+    F: Fn(A) -&amp;gt; B,
+{
+    move |input|
+        parser(input)
+            .map(|(next_input, result)| (next_input, map_fn(result)))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这种模式在 Haskell 以及范畴论 (category theory) 中被称为”函子 (functor)“。如果你在其中有一个类型为&lt;code&gt;A&lt;&#x2F;code&gt;的东西，并且有一个可用的&lt;code&gt;map&lt;&#x2F;code&gt;函数，你可以将某个函数从&lt;code&gt;A&lt;&#x2F;code&gt;传递到&lt;code&gt;B&lt;&#x2F;code&gt;以将其转换成相同类型的东西，但是在其中使用类型&lt;code&gt;B&lt;&#x2F;code&gt;，这就是一个函子。你可以在 Rust 中很多地方见到它，如在 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;std&#x2F;option&#x2F;enum.Option.html#method.map&quot;&gt;Option&lt;&#x2F;a&gt; 中，&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;std&#x2F;result&#x2F;enum.Result.html#method.map&quot;&gt;Result&lt;&#x2F;a&gt; 中，&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;std&#x2F;iter&#x2F;trait.Iterator.html#method.map&quot;&gt;Iterator&lt;&#x2F;a&gt; 甚至在 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;docs.rs&#x2F;futures&#x2F;0.1.26&#x2F;futures&#x2F;future&#x2F;trait.Future.html#method.map&quot;&gt;Future&lt;&#x2F;a&gt; 中，但它没有被明确命名。因为在 Rust 的类型系统中，你不能真正的将函子表示为泛化的东西，因为它缺乏更高级的类型，但那是另一回事了，所以我们只需关注这些函子，寻找&lt;code&gt;map&lt;&#x2F;code&gt;函数即可。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;time-for-a-trait&quot;&gt;Time For A Trait&lt;&#x2F;h2&gt;
+&lt;p&gt;你可能已经注意到，我们不断重复解析器类型签名的格式：&lt;code&gt;Fn(&amp;amp;str) -&amp;gt; Result&amp;lt;(&amp;amp;str, Output), &amp;amp;str&amp;gt;&lt;&#x2F;code&gt;。你可能已经厌倦了像我写的那样完整的阅读它，所以我认为是时候引入一个 trait，让这些更具有可读性，还可以为解析器添加一些扩展性。&lt;&#x2F;p&gt;
+&lt;p&gt;但是首先，我们先为一直使用的返回值类型创建一个类型别名：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;type ParseResult&amp;lt;&amp;#x27;a, Output&amp;gt; = Result&amp;lt;(&amp;amp;&amp;#x27;a str, Output), &amp;amp;&amp;#x27;a str&amp;gt;;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;现在，我们可以不用一直输入那串冗长的类型，可以直接使用&lt;code&gt;ParseResult&amp;lt;String&amp;gt;&lt;&#x2F;code&gt;。我们可以在这里添加一个生命周期，因为类型的声明需要它，但是大多数时候 Rust 编译器可以帮你推断。通常，可以尝试不添加生命周期，并观察 rustc 是否报错，如果报错则添加生命周期。&lt;&#x2F;p&gt;
+&lt;p&gt;在此例中，&lt;code&gt;&#x27;a&lt;&#x2F;code&gt;特指&lt;code&gt;input&lt;&#x2F;code&gt;的生命周期。&lt;&#x2F;p&gt;
+&lt;p&gt;现在，对于 trait，我们也需要在这里声明生命周期，并且当你使用该 trait 时，生命周期通常也是必须的。这是一个额外的输入，但它击败了以前的版本。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;trait Parser&amp;lt;&amp;#x27;a, Output&amp;gt; {
+    fn parse(&amp;amp;self, input: &amp;amp;&amp;#x27;a str) -&amp;gt; ParseResult&amp;lt;&amp;#x27;a, Output&amp;gt;;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;它目前只有一个方法：&lt;code&gt;parse()&lt;&#x2F;code&gt;方法，它看起来似曾相识：它和我们之前编写的解析器函数基本相同。&lt;&#x2F;p&gt;
+&lt;p&gt;为了让它更加简单，我们实际上可以为任何匹配解析器签名的函数实现这个 trait。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl&amp;lt;&amp;#x27;a, F, Output&amp;gt; Parser&amp;lt;&amp;#x27;a, Output&amp;gt; for F
+where
+    F: Fn(&amp;amp;&amp;#x27;a str) -&amp;gt; ParseResult&amp;lt;Output&amp;gt;,
+{
+    fn parse(&amp;amp;self, input: &amp;amp;&amp;#x27;a str) -&amp;gt; ParseResult&amp;lt;&amp;#x27;a, Output&amp;gt; {
+        self(input)
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;通过这种方式，我们不仅可以传递迄今为止已传递的相同函数作为解析器，并完全实现&lt;code&gt;Parser&lt;&#x2F;code&gt; trait，还可以使用其他类型作为解析器。&lt;&#x2F;p&gt;
+&lt;p&gt;但是，更重要的是，它把我们从必须一直输入这些函数签名的噩梦中解救了出来。让我们重写&lt;code&gt;map&lt;&#x2F;code&gt;函数，并看它是如何工作的。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn map&amp;lt;&amp;#x27;a, P, F, A, B&amp;gt;(parser: P, map_fn: F) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, B&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+    F: Fn(A) -&amp;gt; B,
+{
+    move |input|
+        parser.parse(input)
+            .map(|(next_input, result)| (next_input, map_fn(result)))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里需要特别注意的一件事是：我们现在必须执行&lt;code&gt;parser.parse(input)&lt;&#x2F;code&gt;，而不是将解析器作为函数调用，因为我们不知道类型&lt;code&gt;P&lt;&#x2F;code&gt;是否是函数，我们只知道它实现了&lt;code&gt;Parser&lt;&#x2F;code&gt;，并且我们必须使用&lt;code&gt;Parser&lt;&#x2F;code&gt;提供的接口。但是函数体看起来完全一样，类型看起来也更加简洁。只是有一个新的额外噪音：生命周期&lt;code&gt;&#x27;a&lt;&#x2F;code&gt;，但总的来说是一个很大的改进。&lt;&#x2F;p&gt;
+&lt;p&gt;如果我们以相同的方式重新编写&lt;code&gt;pair&lt;&#x2F;code&gt;函数，会看起来更加简洁：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn pair&amp;lt;&amp;#x27;a, P1, P2, R1, R2&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, (R1, R2)&amp;gt;
+where
+    P1: Parser&amp;lt;&amp;#x27;a, R1&amp;gt;,
+    P2: Parser&amp;lt;&amp;#x27;a, R2&amp;gt;,
+{
+    move |input| match parser1.parse(input) {
+        Ok((next_input, result1)) =&amp;gt; match parser2.parse(next_input) {
+            Ok((final_input, result2)) =&amp;gt; Ok((final_input, (result1, result2))),
+            Err(err) =&amp;gt; Err(err),
+        },
+        Err(err) =&amp;gt; Err(err),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;和之前一样，这里唯一的改变就是类型签名更加简洁，并且需要执行&lt;code&gt;parser.parse(input)&lt;&#x2F;code&gt;而不是&lt;code&gt;parse(input)&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;实际上，我们还可以简化&lt;code&gt;pair&lt;&#x2F;code&gt;函数的主题，通过使用&lt;code&gt;map&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn pair&amp;lt;&amp;#x27;a, P1, P2, R1, R2&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, (R1, R2)&amp;gt;
+where
+    P1: Parser&amp;lt;&amp;#x27;a, R1&amp;gt;,
+    P2: Parser&amp;lt;&amp;#x27;a, R2&amp;gt;,
+{
+    move |input| {
+        parser1.parse(input).and_then(|(next_input, result1)| {
+            parser2.parse(next_input)
+                .map(|(last_input, result2)| (last_input, (result1, result2)))
+        })
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Result&lt;&#x2F;code&gt;的&lt;code&gt;and_then&lt;&#x2F;code&gt;方法和&lt;code&gt;map&lt;&#x2F;code&gt;类似，不同之处在于&lt;code&gt;map&lt;&#x2F;code&gt;函数不会返回新值到&lt;code&gt;Result&lt;&#x2F;code&gt;内部，而是返回一个新的&lt;code&gt;Result&lt;&#x2F;code&gt;。上面的代码与先前使用&lt;code&gt;match&lt;&#x2F;code&gt;块的版本效果相同。稍后我们将回到&lt;code&gt;and_then&lt;&#x2F;code&gt;，但是现在，既然我们有一个干净简洁的&lt;code&gt;map&lt;&#x2F;code&gt;，我们可以真正实现&lt;code&gt;left&lt;&#x2F;code&gt;，&lt;code&gt;right&lt;&#x2F;code&gt;组合子。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;left-and-right&quot;&gt;Left And Right&lt;&#x2F;h2&gt;
+&lt;p&gt;有了&lt;code&gt;pair&lt;&#x2F;code&gt;和&lt;code&gt;map&lt;&#x2F;code&gt;，我们可以非常简洁的编写&lt;code&gt;left&lt;&#x2F;code&gt;和&lt;code&gt;right&lt;&#x2F;code&gt;组合子：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn left&amp;lt;&amp;#x27;a, P1, P2, R1, R2&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, R1&amp;gt;
+where
+    P1: Parser&amp;lt;&amp;#x27;a, R1&amp;gt;,
+    P2: Parser&amp;lt;&amp;#x27;a, R2&amp;gt;,
+{
+    map(pair(parser1, parser2), |(left, _right)| left)
+}
+
+fn right&amp;lt;&amp;#x27;a, P1, P2, R1, R2&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, R2&amp;gt;
+where
+    P1: Parser&amp;lt;&amp;#x27;a, R1&amp;gt;,
+    P2: Parser&amp;lt;&amp;#x27;a, R2&amp;gt;,
+{
+    map(pair(parser1, parser2), |(_left, right)| right)
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我们使用&lt;code&gt;pair&lt;&#x2F;code&gt;组合子将两个解析器组合成一个解析器，然后使用&lt;code&gt;map&lt;&#x2F;code&gt;组合子选择其结果元组中我们想要保留的部分。&lt;&#x2F;p&gt;
+&lt;p&gt;现在我们需要为元素标签的前两部分重写测试，使它更简洁一些，在此过程中，我们将获得了一些重要的新解析器组合子功能。&lt;&#x2F;p&gt;
+&lt;p&gt;不过，我们必须先更新我们的两个解析器以使用&lt;code&gt;Parser&lt;&#x2F;code&gt;和&lt;code&gt;ParseResult&amp;lt;String&amp;gt;&lt;&#x2F;code&gt;。&lt;code&gt;match_literal&lt;&#x2F;code&gt;是更复杂的一个：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn match_literal&amp;lt;&amp;#x27;a&amp;gt;(expected: &amp;amp;&amp;#x27;static str) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, ()&amp;gt; {
+    move |input: &amp;amp;&amp;#x27;a str| match input.get(0..expected.len()) {
+        Some(next) if next == expected =&amp;gt; Ok((&amp;amp;input[expected.len()..], ())),
+        _ =&amp;gt; Err(input),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;除了改变返回值类型之外，我们还必须确保闭包的输入类型是&lt;code&gt;&amp;amp;&#x27;a str&lt;&#x2F;code&gt;，否则 rustc 会报错。&lt;&#x2F;p&gt;
+&lt;p&gt;对于&lt;code&gt;identifier&lt;&#x2F;code&gt;，只需更改返回值类型即可，编译器会自动为你推断生命周期。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn identifier(input: &amp;amp;str) -&amp;gt; ParseResult&amp;lt;String&amp;gt; {}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;接下来进行测试，可以看见在结果中没有那个笨拙 (ungainly) 的&lt;code&gt;()&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn right_combinator() {
+    let tag_opener = right(match_literal(&amp;quot;&amp;lt;&amp;quot;), identifier);
+    assert_eq!(
+        Ok((&amp;quot;&amp;#x2F;&amp;gt;&amp;quot;, &amp;quot;my-first-element&amp;quot;.to_string())),
+        tag_opener.parse(&amp;quot;&amp;lt;my-first-element&amp;#x2F;&amp;gt;&amp;quot;)
+    );
+    assert_eq!(Err(&amp;quot;oops&amp;quot;), tag_opener.parse(&amp;quot;oops&amp;quot;));
+    assert_eq!(Err(&amp;quot;!oops&amp;quot;), tag_opener.parse(&amp;quot;&amp;lt;!oops&amp;quot;));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;one-or-more&quot;&gt;One Or More&lt;&#x2F;h2&gt;
+&lt;p&gt;让我们继续解析元素标签。我们已经解析了&lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;和标志符。然后呢？应该是我们的第一个属性对。&lt;&#x2F;p&gt;
+&lt;p&gt;实际上这些属性对是可选的。我们需要找到一种方式来处理这种可选的标记。&lt;&#x2F;p&gt;
+&lt;p&gt;等等，实际上在我们得到第一个可选属性对之前我们必须处理一些事情：空格。&lt;&#x2F;p&gt;
+&lt;p&gt;在元素名称的末尾以及第一个属性名称(如果存在的话)的开头之间，存在一个空格。我们需要处理这个空格。&lt;&#x2F;p&gt;
+&lt;p&gt;甚至更糟的是，我们需要处理一个或多个空格，因为``也是一个合法的语法，即使它的空格很多。所以这似乎是我们考虑是否可以编写一个组合子来表示一个或多个解析器想法的好时机。&lt;&#x2F;p&gt;
+&lt;p&gt;我们在&lt;code&gt;identifier&lt;&#x2F;code&gt;解析器中已经处理过这个问题，但是一切都是在那里手动完成的。毫不奇怪，总体思路的代码并没有什么不同。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn one_or_more&amp;lt;&amp;#x27;a, P, A&amp;gt;(parser: P) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;A&amp;gt;&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+
+        if let Ok((next_input, first_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(first_item);
+        } else {
+            return Err(input);
+        }
+
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;首先，我们构建的解析器返回值类型是&lt;code&gt;A&lt;&#x2F;code&gt;，组合解析器的返回值类型是&lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt; - 任意数量的&lt;code&gt;A&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;这个代码看起来确实和&lt;code&gt;identifier&lt;&#x2F;code&gt;很像。首先，我们解析第一个元素，如果不存在，则返回一个错误。然后我们尽可能多的解析元素，直到解析失败，此时我们返回包含收集元素的向量。&lt;&#x2F;p&gt;
+&lt;p&gt;将上述代码修改为支持解析零次或多次的解析器也很简单，只需删除前部分&lt;code&gt;if&lt;&#x2F;code&gt;判断即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn zero_or_more&amp;lt;&amp;#x27;a, P, A&amp;gt;(parser: P) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;A&amp;gt;&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+{
+    move |mut input| {
+        let mut result = Vec::new();
+
+        while let Ok((next_input, next_item)) = parser.parse(input) {
+            input = next_input;
+            result.push(next_item);
+        }
+
+        Ok((input, result))
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;让我们编写测试用例以验证这两个解析器的功能符合预期。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn one_or_more_combinator() {
+    let parser = one_or_more(match_literal(&amp;quot;ha&amp;quot;));
+    assert_eq!(Ok((&amp;quot;&amp;quot;, vec![(), (), ()])), parser.parse(&amp;quot;hahaha&amp;quot;));
+    assert_eq!(Err(&amp;quot;ahah&amp;quot;), parser.parse(&amp;quot;ahah&amp;quot;));
+    assert_eq!(Err(&amp;quot;&amp;quot;), parser.parse(&amp;quot;&amp;quot;));
+}
+
+#[test]
+fn zero_or_more_combinator() {
+    let parser = zero_or_more(match_literal(&amp;quot;ha&amp;quot;));
+    assert_eq!(Ok((&amp;quot;&amp;quot;, vec![(), (), ()])), parser.parse(&amp;quot;hahaha&amp;quot;));
+    assert_eq!(Ok((&amp;quot;ahah&amp;quot;, vec![])), parser.parse(&amp;quot;ahah&amp;quot;));
+    assert_eq!(Ok((&amp;quot;&amp;quot;, vec![])), parser.parse(&amp;quot;&amp;quot;));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;请注意两者的不同之处：对于&lt;code&gt;one_or_more&lt;&#x2F;code&gt;，解析空字符串时会返回错误，因为它需要找到至少一个满足其子解析器的输入，但是对于&lt;code&gt;zero_or_more&lt;&#x2F;code&gt;，一个空字符串只是意味着没有满足条件的输入，它并不是一个错误。&lt;&#x2F;p&gt;
+&lt;p&gt;鉴于此，可以考虑将这两个方法进行泛化，因为一个是另一个的副本，只是移除了一部分功能。用&lt;code&gt;zero_or_more&lt;&#x2F;code&gt;来表示&lt;code&gt;one_or_more&lt;&#x2F;code&gt;可能会很诱人 (tempt)。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn one_or_more&amp;lt;&amp;#x27;a, P, A&amp;gt;(parser: P) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;A&amp;gt;&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+{
+    map(pair(parser, zero_or_more(parser)), |(head, mut tail)| {
+        tail.insert(0, head);
+        tail
+    })
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在这里，我们遇到了 Rust 的一个问题，我甚至不是指&lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt;没有&lt;code&gt;cons&lt;&#x2F;code&gt;方法的问题，但我知道每个阅读那段代码的 Lisp 程序员都在思考这个问题：那就是所有权。&lt;&#x2F;p&gt;
+&lt;p&gt;我们拥有这个解析器，所以我们不能将其作为参数传递两次，编译器会试图对你大喊，因为你试图移动一个已经移动的值。那么我们可以让组合子代替引用吗？不，事实证明，我们还遇到另一整套借用检查器的问题 - 我们目前不会试图解决这些问题。并且因为这些解析器是函数，所以它们不会实现&lt;code&gt;Clone&lt;&#x2F;code&gt;，该 trait 本来可以帮我们节省一整天的时间，所以我们被困在一个约束中，我们不能在组合子中轻易地复用我们的解析器。&lt;&#x2F;p&gt;
+&lt;p&gt;不过，这不是一个大问题。它只是说明我们不能使用组合子来表达&lt;code&gt;one_or_more&lt;&#x2F;code&gt;，但事实证明，这两个通常是你需要的唯一组合子，它们往往会重用解析器，而且，如果你想变得非常花哨，除了解析器，你还可以编写一个带有&lt;code&gt;RangeBound&lt;&#x2F;code&gt;的组合子，并在一个范围内对其进行重复：&lt;code&gt;zero_or_more&lt;&#x2F;code&gt;使用&lt;code&gt;range(0..)&lt;&#x2F;code&gt;，&lt;code&gt;one_or_more&lt;&#x2F;code&gt;使用&lt;code&gt;range(1..)&lt;&#x2F;code&gt;，&lt;code&gt;five_or_six&lt;&#x2F;code&gt;使用&lt;code&gt;range(5..=6)&lt;&#x2F;code&gt;，依此类推。&lt;&#x2F;p&gt;
+&lt;p&gt;不过，让我们把它留给读者作为练习。现在我们只需使用&lt;code&gt;zero_or_more&lt;&#x2F;code&gt;和&lt;code&gt;one_or_more&lt;&#x2F;code&gt;即可。&lt;&#x2F;p&gt;
+&lt;p&gt;另一个练习可能是找到解决这些所有权问题的方法 - 也许可以通过将解析器包装在&lt;code&gt;Rc&lt;&#x2F;code&gt;中使其支持克隆？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;a-predicate-combinator&quot;&gt;A Predicate Combinator &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;bodil.lol&#x2F;parser-combinators&#x2F;#a-predicate-combinator&quot;&gt;#&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;我们现在有了需要用 &lt;code&gt;one_or_more&lt;&#x2F;code&gt; 解析空白的 &lt;code&gt;xml&lt;&#x2F;code&gt; 块，并用 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 解析属性对。 其实，稍等一下。我们其实不想先解析空格 &lt;em&gt;然后&lt;&#x2F;em&gt; 解析属性 (&lt;code&gt;attributes&lt;&#x2F;code&gt;)。如果你考虑一下，如果没有属性，空格是可选的，我们可能会遇到直接的 &lt;code&gt;&amp;gt;&lt;&#x2F;code&gt; 或 &lt;code&gt;&#x2F;&amp;gt;&lt;&#x2F;code&gt;。但是如果有一个属性，那么&lt;em&gt;必须&lt;&#x2F;em&gt;是空格。幸运的是，每个属性之间也必须有空格，如果有多个，所以我们在这里真正看到的是一系列&lt;em&gt;零或更多&lt;&#x2F;em&gt;出现的&lt;em&gt;一个或多个&lt;&#x2F;em&gt;空格项，然后是属性。&lt;&#x2F;p&gt;
+&lt;p&gt;我们首先需要一个解析单个空白项的解析器。我们可以选择下列三种方式之一。&lt;&#x2F;p&gt;
+&lt;p&gt;一，我们可以愚蠢地使用我们的 &lt;code&gt;match_literal&lt;&#x2F;code&gt; 解析器和一个只包含一个空格的字符串。为什么这么傻？因为空格也是换行符、制表符和大量呈现为空格的奇怪 Unicode 字符。我们将不得不再次依赖 Rust 的标准库，当然 &lt;code&gt;char&lt;&#x2F;code&gt; 有一个 &lt;code&gt;is_whitespace&lt;&#x2F;code&gt; 方法，就像它有 &lt;code&gt;is_alphabetic&lt;&#x2F;code&gt; 和 &lt;code&gt;is_alphanumeric&lt;&#x2F;code&gt; 一样。&lt;&#x2F;p&gt;
+&lt;p&gt;二，我们可以使用 &lt;code&gt;is_whitespace&lt;&#x2F;code&gt; Predicate 写出另外一个解析器，它消耗任意数量的空白字符，就像我们之前编写的 &lt;code&gt;identifier&lt;&#x2F;code&gt; 一样。&lt;&#x2F;p&gt;
+&lt;p&gt;三，我们可以写的更加巧妙。编写一个解析器 &lt;code&gt;any_char&lt;&#x2F;code&gt;，它返回一个单一的 &lt;code&gt;char&lt;&#x2F;code&gt;，只要输入中还剩下一个，以及一个组合子 &lt;code&gt;pred&lt;&#x2F;code&gt;，它接受一个解析器和一个谓词 (Predicate）函数，并像这样将两者结合起来：&lt;code&gt;pred (any_char, |c| c.is_whitespace())&lt;&#x2F;code&gt;。这有一个额外的好处，通过它，编写我们将需要的最终的解析器变得非常容易：属性值的引用字符串。 &lt;code&gt;any_char&lt;&#x2F;code&gt; 解析器写起来很简单，但我们得记得注意那些 UTF-8 问题。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn any_char(input: &amp;amp;str) -&amp;gt; ParseResult&amp;lt;char&amp;gt; {
+    match input.chars().next() {
+        Some(next) =&amp;gt; Ok((&amp;amp;input[next.len_utf8()..], next)),
+        _ =&amp;gt; Err(input),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;对 &lt;code&gt;经验丰富&lt;&#x2F;code&gt; 的我们来说， &lt;code&gt;pred&lt;&#x2F;code&gt; 组合子也并没有给我们太多惊喜 。 我们调用解析器，然后我们在解析器成功的情况下调用我们的谓词函数，并且只有当它返回 true 时，我们才真正返回 &lt;code&gt;success&lt;&#x2F;code&gt;，否则我们将返回与解析器失败一致的错误。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn pred&amp;lt;&amp;#x27;a, P, A, F&amp;gt;(parser: P, predicate: F) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, A&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+    F: Fn(&amp;amp;A) -&amp;gt; bool,
+{
+    move |input| {
+        if let Ok((next_input, value)) = parser.parse(input) {
+            if predicate(&amp;amp;value) {
+                return Ok((next_input, value));
+            }
+        }
+        Err(input)
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;写一个快速测试以确保一切正常：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn predicate_combinator() {
+    let parser = pred(any_char, |c| *c == &amp;#x27;o&amp;#x27;);
+    assert_eq!(Ok((&amp;quot;mg&amp;quot;, &amp;#x27;o&amp;#x27;)), parser.parse(&amp;quot;omg&amp;quot;));
+    assert_eq!(Err(&amp;quot;lol&amp;quot;), parser.parse(&amp;quot;lol&amp;quot;));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;有了这两个组件，我们可以用一个快速的单行代码编写我们的 &lt;code&gt;whitespace_char&lt;&#x2F;code&gt; 解析器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn whitespace_char&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, char&amp;gt; {
+    pred(any_char, |c| c.is_whitespace())
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;并且，现在我们有了&lt;code&gt;whitespace_char&lt;&#x2F;code&gt;，我们也可以用它实现我们之前的想法，&lt;em&gt;一个或多个空白&lt;&#x2F;em&gt;，以及它的姊妹想法，&lt;em&gt;零个或多个空白&lt;&#x2F;em&gt;。 让我们专注于几个简单的地方，并分别称它们为&lt;code&gt;space1&lt;&#x2F;code&gt;和&lt;code&gt;space0&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn space1&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;char&amp;gt;&amp;gt; {
+    one_or_more(whitespace_char())
+}
+
+fn space0&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;char&amp;gt;&amp;gt; {
+    zero_or_more(whitespace_char())
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;quoted-strings&quot;&gt;Quoted Strings&lt;&#x2F;h2&gt;
+&lt;p&gt;完成所有这些组件后，我们现在终于可以解析这些属性了吗？ 当然啦，我们只需要确保我们拥有所有这些属性组件的单独的解析器。 我们已经为属性名称提供了 &lt;code&gt;identifier&lt;&#x2F;code&gt;（尽管使用 &lt;code&gt;any_char&lt;&#x2F;code&gt; 和 &lt;code&gt;pred&lt;&#x2F;code&gt; 加上我们的 &lt;code&gt;*_or_more&lt;&#x2F;code&gt; 组合子来重写它是很诱人的）。 &lt;code&gt;=&lt;&#x2F;code&gt; 只是 &lt;code&gt;match_literal(&quot;=&quot;)&lt;&#x2F;code&gt;。 不过，我们只有一个带引号的字符串解析器，所以让我们把它组合起来。 幸运地是，我们已经拥有了完成它所需的所有组合子。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn quoted_string&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, String&amp;gt; {
+    map(
+        right(
+            match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+            left(
+                zero_or_more(pred(any_char, |c| *c != &amp;#x27;&amp;quot;&amp;#x27;)),
+                match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+            ),
+        ),
+        |chars| chars.into_iter().collect(),
+    )
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;组合子的嵌套在这一点上变得有点烦人，但我们暂时不会重构所有代码来修复它，而是专注于这里发生的事情。&lt;&#x2F;p&gt;
+&lt;p&gt;最外面的组合子是一个 &lt;code&gt;map&lt;&#x2F;code&gt;，因为前面提到的烦人的嵌套，从这开始理解代码是很让人困惑的，所以让我们试着找出它真正开始的地方：第一个引号字符。在&lt;code&gt;map&lt;&#x2F;code&gt;里面，有一个&lt;code&gt;right&lt;&#x2F;code&gt;，而&lt;code&gt;right&lt;&#x2F;code&gt;的第一部分就是我们要找的：&lt;code&gt;match_literal(&quot;\&quot;&quot;)&lt;&#x2F;code&gt;。那是我们的引号的开始 。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;right&lt;&#x2F;code&gt; 的第二部分是字符串的其余部分。在 &lt;code&gt;left&lt;&#x2F;code&gt; 里面，我们很快注意到那个 &lt;code&gt;left&lt;&#x2F;code&gt; 的 &lt;em&gt;right&lt;&#x2F;em&gt; 参数，我们一直忽视的那个: 是另一个 &lt;code&gt;match_literal(&quot;\&quot;&quot;)&lt;&#x2F;code&gt; - 引号的结束。所以左手部分是我们用引号包裹的字符串。&lt;&#x2F;p&gt;
+&lt;p&gt;我们在这里利用新的 &lt;code&gt;pred&lt;&#x2F;code&gt; 和 &lt;code&gt;any_char&lt;&#x2F;code&gt; 来获得一个接受&lt;em&gt;除另一个引号之外的任何内容&lt;&#x2F;em&gt;的解析器，并将其放入 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 中，因此我们所说的实现如下：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;一个引号&lt;&#x2F;li&gt;
+&lt;li&gt;后跟零个或多个&lt;em&gt;不是&lt;&#x2F;em&gt;另一个引号的内容&lt;&#x2F;li&gt;
+&lt;li&gt;接着是另一个引号
+并且，在 &lt;code&gt;right&lt;&#x2F;code&gt; 和 &lt;code&gt;left&lt;&#x2F;code&gt; 之间，我们丢弃结果值中的引号并取回引用的字符串。
+但是等等，这不是一个字符串。还记得 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 返回什么吗？内部解析器的返回类型 A 的 &lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt;。对于&lt;code&gt;any_char&lt;&#x2F;code&gt;来说，就是&lt;code&gt;char&lt;&#x2F;code&gt;。那么，我们得到的不是字符串而是&lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt;。这就是 &lt;code&gt;map&lt;&#x2F;code&gt; 的用武之地：我们使用它把 &lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt; 转换为 &lt;code&gt;String&lt;&#x2F;code&gt;，因为你可以从 &lt;code&gt;Iterator&amp;lt;Item = char&amp;gt;&lt;&#x2F;code&gt; 构建一个 &lt;code&gt;String&lt;&#x2F;code&gt;，所以我们可以调用 &lt;code&gt;vec_of_chars.into_iter().collect()&lt;&#x2F;code&gt;，并且由于类型推断的强大功能，我们有了 &lt;code&gt;String&lt;&#x2F;code&gt;。
+在我们继续之前，让我们编写一个快速测试以确保一切正常，因为如果我们需要这么多词来解释它，这可能不是我们作为程序员对自己有信心的样子。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn quoted_string_parser() {
+    assert_eq!(
+        Ok((&amp;quot;&amp;quot;, &amp;quot;Hello Joe!&amp;quot;.to_string())),
+        quoted_string().parse(&amp;quot;\&amp;quot;Hello Joe!\&amp;quot;&amp;quot;)
+    );
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;所以, 终于, 我们可以解析点属性了.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;at-last-parsing-attributes&quot;&gt;At Last, Parsing Attributes&lt;&#x2F;h2&gt;
+&lt;p&gt;我们现在可以解析空格、标识符、&lt;code&gt;=&lt;&#x2F;code&gt; 符号和带引号的字符串。 最后，这就是我们解析属性所需的全部内容。&lt;&#x2F;p&gt;
+&lt;p&gt;首先，让我们为一个属性对编写一个解析器。 我们将把它们存储为 &lt;code&gt;Vec&amp;lt;(String, String)&amp;gt;&lt;&#x2F;code&gt;，你可能还记得，所以我们需要一个解析器来处理 &lt;code&gt;(String, String)&lt;&#x2F;code&gt; 元组,来提供给我们值得信赖的 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 组合子。 让我们看看我们是否可以写出一个。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn attribute_pair&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, (String, String)&amp;gt; {
+    pair(identifier, right(match_literal(&amp;quot;=&amp;quot;), quoted_string()))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;易如反掌！ 总结一下：我们已经有一个方便的组合子来解析一个值的元组，&lt;code&gt;pair&lt;&#x2F;code&gt;，所以我们将它与 &lt;code&gt;identifier&lt;&#x2F;code&gt; 解析器一起使用，产生一个 &lt;code&gt;String&lt;&#x2F;code&gt; 和一个带有 &lt;code&gt;=&lt;&#x2F;code&gt; 符号的 &lt;code&gt;right&lt;&#x2F;code&gt;， 它包括了我们不想保留的值，以及我们新的 &lt;code&gt;quoted_string&lt;&#x2F;code&gt; 解析器，它给了我们另一个 &lt;code&gt;String&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;现在，让我们将其与 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 结合起来构建该 &lt;code&gt;vector&lt;&#x2F;code&gt; - 但不要忘记它们之间的空白。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn attributes&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Vec&amp;lt;(String, String)&amp;gt;&amp;gt; {
+    zero_or_more(right(space1(), attribute_pair()))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;零次或多次出现以下内容：一个或多个空白字符，然后是一个属性对。 我们使用&lt;code&gt;right&lt;&#x2F;code&gt;来丢弃空格并保留属性对。&lt;&#x2F;p&gt;
+&lt;p&gt;让我们测试一下。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn attribute_parser() {
+    assert_eq!(
+        Ok((
+            &amp;quot;&amp;quot;,
+            vec![
+                (&amp;quot;one&amp;quot;.to_string(), &amp;quot;1&amp;quot;.to_string()),
+                (&amp;quot;two&amp;quot;.to_string(), &amp;quot;2&amp;quot;.to_string())
+            ]
+        )),
+        attributes().parse(&amp;quot; one=\&amp;quot;1\&amp;quot; two=\&amp;quot;2\&amp;quot;&amp;quot;)
+    );
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;测试通过! 起飞!&lt;&#x2F;p&gt;
+&lt;p&gt;实际上，并没有，在叙述者点上, 我的 &lt;code&gt;rustc&lt;&#x2F;code&gt; 抱怨我的类型变得非常复杂，我需要增加最大允许的类型大小才能继续。你也可能遇到这种情况，如果发生了, 你需要知道如何处理它。 幸好，在这些情况下，&lt;code&gt;rustc&lt;&#x2F;code&gt; 通常会给出很好的建议，所以当它告诉你将 &lt;code&gt;#![type_length_limit = &quot;...some big number...&quot;]&lt;&#x2F;code&gt; 添加到文件顶部时，就按照它说的去做。 实际上，只需将其设为 &lt;code&gt;#![type_length_limit = &quot;16777216&quot;]&lt;&#x2F;code&gt;，这将使我们进一步深入复杂类型的平流层。 全力以赴，我们现在是宇航员！&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;so-close-now&quot;&gt;So Close Now&lt;&#x2F;h2&gt;
+&lt;p&gt;这个时候，事情似乎即将开始合为一体，这让人松了一口气，因为我们的类型正在快速接近 NP 完整性。 我们只需要处理两个版本的元素标签：单个元素和带有子元素的父元素，但是我们非常有信心，一旦我们有了这些，解析子元素将只是 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 的问题， 对吧？&lt;&#x2F;p&gt;
+&lt;p&gt;所以让我们先从单一元素开始，把孩子的问题推迟一点。 或者，更好的是，让我们首先为两者的所有共同点编写一个解析器：开头的 &lt;code&gt;&amp;lt;&lt;&#x2F;code&gt;、元素名称和属性。 让我们看看我们是否可以从几个组合子中得到 &lt;code&gt;(String, Vec&amp;lt;(String, String)&amp;gt;)&lt;&#x2F;code&gt;类型。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn element_start&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, (String, Vec&amp;lt;(String, String)&amp;gt;)&amp;gt; {
+    right(match_literal(&amp;quot;&amp;lt;&amp;quot;), pair(identifier, attributes()))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;有了它，我们可以快速地给它打上标签，为单个元素创建一个解析器。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn single_element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    map(
+        left(element_start(), match_literal(&amp;quot;&amp;#x2F;&amp;gt;&amp;quot;)),
+        |(name, attributes)| Element {
+            name,
+            attributes,
+            children: vec![],
+        },
+    )
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;万岁，感觉我们的目标已经触手可及了——我们现在实际上正在构建一个 &lt;code&gt;Element&lt;&#x2F;code&gt;！&lt;&#x2F;p&gt;
+&lt;p&gt;让我们来测试一下这个现代科技的奇迹吧。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn single_element_parser() {
+    assert_eq!(
+        Ok((
+            &amp;quot;&amp;quot;,
+            Element {
+                name: &amp;quot;div&amp;quot;.to_string(),
+                attributes: vec![(&amp;quot;class&amp;quot;.to_string(), &amp;quot;float&amp;quot;.to_string())],
+                children: vec![]
+            }
+        )),
+        single_element().parse(&amp;quot;&amp;lt;div class=\&amp;quot;float\&amp;quot;&amp;#x2F;&amp;gt;&amp;quot;)
+    );
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;...我想我们才刚刚突破大气层。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;single_element&lt;&#x2F;code&gt; 的返回类型非常复杂，编译器会花费很长时间，直到遇到我们之前给它的非常大的类型大小限制 (&lt;code&gt;#![type_length_limit = &quot;&quot;]&lt;&#x2F;code&gt;)，要求更大的类型。 很明显我们不能再忽视这个问题，因为它是一个相当简单的解析器和(应该只需要)几分钟的编译时间——对于成品来说甚至可能是几个小时——似乎有点不合理。&lt;&#x2F;p&gt;
+&lt;p&gt;在继续之前，你最好在我们修复问题时注释掉这两个函数和测试......&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;to-infinity-and-beyond&quot;&gt;To Infinity And Beyond&lt;&#x2F;h2&gt;
+&lt;p&gt;如果你曾经尝试过在 Rust 中编写递归类型，你可能已经知道我们的小问题的解决方案。&lt;&#x2F;p&gt;
+&lt;p&gt;递归类型的一个非常简单的例子是单向链表。 原则上，可以将其表示为这样的枚举：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;enum List&amp;lt;A&amp;gt; {
+    Cons(A, List&amp;lt;A&amp;gt;),
+    Nil,
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;rustc&lt;&#x2F;code&gt; 会非常明智地反对你的递归类型 &lt;code&gt;List&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; ,因为它具有无限大小，因为在每个 &lt;code&gt;List::&amp;lt;A&amp;gt;::Cons&lt;&#x2F;code&gt; 内部是另一个 &lt;code&gt;List&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，这意味着它也是一个 &lt;code&gt;List&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;......直到无穷大。就 &lt;code&gt;rustc&lt;&#x2F;code&gt; 而言，我们要求一个无限列表，我们要求它能够&lt;em&gt;分配&lt;&#x2F;em&gt;一个无限列表。&lt;&#x2F;p&gt;
+&lt;p&gt;在许多语言中，无限列表原则上对于类型系统来说不是问题，实际上对于 Rust 也不是问题。问题是在 Rust 中，如前所述，我们需要能够&lt;em&gt;分配&lt;&#x2F;em&gt;它，或者更确切地说，我们需要能够在我们构造它时预先确定类型的 &lt;em&gt;大小&lt;&#x2F;em&gt;，以及当类型是无限的，这意味着大小也必须是无限的。&lt;&#x2F;p&gt;
+&lt;p&gt;解决方案是使用一点间接性。我们的&lt;code&gt;List::Cons&lt;&#x2F;code&gt; 不是&lt;code&gt;A&lt;&#x2F;code&gt; 的一个元素和&lt;code&gt;A&lt;&#x2F;code&gt; 的另一个&lt;em&gt;list&lt;&#x2F;em&gt;，而是我们使它成为&lt;code&gt;A&lt;&#x2F;code&gt; 的一个元素和一个指向&lt;code&gt;A&lt;&#x2F;code&gt; 列表的&lt;em&gt;指针&lt;&#x2F;em&gt;。我们知道指针的大小，不管它指向什么都是一样的，所以我们的 List::Cons 现在有一个固定的和可预测的大小，无论列表的大小如何。在 Rust 中，将一个拥有的东西变成指向堆上拥有的东西的指针的方法是用 &lt;code&gt;box&lt;&#x2F;code&gt; 包裹它。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;enum List&amp;lt;A&amp;gt; {
+    Cons(A, Box&amp;lt;List&amp;lt;A&amp;gt;&amp;gt;),
+    Nil,
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Box&lt;&#x2F;code&gt; 的另一个有趣的特性是它里面的类型可以是抽象的。 这意味着我们可以让类型检查器处理一个非常简洁的 &lt;code&gt;Box&amp;lt;dyn Parser&amp;lt;&#x27;a, A&amp;gt;&amp;gt;&lt;&#x2F;code&gt;，而不是我们现在非常复杂的解析器函数类型。&lt;&#x2F;p&gt;
+&lt;p&gt;听起来不错。 有什么缺点？ 好吧，我们可能会因为必须遵循该指针而失去一两个指令周期，也可能是编译器失去了一些优化解析器的机会。 但回想一下 Knuth 关于过早优化(1)的告诫：它会没事的。 你完全可以负担得起这些周期。 来这里是为了解 解析器组合子，而不是了解手写的超专业化 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;lemire&#x2F;simdjson&quot;&gt;SIMD 解析器&lt;&#x2F;a&gt;（尽管它们本身就很令人兴奋）。 因此，除了迄今为止我们一直在使用的裸函数之外，让我们继续为 &lt;em&gt;boxed&lt;&#x2F;em&gt; 解析器函数实现 &lt;code&gt;Parser&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;译者注: 1: 过早优化是万恶之源&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;struct BoxedParser&amp;lt;&amp;#x27;a, Output&amp;gt; {
+    parser: Box&amp;lt;dyn Parser&amp;lt;&amp;#x27;a, Output&amp;gt; + &amp;#x27;a&amp;gt;,
+}
+
+impl&amp;lt;&amp;#x27;a, Output&amp;gt; BoxedParser&amp;lt;&amp;#x27;a, Output&amp;gt; {
+    fn new&amp;lt;P&amp;gt;(parser: P) -&amp;gt; Self
+    where
+        P: Parser&amp;lt;&amp;#x27;a, Output&amp;gt; + &amp;#x27;a,
+    {
+        BoxedParser {
+            parser: Box::new(parser),
+        }
+    }
+}
+
+impl&amp;lt;&amp;#x27;a, Output&amp;gt; Parser&amp;lt;&amp;#x27;a, Output&amp;gt; for BoxedParser&amp;lt;&amp;#x27;a, Output&amp;gt; {
+    fn parse(&amp;amp;self, input: &amp;amp;&amp;#x27;a str) -&amp;gt; ParseResult&amp;lt;&amp;#x27;a, Output&amp;gt; {
+        self.parser.parse(input)
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;出于礼节，我们创建了一个新类型 &lt;code&gt;BoxedParser&lt;&#x2F;code&gt;来保存我们的 &lt;code&gt;box&lt;&#x2F;code&gt;。 要从任何其他类型的解析器（包括另一个&lt;code&gt;BoxedParser&lt;&#x2F;code&gt;，即使那毫无意义）创建一个新的&lt;code&gt;BoxedParser&lt;&#x2F;code&gt;，我们提供了一个函数&lt;code&gt;BoxedParser::new(parser)&lt;&#x2F;code&gt;，它只会将该解析器放入 我们的新类型中的一个 &lt;code&gt;Box&lt;&#x2F;code&gt;。 最后，我们为它实现了 &lt;code&gt;Parser&lt;&#x2F;code&gt;，这样它就可以作为解析器互换使用。&lt;&#x2F;p&gt;
+&lt;p&gt;这使我们能够将解析器函数放入 &lt;code&gt;Box&lt;&#x2F;code&gt;，并且 &lt;code&gt;BoxedParser&lt;&#x2F;code&gt; 将与函数一样用作 &lt;code&gt;Parser&lt;&#x2F;code&gt;。 现在，正如前面提到的，这意味着将解析器移动到堆中，并且必须取消引用一个指针才能找到它，这可能会花费我们&lt;em&gt;几个宝贵的纳秒&lt;&#x2F;em&gt;，所以我们实际上可能想要推迟使用 &lt;code&gt;box&lt;&#x2F;code&gt;。 将一些更常用的组合子放到 &lt;code&gt;box&lt;&#x2F;code&gt; 就足够了。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;an-opportunity-presents-itself&quot;&gt;&lt;strong&gt;An Opportunity Presents Itself&lt;&#x2F;strong&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;但是，稍等片刻，这为我们提供了解决另一个变得麻烦的问题的机会。&lt;&#x2F;p&gt;
+&lt;p&gt;还记得我们写的最后几个解析器吗？ 因为我们的组合子是独立的函数，当我们嵌套大量的组合子时，我们的代码开始变得有点不可读。 回想一下我们的 &lt;code&gt;quoted_string&lt;&#x2F;code&gt; 解析器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn quoted_string&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, String&amp;gt; {
+    map(
+        right(
+            match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+            left(
+                zero_or_more(pred(any_char, |c| *c != &amp;#x27;&amp;quot;&amp;#x27;)),
+                match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+            ),
+        ),
+        |chars| chars.into_iter().collect(),
+    )
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果我们可以在解析器上使用这些组合子方法而不是独立函数，它会有更好的可读性。 如果我们可以将组合子声明为 &lt;code&gt;Parser&lt;&#x2F;code&gt; trait 上的方法会怎样？&lt;&#x2F;p&gt;
+&lt;p&gt;问题是，如果我们这样做，我们就失去了依赖 &lt;code&gt;impl Trait&lt;&#x2F;code&gt; 作为返回类型的能力，因为 &lt;code&gt;impl Trait&lt;&#x2F;code&gt; 不允许出现在 trait 声明中。&lt;&#x2F;p&gt;
+&lt;p&gt;……但现在我们有了&lt;code&gt;BoxedParser&lt;&#x2F;code&gt;。 我们不能声明一个返回 &lt;code&gt;impl Parser&amp;lt;&#x27;a, A&amp;gt;&lt;&#x2F;code&gt; 的 trait ，但我们肯定&lt;em&gt;可以&lt;&#x2F;em&gt;声明一个返回 &lt;code&gt;BoxedParser&amp;lt;&#x27;a, A&amp;gt;&lt;&#x2F;code&gt; 的 trait 。&lt;&#x2F;p&gt;
+&lt;p&gt;最好的部分是我们甚至可以使用默认实现声明这些，这样我们就不必为实现 &lt;code&gt;Parser&lt;&#x2F;code&gt; 的每个类型重新实现每个组合子。&lt;&#x2F;p&gt;
+&lt;p&gt;让我们用 &lt;code&gt;map&lt;&#x2F;code&gt; 来试试，通过扩展我们的 &lt;code&gt;Parser&lt;&#x2F;code&gt; trait 如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;trait Parser&amp;lt;&amp;#x27;a, Output&amp;gt; {
+    fn parse(&amp;amp;self, input: &amp;amp;&amp;#x27;a str) -&amp;gt; ParseResult&amp;lt;&amp;#x27;a, Output&amp;gt;;
+
+    fn map&amp;lt;F, NewOutput&amp;gt;(self, map_fn: F) -&amp;gt; BoxedParser&amp;lt;&amp;#x27;a, NewOutput&amp;gt;
+    where
+        Self: Sized + &amp;#x27;a,
+        Output: &amp;#x27;a,
+        NewOutput: &amp;#x27;a,
+        F: Fn(Output) -&amp;gt; NewOutput + &amp;#x27;a,
+    {
+        BoxedParser::new(map(self, map_fn))
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;啊这，好多&lt;code&gt;&#x27;a&#x27;&lt;&#x2F;code&gt;，唉，它们都是必要的。 幸运的是，我们仍然可以不变地重用旧的组合子函数——而且，我们还得到一个额外的好处，不仅可以获得更好的语法来应用它们，我们还通过自动 &lt;code&gt;box&lt;&#x2F;code&gt; 来摆脱爆炸性的 &lt;code&gt;impl Trait&lt;&#x2F;code&gt; 类型。 现在我们可以稍微改进我们的 &lt;code&gt;quoted_string&lt;&#x2F;code&gt; 解析器：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn quoted_string&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, String&amp;gt; {
+    right(
+        match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+        left(
+            zero_or_more(pred(any_char, |c| *c != &amp;#x27;&amp;quot;&amp;#x27;)),
+            match_literal(&amp;quot;\&amp;quot;&amp;quot;),
+        ),
+    )
+    .map(|chars| chars.into_iter().collect())
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;乍一看现在更明显，正在对 &lt;code&gt;right()&lt;&#x2F;code&gt; 的结果调用 &lt;code&gt;.map()&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;我们也可以给 &lt;code&gt;pair&lt;&#x2F;code&gt;、&lt;code&gt;left&lt;&#x2F;code&gt; 和 &lt;code&gt;right&lt;&#x2F;code&gt; 相同的处理，但是对于这三个，我认为当它们是函数时读起来更容易，因为它们反映了 &lt;code&gt;pair&lt;&#x2F;code&gt; 的输出结构 类型。 如果你不同意，完全可以像我们对 &lt;code&gt;map&lt;&#x2F;code&gt; 所做的那样将它们添加到 trait 中，并且非常欢迎你继续尝试将其作为练习。&lt;&#x2F;p&gt;
+&lt;p&gt;不过，另一个主要候选人是 &lt;code&gt;pred&lt;&#x2F;code&gt;。 让我们将它的定义添加到 &lt;code&gt;Parser&lt;&#x2F;code&gt; trait 中：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn pred&amp;lt;F&amp;gt;(self, pred_fn: F) -&amp;gt; BoxedParser&amp;lt;&amp;#x27;a, Output&amp;gt;
+where
+    Self: Sized + &amp;#x27;a,
+    Output: &amp;#x27;a,
+    F: Fn(&amp;amp;Output) -&amp;gt; bool + &amp;#x27;a,
+{
+    BoxedParser::new(pred(self, pred_fn))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这下我们就可以用 &lt;code&gt;pred&lt;&#x2F;code&gt; 重写 &lt;code&gt;quoted_string&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;zero_or_more(any_char.pred(|c| *c != &amp;#x27;&amp;quot;&amp;#x27;)),
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我认为这读起来更好一些，我认为我们也会保留 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 原样 - 它读起来就像应用了以下谓词的零个或多个 &lt;code&gt;any_char&lt;&#x2F;code&gt;，这对我来说听起来很半。 当然，如果你愿意这么写，你也可以继续将 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 和 &lt;code&gt;one_or_more&lt;&#x2F;code&gt; 移到 trait 中。&lt;&#x2F;p&gt;
+&lt;p&gt;除了重写&lt;code&gt;quoted_string&lt;&#x2F;code&gt;，我们还要修正&lt;code&gt;single_element&lt;&#x2F;code&gt;中的&lt;code&gt;map&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn single_element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    left(element_start(), match_literal(&amp;quot;&amp;#x2F;&amp;gt;&amp;quot;)).map(|(name, attributes)| Element {
+        name,
+        attributes,
+        children: vec![],
+    })
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;让我们试着取消对 &lt;code&gt;element_start&lt;&#x2F;code&gt; 和我们之前注释掉的测试的注释，看看情况是否变得更好。 开始编译并尝试运行测试......&lt;&#x2F;p&gt;
+&lt;p&gt;……而且，是的，现在编译时间恢复正常了。 甚至可以继续删除文件顶部的字体大小设置。&lt;&#x2F;p&gt;
+&lt;p&gt;这只是通过 &lt;code&gt;box&lt;&#x2F;code&gt; 两个 &lt;code&gt;map&lt;&#x2F;code&gt; 和一个 &lt;code&gt;pred&lt;&#x2F;code&gt; - &lt;em&gt;而且&lt;&#x2F;em&gt;我们从中得到了更好的语法！&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;having-children&quot;&gt;Having Children&lt;&#x2F;h2&gt;
+&lt;p&gt;现在让我们为父元素的开始标记编写解析器。 它几乎与&lt;code&gt;single_element&lt;&#x2F;code&gt; 相同，只是它以&lt;code&gt;&amp;gt;&lt;&#x2F;code&gt; 结尾而不是&lt;code&gt;&#x2F;&amp;gt;&lt;&#x2F;code&gt;。 后面还有零个或多个子元素和一个结束标记，但首先我们需要解析实际的开始标记，所以让我们完成这个函数。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn open_element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    left(element_start(), match_literal(&amp;quot;&amp;gt;&amp;quot;)).map(|(name, attributes)| Element {
+        name,
+        attributes,
+        children: vec![],
+    })
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;现在，我们如何得到这些子元素？ 它们将是单个元素或父元素本身，并且它们有零个或多个，所以我们有我们可信赖的 &lt;code&gt;zero_or_more&lt;&#x2F;code&gt; 组合子，但是我们提供什么？ 我们还没有编写过的一件事是多重解析器：解析&lt;em&gt;或者&lt;&#x2F;em&gt;单个元素&lt;em&gt;或&lt;&#x2F;em&gt;父元素的东西。&lt;&#x2F;p&gt;
+&lt;p&gt;为了完成这个特性，我们需要一个组合子，它按顺序尝试两个解析器：如果第一个解析器成功，我们就完成了，我们返回它的结果，就是这样。 如果失败，我们不会返回错误，而是在&lt;em&gt;相同的输入&lt;&#x2F;em&gt;上尝试第二个解析器。 如果成功，很好，如果没有，我们也会返回错误，因为这意味着我们的两个解析器都失败了，这是一个整体性失败。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn either&amp;lt;&amp;#x27;a, P1, P2, A&amp;gt;(parser1: P1, parser2: P2) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, A&amp;gt;
+where
+    P1: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+    P2: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+{
+    move |input| match parser1.parse(input) {
+        ok @ Ok(_) =&amp;gt; ok,
+        Err(_) =&amp;gt; parser2.parse(input),
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这使得我们可以声明一个解析器&lt;code&gt;element&lt;&#x2F;code&gt;，它匹配单个元素或父元素（现在，我们只使用&lt;code&gt;open_element&lt;&#x2F;code&gt; 来表示它，一旦我们有了&lt;code&gt;element&lt;&#x2F;code&gt;，我们将处理 &lt;code&gt;element&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    either(single_element(), open_element())
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;现在让我们为结束标记添加一个解析器。 它具有必须匹配开始标签的特性，这意味着解析器必须知道开始标签的名称是什么。 但这就是函数参数的用途，对吧？&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn close_element&amp;lt;&amp;#x27;a&amp;gt;(expected_name: String) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, String&amp;gt; {
+    right(match_literal(&amp;quot;&amp;lt;&amp;#x2F;&amp;quot;), left(identifier, match_literal(&amp;quot;&amp;gt;&amp;quot;)))
+        .pred(move |name| name == &amp;amp;expected_name)
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;事实证明，那个 &lt;code&gt;pred&lt;&#x2F;code&gt; 组合子真的很有用，不是吗？&lt;&#x2F;p&gt;
+&lt;p&gt;现在，让我们为完整的父元素解析器、子元素和所有元素组合起来：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn parent_element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    pair(
+        open_element(),
+        left(zero_or_more(element()), close_element(…oops)),
+    )
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;通过使用 &lt;code&gt;and_then&lt;&#x2F;code&gt;，我们现在可以通过使用该函数构建正确版本的 &lt;code&gt;close_element&lt;&#x2F;code&gt; 来获得正确的结果。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn parent_element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    open_element().and_then(|el| {
+        left(zero_or_more(element()), close_element(el.name.clone())).map(move |children| {
+            let mut el = el.clone();
+            el.children = children;
+            el
+        })
+    })
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;现在看起来有点复杂，因为 &lt;code&gt;and_then&lt;&#x2F;code&gt; 必须在 &lt;code&gt;open_element()&lt;&#x2F;code&gt; 中进行，在那里我们找到进入 &lt;code&gt;close_element&lt;&#x2F;code&gt; 的地方。这意味着 &lt;code&gt;open_element&lt;&#x2F;code&gt; 之后的解析器的其余部分都必须在 &lt;code&gt;and_then&lt;&#x2F;code&gt; 闭包内构造。此外，因为该闭包现在是来自 &lt;code&gt;open_element&lt;&#x2F;code&gt; 的 &lt;code&gt;Element&lt;&#x2F;code&gt; 结果的唯一接收者，我们返回的解析器也必须向前传递该信息。&lt;&#x2F;p&gt;
+&lt;p&gt;我们在生成的解析器上 &lt;code&gt;map&lt;&#x2F;code&gt;的内部闭包具有对外部闭包中的 &lt;code&gt;Element&lt;&#x2F;code&gt;（&lt;code&gt;el&lt;&#x2F;code&gt;）的引用。我们必须使用 &lt;code&gt;clone()&lt;&#x2F;code&gt; ，因为一个 &lt;code&gt;Fn&lt;&#x2F;code&gt; 中，只有对它的引用。我们获取内部解析器的结果（我们的 &lt;code&gt;Vec&amp;lt;Element&amp;gt;&lt;&#x2F;code&gt; 子元素）并将其添加到我们克隆的 &lt;code&gt;Element&lt;&#x2F;code&gt; 中，然后将其作为最终结果返回。&lt;&#x2F;p&gt;
+&lt;p&gt;我们现在需要做的就是返回到我们的 &lt;code&gt;element&lt;&#x2F;code&gt; 解析器并确保我们将 &lt;code&gt;open_element&lt;&#x2F;code&gt; 更改为 &lt;code&gt;parent_element&lt;&#x2F;code&gt;，这样它就会解析整个元素结构，而不是只是它的开头，我相信我们已经完成了！&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;word-or-do-i-have-to&quot;&gt;Word Or Do I Have To?&lt;&#x2F;h2&gt;
+&lt;p&gt;还记得我们讨论过 &lt;code&gt;map&lt;&#x2F;code&gt; 模式如何在 Planet Haskell 上被称为“函子”吗？&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;and_then&lt;&#x2F;code&gt; 模式是你在 Rust 中经常看到的另一种模式，通常与 &lt;code&gt;map&lt;&#x2F;code&gt; 位于相同的位置。它在 &lt;code&gt;Iterator&amp;lt;Item = char&amp;gt;&lt;&#x2F;code&gt; 上被称为 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doc.rust-lang.org&#x2F;std&#x2F;iter&#x2F;trait.Iterator.html#method.flat_map&quot;&gt;&lt;code&gt;flat\_map&lt;&#x2F;code&gt;&lt;&#x2F;a&gt;，但它的模式与其他模式相同。&lt;&#x2F;p&gt;
+&lt;p&gt;它的花名是&lt;code&gt;monad&lt;&#x2F;code&gt;。如果你有一个东西 &lt;code&gt;Thing&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，并且你有一个可用的 &lt;code&gt;and_then&lt;&#x2F;code&gt; 函数，它可以将一个函数从 &lt;code&gt;A&lt;&#x2F;code&gt; 传递给 &lt;code&gt;Thing&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，这样现在你就有了一个新的 &lt;code&gt;Thing&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; 来替代原来的，这就是一个 monad。&lt;&#x2F;p&gt;
+&lt;p&gt;该函数可能会立即被调用，比如当你有一个 &lt;code&gt;Option&amp;lt;char&amp;gt;&lt;&#x2F;code&gt; 时，我们已经知道它是一个 &lt;code&gt;Some(A)&lt;&#x2F;code&gt; 还是一个 &lt;code&gt;None&lt;&#x2F;code&gt;，我们直接应用该函数，如果它是一个 &lt;code&gt;Some(A)&lt;&#x2F;code&gt;，那么就会给我们一个&lt;code&gt;Some(B)&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;它也可能被称为 &lt;code&gt;惰性 (lazy)&lt;&#x2F;code&gt;。例如，如果有一个仍在等待解析的 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，它不会立即调用该函数来创建一个 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，而是创建一个新的 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;它包含 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; 和函数，然后等待 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; 完成。当它这样做时，它会使用 &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; 的结果调用函数，这样就搞定了 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;bodil.lol&#x2F;parser-combinators&#x2F;#footnote_1&quot;&gt;1&lt;&#x2F;a&gt;(He isn&#x27;t really your uncle.)，得到你的 &lt;code&gt;Future&amp;lt; B&amp;gt;&lt;&#x2F;code&gt; 。换句话说，在&lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt; 的情况下，可以将传递给&lt;code&gt;and_then&lt;&#x2F;code&gt; 的函数视为&lt;em&gt;回调函数&lt;&#x2F;em&gt;，因为它会在完成时使用原始 future 的结果进行调用。它还比这更有趣，因为它返回一个 &lt;em&gt;new&lt;&#x2F;em&gt; &lt;code&gt;Future&amp;lt;A&amp;gt;&lt;&#x2F;code&gt;，它可能已经或可能没有被解决，所以它是一种将 future 连在一起的方法。&lt;&#x2F;p&gt;
+&lt;p&gt;然而，与函子一样，Rust 的类型系统目前不能表达 &lt;code&gt;monad&lt;&#x2F;code&gt;，所以让我们只需注意这种模式被称为 &lt;code&gt;monad&lt;&#x2F;code&gt;，而且令人失望的是，这和网上的搜到的意思并不一样，它与墨西哥卷饼毫无关系。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;whitespace-redux&quot;&gt;Whitespace, Redux&lt;&#x2F;h2&gt;
+&lt;p&gt;只有最后一件事。&lt;&#x2F;p&gt;
+&lt;p&gt;我们现在应该有一个能够解析一些 XML 的解析器，但是他并不能很好的接受空格。 标签之间应该允许任意空格，这样我们就可以自由地在标签之间插入换行符等（原则上，标识符和文字之间应该允许空格，比如&lt;code&gt;&amp;lt; div &#x2F;&amp;gt;&lt;&#x2F;code&gt;，但这里跳过它）。 在这一点上，我们应该能够毫不费力地为此组合一个快速组合子。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn whitespace_wrap&amp;lt;&amp;#x27;a, P, A&amp;gt;(parser: P) -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, A&amp;gt;
+where
+    P: Parser&amp;lt;&amp;#x27;a, A&amp;gt;,
+{
+    right(space0(), left(parser, space0()))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果我们将 &lt;code&gt;element&lt;&#x2F;code&gt; 包裹在里面，它将忽略 &lt;code&gt;element&lt;&#x2F;code&gt; 周围的所有前面和后面空格，这意味着我们可以随意使用尽可能多的换行符和尽可能多的缩进。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn element&amp;lt;&amp;#x27;a&amp;gt;() -&amp;gt; impl Parser&amp;lt;&amp;#x27;a, Element&amp;gt; {
+    whitespace_wrap(either(single_element(), parent_element()))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;we-re-finally-there&quot;&gt;We&#x27;re Finally There!&lt;&#x2F;h2&gt;
+&lt;p&gt;我想我们终于做到了！ 让我们写个测试庆祝一下！&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn xml_parser() {
+    let doc = r#&amp;quot;
+        &amp;lt;top label=&amp;quot;Top&amp;quot;&amp;gt;
+            &amp;lt;semi-bottom label=&amp;quot;Bottom&amp;quot;&amp;#x2F;&amp;gt;
+            &amp;lt;middle&amp;gt;
+                &amp;lt;bottom label=&amp;quot;Another bottom&amp;quot;&amp;#x2F;&amp;gt;
+            &amp;lt;&amp;#x2F;middle&amp;gt;
+        &amp;lt;&amp;#x2F;top&amp;gt;&amp;quot;#;
+    let parsed_doc = Element {
+        name: &amp;quot;top&amp;quot;.to_string(),
+        attributes: vec![(&amp;quot;label&amp;quot;.to_string(), &amp;quot;Top&amp;quot;.to_string())],
+        children: vec![
+            Element {
+                name: &amp;quot;semi-bottom&amp;quot;.to_string(),
+                attributes: vec![(&amp;quot;label&amp;quot;.to_string(), &amp;quot;Bottom&amp;quot;.to_string())],
+                children: vec![],
+            },
+            Element {
+                name: &amp;quot;middle&amp;quot;.to_string(),
+                attributes: vec![],
+                children: vec![Element {
+                    name: &amp;quot;bottom&amp;quot;.to_string(),
+                    attributes: vec![(&amp;quot;label&amp;quot;.to_string(), &amp;quot;Another bottom&amp;quot;.to_string())],
+                    children: vec![],
+                }],
+            },
+        ],
+    };
+    assert_eq!(Ok((&amp;quot;&amp;quot;, parsed_doc)), element().parse(doc));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;下面这个测试会因为有未闭合 tag 而解析失败：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;#[test]
+fn mismatched_closing_tag() {
+    let doc = r#&amp;quot;
+        &amp;lt;top&amp;gt;
+            &amp;lt;bottom&amp;#x2F;&amp;gt;
+        &amp;lt;&amp;#x2F;middle&amp;gt;&amp;quot;#;
+    assert_eq!(Err(&amp;quot;&amp;lt;&amp;#x2F;middle&amp;gt;&amp;quot;), element().parse(doc));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;好消息是它返回不匹配的结束标记作为错误。 坏消息是它实际上并没有&lt;em&gt;说&lt;&#x2F;em&gt;问题是不匹配的结束标签，只是&lt;em&gt;错误在哪里&lt;&#x2F;em&gt;。 总比没有好，但是，老实说，随着错误消息的出现，它仍然很糟糕。 但是想让它能成功的找到错至少得再写一篇同样长的文章。&lt;&#x2F;p&gt;
+&lt;p&gt;让我们关注好消息：我们使用解析器组合子从头开始编写了一个解析器！ 我们知道解析器既构成函子又构成单子，因此你现在可以在令人生畏的范畴论知识聚会上给人们留下深刻印象了&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;bodil.lol&#x2F;parser-combinators&#x2F;#footnote_2&quot;&gt;2&lt;&#x2F;a&gt;。（Please don&#x27;t be that person at parties. 别真的这么干）&lt;&#x2F;p&gt;
+&lt;p&gt;最重要的是，我们现在知道解析器组合子是如何从头开始工作的。 现在没有人能阻止我们！&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;further-resources&quot;&gt;Further Resources&lt;&#x2F;h2&gt;
+&lt;p&gt;首先，我对用严格的 &lt;code&gt;rust&lt;&#x2F;code&gt;术语 向你解释 monad 感到内疚，而且我知道如果我不向你指出 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;homepages.com&#x2F;&quot;&gt;他的开创性论文&lt;&#x2F;a&gt;，Phil Wadler 会对我非常不满。 其中详细介绍了更多令人兴奋的细节——包括它们与解析器组合子的关系。&lt;&#x2F;p&gt;
+&lt;p&gt;本文中的想法与 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;crates.io&#x2F;crates&#x2F;pom&quot;&gt;&lt;code&gt;pom&lt;&#x2F;code&gt;&lt;&#x2F;a&gt; 解析器组合子库背后的想法极为相似，如果这让你想在同一个解析器组合子中使用风格，我强烈推荐它。&lt;&#x2F;p&gt;
+&lt;p&gt;Rust 解析器组合子的最新技术仍然是 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;crates.io&#x2F;crates&#x2F;nom&quot;&gt;&lt;code&gt;nom&lt;&#x2F;code&gt;&lt;&#x2F;a&gt;，以至于前面提到的 &lt;code&gt;pom&lt;&#x2F;code&gt; 显然是派生的名称（而且没有比这更好的称赞了），但它采用了与我们今天在这里构建的方法截然不同的方法。&lt;&#x2F;p&gt;
+&lt;p&gt;另一个流行的 Rust 解析器组合库是 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;crates.io&#x2F;crates&#x2F;combine&quot;&gt;&lt;code&gt;combine&lt;&#x2F;code&gt;&lt;&#x2F;a&gt;，它可能也值得一看。&lt;&#x2F;p&gt;
+&lt;p&gt;Haskell 的开创性解析器组合库是 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;hackage.haskell.org&#x2F;package&#x2F;parsec&quot;&gt;Parsec&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;最后，我对解析器组合子的第一次认识归功于 Graham Hutton 所著的 &lt;em&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.cs.nott.ac.uk&#x2F;~pszgmh&#x2F;pih.html&quot;&gt;Programming in Haskell&lt;&#x2F;a&gt;&lt;&#x2F;em&gt;，这是一本很棒的书，不仅容易读而且还会教给你 Haskell 的积极副作用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;licence&quot;&gt;Licence&lt;&#x2F;h2&gt;
+&lt;p&gt;This work by &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;bodil.lol&#x2F;&quot;&gt;Bodil Stokke&lt;&#x2F;a&gt; is licensed under a &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;creativecommons.org&#x2F;licenses&#x2F;by-nc-sa&#x2F;4.0&#x2F;&quot;&gt;Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License&lt;&#x2F;a&gt;.&lt;&#x2F;p&gt;
+&lt;p&gt;本文由 Bodil Stokke 撰写，基于署名-非商业性使用-相同方式共享 4.0 国际 (CC BY-NC-SA 4.0)协议。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>C Language Tutorial =&gt; Flexible Array Members</title>
+        <published>2024-08-09T00:00:00+00:00</published>
+        <updated>2024-08-09T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/c-language-tutorial-flexible-array-members/"/>
+        <id>https://moxuetianya.github.io/obsidian/c-language-tutorial-flexible-array-members/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/c-language-tutorial-flexible-array-members/">&lt;h1 id=&quot;c-language-tutorial-flexible-array-members&quot;&gt;C Language Tutorial =&amp;gt; Flexible Array Members&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;example&quot;&gt;Example&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;C99&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;type-declaration&quot;&gt;Type Declaration&lt;&#x2F;h2&gt;
+&lt;p&gt;A structure &lt;em&gt;with at least one member&lt;&#x2F;em&gt; may additionally contain a single array member of unspecified length at the end of the structure. This is called a flexible array member:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;struct ex1
+{
+    size_t foo;
+    int flex[];
+};
+
+struct ex2_header
+{
+    int foo;
+    char bar;
+};
+
+struct ex2
+{
+    struct ex2_header hdr;
+    int flex[];
+};
+
+&amp;#x2F;* Merged ex2_header and ex2 structures. *&amp;#x2F;
+struct ex3
+{
+    int foo;
+    char bar;
+    int flex[];
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;effects-on-size-and-padding&quot;&gt;Effects on Size and Padding&lt;&#x2F;h2&gt;
+&lt;p&gt;A flexible array member is treated as having no size when calculating the size of a structure, though padding between that member and the previous member of the structure may still exist:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;#x2F;* Prints &amp;quot;8,8&amp;quot; on my machine, so there is no padding. *&amp;#x2F;
+printf(&amp;quot;%zu,%zu\n&amp;quot;, sizeof(size_t), sizeof(struct ex1));
+
+&amp;#x2F;* Also prints &amp;quot;8,8&amp;quot; on my machine, so there is no padding in the ex2 structure itself. *&amp;#x2F;
+printf(&amp;quot;%zu,%zu\n&amp;quot;, sizeof(struct ex2_header), sizeof(struct ex2));
+
+&amp;#x2F;* Prints &amp;quot;5,8&amp;quot; on my machine, so there are 3 bytes of padding. *&amp;#x2F;
+printf(&amp;quot;%zu,%zu\n&amp;quot;, sizeof(int) + sizeof(char), sizeof(struct ex3));
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The flexible array member is considered to have an incomplete array type, so its size cannot be calculated using &lt;code&gt;sizeof&lt;&#x2F;code&gt;.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;usage&quot;&gt;Usage&lt;&#x2F;h2&gt;
+&lt;p&gt;You can declare and initialize an object with a structure type containing a flexible array member, but you must not attempt to initialize the flexible array member since it is treated as if it does not exist. It is forbidden to try to do this, and compile errors will result.&lt;&#x2F;p&gt;
+&lt;p&gt;Similarly, you should not attempt to assign a value to any element of a flexible array member when declaring a structure in this way since there may not be enough padding at the end of the structure to allow for any objects required by the flexible array member. The compiler will not necessarily prevent you from doing this, however, so this can lead to undefined behavior.&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;#x2F;* invalid: cannot initialize flexible array member *&amp;#x2F;
+struct ex1 e1 = {1, {2, 3}};
+&amp;#x2F;* invalid: hdr={foo=1, bar=2} OK, but cannot initialize flexible array member *&amp;#x2F;
+struct ex2 e2 = {{1, 2}, {3}};
+&amp;#x2F;* valid: initialize foo=1, bar=2 members *&amp;#x2F;
+struct ex3 e3 = {1, 2};
+
+e1.flex[0] = 3; &amp;#x2F;* undefined behavior, in my case *&amp;#x2F;
+e3.flex[0] = 2; &amp;#x2F;* undefined behavior again *&amp;#x2F;
+e2.flex[0] = e3.flex[0]; &amp;#x2F;* undefined behavior *&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;You may instead choose to use &lt;code&gt;malloc&lt;&#x2F;code&gt;, &lt;code&gt;calloc&lt;&#x2F;code&gt;, or &lt;code&gt;realloc&lt;&#x2F;code&gt; to allocate the structure with extra storage and later free it, which allows you to use the flexible array member as you wish:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;#x2F;* valid: allocate an object of structure type `ex1` along with an array of 2 ints *&amp;#x2F;
+struct ex1 *pe1 = malloc(sizeof(*pe1) + 2 * sizeof(pe1-&amp;gt;flex[0]));
+
+&amp;#x2F;* valid: allocate an object of structure type ex2 along with an array of 4 ints *&amp;#x2F;
+struct ex2 *pe2 = malloc(sizeof(struct ex2) + sizeof(int[4]));
+
+&amp;#x2F;* valid: allocate 5 structure type ex3 objects along with an array of 3 ints per object *&amp;#x2F;
+struct ex3 *pe3 = malloc(5 * (sizeof(*pe3) + sizeof(int[3])));
+
+pe1-&amp;gt;flex[0] = 3; &amp;#x2F;* valid *&amp;#x2F;
+pe3[0]-&amp;gt;flex[0] = pe1-&amp;gt;flex[0]; &amp;#x2F;* valid *&amp;#x2F;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;C99&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;the-struct-hack&quot;&gt;The &#x27;struct hack&#x27;&lt;&#x2F;h3&gt;
+&lt;p&gt;Flexible array members did not exist prior to C99 and are treated as errors. A common workaround is to declare an array of length 1, a technique called the &#x27;struct hack&#x27;:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;struct ex1
+{
+    size_t foo;
+    int flex[1];
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;This will affect the size of the structure, however, unlike a true flexible array member:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;#x2F;* Prints &amp;quot;8,4,16&amp;quot; on my machine, signifying that there are 4 bytes of padding. *&amp;#x2F;
+printf(&amp;quot;%d,%d,%d\n&amp;quot;, (int)sizeof(size_t), (int)sizeof(int[1]), (int)sizeof(struct ex1));
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;To use the &lt;code&gt;flex&lt;&#x2F;code&gt; member as a flexible array member, you&#x27;d allocate it with &lt;code&gt;malloc&lt;&#x2F;code&gt; as shown above, except that &lt;code&gt;sizeof(*pe1)&lt;&#x2F;code&gt; (or the equivalent &lt;code&gt;sizeof(struct ex1)&lt;&#x2F;code&gt;) would be replaced with &lt;code&gt;offsetof(struct ex1, flex)&lt;&#x2F;code&gt; or the longer, type-agnostic expression &lt;code&gt;sizeof(*pe1)-sizeof(pe1-&amp;gt;flex)&lt;&#x2F;code&gt;. Alternatively, you might subtract 1 from the desired length of the &quot;flexible&quot; array since it&#x27;s already included in the structure size, assuming the desired length is greater than 0. The same logic may be applied to the other usage examples.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;compatibility&quot;&gt;Compatibility&lt;&#x2F;h2&gt;
+&lt;p&gt;If compatibility with compilers that do not support flexible array members is desired, you may use a macro defined like &lt;code&gt;FLEXMEMB_SIZE&lt;&#x2F;code&gt; below:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;#if __STDC_VERSION__ &amp;lt; 199901L
+#define FLEXMEMB_SIZE 1
+#else
+#define FLEXMEMB_SIZE &amp;#x2F;* nothing *&amp;#x2F;
+#endif
+
+struct ex1
+{
+    size_t foo;
+    int flex[FLEXMEMB_SIZE];
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;When allocating objects, you should use the &lt;code&gt;offsetof(struct ex1, flex)&lt;&#x2F;code&gt; form to refer to the structure size (excluding the flexible array member) since it is the only expression that will remain consistent between compilers that support flexible array members and compilers that do not:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;struct ex1 *pe10 = malloc(offsetof(struct ex1, flex) + n * sizeof(pe10-&amp;gt;flex[0]));
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;The alternative is to use the preprocessor to conditionally subtract 1 from the specified length. Due to the increased potential for inconsistency and general human error in this form, I moved the logic into a separate function:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;struct ex1 *ex1_alloc(size_t n)
+{
+    struct ex1 tmp;
+#if __STDC_VERSION__ &amp;lt; 199901L
+    if (n != 0)
+        n--;
+#endif
+    return malloc(sizeof(tmp) + n * sizeof(tmp.flex[0]));
+}
+...
+
+&amp;#x2F;* allocate an ex1 object with &amp;quot;flex&amp;quot; array of length 3 *&amp;#x2F;
+struct ex1 *pe1 = ex1_alloc(3);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>编译原理 lex yacc</title>
+        <published>2024-03-08T00:00:00+00:00</published>
+        <updated>2024-05-07T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/编译原理-lex-yacc/"/>
+        <id>https://moxuetianya.github.io/obsidian/编译原理-lex-yacc/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/编译原理-lex-yacc/">&lt;h1 id=&quot;bian-yi-yuan-li-lex-yacc&quot;&gt;编译原理 lex yacc&lt;&#x2F;h1&gt;
+&lt;h1 id=&quot;lex-yacc&quot;&gt;lex yacc&lt;&#x2F;h1&gt;
+&lt;p&gt;只要在Unix环境中写程序，必定会邂逅神秘的Lex&amp;amp;YACC，就如GNU&#x2F;Linux用户所熟知的Flex&amp;amp;Bison，这里的Flex就是由Vern Paxon实现的一个Lex，Bison则是GNU版本的YACC。在此我们将统一称呼这些程序为Lex和YACC。新版本的程序是向上兼容的(译注：即兼容老版本)，所以你可以用Flex和Bison来尝试下我们的实例。&lt;&#x2F;p&gt;
+&lt;p&gt;这些程序实用性极广，但如同你的C编译器一样，在其主页上并没有描述它们，也没有关于怎样使用的信息。当和Lex结合使用时，YACC实在是棒极了，但是Bison的主页上并没有描述Bison如何跟Lex结合使用以生成代码的相应说明。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;lex-yaccneng-wei-ni-zuo-shen-me&quot;&gt;Lex &amp;amp; YACC能为你做什么？&lt;&#x2F;h1&gt;
+&lt;p&gt;如果使用得当，这些程序(指LEX&amp;amp;YACC)可以让你轻易的解析复杂的语言，当你需要读取一个配置文件时，或者你需要编写一个你自己使用的语言的编译器时，这对于你来说是莫大的裨益。
+本文档能提供给你一些帮助，你将发现你再也不用手工写解析器了，Lex &amp;amp; YACC就是为你量身打造的利器。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;chang-yong-de-quan-ju-bian-liang-he-hong&quot;&gt;常用的全局变量和宏&lt;&#x2F;h1&gt;
+&lt;p&gt;**FILE &lt;em&gt;yyin: FILE &lt;em&gt;yyout：&lt;&#x2F;em&gt;&lt;&#x2F;em&gt;  这是Lex中本身已定义的输入和输出文件指针。这两个变量指明了lex生成的词法分析器从哪里获得输入和输出到哪里。默认：键盘输入，屏幕输出。&lt;&#x2F;p&gt;
+&lt;p&gt;*&lt;em&gt;char &lt;em&gt;yytext：&lt;&#x2F;em&gt;&lt;&#x2F;em&gt; 指向当前识别的词法单元（词文）的指针&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;int yyleng：&lt;&#x2F;strong&gt; 当前词法单元的长度。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;yylineno&lt;&#x2F;strong&gt; 提供当前的行数信息。（lexer不一定支持。）&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;ECHO：&lt;&#x2F;strong&gt; Lex中预定义的宏，可以出现在动作中，相当于fprintf(yyout, “%s”,yytext)，即输出当前匹配的词法单元。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;REJECT：&lt;&#x2F;strong&gt;  指示简析器对当前规则不做处理，而是采用第二匹配规则。
+因为解析器在通常情况下，每个被匹配的对象只会对一个动作生效。REJECT指示解析器，会寻找下一个最配的规则来做处理。下面的规则会把输入的”abcd”处理后输出”abcd|abc|ab|a|abcd”。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;undefined&quot; class=&quot;language-undefined &quot;&gt;&lt;code class=&quot;language-undefined&quot; data-lang=&quot;undefined&quot;&gt;&amp;gt; a |
+&amp;gt; ab |
+&amp;gt; abc |
+&amp;gt; abcd {ECHO;printf(&amp;quot;|&amp;quot;);REJECT;}
+&amp;gt; %%
+&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;BEGIN&lt;&#x2F;strong&gt; 开始一个条件处理块&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;int yylex()：&lt;&#x2F;strong&gt; 词法分析器驱动程序，用Lex翻译器生成的lex.yy.c内必然含有这个函数。它自动移动文件指针yyin 和 yyout 。
+&lt;strong&gt;在定义模式动作时，可以用 return 语句来结束 yylex分析函数。return 需要返回一个整数。&lt;&#x2F;strong&gt;
+由于 yylex() 函数的运行环境都是以全局变量的方式来保存，因此在下一次调用 yylex() 时，yylex()可以从上次扫描的断点处继续扫描。若用户未定义相应的return语句，则yylex()继续分析被扫描的文件，直到碰到文件结束标识符EOF。
+在读取到EOF时，yylex() 函数调用 int yywrap() 函数，若yywrap()返回非0值，则yylex() 函数结束返回0；否则，yylex()继续对yyin指向的文件扫描。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;int yywrap()：&lt;&#x2F;strong&gt; 词法分析器遇到文件结尾时会调用yywrap()来决定下一步怎么做：
+若yywrap()返回0，则继续扫描
+若返回1，则返回报告文件结尾的0标记。
+由于词法分析器总会调用yywrap，因此辅助函数中最好提供yywrap，如果不提供，则在用C编译器编译lex.yy.c时，需要链接相应的库，库中会给出标准的yywrap函数（标准函数返回1）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;yymore()&lt;&#x2F;strong&gt; 这一函数告诉 Lexer 将下一个标记附加到当前标记后。
+`yymore()’ 告诉解析器下一次匹配的规则，满足的部分将会添加到当前yytext值得后面而不是替换它。 例如，指定的输入”mega-kludge”经过下面的程序处理后将会输出”mega-mega-kludge”。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;undefined&quot; class=&quot;language-undefined &quot;&gt;&lt;code class=&quot;language-undefined&quot; data-lang=&quot;undefined&quot;&gt;&amp;gt;%%
+&amp;gt; mega- ECHO; yymore();
+&amp;gt; kludge ECHO;&amp;#x2F;* 这时，yytext的值为mega-kludge *&amp;#x2F;
+&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;yyless(int n)&lt;&#x2F;strong&gt;  返回当前匹配项除了开始的n个字符内的所有的内容到输入缓存区，解析器处理下一个匹配时，它们将会被重新解析。yyless将会导致yytext与yyleng的调整。（yyleng将会等于=n） 如输入”createtable”被下面的程序处理后，将会输出”createtableatetable”. 因为前n=3个字符foo外的字符atetable被重新返回到输入缓存区，再次解析。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;undefined&quot; class=&quot;language-undefined &quot;&gt;&lt;code class=&quot;language-undefined&quot; data-lang=&quot;undefined&quot;&gt;&amp;gt;createtable ECHO; yyless(3);
+&amp;gt; [a-zA-Z]+ ECHO;
+&amp;gt;\n return 0;
+&amp;gt; %%
+&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;unput(c)&lt;&#x2F;strong&gt;  将字符c放回到输入流中，该字符可以重新被解析。下面的动作将当前的匹配值附上括号后重新进行匹配。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;undefined&quot; class=&quot;language-undefined &quot;&gt;&lt;code class=&quot;language-undefined&quot; data-lang=&quot;undefined&quot;&gt;&amp;gt;{
+&amp;gt; int i;
+&amp;gt;&amp;#x2F;* Copy yytext because unput() trashes yytext *&amp;#x2F;
+&amp;gt; char *yycopy = strdup( yytext );
+&amp;gt;unput( &amp;#x27;)&amp;#x27; );
+&amp;gt; for ( i = yyleng - 1; i &amp;gt;= 0; --i )
+&amp;gt; unput( yycopy[i] );
+&amp;gt; unput( &amp;#x27;(&amp;#x27; );
+&amp;gt; free( yycopy );
+&amp;gt; }
+&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意: 由于每次unput()将指定的字符添加到输入源的开头，所以将字符串添加到输入源开头必须从后道前处理。一个比较重要的潜在问题是使用unput()的时候，如果采用了%pointer指针模式保存yytext,unput会破坏yytext的内容，从最右边的字符开始将会破坏左边的一个字符。如果在unput()后要用到yytext,你首先必须复制一份yytext,或者用%array模式来保存yytext. 最后不能尝试放一个EOF标志输入流的结束。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;input()&lt;&#x2F;strong&gt;  从输入源中读取下一个字符。
+下面例子将会吃掉C语言注释&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;undefined&quot; class=&quot;language-undefined &quot;&gt;&lt;code class=&quot;language-undefined&quot; data-lang=&quot;undefined&quot;&gt;&amp;gt; %%
+&amp;gt;&amp;quot;&amp;#x2F;*&amp;quot; {
+&amp;gt;  register int c;
+&amp;gt;  for ( ; ; ) {
+&amp;gt;   while ( (c = input()) != &amp;#x27;*&amp;#x27; &amp;amp;&amp;amp;&amp;gt;c != EOF ); &amp;#x2F;* eat up text of comment *&amp;#x2F;
+&amp;gt;    if ( c == &amp;#x27;*&amp;#x27; ) {
+&amp;gt;     while ( (c = input()) == &amp;#x27;*&amp;#x27; );
+&amp;gt;      if ( c == &amp;#x27;&amp;#x2F;&amp;#x27; ) break; &amp;#x2F;* found the end *&amp;#x2F;
+&amp;gt;    }
+&amp;gt;    if ( c == EOF ) {
+&amp;gt;      error( &amp;quot;EOF in comment&amp;quot; );
+&amp;gt;      break;
+&amp;gt;   }
+&amp;gt;  }
+&amp;gt; }
+&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;yyterminate()&lt;&#x2F;strong&gt;  可以在动作内部返回描述区域中使用，它将终止解析器并返回0给解析器调用者，表示操作完成。缺省情况下，到达文件结束位置也会被调用，它是一个宏，并且可能重定义。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>cpp造轮子--手把手教你实现json解析器</title>
+        <published>2024-01-02T00:00:00+00:00</published>
+        <updated>2024-01-03T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/cpp造轮子-手把手教你实现json解析器/"/>
+        <id>https://moxuetianya.github.io/obsidian/cpp造轮子-手把手教你实现json解析器/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/cpp造轮子-手把手教你实现json解析器/">&lt;h1 id=&quot;cppzao-lun-zi-shou-ba-shou-jiao-ni-shi-xian-jsonjie-xi-qi&quot;&gt;cpp造轮子--手把手教你实现json解析器&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;视频讲解：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;https:&#x2F;&#x2F;www.bilibili.com&#x2F;video&#x2F;BV1FV4y1E78B?spm_id_from=333.999.0.0&amp;vd_source=96dd2539b156b0809378103a5f27b949&quot; href=&quot;https:&#x2F;&#x2F;link.juejin.cn&#x2F;?target=https%3A%2F%2Fwww.bilibili.com%2Fvideo%2FBV1FV4y1E78B%3Fspm_id_from%3D333.999.0.0%26vd_source%3D96dd2539b156b0809378103a5f27b949&quot;&gt;bilibili&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;代码开源仓库：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;https:&#x2F;&#x2F;github.com&#x2F;ACking-you&#x2F;MyUtil&#x2F;tree&#x2F;master&#x2F;json-parser&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ACking-you&#x2F;MyUtil&#x2F;tree&#x2F;master&#x2F;json-parser&quot;&gt;cpp造轮子项目--实现json解析器&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;jsonge-shi-jie-shao&quot;&gt;JSON格式介绍&lt;&#x2F;h2&gt;
+&lt;p&gt;JSON(&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;https:&#x2F;&#x2F;baike.baidu.com&#x2F;item&#x2F;JavaScript&quot; href=&quot;https:&#x2F;&#x2F;link.juejin.cn&#x2F;?target=https%3A%2F%2Fbaike.baidu.com%2Fitem%2FJavaScript&quot;&gt;JavaScript&lt;&#x2F;a&gt; Object Notation)，是一种序列化的格式，最大的优点在于可读性极强，以及可直接嵌入到js代码中，所以广泛运用于web数据的收发。&lt;&#x2F;p&gt;
+&lt;p&gt;JSON格式有以下基本类型：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;null类型：值为null，表示为空&lt;&#x2F;li&gt;
+&lt;li&gt;bool类型：值为true和false&lt;&#x2F;li&gt;
+&lt;li&gt;number类型：值为int、double（即整数或小数&lt;&#x2F;li&gt;
+&lt;li&gt;string类型：形如 &quot;abc&quot;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;以及以下复合类型：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;list类型（也称array类型）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;[&amp;quot;abc&amp;quot;,3.2,323,&amp;quot;sdaf&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;dict类型（也称object类型）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+    &amp;quot;id&amp;quot;:32,
+    &amp;quot;name&amp;quot;:&amp;quot;hhh&amp;quot;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jie-xi-jsonzi-fu-chuan&quot;&gt;解析json字符串&lt;&#x2F;h2&gt;
+&lt;p&gt;整套解析流程如下：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-json-parser&#x2F;cpp-json-parser-flow.webp&quot; alt=&quot;绘图1.png&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chuang-jian-jobjectlei&quot;&gt;创建JObject类&lt;&#x2F;h3&gt;
+&lt;p&gt;我们需要把json的类型对应到计算机语言的类型。&lt;&#x2F;p&gt;
+&lt;p&gt;由于json的数据在我们看来都是字符串，那么有如下对应关系：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&quot;null&quot;对应我们构造的null类型&lt;&#x2F;li&gt;
+&lt;li&gt;“true&quot;,&quot;false&quot;对应内部的bool类型即可&lt;&#x2F;li&gt;
+&lt;li&gt;number类型数据对应int、double类型&lt;&#x2F;li&gt;
+&lt;li&gt;string类型数据对应string即可&lt;&#x2F;li&gt;
+&lt;li&gt;list类型对应C++中的vector&lt;&#x2F;li&gt;
+&lt;li&gt;dict类型对应C++中的map或unordered_map&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;我们在计算机语言中，需要构造一个对象类型，用于将以上类型全部涵盖。&lt;&#x2F;p&gt;
+&lt;p&gt;在C++中我们通过std::variant来进行，还需要一个枚举tag来表示当前对象内存储的数据类型。&lt;&#x2F;p&gt;
+&lt;p&gt;当然如果做的更绝的话，可以通过一个void* + 申请堆内存来解决，然后再强转为对应类型来操作。&lt;&#x2F;p&gt;
+&lt;p&gt;对应的代码如下：（中间的类方法就暂时省略了&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;
+enum TYPE
+{
+    T_NULL,
+    T_BOOL,
+    T_INT,
+    T_DOUBLE,
+    T_STR,
+    T_LIST,
+    T_DICT
+};
+
+using null_t = string;
+using int_t = int32_t;
+using bool_t = bool;
+using double_t = double;
+using str_t = string;
+using list_t = vector&amp;lt;JObject&amp;gt;;
+using dict_t = map&amp;lt;string, JObject&amp;gt;;
+
+class JObject
+{
+public:
+    using value_t = variant&amp;lt;bool_t, int_t, double_t, str_t, list_t, dict_t&amp;gt;;
+    ...
+private:
+    TYPE m_type;
+    value_t m_value;
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;chuang-jian-parserlei&quot;&gt;创建Parser类&lt;&#x2F;h3&gt;
+&lt;p&gt;我们有了JObject，可以把所有的JSON数据接收起来，现在要做的就是扫描JSON字符串，对其中的数据进行读取处理，然后转化为JObject。&lt;&#x2F;p&gt;
+&lt;p&gt;关键代码如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::parse()
+{
+    char token = get_next_token();
+    if (token == &amp;#x27;n&amp;#x27;)
+    {
+        return parse_null();
+    }
+    if (token == &amp;#x27;t&amp;#x27; || token == &amp;#x27;f&amp;#x27;)
+    {
+        return parse_bool();
+    }
+    if (token == &amp;#x27;-&amp;#x27; || std::isdigit(token))
+    {
+        return parse_number();
+    }
+    if (token == &amp;#x27;\&amp;quot;&amp;#x27;)
+    {
+        return parse_string();
+    }
+    if (token == &amp;#x27;[&amp;#x27;)
+    {
+        return parse_list();
+    }
+    if (token == &amp;#x27;{&amp;#x27;)
+    {
+        return parse_dict();
+    }
+
+    throw std::logic_error(&amp;quot;unexpected character in parse json&amp;quot;);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;以上就是整个字符串的解析过程，每次通过get_next_token这个方法得到整个字符串的下一个token，根据token决定解析对应的数据类型。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;get-next-tokenfang-fa&quot;&gt;get_next_token方法&lt;&#x2F;h4&gt;
+&lt;p&gt;跳过空白符号，以及跳过注释（标准的JSON格式不支持注释，我这里硬加的，为了vscode的JSON格式配置文件解析&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;char Parser::get_next_token()
+{
+    while (std::isspace(m_str[m_idx])) m_idx++;
+    if (m_idx &amp;gt;= m_str.size())
+        throw std::logic_error(&amp;quot;unexpected character in parse json&amp;quot;);
+    &amp;#x2F;&amp;#x2F;如果是注释，记得跳过
+    skip_comment();
+    return m_str[m_idx];
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;parse-nullhe-parse-bool&quot;&gt;parse_null和parse_bool&lt;&#x2F;h4&gt;
+&lt;p&gt;由于这两个很简单，就放在一起了。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;parse_null&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::parse_null()
+{
+    if (m_str.compare(m_idx, 4, &amp;quot;null&amp;quot;) == 0)
+    {
+        m_idx += 4;
+        return {};
+    }
+    throw std::logic_error(&amp;quot;parse null error&amp;quot;);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;parse_bool&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;bool Parser::parse_bool()
+{
+    if (m_str.compare(m_idx, 4, &amp;quot;true&amp;quot;) == 0)
+    {
+        m_idx += 4;
+        return &amp;quot;true&amp;quot;;
+    }
+    if (m_str.compare(m_idx, 5, &amp;quot;false&amp;quot;) == 0)
+    {
+        m_idx += 5;
+        return &amp;quot;false&amp;quot;;
+    }
+    throw std::logic_error(&amp;quot;parse bool error&amp;quot;);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;parse-number&quot;&gt;parse_number&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::parse_number()
+{
+    auto pos = m_idx;
+    &amp;#x2F;&amp;#x2F;integer part
+    if (m_str[m_idx] == &amp;#x27;-&amp;#x27;)
+    {
+        m_idx++;
+    }
+    if (isdigit(m_str[m_idx]))
+        while (isdigit(m_str[m_idx]))
+            m_idx++;
+    else
+    {
+        throw std::logic_error(&amp;quot;invalid character in number&amp;quot;);
+    }
+
+    if (m_str[m_idx] != &amp;#x27;.&amp;#x27;)
+    {
+        return (int) strtol(m_str.c_str() + pos, nullptr, 10);
+    }
+
+    &amp;#x2F;&amp;#x2F;decimal part
+    if (m_str[m_idx] == &amp;#x27;.&amp;#x27;)
+    {
+        m_idx++;
+        if (!std::isdigit(m_str[m_idx]))
+        {
+            throw std::logic_error(&amp;quot;at least one digit required in parse float part!&amp;quot;);
+        }
+        while (std::isdigit(m_str[m_idx]))
+            m_idx++;
+    }
+    return strtof64(m_str.c_str() + pos, nullptr);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;parse-list&quot;&gt;parse_list&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::parse_list()
+{
+    JObject arr((list_t()));&amp;#x2F;&amp;#x2F;得到list类型的JObject
+    m_idx++;
+    char ch = get_next_token();
+    if (ch == &amp;#x27;]&amp;#x27;)
+    {
+        m_idx++;
+        return arr;
+    }
+
+    while (true)
+    {
+        arr.push_back(parse());
+        ch = get_next_token();
+        if (ch == &amp;#x27;]&amp;#x27;)
+        {
+            m_idx++;
+            break;
+        }
+
+        if (ch != &amp;#x27;,&amp;#x27;) &amp;#x2F;&amp;#x2F;如果不是逗号
+        {
+            throw std::logic_error(&amp;quot;expected &amp;#x27;,&amp;#x27; in parse list&amp;quot;);
+        }
+        &amp;#x2F;&amp;#x2F;跳过逗号
+        m_idx++;
+    }
+    return arr;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;parse-dict&quot;&gt;parse_dict&lt;&#x2F;h4&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::parse_dict()
+{
+    JObject dict((dict_t()));&amp;#x2F;&amp;#x2F;得到dict类型的JObject
+    m_idx++;
+    char ch = get_next_token();
+    if (ch == &amp;#x27;}&amp;#x27;)
+    {
+        m_idx++;
+        return dict;
+    }
+    while (true)
+    {
+        &amp;#x2F;&amp;#x2F;解析key
+        string key = std::move(parse().Value&amp;lt;string&amp;gt;());
+        ch = get_next_token();
+        if (ch != &amp;#x27;:&amp;#x27;)
+        {
+            throw std::logic_error(&amp;quot;expected &amp;#x27;:&amp;#x27; in parse dict&amp;quot;);
+        }
+        m_idx++;
+
+        &amp;#x2F;&amp;#x2F;解析value
+        dict[key] = parse();
+        ch = get_next_token();
+        if (ch == &amp;#x27;}&amp;#x27;)
+        {
+            m_idx++;
+            break; &amp;#x2F;&amp;#x2F;解析完毕
+        }
+        if (ch != &amp;#x27;,&amp;#x27;)&amp;#x2F;&amp;#x2F;没有结束，此时必须为逗号
+        {
+            throw std::logic_error(&amp;quot;expected &amp;#x27;,&amp;#x27; in parse dict&amp;quot;);
+        }
+        &amp;#x2F;&amp;#x2F;跳过逗号
+        m_idx++;
+    }
+    return dict;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wan-shan-jobjectlei&quot;&gt;完善JObject类&lt;&#x2F;h2&gt;
+&lt;p&gt;很明显，我们需要为JObject类提供一个方法，此方法可以让调用者直接访问到std::variant里面对应的数据，并且我们也需要提供一个方法能让JObject快速初始化为对应的类型。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chu-shi-hua-jie-kou&quot;&gt;初始化接口&lt;&#x2F;h3&gt;
+&lt;blockquote&gt;
+&lt;p&gt;添加好下面这些方法后，外界可通过调用方法把JObject的内部状态改变。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;void Null()
+{
+    m_type = T_NULL;
+    m_value = &amp;quot;null&amp;quot;;
+}
+
+void Int(int_t value)
+{
+    m_value = value;
+    m_type = T_INT;
+}
+
+void Bool(bool_t value)
+{
+    m_value = value;
+    m_type = T_BOOL;
+}
+
+void Double(double_t value)
+{
+    m_type = T_DOUBLE;
+    m_value = value;
+}
+
+void Str(string_view value)
+{
+    m_value = string(value);
+    m_type = T_STR;
+}
+
+void List(list_t value)
+{
+    m_value = std::move(value);
+    m_type = T_LIST;
+}
+
+void Dict(dict_t value)
+{
+    m_value = std::move(value);
+    m_type = T_DICT;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;为了方便平时的赋值时候的隐式转化，我们应该再添加对应的构造函数，如下：（隐式转化在C++里有个坑，只能为类提供一种方向的隐式转化，比如提供了int把转为JObject的隐式转化后，就不能再提供把JObject转为int的隐式转化了，这两种必须要有一个是explicit，否则报错&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject()&amp;#x2F;&amp;#x2F;默认为null类型
+{
+    m_type = T_NULL;
+    m_value = &amp;quot;null&amp;quot;;
+}
+
+JObject(int_t value)
+{
+    Int(value);
+}
+
+JObject(bool_t value)
+{
+    Bool(value);
+}
+
+JObject(double_t value)
+{
+    Double(value);
+}
+
+JObject(str_t const &amp;amp;value)
+{
+    Str(value);
+}
+
+JObject(list_t value)
+{
+    List(std::move(value));
+}
+
+JObject(dict_t value)
+{
+    Dict(std::move(value));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;qing-qiu-zhi-jie-kou&quot;&gt;请求值接口&lt;&#x2F;h3&gt;
+&lt;p&gt;设计思路：本人不喜欢一大堆的get&#x2F;set，那样真的是麻烦。我通过提供一个Value方法，该方法为泛型，其内部有调用value()方法得到对应的数据指针，而Value方法则负责将指针强转，其内部也实现了强大的错误处理，防止处理指针的意外宕机。。。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;value方法如下，用于调用get_if得到对应的数据指针，关于怎么获取std::variant的数据，有get和get_if两种方式，get得到的是对象的引用，如果获取不到，则抛出异常，get_if获取对象的指针，如果获取不到则返回nullptr。我选择使用get_if的原因是，这个异常的处理可以由你自己来设定提示，而不是对着底层的get提示而摸不着头脑。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;void *JObject::value()
+{
+    switch (m_type)
+    {
+        case T_NULL:
+            return get_if&amp;lt;str_t&amp;gt;(&amp;amp;m_value);
+        case T_BOOL:
+            return get_if&amp;lt;bool_t&amp;gt;(&amp;amp;m_value);
+        case T_INT:
+            return get_if&amp;lt;int_t&amp;gt;(&amp;amp;m_value);
+        case T_DOUBLE:
+            return get_if&amp;lt;double_t&amp;gt;(&amp;amp;m_value);
+        case T_LIST:
+            return get_if&amp;lt;list_t&amp;gt;(&amp;amp;m_value);
+        case T_DICT:
+            return get_if&amp;lt;dict_t&amp;gt;(&amp;amp;m_value);
+        case T_STR:
+            return std::get_if&amp;lt;str_t&amp;gt;(&amp;amp;m_value);
+        default:
+            return nullptr;
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Value方法：&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;#define THROW_GET_ERROR(erron) throw std::logic_error(&amp;quot;type error in get &amp;quot;#erron&amp;quot; value!&amp;quot;)
+
+template&amp;lt;class V&amp;gt;
+    V &amp;amp;Value()
+{
+    &amp;#x2F;&amp;#x2F;添加安全检查
+    if constexpr(IS_TYPE(V, str_t))
+    {
+        if (m_type != T_STR)
+            THROW_GET_ERROR(string);
+    } else if constexpr(IS_TYPE(V, bool_t))
+    {
+        if (m_type != T_BOOL)
+            THROW_GET_ERROR(BOOL);
+    } else if constexpr(IS_TYPE(V, int_t))
+    {
+        if (m_type != T_INT)
+            THROW_GET_ERROR(INT);
+    } else if constexpr(IS_TYPE(V, double_t))
+    {
+        if (m_type != T_DOUBLE)
+            THROW_GET_ERROR(DOUBLE);
+    } else if constexpr(IS_TYPE(V, list_t))
+    {
+        if (m_type != T_LIST)
+            THROW_GET_ERROR(LIST);
+    } else if constexpr(IS_TYPE(V, dict_t))
+    {
+        if (m_type != T_DICT)
+            THROW_GET_ERROR(DICT);
+    }
+
+    void *v = value();
+    if (v == nullptr)
+        throw std::logic_error(&amp;quot;unknown type in JObject::Value()&amp;quot;);
+    return *((V *) v); &amp;#x2F;&amp;#x2F;强转即可
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;zhong-zai-fang-fa-rang-dui-xiang-geng-hao-yong&quot;&gt;重载方法让对象更好用&lt;&#x2F;h3&gt;
+&lt;p&gt;当JObject为dict类型时，我们可以直接用下标运算符进行key-value的赋值（得益于隐式转化和运算符重载&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject &amp;amp;operatorstring const &amp;amp;key
+{
+    if (m_type == T_DICT)
+    {
+        auto &amp;amp;dict = Value&amp;lt;dict_t&amp;gt;();
+        return dict[key];
+    }
+    throw std::logic_error(&amp;quot;not dict type! JObject::opertor[]()&amp;quot;);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;同样如果为list对象，我们也准备了push_back等方法&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;void push_back(JObject item)
+{
+    if (m_type == T_LIST)
+    {
+        auto &amp;amp;list = Value&amp;lt;list_t&amp;gt;();
+        list.push_back(std::move(item));
+        return;
+    }
+    throw std::logic_error(&amp;quot;not a list type! JObjcct::push_back()&amp;quot;);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;当然，为了让类更好用，你也可以重载很多其他方法，但是注意别忘了类型的安全检查！&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;wan-shan-parserlei&quot;&gt;完善Parser类&lt;&#x2F;h2&gt;
+&lt;p&gt;我们之前是完成了整个字符串到JObject的解析过程，但是每次都需要创建一个Parser类，然后调用方法，这样的过程未免有些繁琐，我们可以对外提供FromString的静态方法，然后充分利用一个对象便可完成整个解析过程。&lt;&#x2F;p&gt;
+&lt;p&gt;如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;JObject Parser::FromString(string_view content)
+{
+    static Parser instance;
+    instance.init(content);
+    return instance.parse();
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;wan-cheng-xu-lie-hua-he-fan-xu-lie-hua-guo-cheng&quot;&gt;完成序列化和反序列化过程&lt;&#x2F;h2&gt;
+&lt;p&gt;我们前面所做的工作其实已经把这个过程相当于完成了，当然还差一个把JObject变为JSON字符串的方法，现在添加上就是，也不是很难，按照相似的逻辑反推一遍就行。如下给JObject添加一个to_string方法：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;string JObject::to_string()
+{
+    void *value = this-&amp;gt;value();
+    std::ostringstream os;
+    switch (m_type)
+    {
+        case T_NULL:
+            os &amp;lt;&amp;lt; &amp;quot;null&amp;quot;;
+            break;
+        case T_BOOL:
+            if (GET_VALUE(bool))
+                os &amp;lt;&amp;lt; &amp;quot;true&amp;quot;;
+            else os &amp;lt;&amp;lt; &amp;quot;false&amp;quot;;
+            break;
+        case T_INT:
+            os &amp;lt;&amp;lt; GET_VALUE(int);
+            break;
+        case T_DOUBLE:
+            os &amp;lt;&amp;lt; GET_VALUE(double);
+            break;
+        case T_STR:
+            os &amp;lt;&amp;lt; &amp;#x27;\&amp;quot;&amp;#x27; &amp;lt;&amp;lt; GET_VALUE(string) &amp;lt;&amp;lt; &amp;#x27;\&amp;quot;&amp;#x27;;
+            break;
+        case T_LIST:
+        {
+            list_t &amp;amp;list = GET_VALUE(list_t);
+            os &amp;lt;&amp;lt; &amp;#x27;[&amp;#x27;;
+            for (auto i = 0; i &amp;lt; list.size(); i++)
+            {
+                if (i != list.size() - 1)
+                {
+                    os &amp;lt;&amp;lt; ((list[i]).to_string());
+                    os &amp;lt;&amp;lt; &amp;#x27;,&amp;#x27;;
+                } else os &amp;lt;&amp;lt; ((list[i]).to_string());
+            }
+            os &amp;lt;&amp;lt; &amp;#x27;]&amp;#x27;;
+            break;
+        }
+        case T_DICT:
+        {
+            dict_t &amp;amp;dict = GET_VALUE(dict_t);
+            os &amp;lt;&amp;lt; &amp;#x27;{&amp;#x27;;
+            for (auto it = dict.begin(); it != dict.end(); ++it)
+            {
+                if (it != dict.begin()) &amp;#x2F;&amp;#x2F;为了保证最后的json格式正确
+                    os &amp;lt;&amp;lt; &amp;#x27;,&amp;#x27;;
+                os &amp;lt;&amp;lt; &amp;#x27;\&amp;quot;&amp;#x27; &amp;lt;&amp;lt; it-&amp;gt;first &amp;lt;&amp;lt; &amp;quot;\&amp;quot;:&amp;quot; &amp;lt;&amp;lt; it-&amp;gt;second.to_string();
+            }
+            os &amp;lt;&amp;lt; &amp;#x27;}&amp;#x27;;
+            break;
+        }
+        default:
+            return &amp;quot;&amp;quot;;
+    }
+    return os.str();
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;有关JObject的方法也都补充的差不多了，那么我们现在要考虑的是如何通过JObject这个中间对象将我们自定义的任何一个类给序列化和反序列化？&lt;&#x2F;p&gt;
+&lt;p&gt;如图：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-json-parser&#x2F;cpp-json-parser-flow.webp&quot; alt=&quot;绘图1.png&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;所有的序列化和反序列化的过程都依托于JObject进行。而Parser这个类在中间作为一个方便使用的对外接口。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;xu-lie-hua-jie-kou-she-ji&quot;&gt;序列化接口设计&lt;&#x2F;h3&gt;
+&lt;p&gt;在Parser类中添加一个ToJSON的静态方法，用来对任意类型进行序列化，这个方法使用模板。&lt;&#x2F;p&gt;
+&lt;p&gt;代码如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;template&amp;lt;class T&amp;gt;
+    static string ToJSON(T const &amp;amp;src)
+{
+    &amp;#x2F;&amp;#x2F;如果是基本类型
+    if constexpr(IS_TYPE(T, int_t))
+    {
+        JObject object(src);
+        return object.to_string();
+    } else if constexpr(IS_TYPE(T, bool_t))
+    {
+        JObject object(src);
+        return object.to_string();
+    } else if constexpr(IS_TYPE(T, double_t))
+    {
+        JObject object(src);
+        return object.to_string();
+    } else if constexpr(IS_TYPE(T, str_t))
+    {
+        JObject object(src);
+        return object.to_string();
+    }
+    &amp;#x2F;&amp;#x2F;如果是自定义类型调用方法完成dict的赋值，然后to_string即可
+    json::JObject obj((json::dict_t()));
+    src.FUNC_TO_NAME(obj);
+    return obj.to_string();
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;blockquote&gt;
+&lt;p&gt;如上代码如果是基本类型则直接初始化JObject调用to_string方法，如果是自定义类型，则需要在该类型中嵌入一个方法，这个方法名字我们用FUNC_TO_NAME这个宏代替。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;也就是说，如果是自定义的类型，那么肯定就是对应JSON数据的dict类型，所以只需要你对该类型定义对应的方法，该方法需要将值传递给JObject，为了简化这个过程我们用宏来替代。&lt;&#x2F;p&gt;
+&lt;p&gt;宏定义如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;#define FUNC_TO_NAME _to_json
+#define FUNC_FROM_NAME _from_json
+
+#define START_TO_JSON void FUNC_TO_NAME(json::JObject &amp;amp; obj) const{
+#define to(key) obj[key]
+    &amp;#x2F;&amp;#x2F;push一个自定义类型的成员
+#define to_struct(key, struct_member) json::JObject tmp((json::dict_t())); struct_member.FUNC_TO_NAME(tmp); obj[key] = tmp
+#define END_TO_JSON  }
+
+#define START_FROM_JSON void FUNC_FROM_NAME(json::JObject&amp;amp; obj) {
+#define from(key, type) obj[key].Value&amp;lt;type&amp;gt;()
+#define from_struct(key, struct_member) struct_member.FUNC_FROM_NAME(obj[key])
+#define END_FROM_JSON }
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;基本使用如下：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;struct Base
+{
+    int pp;
+    string qq;
+
+    START_FROM_JSON &amp;#x2F;&amp;#x2F;生成反序列化相关的方法
+        pp = from(&amp;quot;pp&amp;quot;, int);
+        qq = from(&amp;quot;qq&amp;quot;, string);
+    END_FROM_JSON
+
+    START_TO_JSON &amp;#x2F;&amp;#x2F;生成序列化相关的代码
+        to(&amp;quot;pp&amp;quot;) = pp;
+        to(&amp;quot;qq&amp;quot;) = qq;
+    END_TO_JSON
+};
+
+struct Mytest
+{
+    int id;
+    std::string name;
+    Base q;
+
+    START_TO_JSON	&amp;#x2F;&amp;#x2F;序列化相关代码
+        to_struct(&amp;quot;base&amp;quot;, q);
+        to(&amp;quot;id&amp;quot;) = id;
+        to(&amp;quot;name&amp;quot;) = name;
+    END_TO_JSON
+
+    START_FROM_JSON &amp;#x2F;&amp;#x2F;反序列化相关代码
+        id = from(&amp;quot;id&amp;quot;, int);
+        name = from(&amp;quot;name&amp;quot;, string);
+        from_struct(&amp;quot;base&amp;quot;, q);
+    END_FROM_JSON
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实际上上面代码等效于下面的代码，以Base类为例：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;struct Base
+{
+    int pp;
+    string qq;
+
+    void _from_json(json::JObject&amp;amp; obj){ &amp;#x2F;&amp;#x2F;反序列化
+        pp = obj.Value&amp;lt;int&amp;gt;();
+        qq = obj.Value&amp;lt;string&amp;gt;();
+    }
+
+    void _to_json(json::JObject&amp;amp; obj){&amp;#x2F;&amp;#x2F;序列化代码
+        obj[&amp;quot;pp&amp;quot;] = pp;
+        obj[&amp;quot;qq&amp;quot;] = qq;
+    }
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jian-dan-shi-yong&quot;&gt;简单使用&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;cpp&quot; class=&quot;language-cpp &quot;&gt;&lt;code class=&quot;language-cpp&quot; data-lang=&quot;cpp&quot;&gt;#include&amp;lt;iostream&amp;gt;
+#include &amp;quot;JObject.h&amp;quot;
+#include &amp;quot;Parser.h&amp;quot;
+#include &amp;lt;fstream&amp;gt;
+#include &amp;quot;..&amp;#x2F;benchmark&amp;#x2F;Timer.hpp&amp;quot;
+
+using namespace json;
+
+struct Base
+{
+    int pp;
+    string qq;
+
+    START_FROM_JSON
+        pp = from(&amp;quot;pp&amp;quot;, int);
+        qq = from(&amp;quot;qq&amp;quot;, string);
+    END_FROM_JSON
+
+    START_TO_JSON
+        to(&amp;quot;pp&amp;quot;) = pp;
+        to(&amp;quot;qq&amp;quot;) = qq;
+    END_TO_JSON
+};
+
+struct Mytest
+{
+    int id;
+    std::string name;
+    Base q;
+
+    START_TO_JSON
+        to_struct(&amp;quot;base&amp;quot;, q);
+        to(&amp;quot;id&amp;quot;) = id;
+        to(&amp;quot;name&amp;quot;) = name;
+    END_TO_JSON
+
+    START_FROM_JSON
+        id = from(&amp;quot;id&amp;quot;, int);
+        name = from(&amp;quot;name&amp;quot;, string);
+        from_struct(&amp;quot;base&amp;quot;, q);
+    END_FROM_JSON
+};
+
+void test_class_serialization()
+{
+    Mytest test{.id=32, .name=&amp;quot;fda&amp;quot;};
+    auto item = Parser::FromJson&amp;lt;Mytest&amp;gt;(R&amp;quot;({&amp;quot;base&amp;quot;:{&amp;quot;pp&amp;quot;:0,&amp;quot;qq&amp;quot;:&amp;quot;&amp;quot;},&amp;quot;id&amp;quot;:32,&amp;quot;name&amp;quot;:&amp;quot;fda&amp;quot;} )&amp;quot;); &amp;#x2F;&amp;#x2F;serialization
+    std::cout &amp;lt;&amp;lt; Parser::ToJSON(item); &amp;#x2F;&amp;#x2F;deserialization
+}
+
+void test_string_parser()
+{
+    {
+        Timer t;
+        std::ifstream fin(&amp;quot;..&amp;#x2F;..&amp;#x2F;test_source&amp;#x2F;test.json&amp;quot;);
+        std::string text((std::istreambuf_iterator&amp;lt;char&amp;gt;(fin)), std::istreambuf_iterator&amp;lt;char&amp;gt;());
+        json::Parser p;
+        p.init(text);
+        auto q = p.parse();
+        std::ofstream fout(&amp;quot;..&amp;#x2F;..&amp;#x2F;test_source&amp;#x2F;test_out.json&amp;quot;);
+        fout &amp;lt;&amp;lt; q.to_string();
+    }
+}
+
+int main()
+{
+   test_class_serialization();
+   test_string_parser();
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

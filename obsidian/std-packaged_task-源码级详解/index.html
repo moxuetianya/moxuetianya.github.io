@@ -1,0 +1,232 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>std::packaged_task 源码级详解 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="​packagedtask，故名思义打包任务，是用来进行任务封装的，即将任务封装起来，将任务封装起来的目的是为了进行线程之间的传递，进行任务的异步处理" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/std-packaged_task-源码级详解/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/std-packaged_task-源码级详解/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/std-packaged_task-源码级详解/" />
+  <meta property="og:description" content="​packagedtask，故名思义打包任务，是用来进行任务封装的，即将任务封装起来，将任务封装起来的目的是为了进行线程之间的传递，进行任务的异步处理" />
+  <meta name="twitter:description" content="​packagedtask，故名思义打包任务，是用来进行任务封装的，即将任务封装起来，将任务封装起来的目的是为了进行线程之间的传递，进行任务的异步处理" />
+  <meta property="og:title" content="std::packaged_task 源码级详解 | 墨雪天琊" />
+  <meta name="twitter:title" content="std::packaged_task 源码级详解 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2023-12-27" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/std-packaged_task-源码级详解/">std::packaged_task 源码级详解</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十二月 27, 2023 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c-c/">C&#x2F;C++</a>] #<a href="https://moxuetianya.github.io/tags/c/">C++</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a> </span>
+
+    
+
+
+<h1 id="std-packaged-task-yuan-ma-ji-xiang-jie">std::packaged_task 源码级详解</h1>
+<p><code>packaged_task</code>，故名思义打包任务，是用来进行任务封装的，即将任务封装起来，将任务封装起来的目的是为了进行线程之间的传递，进行任务的异步处理</p>
+<p>下面我们先看一下<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/thread/packaged_task">CPP Reference</a>网站，看看对<code>packaged_task</code>对此的描述</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-3140f0b3a127615e30edb8fe5d23d26d_b-20231227143335-f40ckln.jpg</code>，已移除）</p>
+</blockquote>
+<p><code>std::packaged_task</code>类模版可以用来包装任何可调用目标（函数、<code>labmbda</code>表达式、<code>bind</code>表达式或者其他函数对象），其可以被异步调用。其调用完成之后返回执行结果的值或者执行过程中抛出的异常，这个值或者异常保存在一个共享状态中，可以通过其关联的<code>std::future</code>对象来进行获取</p>
+<p>像<code>std::function</code>一样，<code>std::packaged_task</code>是一个多态的，能够感知内存分配的容器：这个被<code>std::packaged_task</code>存储的可调用目标可以被分配到堆上，也可以通过提供的内存分配器进行来定义存储方式</p>
+<p><code>std::future</code>，顾名思义是一个用来获取未来的值的对象，通过该对象就可以获取异步调用在未来执行完成之后返回的结果信息。如果之前没有了解，建议了解一下，因为<code>packaged_task</code>的实现，使用到了<code>promise</code>和<code>future</code>这两个模版类，下面的讨论需要这两个模版类的知识并且限于篇幅，不会对这两个模版类进行展开讨论，具体可以参考如下文章</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-28849aa5bc7f67f5fae600809ccfd208_180x120-20231227143335-jx982yo.jpg</code>，已移除）<a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/672327290">孙梓轩：std::future和std::promise详解(原理、应用、源码）</a><strong><a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/672327290">11 赞同 · 0 评论</a></strong><a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/672327290">文章</a></p>
+</blockquote>
+<p>下面，我们通过一个示例，来看一下<code>packaged_task</code>的使用和作用</p>
+<h2 id="shi-li"><strong>示例</strong></h2>
+<p>我们将通过<code>lambda</code>和<code>function</code>来构建两个被<code>packaged_task</code>可调用对象，并且将这两个可调用对象交给两个线程来进行执行。并在主线程中通过<code>std::future</code>来进行执行结果的获取，代码如下</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-69543c4b3d2efe282105c6cd4a45cb33_b-20231227143335-wbdtqoc.jpg</code>，已移除）</p>
+</blockquote>
+<ul>
+<li>代码行<code>1~5</code>：创建了一个内部抛出异常的函数，用来测试<code>packaged_task</code>关于异常的传递</li>
+<li>代码行<code>10~15</code>：创建了一个用于对容器内元素进行求值的<code>labmda</code>表达式对象，然后将这个对象包装成<code>packaged_task</code>对象，最后将这个对象交给<code>std::thread</code>类型的线程对象来执行，该线程对象创建完成之后，就会在内部创建一个线程，然后启动这个线程开始执行传入的<code>packaged_task</code>对象。在代码行<code>14</code>通过调用<code>packaged_task</code>对象的<code>get_future</code>成员函数，来获取用于访问异步调用结果信息的<code>future</code>对象</li>
+<li>代码行<code>17~19</code>：将代码行<code>1~5</code>中定义的内部抛出异常的函数，包装成<code>packaged_task</code>对象，然后将这个对象交给一个<code>std::thread</code>对象来进行异步调用执行（在内部创建的新的线程中进行执行）。在代码行<code>14</code>通过调用<code>packaged_task</code>对象的<code>get_future</code>成员函数，来获取用于访问异步调用结果信息的<code>future</code>对象</li>
+<li>代码行<code>21</code>：通过调用<code>future</code>对象的内部成员函数<code>get</code>来获取上面通过<code>lambda</code>对象创建的<code>packaged_task</code>对象异步执行的结果，即函数的返回值</li>
+<li>代码行<code>22~29</code>：同样，通过调用<code>future</code>对象内部的成员函数<code>get</code>来获取上面那个通过函数创建的<code>packaged_task</code>对象异步执行的结果信息，由于函数内部抛出了异常，这个异常信息会存储在<code>future</code>对象关联的对象中，当代码行<code>24</code>行调用<code>get</code>方法的时候，该异常会在当前线程被重新抛出，所以这里用<code>try-catch</code>对这个异常信息进行捕获，并且在代码行<code>28</code>对该异常信息进行打印</li>
+<li>代码行<code>32~33</code>：调用进行异步调用执行的两个线程的<code>join</code>成员函数，对这两个线程进行<code>join</code>，此时主线程（<code>main</code>函数执行的线程）会等待这两个线程退出之后，再接着向下运行</li>
+</ul>
+<p>终端输出如下图所示</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text"> 15
+ test exception
+</code></pre>
+<p>下面我们以上面代码行<code>13</code>为例，来具体看一下，<code>package_task</code>的构建。为了方便阅读，将上面的代码行<code>13</code>重新贴出如下</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp"> std::packaged_task&lt;int(const std::vector&lt;int&gt;&amp;)&gt; lambda_pask_task(sum_labmda);
+</code></pre>
+<p>首先，类模版<code>packaged_task</code>需要传入一个模版参数，这里传入的是<code>int(const std::vector&lt;int&gt;&amp;)</code>，该参数是用来告诉<code>packaged_task</code>其接受的可调用对象对应的函数调用签名是什么，这里第<code>1</code>个<code>int</code>是用来代表可调用对象返回值类型是<code>int</code>，其接受一个<code>const std::vector&lt;int&gt;&amp;</code>类型的实参。然后，将这个可调用对象通过构造函数的形参传入</p>
+<p>下面，我们从源码的角度讨论一下，<code>packaged_task</code>对应的源码实现</p>
+<h2 id="yuan-ma-shi-xian-fen-xi"><strong>源码实现分析</strong></h2>
+<p>下面，我们基于<code>clang</code>平台中关于<code>packaged_task</code>的代码实现。下面的源码分析仅仅讨论上面用例相关的代码，其他代码如果有感兴趣的可以到网络上自行下载源码查看</p>
+<h3 id="shu-ju-cheng-yuan"><strong>数据成员</strong></h3>
+<p>首先，我们先看一下<code>packaged_task</code>的内部数据成员的定义，具体如下截图</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-a54ef5ea08e20753ed083a9da7e9ff8b_b-20231227143335-t9udyp6.jpg</code>，已移除）</p>
+</blockquote>
+<p>从上面代码可知，其内部有两个数据成员在代码行<code>8~9</code>定义，具体说明如下：</p>
+<ul>
+<li>代码行<code>8</code>：定义一个用来保存构建时外部传入的可调用对象的内部成员变量<code>_f</code></li>
+<li>代码行<code>9</code>：定义一个<code>promise</code>对象，该对象用来设置异步调用结果信息（异步调用的返回值或者异步调用过程中抛出的异常）到其关联的共享状态对象（关联状态对象）中，以供其他线程通过<code>future::get</code>来从其和该<code>promise</code>对象共同关联的共享状态对象中获取异步调用结果信息</li>
+</ul>
+<p>通过上面的讨论，目前有几个关键对象：<code>thread</code>线程对象、<code>future</code>对象、<code>packaged_task</code>对象、<code>promise</code>对象以及共享状态对象（关联状态对象），下面通过一个图示，来讨论一下这些对象之间的关系</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-372c6e2d46c4fb36d9cb1a243b05ae01_b-20231227143335-69g4ixb.jpg</code>，已移除）</p>
+</blockquote>
+<p>如上图所示，主线程中持有的<code>future</code>对象和用于执行异步任务的线程中持有的<code>promise</code>对象，都关联了一个相同的共享状态对象。<code>future</code>对象和<code>promise</code>对象，通过其共同关联的共享状态来进行异步调用结果同步</p>
+<h3 id="gou-zao-han-shu"><strong>构造函数</strong></h3>
+<p>下面，我们看一下<code>packaged_task</code>的构造相关的源码，如下图所示</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-4427adaffe3be4e6136b72c29a86a19e_b-20231227143335-ypv5u9i.jpg</code>，已移除）</p>
+</blockquote>
+<p>该函数接受一个<code>_Fp</code>类型的一个万能引用的参数，并且在函数的内部通过<code>forward</code>函数对改万能引用参数进行完美转发，对内部成员<code>_f</code>进行赋值。这里<code>_Fp</code>类型是一个模版参数，是一个泛型，使得类模版<code>packaged_task</code>包装不同类型的可调用对象，比如前边示例中提到的<code>lambda</code>和<code>function</code></p>
+<p>代码行<code>2~8</code>：用来限制传入传入的实参对应的类型<code>_Fp</code>的。首先在代码行<code>4~7</code>，通过<code>is_same</code>检测通过对<code>_Fp</code>类型移除<code>const</code>、<code>voliate</code>以及<code>reference</code>信息之后得到的最基本的类型和<code>packaged_task</code>类型进行比较，如果是相同的类型则<code>is_same</code>模版实例中的<code>value</code>值为<code>true</code>，否则为<code>false</code></p>
+<p>当<code>_Fp</code>对应的基础类型不是<code>packaged_task</code>类型的时候，此时<code>enable_if</code>接受到的<code>nontype</code>模版参数的值就是<code>true</code>，此时内部有<code>type</code>类型定义，此时可以匹配到该构造函数</p>
+<p>当<code>_Fp</code>对应的基础类型不是<code>packaged_task</code>类型的时候，此时<code>enable_if</code>接受到的<code>nontype</code>模版参数的值就是<code>false</code>，此时内部没有<code>type</code>，此时匹配该构造函数失败</p>
+<p>即通过代码行<code>2~8</code>来限制了传入参数的类型，不能接受一个<code>packaged_task</code>可调用类型，即不能通过其他<code>packaged_task</code>类型来构造自身</p>
+<h3 id="ke-yi-dong-bu-ke-fu-zhi"><strong>可移动，不可复制</strong></h3>
+<p>之所以要限制不能从其他的<code>packaged_task</code>来构造（<strong>以复制的方式</strong>）自身的原因是因为，<code>packaged_task</code>对象往往都关联一个共享状态对象，这里存在着一个链式的关联关系，即<code>packaged_task -&gt; 共享状态对象 -&gt; future</code>。而通过其他的<code>packaged_task</code>对象构建新的<code>packaged_task</code>对象，将会打破这个关联关系。从而影响数据的传递和线程之间的同步</p>
+<p>实际上，可以通过移动的方式从其他的<code>packaged_task</code>对象来构造自身，因为移动的方式不会破坏上面提到的那个链式的关联关系。对应的源代码如下</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-b0b1f4866274bbc258bb3a55763df27b_b-20231227143335-niel9xw.jpg</code>，已移除）</p>
+</blockquote>
+<ul>
+<li>代码行<code>2~3</code>：删除了拷贝构造函数和复制赋值函数，从而避免<code>packaged_task</code>的复制</li>
+<li>代码行<code>7~15</code>：定义了移动构造函数和移动赋值函数，支持<code>package_task</code>的移动</li>
+</ul>
+<h3 id="han-shu-diao-yong-cao-zuo-fu"><strong>函数调用操作符</strong></h3>
+<p>当一个可调用对象包装成了一个<code>packaged_task</code>对象之后，该对象将交给<code>thread</code>线程对象来进行执行。<code>thread</code>对象在通过<code>packaged_task</code>对象调用其内部保存的可调用对象的时候，就是通过调用<code>packaged_task</code>的函数调用操作符号来实现的</p>
+<p>本质上，<code>packaged_task</code>对象也是一个可调用对象，<code>thread</code>对象接受并执行的就是一个可调用对象</p>
+<p>下面，我们看一下代码实现，如下图所示</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-373226d0bfbc101eec1d9f8793119006_b-20231227143335-jys2953.jpg</code>，已移除）</p>
+</blockquote>
+<ul>
+<li>代码行<code>5~6</code>：判断内部<code>promise</code>对象<code>_p</code>是否关联共享状态，如果未关联共享状态，即<code>_p_.__state</code>指针为空，则抛出异常。在这正常构建<code>packaged_task</code>对象的时候，是不会出现<code>_p_.__state</code>为空的情况，因为<code>promise</code>在默认构造函数中，会创建共享状态对象，并将该共享状态对象的地址赋值给内部的<code>_state</code>指针。只有在移动<code>package_task</code>对象的时候，才会出现这种情况</li>
+<li>代码行<code>7~8</code>：判断内部的<code>promise</code>对象是否已经被设置值，如果已经被设置值，则抛出异常。这种情况通常会出现在一个<code>packaged_task</code>对象被多次执行的时候</li>
+<li>代码行<code>10~19</code>：在代码行<code>13</code>中，对<code>_f</code>进行函数调用操作，执行异步调用任务。当函数调用完成的时候，将返回值设置到<code>_p</code>共享状态对象中。如果在可调用对象执行过程中出现了异常抛出的情况是，通过<code>try-catch</code>对该异常进行捕获，并且将该异常信息设置到<code>_p</code>共享状态对象中</li>
+</ul>
+<h3 id="get-futurehan-shu"><strong>get_future函数</strong></h3>
+<p>通过调用<code>packaged_task</code>的成员函数<code>get_future</code>，来获取用来查询异步调用结果信息的<code>future</code>对象，源码如下所示</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-2e3000666651d506fcbf7853021dd7ec_b-20231227143335-h8v4se2.jpg</code>，已移除）</p>
+</blockquote>
+<p>通过调用内部的<code>promise</code>对象<code>_p</code>的成员函数，来获取一个和该<code>promise</code>对象关联同一个共享状态对象的<code>future</code>对象并返回</p>
+<h2 id="zong-ti-liu-cheng"><strong>总体流程</strong></h2>
+<p>最后，经过上面的讨论我们已经讨论了完整的<code>packaged_task</code>的工作流程，下面我们总体的梳理一下</p>
+<ol>
+<li>在主线程中，通过<code>packaged_task</code>类模版对可调用对象进行封装，封装成一个<code>packaged_task</code>对象</li>
+<li>通过调用<code>packaged_task</code>可调用对象的<code>get_future</code>函数，获取对应的<code>future</code>对象，用来之后获取异步调用的结果信息</li>
+<li>将该<code>packaged_task</code>对象交给其他线程执行</li>
+<li>其他线程执行该<code>packaged_task</code>可调用对象</li>
+<li>在<code>packaged_task</code>可调用对象执行过程中，对内部存储的异步操作对应的可操作对象进行函数调用。调用完成之后，将调用结果信息设置到共享状态对象中</li>
+<li>主线程中通过调用<code>future</code>对象的<code>get</code>成员函数，从其关联的共享状态对象中获取异步调用的结果信息。如果此时异步调用已经执行完成，则该函数立刻返回异步调用结果信息。如果没有执行完成，此时将阻塞，直到异步调用执行完成</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/nginx如何设置用户登录验证/">&#8249; Nginx如何设置用户登录验证</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/"> 一个300行的文件系统（基于linux6.6） &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#std-packaged-task-yuan-ma-ji-xiang-jie">std::packaged_task 源码级详解</a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-li"><small>- 示例</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-ma-shi-xian-fen-xi"><small>- 源码实现分析</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shu-ju-cheng-yuan"><small>· 数据成员</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#gou-zao-han-shu"><small>· 构造函数</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ke-yi-dong-bu-ke-fu-zhi"><small>· 可移动，不可复制</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#han-shu-diao-yong-cao-zuo-fu"><small>· 函数调用操作符</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#get-futurehan-shu"><small>· get_future函数</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-ti-liu-cheng"><small>- 总体流程</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

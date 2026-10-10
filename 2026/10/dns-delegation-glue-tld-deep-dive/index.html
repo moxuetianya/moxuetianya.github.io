@@ -1,0 +1,473 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>DNS 委派、TLD 与胶水记录：把新域名 NS 切到 Cloudflare 的实战与原理 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="以新注册域名 NS 切换 Cloudflare 的实测为主线：搞懂域名层级、TLD 委派、glue 申报制、权威双副本与 SOA，以及 serverHold 卡住解析的真相。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/10/dns-delegation-glue-tld-deep-dive/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/10/dns-delegation-glue-tld-deep-dive/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/10/dns-delegation-glue-tld-deep-dive/" />
+  <meta property="og:description" content="以新注册域名 NS 切换 Cloudflare 的实测为主线：搞懂域名层级、TLD 委派、glue 申报制、权威双副本与 SOA，以及 serverHold 卡住解析的真相。" />
+  <meta name="twitter:description" content="以新注册域名 NS 切换 Cloudflare 的实测为主线：搞懂域名层级、TLD 委派、glue 申报制、权威双副本与 SOA，以及 serverHold 卡住解析的真相。" />
+  <meta property="og:title" content="DNS 委派、TLD 与胶水记录：把新域名 NS 切到 Cloudflare 的实战与原理 | 墨雪天琊" />
+  <meta name="twitter:title" content="DNS 委派、TLD 与胶水记录：把新域名 NS 切到 Cloudflare 的实战与原理 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-10" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/10/dns-delegation-glue-tld-deep-dive/">DNS 委派、TLD 与胶水记录：把新域名 NS 切到 Cloudflare 的实战与原理</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 10, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://moxuetianya.github.io/tags/wang-luo/">网络</a>  #<a href="https://moxuetianya.github.io/tags/cloudflare/">cloudflare</a> </span>
+
+    
+
+
+<blockquote>
+<p>本文整理自一次真实的排查：一个当天刚注册的 <code>.asia</code> 域名（下文以 <code>demo.asia</code> 代称），要把它从阿里云默认 NS 切换到 Cloudflare。过程用浏览器调试控制台 + <code>dig</code> 逐级实测，把 DNS 教科书里含糊带过的几个概念（TLD 委派、glue、权威副本、serverHold）全部落到了实验上。文中所有命令输出均为真实实测，域名已做替换。</p>
+</blockquote>
+<hr />
+<h2 id="yi-bei-jing-yi-ci-gai-ns-yin-chu-de-lian-huan-zhui-wen">一、背景：一次"改 NS"引出的连环追问</h2>
+<p>起因很简单：把 <code>demo.asia</code> 的 DNS 从阿里云（<code>dns21.hichina.com</code> / <code>dns22.hichina.com</code>）切到 Cloudflare。但顺着操作往下验证，问题一个接一个：</p>
+<ol>
+<li>注册商侧 NS 改完了，为什么全网 <code>dig</code> 还是查不到？</li>
+<li>NS 填的是域名（<code>aaa.ns.cloudflare.com</code>），它自己还要解析成 IP，会不会死循环？</li>
+<li><code>.com</code> 顶层服务器凭什么知道 <code>ns3.cloudflare.com</code> 的 IP？</li>
+<li>在阿里云「云解析」里改记录，改的到底是不是顶级域名的数据？</li>
+</ol>
+<p>这四个问题正好覆盖 DNS 的核心机制，下文逐一用实验回答。</p>
+<hr />
+<h2 id="er-yu-ming-ceng-ji-cong-you-dao-zuo-zhu-ji-bian-xiao">二、域名层级：从右到左，逐级变小</h2>
+<p>以 <code>blog.user.example.com</code> 为例：</p>
+<table><thead><tr><th style="text-align: left">部分</th><th style="text-align: left">名称</th><th style="text-align: left">说明</th></tr></thead><tbody>
+<tr><td style="text-align: left"><code>com</code></td><td style="text-align: left">顶级域名（TLD）</td><td style="text-align: left">由 ICANN 协调下的注册局管理</td></tr>
+<tr><td style="text-align: left"><code>example.com</code></td><td style="text-align: left">二级域名</td><td style="text-align: left">你注册的那个域名</td></tr>
+<tr><td style="text-align: left"><code>user.example.com</code></td><td style="text-align: left">三级域名</td><td style="text-align: left">你在二级域名下创建的</td></tr>
+<tr><td style="text-align: left"><code>blog.user.example.com</code></td><td style="text-align: left">四级域名</td><td style="text-align: left">更下一级</td></tr>
+</tbody></table>
+<p>两个易混点：</p>
+<ul>
+<li><strong><code>com.cn</code> 不是顶级域名</strong>。它是 <code>.cn</code> 下的一个二级域，但注册局（CNNIC）把它作为独立注册类别开放，所以能注册 <code>example.com.cn</code>。</li>
+<li><code>hb.cn</code> 的结构是「二级.顶级」，和 <code>baidu.com</code> 同构——<code>hb</code> 是二级域名，<code>cn</code> 是顶级域名。</li>
+</ul>
+<p>DNS 命名空间是一棵倒树，<strong>每一层是一个「区」（zone），每层区由一组专门的权威服务器负责，只存下一层的「指路牌」</strong>。这张表贯穿全文：</p>
+<table><thead><tr><th style="text-align: left">层级</th><th style="text-align: left">谁运营</th><th style="text-align: left">存什么</th><th style="text-align: left">本文实测中的例子</th></tr></thead><tbody>
+<tr><td style="text-align: left">根区 <code>.</code></td><td style="text-align: left">13 个身份（a–m.root-servers.net），anycast</td><td style="text-align: left">每个 TLD 的服务器在哪</td><td style="text-align: left"><code>198.41.0.4</code>（a.root）</td></tr>
+<tr><td style="text-align: left">TLD 区 <code>.asia</code></td><td style="text-align: left"><strong>注册局</strong>（.asia 由 Identity Digital/Afilias 运营）</td><td style="text-align: left">该 TLD 下每个域名的 NS 委派</td><td style="text-align: left"><code>a0/b2.asia.afilias-nst.*</code></td></tr>
+<tr><td style="text-align: left">你的区 <code>demo.asia</code></td><td style="text-align: left">你选的 DNS 服务商（现在是 Cloudflare）</td><td style="text-align: left">你配的真实记录（A/CNAME/MX/TXT）</td><td style="text-align: left"><code>aaa/bbb.ns.cloudflare.com</code></td></tr>
+</tbody></table>
+<hr />
+<h2 id="san-tld-fu-wu-qi-ding-ji-yu-ming-de-tong-xun-lu">三、TLD 服务器：顶级域名的"通讯录"</h2>
+<h3 id="3-1-ta-cun-shen-me">3.1 它存什么？</h3>
+<p><strong>只存委派（NS 记录），不存 A 记录。</strong></p>
+<ul>
+<li><strong>NS 记录</strong>：告诉递归解析器"这个域名的权威服务器是谁"。</li>
+<li><strong>A 记录</strong>：具体 IP，存在权威服务器的区数据里，TLD 一概不管。</li>
+</ul>
+<h3 id="3-2-zhu-ce-ju-vs-zhu-ce-shang">3.2 注册局 vs 注册商</h3>
+<p>这一对角色经常被混为一谈：</p>
+<ul>
+<li><strong>注册局</strong>（Registry）：运营 TLD 区文件、跑 TLD 服务器。<code>.asia</code> 的注册局是 Identity Digital（前身 Afilias），TLD 服务器实测为 <code>a0/b2.asia.afilias-nst.{info,org,asia}</code> 六台。</li>
+<li><strong>注册商</strong>（Registrar，如阿里云）：卖你域名，把你的 NS、联系人等信息经 EPP 协议提交给注册局，写进 TLD 区。</li>
+</ul>
+<p>所以「改 NS」本质上是：<strong>改 <code>.asia</code> 顶级区文件里，属于你域名的那条委派记录</strong>。入口在域名注册商控制台，而不是云解析控制台。</p>
+<h3 id="3-3-jie-xi-liu-cheng-referral-zhu-ji-yin-jian">3.3 解析流程（referral 逐级引荐）</h3>
+<pre><code>用户输入 blog.example.com
+        ↓
+递归解析器问根：example.com 谁管？ → 根：&quot;.com 由这些 TLD 服务器管&quot;（referral）
+        ↓
+问 .com TLD：example.com 谁管？ → TLD：&quot;NS 指向 xxx.xxx.com&quot;（referral）
+        ↓
+问该权威服务器：blog.example.com 的 A？ → 权威：&quot;x.x.x.x&quot;（权威应答）
+</code></pre>
+<p><strong>一句话总结：TLD 服务器不存 IP，只存"去问谁"。</strong></p>
+<p>客户端 → 本地递归解析器（如 223.5.5.5）这一段叫<strong>递归</strong>（resolver 替你跑全程）；resolver → 根 → TLD → 权威那一段实际是<strong>迭代</strong>（resolver 逐级问、逐级拿指路牌）。教科书把两者画成一条链，容易让人以为是同一过程。</p>
+<hr />
+<h2 id="si-shi-ce-yi-ci-jie-xi-qia-zai-liao-na-yi-bu">四、实测：一次解析卡在了哪一步</h2>
+<p>新域名 NS 切到 Cloudflare 后，<code>dig</code> 验证结果：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ dig NS demo.asia +short          # 全网视角：空
+$ dig SOA demo.asia @aaa.ns.cloudflare.com   # 直接问 Cloudflare：有答案！
+aaa.ns.cloudflare.com. dns.cloudflare.com. 2417099281 10000 2400 604800 1800
+$ dig NS demo.asia @b2.asia.afilias-nst.org  # 直接问 .asia TLD
+;; ANSWER: 0, AUTHORITY: 1 (只有 .asia 的 SOA，没有本域的 NS)
+</code></pre>
+<p>三个观察拼出完整结论：</p>
+<ol>
+<li><strong>Cloudflare 侧已就绪</strong>——直接指定它的 NS 查询，能返回权威 SOA（<code>aa</code> 标志）。</li>
+<li><strong>TLD 侧委派未发布</strong>——问 <code>.asia</code> 的服务器，返回空答案 + 顶层 SOA，即"这个域名在 <code>.asia</code> 区里不存在"。</li>
+<li><strong>原因在 whois</strong>：</li>
+</ol>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ whois demo.asia | grep -i status
+Domain Status: serverHold https:&#x2F;&#x2F;icann.org&#x2F;epp#serverHold
+Domain Status: addPeriod https:&#x2F;&#x2F;icann.org&#x2F;epp#addPeriod
+</code></pre>
+<p><code>addPeriod</code> 是新注册的缓冲期；<code>serverHold</code> 表示<strong>注册局拒绝把该域名发布进 TLD 区</strong>——通常是实名审核未通过。这就是为什么注册商侧 NS 显示已改、Cloudflare zone 已激活，但全网解析就是不通：<strong>委派链条在第 2 步（TLD）断了，查询根本走不到第 3 步（Cloudflare）</strong>。</p>
+<p><code>serverHold</code> 解除后委派立即写入 <code>.asia</code> 区，解析即刻走通，Cloudflare 侧无需任何操作。唯一的小延迟是 <code>.asia</code> 负缓存（查不到的 NXDOMAIN/NODATA 结论会被缓存，本例 SOA TTL 3600 秒），通常几分钟到一小时全网可见。</p>
+<p><strong>顺带纠正一个流行说法</strong>：「改 NS 要 24-48 小时生效」针对的是<strong>老域名换 NS、旧委派已被缓存</strong>的场景。新域名没有旧缓存，卡住的时间完全取决于审核（serverHold），跟"全球缓存刷新"无关。</p>
+<hr />
+<h2 id="wu-ji-sheng-dan-wen-ti-ns-shi-yu-ming-ta-zi-ji-zen-me-jie-xi">五、鸡生蛋问题：NS 是域名，它自己怎么解析？</h2>
+<p>NS 填的是 <code>aaa.ns.cloudflare.com</code> 这样的<strong>域名</strong>。解析它得先拿到 IP，而拿 IP 似乎又要先完成域名解析——这不是死循环吗？</p>
+<p>DNS 用两道保险解开，各自覆盖一种情况。</p>
+<h3 id="5-1-bao-xian-yi-ns-zhu-ji-ming-zai-bie-ren-jia-shi-shi-yi-tiao-du-li-qie-you-xian-de-duan-lian">5.1 保险一：NS 主机名在"别人家"时，是一条独立且有限的短链</h3>
+<p><code>aaa.ns.cloudflare.com</code> 位于 <strong><code>.com</code> 分支</strong>，解析它与 <code>demo.asia</code> 毫无关系：</p>
+<pre><code>根 → .com → cloudflare.com 区 → ns.cloudflare.com 区 → aaa 的 A 记录
+</code></pre>
+<ul>
+<li>每一步都严格<strong>向下</strong>走（从更靠近根的层往叶子走），从不回头引用 <code>demo.asia</code>，链长有限（≤4 跳）→ <strong>是链，不是环</strong>。</li>
+<li>解析器对每层结果都有长缓存（<code>dig</code> 输出里 <code>TTL 172800</code> = 2 天），这条链实际很少真走全程。</li>
+</ul>
+<h3 id="5-2-bao-xian-er-glue-xiao-shui-ji-lu-ns-zhu-ji-ming-chang-zai-zi-jia-du-zi-li-shi">5.2 保险二：glue（胶水记录）——NS 主机名长在自家肚子里时</h3>
+<p>如果 NS 叫 <code>ns1.demo.asia</code>，那才是真死结：查它得先知道 <code>demo.asia</code> 的 NS，而 NS 就是它自己。<strong>权威记录"存在"和"可达"在这里分家了</strong>——A 记录确实存在于 demo.asia 区里，但查它得先连上 demo.asia 的权威服务器，而连接恰恰需要这个 IP。</p>
+<p>解法：<strong>父区写委派记录时，顺带把这类主机名的 IP 直接写进响应的 ADDITIONAL 段</strong>。这就是 glue（胶水）记录。</p>
+<p>实测根区给 <code>.asia</code> 的委派（<code>dig NS asia. @198.41.0.4</code>），其中 <code>d0/b0.asia.afilias-nst.asia</code> 两个名字就长在 <code>.asia</code> 区内（跳不出去），根区直接附上了它们的 IP：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">d0.asia.afilias-nst.asia. 172800 IN A    199.254.30.1
+b0.asia.afilias-nst.asia. 172800 IN AAAA 2001:500:16::1
+...
+</code></pre>
+<hr />
+<h2 id="liu-glue-shi-shen-bao-zhi-tld-bu-shi-zhi-dao-shi-bei-gao-zhi">六、glue 是申报制：TLD 不是"知道"，是"被告知"</h2>
+<p>一个自然的追问：<code>.com</code> 顶层服务器凭什么知道 <code>ns3.cloudflare.com</code> 的 IP？</p>
+<p><strong>答案是它不"知道"，是 Cloudflare 主动申报写进 <code>.com</code> 区文件的。</strong> TLD 区文件里关于一个域名的数据只有两类，全都是域名所有者经注册商提交的：</p>
+<table><thead><tr><th style="text-align: left">数据</th><th style="text-align: left">谁写入</th><th style="text-align: left">地位</th></tr></thead><tbody>
+<tr><td style="text-align: left"><code>cloudflare.com NS ns3~ns7.cloudflare.com</code>（AUTHORITY 段）</td><td style="text-align: left">Cloudflare 经注册商提交（EPP 协议）</td><td style="text-align: left">TLD 的本职：委派指路</td></tr>
+<tr><td style="text-align: left"><code>ns3~ns7.cloudflare.com A/AAAA</code>（ADDITIONAL 段，即 glue）</td><td style="text-align: left">同样是 Cloudflare 经注册商提交</td><td style="text-align: left">只是附赠的"提示"</td></tr>
+</tbody></table>
+<p>注册局从不自己"发现"这些 IP——它也没资格，因为 <code>ns3.cloudflare.com</code> 的真实答案归 cloudflare.com 区管，不归 <code>.com</code> 管。数据流是单向的：<strong>域名所有者 → 注册商 → 注册局区文件</strong>。</p>
+<h3 id="6-1-dui-zhao-shi-yan-mei-shen-bao-de-yi-ge-ip-du-bu-gei">6.1 对照实验：没申报的，一个 IP 都不给</h3>
+<p><code>github.com</code> 的 NS 大部分长在别人家：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ dig NS github.com @a.gtld-servers.net +noall +authority +additional
+github.com.  172800 IN NS ns-520.awsdns-01.net.      ← .net，.com 管不着
+github.com.  172800 IN NS ns-421.awsdns-52.com.    ← 唯一在 .com 肚子里的
+github.com.  172800 IN NS dns1.p08.nsone.net.      ← .net
+...
+ns-421.awsdns-52.com. 172800 IN A 205.251.193.165  ← 只给这一个 IP
+</code></pre>
+<p><code>.com</code> 只给了<strong>一个</strong> IP——恰好是唯一长在 <code>.com</code> 区内的那个名字。其余一个都不给，resolver 得自己去 <code>.net</code>/<code>.org</code>/<code>.co.uk</code> 各自解析（保险一的独立短链）。<strong>一行不多、一行不少：.com 区文件里存了什么，完全取决于当初所有者申报了什么。</strong></p>
+<h3 id="6-2-glue-shi-ti-shi-bu-shi-quan-wei">6.2 glue 是"提示"，不是"权威"</h3>
+<p>直接问 <code>.com</code> 服务器「ns3.cloudflare.com 的 A 记录」，它拒绝正面回答：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ dig ns3.cloudflare.com A @a.gtld-servers.net
+;; status: NOERROR, ANSWER: 0, AUTHORITY: 5, ADDITIONAL: 21
+</code></pre>
+<p><strong>ANSWER: 0</strong>——glue 永远不出现在权威应答里，只作为 referral 的搭车数据。glue 填错不会冒充答案，只会连不上（lame delegation）。resolver 拿 glue 的 IP 去建立连接，真正的解析答案以权威服务器的应答为准（DNSSEC 下还有签名保护）。</p>
+<p>这也解释了为什么 Cloudflare 的 NS anycast IP 几乎永不变：glue 散落在全世界各个 TLD 的区文件里，改一次 IP = 通知所有客户重新申报，所以干脆把 NS 地址做成 anycast、永久稳定。</p>
+<hr />
+<h2 id="qi-shuang-fu-ben-tong-yi-fen-a-ji-lu-cun-zai-liang-ge-di-fang">七、双副本：同一份 A 记录存在两个地方</h2>
+<p>把上一节推到底会发现：<code>ns3.cloudflare.com</code> 的 A 记录<strong>同时存在于两个地方</strong>，角色完全不同：</p>
+<table><thead><tr><th style="text-align: left"></th><th style="text-align: left"><code>.com</code> 区里的副本（glue）</th><th style="text-align: left"><code>cloudflare.com</code> 区里的副本（权威）</th></tr></thead><tbody>
+<tr><td style="text-align: left">回应方式</td><td style="text-align: left">只出现在 referral 的 ADDITIONAL；正面询问 → ANSWER: 0</td><td style="text-align: left"><code>aa</code> 权威应答</td></tr>
+<tr><td style="text-align: left">地位</td><td style="text-align: left">非权威"提示"</td><td style="text-align: left">权威"真身"</td></tr>
+<tr><td style="text-align: left">唯一用途</td><td style="text-align: left">帮你<strong>够到</strong>权威服务器</td><td style="text-align: left">给出官方答案</td></tr>
+<tr><td style="text-align: left">谁维护</td><td style="text-align: left">经注册商向注册局申报</td><td style="text-align: left">Cloudflare 自己的区数据</td></tr>
+</tbody></table>
+<p>实测验证（②的应答 IP 与 ①的 glue 完全一致）：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ dig ns3.cloudflare.com A @ns3.cloudflare.com   # 问权威服务器自己
+;; flags: qr aa rd, ANSWER: 2
+ns3.cloudflare.com. 86353 IN A 162.159.0.33
+ns3.cloudflare.com. 86353 IN A 162.159.7.226
+</code></pre>
+<p>这个双副本设计是刻意为之：<strong>每一次委派在结构上都是循环的</strong>（子区的数据在子区的服务器上，找服务器又要经过子区）。NS 记录同样是双副本——父区存委派 NS（AUTHORITY 段），子区 apex 上再存一份自己的 NS（ANSWER 段）。系统靠「父区一份非权威提示 + 子区一份权威真身」才转得起来。RFC 8499 对 glue 的定义说得很直白：它是区里的数据，但<strong>不是权威数据</strong>。</p>
+<hr />
+<h2 id="ba-que-glue-hui-zen-yang-jing-que-de-shi-xiao-bian-jie">八、缺 glue 会怎样：精确的失效边界</h2>
+<p>只有 NS 主机名长在**自家 zone 内（in-bailiwick）**时，缺 glue 才致命：</p>
+<pre><code>递归器拿到 referral：&quot;cloudflare.com 去问 ns3.cloudflare.com&quot;
+  → 要连 ns3 就得先有它的 IP
+  → 发起解析 ns3.cloudflare.com → 又问到 .com
+  → .com：&quot;ns3.cloudflare.com 由 ns3.cloudflare.com 管&quot;  ← 原地打转
+  → resolver 检测到 referral 环（跳数上限）→ SERVFAIL，整域瘫痪
+</code></pre>
+<p>三个补充：</p>
+<ul>
+<li><strong>部分申报也能活</strong>：5 台 NS 只要有 1 台有 glue，递归器就能绕过去——这是 NS 配多台的容灾意义。</li>
+<li><strong>out-of-bailiwick 无此问题</strong>：<code>aaa.ns.cloudflare.com</code> 之于 <code>demo.asia</code>，不需要 glue，缺了也不影响。</li>
+<li>所以 EPP 协议强制：创建 in-bailiwick 主机对象<strong>必须带 IP</strong>。注册商控制台里「自定义 DNS Host」功能那个必填的 IP 输入框，就是这个约束的 UI——它登记的就是 glue。</li>
+</ul>
+<hr />
+<h2 id="jiu-jiu-zheng-yi-ge-he-bing-wu-qu-gai-ns-gai-jie-xi-ji-lu">九、纠正一个合并误区：改 NS ≠ 改解析记录</h2>
+<p>「我通过阿里云 DNS 改记录，最后实际修改的就是顶级域名的数据，对吧？」——不对。<strong>这是两种修改，落点完全不同</strong>：</p>
+<table><thead><tr><th style="text-align: left">操作</th><th style="text-align: left">控制台</th><th style="text-align: left">实际修改的数据</th><th style="text-align: left">落点</th></tr></thead><tbody>
+<tr><td style="text-align: left">改 NS 服务器</td><td style="text-align: left">域名注册控制台</td><td style="text-align: left">该域名的<strong>委派记录</strong>（2 条 NS）</td><td style="text-align: left">✅ 在 <code>.asia</code> TLD 区</td></tr>
+<tr><td style="text-align: left">改解析记录（A/CNAME/MX…）</td><td style="text-align: left">云解析 DNS 控制台</td><td style="text-align: left"><code>demo.asia</code> <strong>区数据本身</strong></td><td style="text-align: left">❌ 不在 TLD——在权威服务商的服务器上</td></tr>
+</tbody></table>
+<p>实测证据：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ dig A qq.com @b2.asia.afilias-nst.org        # 问 TLD 要二级域的 A
+;; status: REFUSED                              # TLD 根本没有这种数据
+
+$ dig A demo.asia @dns21.hichina.com            # 问阿里云旧权威
+;; status: NOERROR, flags: aa, ANSWER: 0        # 旧区还完整活着（僵尸区）
+
+$ dig A demo.asia @aaa.ns.cloudflare.com        # 问 Cloudflare 新权威
+;; status: NOERROR, flags: aa, ANSWER: 0        # 新区也已就绪，还没加记录
+</code></pre>
+<p>解析记录<strong>从来不在 TLD</strong>。TLD 只存「这个域名的记录去问谁」一句指路牌；真正的 A/MX 存在被指的那个权威服务器上。区数据跟着委派走：<strong>谁被委派，谁手里那份才是全网唯一生效的</strong>，另一份就是无人查询的僵尸（hichina 上那份）。</p>
+<p>「没有开放给我修改，要通过注册商」——这句话只对 <strong>TLD 区数据</strong>（NS 委派、glue、DNSSEC 的 DS 记录）成立：注册局接口不对公众开放，必须经 ICANN 认证的注册商用 EPP 操作。而<strong>解析记录</strong>从来没在注册局那里，你在任意 DNS 服务商控制台直接增删改，不经注册商。</p>
+<p><strong>实际影响</strong>：NS 切到 Cloudflare 后，旧服务商控制台里改的任何记录全网没人再查询了——生效的区在 Cloudflare，解析记录要在 Cloudflare 重新配好。</p>
+<hr />
+<h2 id="shi-soa-ji-lu-qu-de-hu-kou-ben-shou-ye">十、SOA 记录：区的"户口本首页"</h2>
+<p>SOA（Start of Authority）定义一个 DNS 区域的权威信息，每个区有且仅有一条：</p>
+<table><thead><tr><th style="text-align: left">字段</th><th style="text-align: left">含义</th><th style="text-align: left">实测值（Cloudflare 自动生成）</th></tr></thead><tbody>
+<tr><td style="text-align: left">MNAME</td><td style="text-align: left">主名称服务器</td><td style="text-align: left"><code>aaa.ns.cloudflare.com.</code></td></tr>
+<tr><td style="text-align: left">RNAME</td><td style="text-align: left">管理员邮箱（点代替 @）</td><td style="text-align: left"><code>dns.cloudflare.com.</code></td></tr>
+<tr><td style="text-align: left">Serial</td><td style="text-align: left">区域版本号，每次修改应增加</td><td style="text-align: left"><code>2417099281</code>（Unix 时间戳风格）</td></tr>
+<tr><td style="text-align: left">Refresh</td><td style="text-align: left">辅助服务器多久检查一次更新</td><td style="text-align: left"><code>10000</code></td></tr>
+<tr><td style="text-align: left">Retry</td><td style="text-align: left">刷新失败后多久重试</td><td style="text-align: left"><code>2400</code></td></tr>
+<tr><td style="text-align: left">Expire</td><td style="text-align: left">联系不上主服务器多久后放弃</td><td style="text-align: left"><code>604800</code></td></tr>
+<tr><td style="text-align: left">Minimum TTL</td><td style="text-align: left">负缓存 TTL（查不到的结论缓存多久）</td><td style="text-align: left"><code>1800</code></td></tr>
+</tbody></table>
+<p>和你操作的关系：<strong>把 NS 从服务商 A 换到 B，本质是更换权威来源</strong>——之前 SOA 由 A 的服务器应答，之后由 B 应答。SOA 不需要手动创建，DNS 服务商自动生成。本文用到的两处 SOA 数据顺手可查：负缓存时长（判断"查不到"要多久过期）、Serial（判断两侧区数据是否同步）。</p>
+<hr />
+<h2 id="shi-yi-ns-wei-pai-vs-zhi-jie-jia-a-ji-lu">十一、NS 委派 vs 直接加 A 记录</h2>
+<p>委派不只是"换 DNS 服务商"用的——在自己的区里给子域名写 NS 记录，就能把子域管理权下放：</p>
+<p><strong>示例</strong>：你拥有 <code>example.com</code>，给 <code>user1.example.com</code> 添加两条 NS 记录指向 <code>ns1.otherdns.com</code> / <code>ns2.otherdns.com</code>，此后 <code>user1.example.com</code> 及其所有下级的解析完全由对方负责。</p>
+<table><thead><tr><th style="text-align: left">对比项</th><th style="text-align: left">直接加 A 记录</th><th style="text-align: left">NS 委派</th></tr></thead><tbody>
+<tr><td style="text-align: left">谁管理解析</td><td style="text-align: left">你</td><td style="text-align: left">用户自己</td></tr>
+<tr><td style="text-align: left">用户能否自己改</td><td style="text-align: left">不能，必须找你</td><td style="text-align: left">能，自己登录后台</td></tr>
+<tr><td style="text-align: left">你的维护成本</td><td style="text-align: left">随用户数线性增长</td><td style="text-align: left">只维护委派关系</td></tr>
+<tr><td style="text-align: left">用户能否用自己的 DNS</td><td style="text-align: left">不能</td><td style="text-align: left">能</td></tr>
+<tr><td style="text-align: left">适合场景</td><td style="text-align: left">自己全控</td><td style="text-align: left">提供域名给他人使用</td></tr>
+</tbody></table>
+<p>为什么"平台提供三级域名给用户"场景标配 NS 委派：</p>
+<ol>
+<li>用户拥有完整控制权（A/CNAME/MX/TXT 全套）；</li>
+<li>平台只维护"谁拥有哪个子域"这一层，不碰用户数据；</li>
+<li>用户可以把子域再委派到 Cloudflare 等服务，享受 CDN/防护；</li>
+<li>解析压力分散到用户各自的 DNS 服务器。</li>
+</ol>
+<h3 id="yan-shen-wan-fa-yong-ns-wei-pai-da-yi-ge-san-ji-yu-ming-fen-fa-fu-wu">延伸玩法：用 NS 委派搭一个"三级域名分发服务"</h3>
+<p>顺着上面的思路推：既然 NS 记录可以逐级委派，那能不能注册一个域名，把它的子域分发给别人当独立域名用？<strong>逻辑上完全成立，这正是很多免费二级/三级域名服务和域名分发平台的核心原理</strong>：</p>
+<ol>
+<li>你注册 <code>example.com</code>；</li>
+<li>为每个用户划出 <code>user1.example.com</code> 这样的子域，把它的 NS 委派给你自建的 DNS 系统（或第三方平台，甚至直接委派给 Cloudflare，让用户在 Cloudflare 后台自助管理）；</li>
+<li>在这套系统里自由创建 <code>blog.user1.example.com</code>、<code>shop.user1.example.com</code> 等，分配给不同用户；</li>
+<li>用户拿到的是一个完整、可独立解析的三级域名。</li>
+</ol>
+<h3 id="dan-you-ji-ge-xian-shi-xian-zhi">但有几个现实限制</h3>
+<ol>
+<li><strong>得有一套能跑自动化的 DNS 权威</strong>：批量分发意味着程序化增删区数据。阿里云/Cloudflare 的网页控制台只能手动加记录，撑不起"注册即开通"；要做自动化，得用带 API 的 DNS 服务或自建权威（BIND/PowerDNS/CoreDNS + 注册流程）。</li>
+<li><strong>证书链路的控制权</strong>：CA 逐名验证（见第十二节）——三级域名 <code>a.b.example.com</code> 的 DNS-01 验证记录要加在 <code>a.b.example.com</code> 名下。委派出去后用户能自助完成；没委派时每次签发/续期都要平台配合，或用 CNAME 把 <code>_acme-challenge</code> 引到用户自己的验证区。</li>
+<li><strong>浏览器与邮件生态的信任折扣</strong>：三级域名 URL 长、与主域共享信誉，免费子域名服务是滥用重灾区，容易被搜索引擎降权、被邮件服务商拉黑。</li>
+<li><strong>委派稳定性 = 你的责任</strong>：被委派的那组 NS 一旦挂掉，该子域下<strong>所有</strong>三级域名全部解析失败——用户把命脉交给了你的基础设施。</li>
+</ol>
+<p>一句话总结：<strong>NS 记录可以逐级委派，每一级都能把下一级的解析权交出去——这是 DNS 分层管理的精髓</strong>；但"逻辑上能做"与"运营得好"之间，隔着自动化基础设施和长期信任建设。</p>
+<p>顺带一提：本文 demo.asia 这种情况就是委派的逆操作——注册局在 <code>.asia</code> 区里给整个二级域做委派，而 <code>serverHold</code> 就是注册局暂时扣住这条委派不发。</p>
+<hr />
+<h2 id="shi-er-ssl-zheng-shu-yan-zheng-zhu-ming-yan-zheng-bu-shi-zhi-yan-er-ji-yu-ming">十二、SSL 证书验证：逐名验证，不是只验二级域名</h2>
+<p>常见误区："申请证书时都是检验二级域名的控制权吗？"<strong>不是。</strong> CA 验证的是<strong>你申请的那个完整域名（FQDN）本身</strong>。无论申请 <code>example.com</code> 还是 <code>a.b.example.com</code>，验证对象都是提交申请的那个完整名字：</p>
+<table><thead><tr><th style="text-align: left">验证方式</th><th style="text-align: left">验证内容</th></tr></thead><tbody>
+<tr><td style="text-align: left">HTTP-01</td><td style="text-align: left">访问 <code>http://&lt;申请域名&gt;/.well-known/acme-challenge/&lt;token&gt;</code></td></tr>
+<tr><td style="text-align: left">DNS-01</td><td style="text-align: left">查询 <code>_acme-challenge.&lt;申请域名&gt;</code> 的 TXT 记录</td></tr>
+</tbody></table>
+<p>要完成 <code>a.b.example.com</code> 的验证，你必须在 <code>a.b.example.com</code> 下添加记录——<strong>前提是你拥有该域所属 DNS 区域的管理权限或委派权限</strong>。这正好印证 NS 委派的价值：把 <code>b.example.com</code> 委派给用户后，用户就能自己完成 DNS-01 验证；DNS 还在你手里时，用户每张证书都得找你。</p>
+<p>和本文主线的呼应：改 NS 到 Cloudflare 后，DNS-01 验证走的就是 Cloudflare 的 TXT 记录；若用 acme.sh 等 ACME 客户端配合 Cloudflare API Token，续期全自动。</p>
+<hr />
+<h2 id="shi-san-wan-zheng-cao-zuo-ba-zhu-ce-zai-a-li-yun-de-yu-ming-qie-dao-cloudflare">十三、完整操作：把注册在阿里云的域名切到 Cloudflare</h2>
+<h3 id="13-1-cao-zuo-qian-zhun-bei">13.1 操作前准备</h3>
+<p><strong>备份现有解析记录</strong>：进入云解析控制台，把 A/CNAME/MX/TXT 记录导出或截图。特别是 MX 和 TXT，遗漏会导致邮箱收不到信。</p>
+<h3 id="13-2-di-yi-bu-zai-cloudflare-tian-jia-yu-ming">13.2 第一步：在 Cloudflare 添加域名</h3>
+<ol>
+<li>登录 Cloudflare，点「添加站点」，输入根域名（如 <code>demo.com</code>，不要带 <code>www</code> 或协议头）。</li>
+<li>选 Free 套餐。</li>
+<li>核对自动扫描出的记录；<strong>MX/TXT 务必保持「仅 DNS」（灰色云朵）</strong>，橙色云朵是 Cloudflare 代理，只该给需要 CDN 的网站记录开。</li>
+<li>复制 Cloudflare 分配的<strong>两个专属 NS</strong>（形如 <code>xxx.ns.cloudflare.com</code>，每个域名按哈希分配一对，同账号不同域名的对子也不同）。</li>
+</ol>
+<p><strong>只能用分配给这个域名的那对</strong>：Cloudflare 的激活检查按分配对校验注册局委派，对不上 zone 会一直卡在 <code>Pending Nameserver Update</code>。把上一个域名用过的 NS 抄过来、或者填 4 个（分配对 + 旧对子）都不可靠——所有 <code>*.ns.cloudflare.com</code> 背后是同一套 anycast 集群，旧对子没有任何额外价值。</p>
+<h3 id="13-3-di-er-bu-zai-zhu-ce-shang-kong-zhi-tai-xiu-gai-dns-fu-wu-qi">13.3 第二步：在注册商控制台修改 DNS 服务器</h3>
+<ol>
+<li>登录阿里云<strong>域名</strong>控制台（不是云解析控制台），找到域名 →「管理」。</li>
+<li>左侧菜单「DNS 管理」→「DNS 修改」→「修改DNS服务器」。</li>
+<li>替换为 Cloudflare 的两个 NS，提交。注册商侧立即反映；TLD 侧写入时间取决于注册局（新域名还要等实名审核的 <code>serverHold</code> 解除）。</li>
+</ol>
+<h3 id="13-4-di-san-bu-yan-zheng-yu-deng-dai">13.4 第三步：验证与等待</h3>
+<p>分四层逐一确认，哪层断了修哪层：</p>
+<pre data-lang="console" class="language-console "><code class="language-console" data-lang="console">$ whois demo.asia | grep -i status        # ① 注册局：serverHold 是否已解除
+$ dig NS demo.asia @b2.asia.afilias-nst.org   # ② TLD：委派是否已发布
+$ dig SOA demo.asia @xxx.ns.cloudflare.com    # ③ Cloudflare：zone 是否激活
+$ dig demo.asia +short                        # ④ 全网：端到端是否解析
+</code></pre>
+<p>③可先行：zone 在 Cloudflare 激活后即开始应答，②发布后全网立即可达（受负缓存影响最多等一个 SOA TTL）。</p>
+<hr />
+<h2 id="shi-si-guo-nei-zhu-liu-zhu-ce-shang-su-lan">十四、国内主流注册商速览</h2>
+<table><thead><tr><th style="text-align: left">平台</th><th style="text-align: left">特点</th></tr></thead><tbody>
+<tr><td style="text-align: left">阿里云（万网）</td><td style="text-align: left">国内份额最大，生态完整，一站式建站</td></tr>
+<tr><td style="text-align: left">腾讯云（DNSPod）</td><td style="text-align: left">与腾讯系产品结合紧密，解析服务口碑好</td></tr>
+<tr><td style="text-align: left">华为云</td><td style="text-align: left">政企背景，安全性和稳定性突出</td></tr>
+<tr><td style="text-align: left">西部数码</td><td style="text-align: left">老牌 IDC，价格策略灵活</td></tr>
+</tbody></table>
+<p>注册商只影响"改 NS 的入口好不好找"，解析质量取决于 NS 指向谁——反正都要切 Cloudflare 的话，差别不大。注意：NS 切走后，原注册商的「云解析」产品就闲置了，别再两头改记录。</p>
+<hr />
+<h2 id="shi-wu-he-xin-zong-jie">十五、核心总结</h2>
+<ol>
+<li><strong>域名层级</strong>：从右到左逐级变小；每层是一个 zone，由对应权威服务器负责。</li>
+<li><strong>TLD 服务器</strong>：注册局运营，只存 NS 委派不存 A 记录，「改 NS」改的就是 TLD 区里自己域名那条委派。</li>
+<li><strong>委派链是 referral 逐级引荐</strong>：客户端→resolver 是递归，resolver 逐级问各级权威是迭代；任何一环缺失（如 serverHold）整链即断。</li>
+<li><strong>鸡生蛋有两道保险</strong>：NS 主机名在别人家时走独立向下短链；在自己家时靠父区 glue。glue 是申报制的非权威提示，只用于建立连接，永不作为答案。</li>
+<li><strong>权威数据双副本</strong>：委派 NS 和 NS 主机名的 IP 都同时存在于父区（提示）和子区（真身），这是结构性循环得以运转的关键。</li>
+<li><strong>改 NS ≠ 改解析记录</strong>：前者动 TLD 区（经注册商），后者动权威区（在 DNS 服务商）；区跟着委派走，谁被委派谁生效。</li>
+<li><strong>serverHold</strong>：实名审核未过时注册局扣住委派，与"缓存传播"无关；审核一过分钟级生效。</li>
+<li><strong>SOA</strong>：区的户口本，换 NS 即换权威来源，自动生成无需手管。</li>
+<li><strong>SSL 验证逐名进行</strong>：验证的是申请的完整 FQDN，前提是能控制该名字所属的 DNS 区（直管或被委派）。</li>
+<li><strong>切换 Cloudflare 三步</strong>：备份记录 → Cloudflare 添加站点拿专属 NS 对 → 注册商改 NS；只能用分配对，按 ①whois ②TLD ③zone ④全网 四层验证。</li>
+</ol>
+<p><em>文中实测基于 2026-10 的 dig (9.18) 与阿里云/Cloudflare 控制台现状，输出已将真实域名替换为 demo.asia。</em></p>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/"> cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-bei-jing-yi-ci-gai-ns-yin-chu-de-lian-huan-zhui-wen">一、背景：一次&quot;改 NS&quot;引出的连环追问</a>
+        </div>
+        <div>
+          <a href="#er-yu-ming-ceng-ji-cong-you-dao-zuo-zhu-ji-bian-xiao">二、域名层级：从右到左，逐级变小</a>
+        </div>
+        <div>
+          <a href="#san-tld-fu-wu-qi-ding-ji-yu-ming-de-tong-xun-lu">三、TLD 服务器：顶级域名的&quot;通讯录&quot;</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-ta-cun-shen-me"><small>- 3.1 它存什么？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-zhu-ce-ju-vs-zhu-ce-shang"><small>- 3.2 注册局 vs 注册商</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-jie-xi-liu-cheng-referral-zhu-ji-yin-jian"><small>- 3.3 解析流程（referral 逐级引荐）</small></a>
+        </div>
+        <div>
+          <a href="#si-shi-ce-yi-ci-jie-xi-qia-zai-liao-na-yi-bu">四、实测：一次解析卡在了哪一步</a>
+        </div>
+        <div>
+          <a href="#wu-ji-sheng-dan-wen-ti-ns-shi-yu-ming-ta-zi-ji-zen-me-jie-xi">五、鸡生蛋问题：NS 是域名，它自己怎么解析？</a>
+        </div>
+        <div class="hpad">
+          <a href="#5-1-bao-xian-yi-ns-zhu-ji-ming-zai-bie-ren-jia-shi-shi-yi-tiao-du-li-qie-you-xian-de-duan-lian"><small>- 5.1 保险一：NS 主机名在&quot;别人家&quot;时，是一条独立且有限的短链</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-2-bao-xian-er-glue-xiao-shui-ji-lu-ns-zhu-ji-ming-chang-zai-zi-jia-du-zi-li-shi"><small>- 5.2 保险二：glue（胶水记录）——NS 主机名长在自家肚子里时</small></a>
+        </div>
+        <div>
+          <a href="#liu-glue-shi-shen-bao-zhi-tld-bu-shi-zhi-dao-shi-bei-gao-zhi">六、glue 是申报制：TLD 不是&quot;知道&quot;，是&quot;被告知&quot;</a>
+        </div>
+        <div class="hpad">
+          <a href="#6-1-dui-zhao-shi-yan-mei-shen-bao-de-yi-ge-ip-du-bu-gei"><small>- 6.1 对照实验：没申报的，一个 IP 都不给</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-2-glue-shi-ti-shi-bu-shi-quan-wei"><small>- 6.2 glue 是&quot;提示&quot;，不是&quot;权威&quot;</small></a>
+        </div>
+        <div>
+          <a href="#qi-shuang-fu-ben-tong-yi-fen-a-ji-lu-cun-zai-liang-ge-di-fang">七、双副本：同一份 A 记录存在两个地方</a>
+        </div>
+        <div>
+          <a href="#ba-que-glue-hui-zen-yang-jing-que-de-shi-xiao-bian-jie">八、缺 glue 会怎样：精确的失效边界</a>
+        </div>
+        <div>
+          <a href="#jiu-jiu-zheng-yi-ge-he-bing-wu-qu-gai-ns-gai-jie-xi-ji-lu">九、纠正一个合并误区：改 NS ≠ 改解析记录</a>
+        </div>
+        <div>
+          <a href="#shi-soa-ji-lu-qu-de-hu-kou-ben-shou-ye">十、SOA 记录：区的&quot;户口本首页&quot;</a>
+        </div>
+        <div>
+          <a href="#shi-yi-ns-wei-pai-vs-zhi-jie-jia-a-ji-lu">十一、NS 委派 vs 直接加 A 记录</a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-shen-wan-fa-yong-ns-wei-pai-da-yi-ge-san-ji-yu-ming-fen-fa-fu-wu"><small>- 延伸玩法：用 NS 委派搭一个&quot;三级域名分发服务&quot;</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dan-you-ji-ge-xian-shi-xian-zhi"><small>- 但有几个现实限制</small></a>
+        </div>
+        <div>
+          <a href="#shi-er-ssl-zheng-shu-yan-zheng-zhu-ming-yan-zheng-bu-shi-zhi-yan-er-ji-yu-ming">十二、SSL 证书验证：逐名验证，不是只验二级域名</a>
+        </div>
+        <div>
+          <a href="#shi-san-wan-zheng-cao-zuo-ba-zhu-ce-zai-a-li-yun-de-yu-ming-qie-dao-cloudflare">十三、完整操作：把注册在阿里云的域名切到 Cloudflare</a>
+        </div>
+        <div class="hpad">
+          <a href="#13-1-cao-zuo-qian-zhun-bei"><small>- 13.1 操作前准备</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#13-2-di-yi-bu-zai-cloudflare-tian-jia-yu-ming"><small>- 13.2 第一步：在 Cloudflare 添加域名</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#13-3-di-er-bu-zai-zhu-ce-shang-kong-zhi-tai-xiu-gai-dns-fu-wu-qi"><small>- 13.3 第二步：在注册商控制台修改 DNS 服务器</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#13-4-di-san-bu-yan-zheng-yu-deng-dai"><small>- 13.4 第三步：验证与等待</small></a>
+        </div>
+        <div>
+          <a href="#shi-si-guo-nei-zhu-liu-zhu-ce-shang-su-lan">十四、国内主流注册商速览</a>
+        </div>
+        <div>
+          <a href="#shi-wu-he-xin-zong-jie">十五、核心总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

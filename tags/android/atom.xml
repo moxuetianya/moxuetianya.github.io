@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - android</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/android/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-01T17:19:25+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/android/atom.xml</id>
+    <entry xml:lang="en">
+        <title>libvirt USB 设备直通虚拟机：在线热插拔，不硬编码 domain XML</title>
+        <published>2026-09-01T17:19:25+08:00</published>
+        <updated>2026-09-01T17:19:25+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/09/libvirt-usb-device-hotplug/"/>
+        <id>https://moxuetianya.github.io/2026/09/libvirt-usb-device-hotplug/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/09/libvirt-usb-device-hotplug/">&lt;h1 id=&quot;libvirt-usb-she-bei-zhi-tong-xu-ni-ji-zai-xian-re-cha-ba-bu-ying-bian-ma-domain-xml&quot;&gt;libvirt USB 设备直通虚拟机：在线热插拔，不硬编码 domain XML&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;需要把一台 Android 手机（Pixel&#x2F;Nexus，USB 连接模式为 &quot;charging + debug&quot;，即 adb 调试）直通到本机 libvirt 虚拟机（debian13 &#x2F; ubuntu26.04，均未运行）里使用。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Bus 001 Device 027: ID 18d1:4ee7 Google Inc. Nexus&amp;#x2F;Pixel Device (charging + debug)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;问题来了：直通方式一旦&lt;strong&gt;硬编码&lt;&#x2F;strong&gt;进 domain XML（&lt;code&gt;virsh edit&lt;&#x2F;code&gt; 里的 &lt;code&gt;&amp;lt;hostdev&amp;gt;&lt;&#x2F;code&gt;），下次换手机（vendor&#x2F;product 变化）就不生效，且 USB 设备不在场时 VM 启动会直接失败。有没有在线、灵活的方案？&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fang-an-re-cha-ba-vendor-product-pi-pei-bu-xie-domain-xml&quot;&gt;方案：热插拔 + vendor&#x2F;product 匹配，不写 domain XML&lt;&#x2F;h2&gt;
+&lt;p&gt;核心两点：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;设备 XML 与虚拟机定义完全分离&lt;&#x2F;strong&gt;，只对运行中的 VM 生效（不 &lt;code&gt;--persistent&lt;&#x2F;code&gt; 就不落盘）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;按 vendor&#x2F;product 匹配&lt;&#x2F;strong&gt;，而不是 bus&#x2F;device 地址——设备号（&lt;code&gt;027&lt;&#x2F;code&gt;）每次拔插都会变，vendor&#x2F;product 才是稳定标识。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;设备 XML 模板：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- usb-device.xml --&amp;gt;
+&amp;lt;hostdev mode=&amp;#x27;subsystem&amp;#x27; type=&amp;#x27;usb&amp;#x27; managed=&amp;#x27;yes&amp;#x27;&amp;gt;
+  &amp;lt;source&amp;gt;
+    &amp;lt;vendor id=&amp;#x27;0x18d1&amp;#x27;&amp;#x2F;&amp;gt;
+    &amp;lt;product id=&amp;#x27;0x4ee7&amp;#x27;&amp;#x2F;&amp;gt;
+  &amp;lt;&amp;#x2F;source&amp;gt;
+&amp;lt;&amp;#x2F;hostdev&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;操作命令：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh attach-device debian13 usb-device.xml   # 热插上
+virsh detach-device debian13 usb-device.xml   # 热拔下
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;18d1:4ee7&lt;&#x2F;code&gt; 是 Google 设备的 &lt;strong&gt;adb 接口&lt;&#x2F;strong&gt; ID：只要是 Pixel&#x2F;Nexus 开 adb 调试就是这个组合，拔插、换 USB 口都不变（MTP 文件传输模式是另一个 ID，如 &lt;code&gt;18d1:4ee1&lt;&#x2F;code&gt;，注意区分）；&lt;&#x2F;li&gt;
+&lt;li&gt;换品牌手机：&lt;code&gt;lsusb&lt;&#x2F;code&gt; 查新 ID，改 XML 两个 id 后在线 attach 即生效，&lt;strong&gt;不用动虚拟机定义&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;wei-shen-me-bu-tui-jian-ying-bian-ma-hostdev&quot;&gt;为什么不推荐硬编码 hostdev&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;对比&lt;&#x2F;th&gt;&lt;th&gt;硬编码 domain XML&lt;&#x2F;th&gt;&lt;th&gt;在线 attach-device&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;VM 启动时设备不在场&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;启动失败&lt;&#x2F;strong&gt;（hostdev 缺失阻止域启动）&lt;&#x2F;td&gt;&lt;td&gt;无影响，随时补插&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;换设备&lt;&#x2F;td&gt;&lt;td&gt;要改 domain XML（可能需关机）&lt;&#x2F;td&gt;&lt;td&gt;改设备 XML，在线生效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VM 重启后&lt;&#x2F;td&gt;&lt;td&gt;自动生效&lt;&#x2F;td&gt;&lt;td&gt;需重新 attach&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;硬编码方案唯一的好处是 VM 重启后自动挂载，代价是设备缺失时起不来、换设备要改定义——对「设备是可选的外设」场景不划算。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ba-xian-zhi-hou-hui-zen-yang-shi-ce-tui-fan-xiang-dang-ran&quot;&gt;拔线之后会怎样（实测，推翻想当然）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;实测环境：QEMU 10.0.8 + libvirt 11.3.0（Debian 13）&lt;&#x2F;strong&gt;。结论：&lt;strong&gt;物理拔线不会通知客户机&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;物理拔线&lt;&#x2F;strong&gt;：客户机内 &lt;code&gt;udevadm monitor&lt;&#x2F;code&gt; &lt;strong&gt;收不到任何事件&lt;&#x2F;strong&gt;，设备在客户机里保持「插入」状态——僵尸设备，访问才报错，但客户机认为它还在。QEMU 的 &lt;code&gt;usb-host&lt;&#x2F;code&gt; 后端不会把宿主的物理拔出传播到客户机虚拟总线，libvirt（即使 &lt;code&gt;managed=&#x27;yes&#x27;&lt;&#x2F;code&gt;）也不会自动 detach；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;virsh detach-device&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：客户机才走正常 USB 断开流程——udev 收到 REMOVE 事件、&lt;code&gt;&#x2F;dev&#x2F;bus&#x2F;usb&#x2F;xxx&lt;&#x2F;code&gt; 节点删除、客户机 adb server 报 device disconnected（detach 向 QEMU 发 &lt;code&gt;device_del&lt;&#x2F;code&gt;，这才是客户机断开事件的唯一来源）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以正确姿势：&lt;strong&gt;拔线&#x2F;换线后手动 &lt;code&gt;detach-device&lt;&#x2F;code&gt; 清理&lt;&#x2F;strong&gt;，不然客户机一直挂着僵尸设备：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh detach-device debian13 usb-device.xml   # 物理拔线后仍需显式 detach
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;再插回来&lt;&#x2F;strong&gt;：同样没有自动重挂——每次拔插、VM 重启后都要手动 &lt;code&gt;attach-device&lt;&#x2F;code&gt;。建议封装成一条链：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh start &amp;lt;vm&amp;gt; &amp;amp;&amp;amp; virsh attach-device &amp;lt;vm&amp;gt; usb-device.xml
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;qian-zhi-pu-tong-yong-hu-cao-zuo-virsh&quot;&gt;前置：普通用户操作 virsh&lt;&#x2F;h2&gt;
+&lt;p&gt;非 root 用户连 system libvirtd 需要授权。Debian 自带 polkit 规则 &lt;code&gt;&#x2F;usr&#x2F;share&#x2F;polkit-1&#x2F;rules.d&#x2F;60-libvirt.rules&lt;&#x2F;code&gt;：&lt;strong&gt;libvirt 组成员免密放行&lt;&#x2F;strong&gt; &lt;code&gt;org.libvirt.unix.manage&lt;&#x2F;code&gt;。所以只需：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo usermod -aG libvirt peter   # 加入 libvirt 组
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;组权限对新会话生效，当前 shell 临时验证用 &lt;code&gt;sg libvirt -c &#x27;virsh list --all&#x27;&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;非 root 下 &lt;code&gt;virsh&lt;&#x2F;code&gt; 默认连 &lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;session&lt;&#x2F;code&gt;（看不到系统域），显式 &lt;code&gt;virsh -c qemu:&#x2F;&#x2F;&#x2F;system&lt;&#x2F;code&gt; 或设 &lt;code&gt;export LIBVIRT_DEFAULT_URI=qemu:&#x2F;&#x2F;&#x2F;system&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;SSH 无 polkit 代理的场景也直接放行（规则直接返回 YES，不弹认证），适合脚本化。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;在线方案 = &lt;code&gt;attach-device&lt;&#x2F;code&gt;（设备 XML 独立）+ vendor&#x2F;product 匹配，换设备、拔插都不动虚拟机定义；&lt;&#x2F;li&gt;
+&lt;li&gt;硬编码 hostdev 的坑：设备不在场 VM 启动失败、换设备要改定义；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;物理拔线不会通知客户机&lt;&#x2F;strong&gt;（实测）：客户机挂着僵尸设备，需显式 &lt;code&gt;detach-device&lt;&#x2F;code&gt; 才触发客户机 udev REMOVE；&lt;&#x2F;li&gt;
+&lt;li&gt;热插拔不持久，拔插、重启后都要手动 attach——脚本化一条链即可。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

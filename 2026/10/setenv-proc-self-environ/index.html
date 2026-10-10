@@ -1,0 +1,175 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>setenv 后 /proc/self/environ 为何不变：环境变量存哪、会不会 realloc | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Rust 的 env::set_var &#x2F; C 的 setenv 不改变 &#x2F;proc&#x2F;self&#x2F;environ；环境变量字符串在堆上，指针数组按翻倍策略增长。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/10/setenv-proc-self-environ/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/10/setenv-proc-self-environ/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/10/setenv-proc-self-environ/" />
+  <meta property="og:description" content="Rust 的 env::set_var &#x2F; C 的 setenv 不改变 &#x2F;proc&#x2F;self&#x2F;environ；环境变量字符串在堆上，指针数组按翻倍策略增长。" />
+  <meta name="twitter:description" content="Rust 的 env::set_var &#x2F; C 的 setenv 不改变 &#x2F;proc&#x2F;self&#x2F;environ；环境变量字符串在堆上，指针数组按翻倍策略增长。" />
+  <meta property="og:title" content="setenv 后 &#x2F;proc&#x2F;self&#x2F;environ 为何不变：环境变量存哪、会不会 realloc | 墨雪天琊" />
+  <meta name="twitter:title" content="setenv 后 &#x2F;proc&#x2F;self&#x2F;environ 为何不变：环境变量存哪、会不会 realloc | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-09" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/10/setenv-proc-self-environ/">setenv 后 /proc/self/environ 为何不变：环境变量存哪、会不会 realloc</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 09, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/memory/">memory</a>  #<a href="https://moxuetianya.github.io/tags/proc/">proc</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>Rust 里 <code>std::env::set_var</code> 之后，<code>getenv</code> 能看到，但 <code>/proc/self/environ</code> 里没有：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">unsafe { std::env::set_var(&quot;MY_TEST_FOO&quot;, &quot;hello-from-rust-set_var&quot;) };
+println!(&quot;{:?}&quot;, std::env::var(&quot;MY_TEST_FOO&quot;));      &#x2F;&#x2F; Ok(&quot;hello-from-rust-set_var&quot;)
+&#x2F;&#x2F; &#x2F;proc&#x2F;self&#x2F;environ 里搜 MY_TEST_FOO -&gt; 无
+</code></pre>
+<p>C 的 <code>setenv</code> 同样。反过来，如果<strong>原地改写</strong>原始环境内存里的字节（把 <code>PATH=</code> 首字节改成 <code>X</code>），<code>/proc/self/environ</code> 反而会变成 <code>XATH=</code>。</p>
+<h2 id="yuan-yin-ta-shi-nei-he-ji-lu-de-chu-shi-nei-cun-qu-jian">原因：它是内核记录的初始内存区间</h2>
+<p><code>execve(2)</code> 时内核把环境字符串放在用户栈上，记下区间 <code>mm-&gt;env_start .. mm-&gt;env_end</code>。读 <code>/proc/pid/environ</code> 时，内核直接 <code>access_remote_vm()</code> 读这段内存。</p>
+<p>所以：</p>
+<ul>
+<li><code>setenv</code> / <code>set_var</code> 只在用户态改 <code>environ</code> 指针数组，<strong>从不碰</strong>这段区间 → 文件不变；</li>
+<li>有人往这段区间原地写字节 → 文件跟着变；</li>
+<li>文件只反映 <code>execve</code> 那一刻的环境，<code>setenv</code> 的改动永远看不见（<code>prctl(PR_SET_MM_ENV_START/END)</code> 可移动该区间）。</li>
+</ul>
+<blockquote>
+<p>顺带：<code>/proc/self</code> 里的 <code>self</code> 是<strong>执行 <code>open()</code> 的那个进程</strong>。所以在程序内部读它是自己，在 shell 里 <code>cat /proc/self/environ</code> 读的却是 <code>cat</code> 自己的（继承了 shell 的环境），要测目标进程得用它真实的 pid 或在其内部读。</p>
+</blockquote>
+<h2 id="huan-jing-bian-liang-cun-zai-na-hui-bu-hui-realloc">环境变量存在哪、会不会 realloc</h2>
+<p>C 层就是全局 <code>char **environ</code>：一个 <code>NULL</code> 结尾的指针数组，每个元素指向一个 <code>KEY=VALUE\0</code>。</p>
+<ul>
+<li><strong>初始</strong>：指针数组和字符串都在内核建好的栈上；</li>
+<li><strong>第一次 <code>setenv</code></strong>：指针数组被拷到堆，<code>environ</code> 改指堆；没动过的字符串仍留在栈上；</li>
+<li><strong>新变量</strong>：每次对 <code>KEY=VALUE</code> 做一次 <code>malloc</code>，放堆上。</li>
+</ul>
+<p>指针数组的增长看 glibc 2.41 的 <code>stdlib/setenv.c</code>：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">if (__environ_array_list == NULL
+    || __environ_array_list-&gt;allocated * 2 &lt; required_size)
+  new_size = required_size + 16;      &#x2F;&#x2F; 缺口大：按需 +16
+else
+  new_size = __environ_array_list-&gt;allocated * 2;   &#x2F;&#x2F; 否则翻倍
+char **new_array = calloc (new_size, sizeof (*new_array));  &#x2F;&#x2F; 不是 realloc
+</code></pre>
+<p>结论：</p>
+<ol>
+<li><strong>会重新分配</strong>，但现代 glibc 是 <code>calloc</code> 新数组 + 拷贝再改指向（老版本才用 <code>realloc</code>）；增长是<strong>近似翻倍</strong>，不是每加一个搬一次。</li>
+<li><strong>旧数组不释放</strong>，挂在 <code>__environ_array_list</code> 上直到进程退出（应用可能还持有旧 <code>environ</code>）。</li>
+<li>glibc 用一棵 <code>tsearch</code> 树缓存见过的 <code>KEY=VALUE</code>：反复设为<strong>相同值</strong>会复用旧串、释放临时串，不会无限涨；反复设<strong>不同值</strong>则旧串有意保留、内存持续增长。</li>
+</ol>
+<p>实测（<code>env -i PATH=... TERM=xterm</code> 启动）：第一次 <code>setenv</code> 时数组地址从栈 <code>0x7fff...</code> 跳到堆 <code>0x558b...</code>，加到第 17 个变量时再次翻倍搬移，与源码里的翻倍公式吻合。</p>
+<h2 id="rust-ce-zhi-shi-zhuan-fa">Rust 侧只是转发</h2>
+<p>Rust std（<code>sys/pal/unix/os.rs</code>）直接调 libc，自己只加了一把锁：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">pub unsafe fn setenv(k: &amp;OsStr, v: &amp;OsStr) -&gt; io::Result&lt;()&gt; {
+    let _guard = ENV_LOCK.write();
+    cvt(libc::setenv(k.as_ptr(), v.as_ptr(), 1)).map(drop) &#x2F;&#x2F; overwrite = 1
+}
+</code></pre>
+<p>所以上面关于栈/堆、realloc、<code>/proc</code> 的结论对 Rust 完全适用。</p>
+<h2 id="shi-jian">实践</h2>
+<ul>
+<li>想把环境传给子进程，用 <code>Command::env</code>；<code>set_var</code> 只影响本进程的 <code>getenv</code> 和之后 <code>exec</code> 的继承。</li>
+<li><code>std::env::set_var</code> 在较新 Rust 中是 <code>unsafe</code>（跨线程调用有数据竞争），且非 async-signal-safe。</li>
+<li>运行中大量设置<strong>不同</strong>的环境变量，字符串会持续 <code>malloc</code> 且旧串不回收，内存会涨。</li>
+<li>想刷新 <code>/proc/self/environ</code>，只能重新 <code>execve</code>。</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/opencode-tool-env-display/">&#8249; opencode 工具执行用谁的 DISPLAY："哪个终端发起 prompt 就用谁的"对不对</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/systemd-run-working-directory-chdir/"> systemd-run --working-directory 的 ~ 不展开：一次 status=200/CHDIR 排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#yuan-yin-ta-shi-nei-he-ji-lu-de-chu-shi-nei-cun-qu-jian">原因：它是内核记录的初始内存区间</a>
+        </div>
+        <div>
+          <a href="#huan-jing-bian-liang-cun-zai-na-hui-bu-hui-realloc">环境变量存在哪、会不会 realloc</a>
+        </div>
+        <div>
+          <a href="#rust-ce-zhi-shi-zhuan-fa">Rust 侧只是转发</a>
+        </div>
+        <div>
+          <a href="#shi-jian">实践</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

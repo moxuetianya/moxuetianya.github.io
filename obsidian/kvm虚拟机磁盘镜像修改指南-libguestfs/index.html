@@ -1,0 +1,901 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>KVM虚拟机磁盘镜像修改指南（libguestfs） | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="在维护kvm虚拟机时候，有时候需要修改vm内部文件系统内容，此时需要访问虚拟机磁盘镜像。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/kvm虚拟机磁盘镜像修改指南-libguestfs/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/kvm虚拟机磁盘镜像修改指南-libguestfs/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/kvm虚拟机磁盘镜像修改指南-libguestfs/" />
+  <meta property="og:description" content="在维护kvm虚拟机时候，有时候需要修改vm内部文件系统内容，此时需要访问虚拟机磁盘镜像。" />
+  <meta name="twitter:description" content="在维护kvm虚拟机时候，有时候需要修改vm内部文件系统内容，此时需要访问虚拟机磁盘镜像。" />
+  <meta property="og:title" content="KVM虚拟机磁盘镜像修改指南（libguestfs） | 墨雪天琊" />
+  <meta name="twitter:title" content="KVM虚拟机磁盘镜像修改指南（libguestfs） | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-01-08" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/kvm虚拟机磁盘镜像修改指南-libguestfs/">KVM虚拟机磁盘镜像修改指南（libguestfs）</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 一月 08, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/xu-ni-hua-yu-rong-qi/">虚拟化与容器</a>] #<a href="https://moxuetianya.github.io/tags/shell-yu-ming-ling-xing/">Shell 与命令行</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cun-chu-yu-wen-jian-xi-tong/">存储与文件系统</a>  #<a href="https://moxuetianya.github.io/tags/xu-ni-hua/">虚拟化</a> </span>
+
+    
+
+
+<h1 id="kvmxu-ni-ji-ci-pan-jing-xiang-xiu-gai-zhi-nan-libguestfs">KVM虚拟机磁盘镜像修改指南（libguestfs）</h1>
+<p>在维护kvm虚拟机时候，有时候需要修改vm内部文件系统内容，此时需要访问虚拟机磁盘镜像。</p>
+<blockquote>
+<p>本文是对虚拟机镜像修改的一个实践，涉及<code>NBD</code>、<code>libguestfs</code>等开源工具。通过翻译加实践，了解KVM虚拟机磁盘resize的原理和实现，有助于我们理解虚拟化磁盘的底层原理。</p>
+</blockquote>
+<h2 id="rhel-centos-5xu-ni-ji-jing-xiang-fang-wen">RHEL/CentOS 5虚拟机镜像访问</h2>
+<p>有多种方式可以访问虚拟机磁盘镜像，在RHEL 常用的方法是使用<code>kpartx</code>工具，将虚拟机文件系统作为一个loop设备，这样就可以在物理服务器上访问。<code>kpartx</code>可以从分区表撞见磁盘设备映像，每个虚拟机存储映像有一个分区表和这个文件相关。</p>
+<pre><code>yum install kpartx
+</code></pre>
+<blockquote>
+<p><code>警告</code>：在物理服务器上修改虚拟机磁盘，一定要在虚拟机offline状态下才可以操作。</p>
+<p><strong>RHEL/CentOS 6和7以后，请不要使用</strong>**<code>kpartx</code>** <strong>，改为使用</strong>**<code>guestfish</code>**<strong>工具</strong>。</p>
+</blockquote>
+<ul>
+<li>使用<code>kpartx</code>列出分区设备映射到基于存储镜像的文件，以下案例使用的映像文件是<code>guest1.img</code></li>
+</ul>
+<pre><code>kpartx -l &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;guest1.img
+</code></pre>
+<p>显示输出是</p>
+<pre><code>loop0p1 : 0 409600 &#x2F;dev&#x2F;loop0 63
+loop0p2 : 0 10064717 &#x2F;dev&#x2F;loop0 409663
+</code></pre>
+<blockquote>
+<p>注意：在CentOS7上使用<code>kpartx -l /var/lib/libvirt/images/centos6.img</code>有可能无法工作，显示输出类似<code>loop deleted : /dev/loop2</code>而不是设备映像信息。</p>
+</blockquote>
+<ul>
+<li>添加分区映像到<code>/dev/mapper/</code>下设备</li>
+</ul>
+<pre><code>kpartx -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;guest1.img
+</code></pre>
+<ul>
+<li>检查磁盘分区映射</li>
+</ul>
+<pre><code>ls &#x2F;dev&#x2F;mapper&#x2F;
+</code></pre>
+<p>可以看到挂载的分区设备</p>
+<pre><code>loop0p1
+loop0p2
+</code></pre>
+<ul>
+<li>然后就可以使用目录来loop设备，如果需要则创建目录</li>
+</ul>
+<pre><code># mkdir &#x2F;mnt&#x2F;guest1
+# mount &#x2F;dev&#x2F;mapper&#x2F;loop0p1 &#x2F;mnt&#x2F;guest1 -o loop,ro
+</code></pre>
+<ul>
+<li>完成镜像的文件系统修改之后，可以去除分区映射的镜像文件连接：</li>
+</ul>
+<pre><code># kpartx -d &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;guest1.img
+</code></pre>
+<h2 id="rhel-centos-6-7-xu-ni-ji-jing-xiang-fang-wen">RHEL/CentOS 6/7 虚拟机镜像访问</h2>
+<blockquote>
+<p>RHEL/CentOS 6提供的虚拟机镜像访问方法和 RHEL/CentOS 7是一致的，本文实践是在CentOS 7上完成</p>
+</blockquote>
+<p>访问、修改和创建虚拟机磁盘或磁盘镜像的方式有：</p>
+<ul>
+<li>查看或下载位于虚拟机磁盘中的文件</li>
+<li>编辑或上传虚拟机磁盘中的文件</li>
+<li>读写虚拟机配置</li>
+<li>准备新磁盘镜像包含文件、目录、文件系统、分区、逻辑卷和其他</li>
+<li>紧急救援或修复guest虚拟机启动故障或其他需要修改启动配置</li>
+<li>监控虚拟机的磁盘使用</li>
+<li>审计guest虚拟机的符合组织安全标准情况</li>
+<li>通过克隆或修改模板来部署guest虚拟机</li>
+<li>读取CD/DVD ISO或软盘磁盘镜像</li>
+</ul>
+<blockquote>
+<p><code>警告</code>：**<code>永远不要</code>**在guest虚拟机运行或磁盘映像连接在运行虚拟机的时候使用工具写入虚拟机磁盘，甚至不要使用读模式打开这样的磁盘镜像。如果错误操作会导致guest虚拟机的磁盘损坏。工具会尝试阻止你这样误操作，然而有可能工具不能覆盖所有场景。</p>
+<p><code>libguestfs</code>和它的工具集文档可参考man手册。API是通过<code>guestfs(3)</code>文档提供。<code>guestfish</code>文档在<code>guestfish(1)</code>，虚拟工具则在各自的man手册，例如<code>virt-df(1)</code>。有关troubleshooting，请参考<a rel="noopener" target="_blank" href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Virtualization_Deployment_and_Administration_Guide/sect-Troubleshooting-libguestfs_troubleshooting.html">libguestfs Troubleshooting</a></p>
+</blockquote>
+<h2 id="shi-yong-yuan-cheng-lian-jie-de-zhu-yi-dian">使用远程连接的注意点</h2>
+<p>一些RHEL 7的virt命令允许你远程访问libvirt连接，但是在RHEL 7上的<code>libguestfs</code>则不能访问远程<code>libvirt</code> guest的磁盘，并且并且类似使用远程URL的指令都不能工作，例如：</p>
+<pre><code>virt-df -c qemu:&#x2F;&#x2F;remote&#x2F;system -d Guest
+</code></pre>
+<p>然而，从RHEL 7开始，<code>libguestfs</code>可以通过<code>NBD</code>访问远程磁盘源。也就是能够通过<code>qemu-nbd</code>命令访问远程主机磁盘，并通过<code>nbd://</code> URL来访问磁盘。不过要注意远程服务器开启防火墙允许访问端口<code>10809</code>。</p>
+<p>具体操作案例如下（以下是实践经验，补充了原文档中缺少的一些细节（需要指定<code>--format=raw</code>的nbd磁盘格式），详细请参考<a rel="noopener" target="_blank" href="https://huataihuang.gitbooks.io/cloud-atlas/content/virtual/kvm/storage/libguestfs_nbd_remote_access_image">使用libguestfs+NBD远程访问磁盘镜像</a>）</p>
+<ul>
+<li>远程系统启动nbd，此时<code>qemu-nbd</code>运行在前台，打开了服务等待客户端连接（不返回桌面）</li>
+</ul>
+<pre><code>qemu-nbd -t &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<ul>
+<li>本地系统(可以在kvm虚拟机中安装<code>libguestfs-tools</code>工具包)先启动<code>libvirtd</code></li>
+</ul>
+<pre><code>systemctl start libvirtd
+</code></pre>
+<ul>
+<li>本地系统执行如下命令</li>
+</ul>
+<pre><code>virt-df --format=raw -a nbd:&#x2F;&#x2F;192.168.122.1
+</code></pre>
+<blockquote>
+<p><code>注意</code>：一定要使用<code>--format=raw</code> - 虽然远程主机上<code>centos6.img</code>实际是<code>qcow2</code>格式，但是<code>qemu-nbd</code>是使用<code>raw</code>方式打开该文件的，所以参数是<code>--format=raw</code>，否则会报告磁盘格式不正确</p>
+</blockquote>
+<p>此时就可以在本地系统看到远程输出的<code>nbd</code>磁盘的详细空间信息输出，例如：</p>
+<pre><code>192.168.122.1:&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root
+                                       8649736    2475860    5711440   29%
+</code></pre>
+<p>此时就可以使用以下<code>libguestfs</code>命令：</p>
+<pre><code>guestfish
+guestmount
+virt-alignment-scan
+virt-cat
+virt-copy-in
+virt-copy-out
+virt-df
+virt-edit
+virt-filesystems
+virt-inspector
+virt-ls
+virt-rescue
+virt-sysprep
+virt-tar-in
+virt-tar-out
+virt-win-reg
+</code></pre>
+<ul>
+<li><code>libguestfs (GUEST FileSystem LIBrary)</code> - 底层C库提供了基本点打开磁盘镜像，读取和写入文件等等基本功能。可以编写C程序来访问API</li>
+<li><code>guestfish (GUEST Filesystem Interactive SHell</code> - 交互的shell用于在命令行或者shell脚本使用。<code>guestfish</code>输出了libguestfs API所有的功能。</li>
+<li>许多virt工具都基于<code>libguestfs</code>，提供了执行特定单一任务的命令行方法。工具包括<code>virt-df</code>，<code>virt-rescue</code>，<code>virt-resize</code>和<code>virt-edit</code>。</li>
+<li><code>augeas</code>是用于编辑Linux配置文件的库，虽然这个库和<code>libguestfs</code>是相互独立的，但是很多<code>libguestfs</code>都结合了这个工具。</li>
+<li><code>guestmount</code>是一个结合<code>libguestfs</code>和<code>FUSE</code>的接口，主要用于在物理服务器上挂载磁盘镜像的文件系统。这个功能不是必须的，但是非常有用。</li>
+</ul>
+<h2 id="an-zhuang-libguestfs">安装<code>libguestfs</code></h2>
+<p>安装<code>libguestfs</code>,<code>guestfish</code>和<code>libguestfs</code>工具，及<code>guestmount</code>:</p>
+<pre><code>yum install libguestfs libguestfs-tools libguestfs-winsupport
+</code></pre>
+<p>要安装<code>libguestfs</code>相关软件包，包括语言绑定，使用如下命令：</p>
+<pre><code>yum install &quot;*guestf*&quot;
+</code></pre>
+<h2 id="guestfish-shell"><code>guestfish</code> SHELL</h2>
+<p><code>guestfish</code>是命令好或者shell脚本中用于访问guest虚拟机文件系统的交互shell。这个shell提供了所有<code>libguestfs</code> API的功能。</p>
+<blockquote>
+<p>以下案例以<code>centos6.img</code>为案例实践</p>
+</blockquote>
+<p>要查看或编辑虚拟机磁盘镜像，输入如下命令：</p>
+<pre><code>guestfish --ro -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<p>这里<code>--ro</code>表示以只读方式打开磁盘镜像。这个模式总是安全的但是不允许写入操作。只有在<code>确定</code>guest虚拟机么有运行或磁盘镜像没有连接到运行中的guest虚拟机时才可以省略这个参数。<code>绝不可以</code>使用libguestfs来编辑运行中guest虚拟机，否则会导致不可逆转的虚拟磁盘损坏。</p>
+<p>这里磁盘文件路径可以是一个文件，或者物理主机逻辑卷（例如<code>/dev/VG/LV</code>），物理主机设备（<code>/dev/cdrom</code>）或SAN LUN（<code>/dev/sdf3</code>）。</p>
+<blockquote>
+<p><strong>注意</strong></p>
+<p><code>libguestfs</code>和<code>guestfish</code>不需要root权限，只需要确保磁盘镜像具有读写权限即可。</p>
+</blockquote>
+<p>上述交互模式启动<code>guestfish</code>会提示</p>
+<pre><code>Welcome to guestfish, the guest filesystem shell for
+editing virtual machine filesystems and disk images.
+
+Type: &#x27;help&#x27; for help on commands
+      &#x27;man&#x27; to read the manual
+      &#x27;quit&#x27; to quit the shell
+
+&gt;&lt;fs&gt;
+</code></pre>
+<p>在这个提示符下，输入<code>run</code>命令来初始化库以及连接磁盘镜像。首次运行可能会花费30秒钟时间，后续则完成快很多。</p>
+<blockquote>
+<p><strong>注意</strong></p>
+<p><code>libguestfs</code>使用硬件虚拟化加速，例如KVM(如果有的话)来加速处理进程。</p>
+<p><code>guestfish</code>的提示符是<code>&gt;</code>，后续案例中，这个提示符请不要在命令行输入，只表示该行是输入的命令。</p>
+</blockquote>
+<p>一旦<code>run</code>命令执行完成，其他命令就可以使用。</p>
+<h2 id="shi-yong-guestfishcha-kan-wen-jian-xi-tong">使用<code>guestfish</code>查看文件系统</h2>
+<h3 id="shou-gong-lie-chu-he-cha-kan">手工列出和查看</h3>
+<p><code>list-filesystems</code>将列出<code>libguestfs</code>找到的文件系统：</p>
+<pre><code>&gt;&lt;fs&gt; list-filesystems
+&#x2F;dev&#x2F;sda1: ext4
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root: ext4
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap: swap
+</code></pre>
+<p>其他有用的命令是<code>list-devices</code>，<code>list-partitions</code>，<code>lvs</code>，<code>pvs</code>，<code>vfs-type</code>和<code>file</code>。可以通过<code>help COMMAND</code>来查看详细的帮助：</p>
+<pre><code>&gt;&lt;fs&gt; list-devices
+&#x2F;dev&#x2F;sda
+
+&gt;&lt;fs&gt; list-partitions
+&#x2F;dev&#x2F;sda1
+&#x2F;dev&#x2F;sda2
+
+&gt;&lt;fs&gt; lvs
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap
+
+&gt;&lt;fs&gt; pvs
+&#x2F;dev&#x2F;sda2
+
+&gt;&lt;fs&gt; vfs-type &#x2F;dev&#x2F;sda1
+ext4
+
+&gt;&lt;fs&gt; vfs-type &#x2F;dev&#x2F;sda2
+LVM2_member
+</code></pre>
+<p>要查看一个文件系统的实际内容，该文件系统必须被挂载。</p>
+<p>可以使用<code>guestfish</code>命令如<code>ls</code>，<code>ll</code>，<code>cat</code>等</p>
+<blockquote>
+<p><code>注意</code></p>
+<p>在<code>guestfish</code>中没有当前工作目录这个概念。和原始的shell不同，不能使用<code>cd</code>命令更改目录。所有路径必须是从顶部开始带有一个<code>/</code>字符的完全路径。可以使用<code>TAB</code>键来补完路径。</p>
+</blockquote>
+<p>要退出<code>guestfish</code> 设立了，可以输入<code>exit</code>或者<code>Ctrl+d</code>。</p>
+<h3 id="tong-guo-guestfishjian-cha-inspection">通过<code>guestfish</code>检查(inspection)</h3>
+<p>除了手工列出和挂载文件系统，可以可以使用<code>guestfish</code>自身检查镜像和挂载文件系统，就像是在guest虚拟机内部操作一样。要实现检查，在命令行添加一个<code>-i</code>参数：</p>
+<pre><code>guestfish --ro -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img -i
+</code></pre>
+<p>这里和没有<code>-i</code>参数的情况相比，多了以下提示：</p>
+<pre><code>Operating system: CentOS release 6.9 (Final)
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root mounted on &#x2F;
+&#x2F;dev&#x2F;sda1 mounted on &#x2F;boot
+
+&gt;&lt;fs&gt;
+</code></pre>
+<blockquote>
+<p>此时磁盘镜像已经和guest虚拟机内部一样挂载好了文件系统，可以直接检查<code>/</code>就相当于检查guest虚拟机内部的<code>/</code>文件系统。</p>
+</blockquote>
+<pre><code>&gt;&lt;fs&gt; ll &#x2F;
+total 114
+dr-xr-xr-x. 22 root root  4096 Apr 14 04:07 .
+drwxr-xr-x  19 root root  4096 Apr 18 01:59 ..
+-rw-r--r--.  1 root root     0 Apr 14 04:07 .autofsck
+dr-xr-xr-x.  2 root root  4096 Apr 11 14:00 bin
+dr-xr-xr-x.  5 root root  1024 Apr 11 12:59 boot
+drwxr-xr-x.  2 root root  4096 Apr 11 12:54 dev
+...
+</code></pre>
+<p>由于<code>guestfish</code>需要启动<code>libguestfs</code>后端来执行检查和挂载，所以当使用<code>-i</code>的时候不再需要执行<code>run</code>命令。这个<code>-i</code>参数可以用于大多数常用Linux guest虚拟机。</p>
+<h3 id="tong-guo-ming-zi-fang-wen-guestxu-ni-ji">通过名字访问guest虚拟机</h3>
+<p>guest虚拟机可以通过指定和libvirt相同虚拟机名字的命令来访问（也就是通过<code>virsh list --all</code>查看的虚拟机名字）。使用<code>-d</code>参数来通过虚拟机名字访问磁盘设备，此时可以使用<code>-i</code>选项也可以不使用。</p>
+<pre><code>guestfish --ro -d centos6 -i
+</code></pre>
+<p>上述通过指定虚拟机名字方法访问虚拟机磁盘可以直接等同启动虚拟机访问磁盘文件系统。</p>
+<h3 id="shi-yong-guestfishtian-jia-wen-jian">使用<code>guestfish</code>添加文件</h3>
+<p>要使用<code>guestfish</code>添加一个文件，需要使用完整的URI。被访问的虚拟机磁盘文件必须是本地文件，或者是一个网络块设备（NBD）或者一个远程块设备(R
+BD)。</p>
+<p>以下是一些URI例子，对于本地文件，使用<code>///</code>：</p>
+<pre><code>guestfish -a disk.img
+guestfish -a file:&#x2F;&#x2F;&#x2F;directory&#x2F;disk.img
+guestfish -a nbd:&#x2F;&#x2F;example.com[:port]
+guestfish -a nbd:&#x2F;&#x2F;example.com[:port]&#x2F;exportname
+guestfish -a nbd:&#x2F;&#x2F;?socket=&#x2F;socket
+guestfish -a nbd:&#x2F;&#x2F;&#x2F;exportname?socket=&#x2F;socket
+guestfish -a rbd:&#x2F;&#x2F;&#x2F;pool&#x2F;disk
+guestfish -a rbd:&#x2F;&#x2F;example.com[:port]&#x2F;pool&#x2F;disk
+</code></pre>
+<h3 id="shi-yong-guestfishxiu-gai-wen-jian">使用<code>guestfish</code>修改文件</h3>
+<p>要针对一个guest虚拟机修改文件，创建目录或者其他修改，首先必须确保虚拟机是关闭状态的。使用<code>guestfish</code>编辑或修改运行中的磁盘将导致磁盘损坏。当确定了guest虚拟机已经关闭，则可以不使用<code>--ro</code>参数：</p>
+<pre><code>guestfish -d centos6 -i
+</code></pre>
+<p>此时可以直接使用<code>vi</code>来编辑修改文件，例如</p>
+<pre><code>&gt;&lt;fs&gt; ls &#x2F;boot&#x2F;grub&#x2F;menu.lst
+</code></pre>
+<h3 id="qi-ta-guestfishming-ling">其他<code>guestfish</code>命令</h3>
+<p>和虚拟机中操作文件系统类似，可以直接格式化文件系统，创建分区，创建和调整LVM逻辑卷，使用名林类似 <code>mkfs</code>，<code>part-add</code>，<code>lvresize</code>，<code>lvcreate</code>，<code>vgcreate</code>和<code>pvcreate</code>。</p>
+<h3 id="zai-shelljiao-ben-zhong-shi-yong-guestfish">在Shell脚本中使用guestfish</h3>
+<p>在熟悉了<code>guestfish</code>交互命令之后，可以按需将其加入shell脚本。一下是一个简单的在guest虚拟机增加新MOTD(message of the day)：</p>
+<pre><code>#!&#x2F;bin&#x2F;bash -
+ set -e
+ guestname=&quot;$1&quot;
+
+ guestfish -d &quot;$guestname&quot; -i &lt;&lt;&#x27;EOF&#x27;
+   write &#x2F;etc&#x2F;motd &quot;Welcome to Acme Incorporated.&quot;
+   chmod 0644 &#x2F;etc&#x2F;motd
+ EOF
+</code></pre>
+<h3 id="augeas-he-libguestfs-jiao-ben">Augeas 和 <code>libguestfs</code> 脚本</h3>
+<p>结合Augeas使用<code>libguestfs</code>可以方便编写操作Linux guest虚拟机配置的脚本。例如，以下脚本使用Augeas来准备guest虚拟机的键盘配置，并且打印输出键盘布局。注意，这个脚本只适合工作在运行Red Hat Enterprise Linux的虚拟机：</p>
+<pre><code>#!&#x2F;bin&#x2F;bash -
+ set -e
+ guestname=&quot;$1&quot;
+
+ guestfish -d &quot;$1&quot; -i --ro &lt;&lt;&#x27;EOF&#x27;
+   aug-init &#x2F; 0
+   aug-get &#x2F;files&#x2F;etc&#x2F;sysconfig&#x2F;keyboard&#x2F;LAYOUT
+ EOF
+</code></pre>
+<p>Augeas也可以用来修改配置文件，可以用来修改键盘布局：</p>
+<pre><code>#!&#x2F;bin&#x2F;bash -
+ set -e
+ guestname=&quot;$1&quot;
+
+ guestfish -d &quot;$1&quot; -i &lt;&lt;&#x27;EOF&#x27;
+   aug-init &#x2F; 0
+   aug-set &#x2F;files&#x2F;etc&#x2F;sysconfig&#x2F;keyboard&#x2F;LAYOUT &#x27;&quot;gb&quot;&#x27;
+   aug-save
+ EOF
+</code></pre>
+<p>注意上述连个脚本的3个修改之处：</p>
+<ul>
+<li><code>--ro</code>选项在第二个案例中去除，这样就可以写入guest虚拟机</li>
+<li><code>aug-get</code>命令被修改成<code>aug-set</code>来修改值而不是获取只。此时新的"gb"值写入。</li>
+<li><code>aug-save</code>命令将修改写入磁盘</li>
+</ul>
+<p>以下案例创建磁盘镜像：</p>
+<pre><code>guestfish -N fs
+</code></pre>
+<p>或者从磁盘镜像复制整个目录</p>
+<pre><code>&gt;&lt;fs&gt; copy-out &#x2F;home &#x2F;tmp&#x2F;home
+</code></pre>
+<h2 id="qi-ta-ming-ling">其他命令</h2>
+<p>以下命令是简化等同于<code>guestfish</code>来查看和修改guest虚拟机磁盘镜像：</p>
+<ul>
+<li><code>virt-cat</code>是模拟<code>guestfish</code>的<code>download</code>命令。该命令下载和显示一个简单的文件。例如：</li>
+</ul>
+<pre><code>virt-cat RHEL3 &#x2F;etc&#x2F;ntp.conf | grep ^server
+</code></pre>
+<ul>
+<li><code>virt-edit</code>是模拟<code>guestfish</code>的<code>edit</code>命令，用于和guest虚拟机的单个文件交互。例如，需要修改Linux虚拟机的<code>grub.conf</code>配置</li>
+</ul>
+<pre><code>virt-edit LinuxGuest &#x2F;boot&#x2F;grub&#x2F;grub.conf
+</code></pre>
+<p><code>virt-edit</code>还有一个简单的非交互方式修改文件。也就是使用<code>-e</code>参数，例如，以下命令修改(去除)Linux guest虚拟机的root密码：</p>
+<pre><code>virt-edit LinuxGuest &#x2F;etc&#x2F;passwd -e &#x27;s&#x2F;^root:.*?:&#x2F;root::&#x2F;&#x27;
+</code></pre>
+<ul>
+<li><code>virt-ls</code>是模拟<code>guestfish</code>的<code>ls</code>命令，<code>ll</code>以及<code>find</code>命令，用于递归显示目录。例如，以下命令将递归列出files和<code>/home</code>目录下目录：</li>
+</ul>
+<pre><code>virt-ls -R LinuxGuest &#x2F;home&#x2F; | less
+</code></pre>
+<h2 id="virt-rescue-jiu-yuan-shell"><code>virt-rescue</code>: 救援shell</h2>
+<p><code>virt-rescue</code>可以视为类似虚拟机的救援CD。它可以启动虚拟机进入救援shell，这样就可以修复虚拟机错误。</p>
+<p>在<code>virt-rescue</code>和<code>guestfish</code>有部分功能充电。重要的区别是不同的使用方式，<code>virt-rescue</code>是交互方式，<code>ad-hoc</code>修改使用原始的Linux文件系统工具。<code>virt-rescue</code>不能脚本化，主要适用于在guest虚拟机故障时候修复。</p>
+<h3 id="yun-xing-virt-rescue">运行<code>virt-rescue</code></h3>
+<blockquote>
+<p>这里案例使用<code>centos6</code></p>
+</blockquote>
+<p>在针对guest虚拟机使用<code>virt-rescue</code>前，确保guest虚拟机没有运行，否则磁盘会发生损坏。在确定guest虚拟机没有运行后，可以输入如下命令：</p>
+<pre><code>virt-rescue -d centos6
+</code></pre>
+<blockquote>
+<p>这里<code>centos6</code>是libvirt识别的虚拟机的名字，作为举例</p>
+</blockquote>
+<p>这里会看到系统启动了一个救援Linux系统，可以使用很多Linux工具，就像启动了一个救援CD一样。注意，这时的根目录是rescue系统，还需要手工挂载虚拟机磁盘到<code>/sysroot</code>目录下处理</p>
+<pre><code>virt-rescue: warning: virt-rescue doesn&#x27;t work with the libvirt backend
+at the moment.  As a workaround, forcing backend = &#x27;direct&#x27;.
+supermin: mounting &#x2F;proc
+supermin: ext2 mini initrd starting up: 5.1.16 glibc
+Starting &#x2F;init script ...
+starting version 219
+specified group &#x27;input&#x27; unknown
+[    0.796109] intel_rapl: no valid rapl domains found in package 0
+Cannot find device &quot;eth0&quot;
+Cannot find device &quot;eth0&quot;
+RTNETLINK answers: Network is unreachable
+mdadm: No arrays found in config file or automatically
+  WARNING: Failed to connect to lvmetad. Falling back to device scanning.
+  2 logical volume(s) in volume group &quot;vg_centos6&quot; now active
+&#x2F;init: line 136: ldmtool: command not found
+
+------------------------------------------------------------
+
+Welcome to virt-rescue, the libguestfs rescue shell.
+
+Note: The contents of &#x2F; are the rescue appliance.
+You have to mount the guest&#x27;s partitions under &#x2F;sysroot
+before you can examine them.
+
+&gt;&lt;rescue&gt;
+</code></pre>
+<p>可以使用<code>df</code>命令</p>
+<pre><code>&gt;&lt;rescue&gt; df -h
+Filesystem      Size  Used Avail Use% Mounted on
+tmpfs            96M  116K   96M   1% &#x2F;run
+&#x2F;dev            236M     0  236M   0% &#x2F;dev
+</code></pre>
+<p>可以使用<code>fdisk</code>命令显示磁盘</p>
+<pre><code>&gt;&lt;rescue&gt; fdisk -l
+
+Disk &#x2F;dev&#x2F;sda: 10.7 GB, 10737418240 bytes, 20971520 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical&#x2F;physical): 512 bytes &#x2F; 512 bytes
+I&#x2F;O size (minimum&#x2F;optimal): 512 bytes &#x2F; 512 bytes
+Disk label type: dos
+Disk identifier: 0x0007a2ab
+
+   Device Boot      Start         End      Blocks   Id  System
+&#x2F;dev&#x2F;sda1   *        2048     1026047      512000   83  Linux
+&#x2F;dev&#x2F;sda2         1026048    20971519     9972736   8e  Linux LVM
+
+Disk &#x2F;dev&#x2F;sdb: 4294 MB, 4294967296 bytes, 8388608 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical&#x2F;physical): 512 bytes &#x2F; 512 bytes
+I&#x2F;O size (minimum&#x2F;optimal): 512 bytes &#x2F; 512 bytes
+
+Disk &#x2F;dev&#x2F;mapper&#x2F;vg_centos6-lv_root: 9135 MB, 9135194112 bytes, 17842176 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical&#x2F;physical): 512 bytes &#x2F; 512 bytes
+I&#x2F;O size (minimum&#x2F;optimal): 512 bytes &#x2F; 512 bytes
+
+Disk &#x2F;dev&#x2F;mapper&#x2F;vg_centos6-lv_swap: 1073 MB, 1073741824 bytes, 2097152 sectors
+Units = sectors of 1 * 512 = 512 bytes
+Sector size (logical&#x2F;physical): 512 bytes &#x2F; 512 bytes
+I&#x2F;O size (minimum&#x2F;optimal): 512 bytes &#x2F; 512 bytes
+
+&gt;&lt;rescue&gt;
+</code></pre>
+<p>现在我们可以非常方便地将虚拟机磁盘挂载到<code>/sysroot</code>下，进行下一步排查</p>
+<pre><code>&gt;&lt;rescue&gt; mount &#x2F;dev&#x2F;mapper&#x2F;vg_centos6-lv_root &#x2F;sysroot&#x2F;
+
+&gt;&lt;rescue&gt; df -h
+Filesystem                      Size  Used Avail Use% Mounted on
+tmpfs                            96M  116K   96M   1% &#x2F;run
+&#x2F;dev                            236M     0  236M   0% &#x2F;dev
+&#x2F;dev&#x2F;mapper&#x2F;vg_centos6-lv_root  8.3G  2.4G  5.5G  31% &#x2F;sysroot
+</code></pre>
+<ul>
+<li>
+<p><code>virt-rescure</code>还支持很多命令选项，特别有用的是：</p>
+<ul>
+<li><code>--ro</code> - 只读模式操作虚拟机，这样就不会误修改虚拟机，特别是只做检查。当退出时，所有修改都会放弃。</li>
+<li><code>--network</code> - 激活rescue shell的网络访问，这样就可以下载或通过网络复制文件。</li>
+</ul>
+</li>
+</ul>
+<h2 id="virt-df-jian-shi-ci-pan-shi-yong"><code>virt-df</code>: 监视磁盘使用</h2>
+<p><code>virt-df</code>命令特别适合在物理服务器上直接检查虚拟机内部的磁盘使用率，这样就不用ssh登录到虚拟机内部就可以检查磁盘使用情况。</p>
+<pre><code>virt-df -h -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<blockquote>
+<p><code>-h</code> 选项类似 <code>df</code> 命令的<code>-h</code>选项，表示<code>human-readable</code>模式，方便查看</p>
+<p>也可以使用<code>-i</code>参数显示inode</p>
+</blockquote>
+<p>显示输出类似</p>
+<pre><code>Filesystem                                Size       Used  Available  Use%
+centos6.img:&#x2F;dev&#x2F;sda1                     476M        39M       408M    9%
+centos6.img:&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root       8.2G       2.4G       5.4G   29%
+</code></pre>
+<blockquote>
+<p><code>注意</code></p>
+<p>使用<code>virt-df</code>命令对于运行中的虚拟机也是安全的，因为它是只读访问。不过，对于运行时的虚拟机执行<code>virt-df</code>每次看到的磁盘使用情况会轻微不同。</p>
+</blockquote>
+<p><code>virt-df</code>是设计用来集成监控工具的。允许系统管理员生成磁盘使用率的报告。并且支持<code>CSV</code>格式输出方便后续集成到程序中分析</p>
+<pre><code>virt-df --csv -d centos6
+</code></pre>
+<h2 id="virt-resize-chi-xian-gai-bian-guestxu-ni-ji-ci-pan-da-xiao"><code>virt-resize</code>：离线改变guest虚拟机磁盘大小</h2>
+<p><code>virt-resize</code>是一个扩展或收缩guest虚拟机磁盘的工具。这个工具只能在虚拟机offline（关闭）时使用。<code>virt-resize</code>工作时会复制guest虚拟磁盘镜像并保留原始镜像不修改。这样就可以将原始镜像作为备份，不过这样需要平衡占用两倍磁盘空间。</p>
+<h3 id="kuo-zhan-ci-pan-jing-xiang">扩展磁盘镜像</h3>
+<blockquote>
+<p>这里案例使用<code>centos6</code>虚拟机完成</p>
+</blockquote>
+<ul>
+<li>首先通过<code>virsh dumpxml centos6</code>查看libvirt中guest虚拟机的磁盘位置</li>
+</ul>
+<pre><code>virsh dumpxml centos6
+</code></pre>
+<p>输出显示磁盘文件</p>
+<pre><code>    &lt;disk type=&#x27;file&#x27; device=&#x27;disk&#x27;&gt;
+      &lt;driver name=&#x27;qemu&#x27; type=&#x27;qcow2&#x27;&#x2F;&gt;
+      &lt;source file=&#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img&#x27;&#x2F;&gt;
+      &lt;target dev=&#x27;hda&#x27; bus=&#x27;ide&#x27;&#x2F;&gt;
+      &lt;address type=&#x27;drive&#x27; controller=&#x27;0&#x27; bus=&#x27;0&#x27; target=&#x27;0&#x27; unit=&#x27;0&#x27;&#x2F;&gt;
+    &lt;&#x2F;disk&gt;
+</code></pre>
+<p>可以看到磁盘文件是 <code>/var/lib/libvirt/images/centos6.img</code></p>
+<ul>
+<li>检查虚拟磁盘使用情况：使用<code>virt-df -h</code>和<code>virt-filesystems</code>来检查虚拟机磁盘</li>
+</ul>
+<pre><code>virt-df -h -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<p>输出显示</p>
+<pre><code>Filesystem                                Size       Used  Available  Use%
+centos6.img:&#x2F;dev&#x2F;sda1                     476M        39M       408M    9%
+centos6.img:&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root       8.2G       2.4G       5.4G   29%
+</code></pre>
+<pre><code>virt-filesystems -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img --all --long -h
+</code></pre>
+<p>输出显示</p>
+<pre><code>Name                    Type       VFS  Label MBR Size Parent
+&#x2F;dev&#x2F;sda1               filesystem ext4 -     -   500M -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root filesystem ext4 -     -   8.5G -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap filesystem swap -     -   1.0G -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root lv         -    -     -   8.5G &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap lv         -    -     -   1.0G &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6         vg         -    -     -   9.5G &#x2F;dev&#x2F;sda2
+&#x2F;dev&#x2F;sda2               pv         -    -     -   9.5G -
+&#x2F;dev&#x2F;sda1               partition  -    -     83  500M &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda2               partition  -    -     8e  9.5G &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda                device     -    -     -   10G  -
+</code></pre>
+<h4 id="kuo-zhan-ci-pan-rawge-shi">扩展磁盘（raw格式）</h4>
+<blockquote>
+<p>第一次实践时，使用了<code>truncate</code>命令构建新的虚拟磁盘，则<code>virt-resize</code>之后虚拟机磁盘就不再是<code>qcow2</code>格式，相应还要修改<code>centos6</code>虚拟机定义（<code>virsh edit centos6</code>），否则无法进一步使用<code>guestfish</code>和启动个虚拟机。</p>
+<p>第二次实践，改为使用<code>qemu-img</code>命令来扩展虚拟机磁盘镜像，这样新的虚拟磁盘镜像格式不变，依然是<code>qcow2</code>，就没有这个问题。见后文！</p>
+</blockquote>
+<ul>
+<li>先将源磁盘文件镜像重命令</li>
+</ul>
+<pre><code>mv &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin
+</code></pre>
+<ul>
+<li>使用<code>truncate</code>命令构建一个新的虚拟磁盘(注意：这个磁盘镜像格式是<code>raw</code>)</li>
+</ul>
+<hr />
+<pre><code>truncate -s 15G &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<ul>
+<li>使用<code>virt-reize</code>从备份的源镜像<code>centos6.img-old</code>扩展成新镜像<code>centos6.img</code></li>
+</ul>
+<pre><code>virt-resize &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img --expand &#x2F;dev&#x2F;sda2 --LV-expand &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root
+</code></pre>
+<p>输出显示成功完成磁盘扩展(这里我们扩展了虚拟内部LVM卷的<code>/dev/vg_centos6/lv_root</code>)</p>
+<pre><code>[   0.0] Examining &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-old
+**********
+
+Summary of changes:
+
+&#x2F;dev&#x2F;sda1: This partition will be left alone.
+
+&#x2F;dev&#x2F;sda2: This partition will be resized from 9.5G to 14.5G.  The LVM PV
+on &#x2F;dev&#x2F;sda2 will be expanded using the &#x27;pvresize&#x27; method.
+
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root: This logical volume will be expanded to maximum
+size.  The filesystem ext4 on &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root will be expanded
+using the &#x27;resize2fs&#x27; method.
+
+**********
+[   3.0] Setting up initial partition table on &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+[   3.3] Copying &#x2F;dev&#x2F;sda1
+ 100% ⟦▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒⟧ 00:00
+[   8.6] Copying &#x2F;dev&#x2F;sda2
+ 100% ⟦▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒⟧ 00:00
+[  55.6] Expanding &#x2F;dev&#x2F;sda2 using the &#x27;pvresize&#x27; method
+[  55.6] Expanding &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root using the &#x27;resize2fs&#x27; method
+
+Resize operation completed with no errors.  Before deleting the old disk,
+carefully check that the resized disk boots and works correctly.
+</code></pre>
+<ul>
+<li>检查验证磁盘镜像</li>
+</ul>
+<pre><code>qemu-img info &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<p>显示磁盘15G</p>
+<pre><code>image: &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+file format: raw
+virtual size: 15G (16106127360 bytes)
+disk size: 2.5G
+</code></pre>
+<blockquote>
+<p><code>注意</code>：如果使用了<code>truncate</code>命令构建一个新的虚拟磁盘，会导致新的磁盘镜像是<code>raw</code>格式，就需要修订<code>virsh edit centos6</code>将磁盘类型修改成<code>raw</code>类似</p>
+</blockquote>
+<pre><code>    &lt;disk type=&#x27;file&#x27; device=&#x27;disk&#x27;&gt;
+      &lt;driver name=&#x27;qemu&#x27; type=&#x27;raw&#x27;&#x2F;&gt;
+      &lt;source file=&#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img&#x27;&#x2F;&gt;
+      &lt;target dev=&#x27;hda&#x27; bus=&#x27;ide&#x27;&#x2F;&gt;
+      &lt;address type=&#x27;drive&#x27; controller=&#x27;0&#x27; bus=&#x27;0&#x27; target=&#x27;0&#x27; unit=&#x27;0&#x27;&#x2F;&gt;
+    &lt;&#x2F;disk&gt;
+</code></pre>
+<p>否则会导致启动<code>guestfish -d centos6</code>再次尝试attach磁盘时候报错</p>
+<pre><code>libguestfs: error: could not create appliance through libvirt.
+
+Try running qemu directly without libvirt using this environment variable:
+export LIBGUESTFS_BACKEND=direct
+
+Original error from libvirt: internal error: process exited while connecting to monitor: 2017-04-19T08:07:53.468712Z qemu-kvm: -drive file=&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img,format=qcow2,if=none,id=drive-scsi0-0-0-0,cache=writeback: could not open disk image &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img: Image is not in qcow2 format [code=1 int1=-1]
+</code></pre>
+<p>再次检查虚拟磁盘是否扩容成15G</p>
+<pre><code>virt-filesystems -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img --all --long -h
+</code></pre>
+<p>输出显示虚拟磁盘内部LVM卷已经扩展成15G</p>
+<pre><code>Name                    Type       VFS  Label MBR Size Parent
+&#x2F;dev&#x2F;sda1               filesystem ext4 -     -   500M -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root filesystem ext4 -     -   14G  -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap filesystem swap -     -   1.0G -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root lv         -    -     -   14G  &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap lv         -    -     -   1.0G &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6         vg         -    -     -   15G  &#x2F;dev&#x2F;sda2
+&#x2F;dev&#x2F;sda2               pv         -    -     -   15G  -
+&#x2F;dev&#x2F;sda1               partition  -    -     83  500M &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda2               partition  -    -     8e  15G  &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda                device     -    -     -   15G  -
+</code></pre>
+<blockquote>
+<p>这里有个疑问<code>sda1+sda2=15.5G</code>，大于<code>sda</code>的15G?</p>
+</blockquote>
+<pre><code>dev&#x2F;sda1               partition  -    -     83  500M &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda2               partition  -    -     8e  15G  &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda                device     -    -     -   15G  -
+</code></pre>
+<p>实际启动虚拟机后验证，在虚拟机内部通过<code>lvdisplay</code>可以看到<code>/dev/vg_centos6/lv_root</code>的<code>LV Size                13.51 GiB</code>。</p>
+<blockquote>
+<p>使用<code>virt-resize</code>指令扩展虚拟机磁盘大小以及</p>
+<p><code>注意</code></p>
+<p>如果是LVM卷作为虚拟机的磁盘，则先创建一个大于现有LVM逻辑卷的LVM卷，然后通过<code>virt-resize</code>将原先的卷复制扩展到新的卷上实现虚拟机磁盘扩展，详细可参考RHEL手册<a href="virt-resize:%20Resizing%20Guest%20Virtual%20Machines%20Offline">virt-resize: Resizing Guest Virtual Machines Offline</a>，原理是相同的。</p>
+</blockquote>
+<h4 id="kuo-zhan-ci-pan-qcow2ge-shi">扩展磁盘（qcow2格式）</h4>
+<p>前述使用<code>truncate</code>命令构建一个新的虚拟磁盘后，导致<code>virt-resize</code>新的磁盘镜像是<code>raw</code>格式。现在改为保留原有<code>qcow2</code>格式再次做磁盘resize。使用命令<code>qemu-img resize</code>命令可以直接调整<code>qcow2</code>磁盘大小。</p>
+<ul>
+<li>先将源磁盘文件镜像备份/重命名(这里重新执行扩展操作，假设前一个扩展raw格式磁盘没有操作过，全新开始，所以这里<code>centos6.img</code>还是最初原始的<code>qcow2</code>磁盘)，这个备份是要作为后续<code>virt-resize</code>的源数据盘的</li>
+</ul>
+<pre><code>mv &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin
+</code></pre>
+<ul>
+<li>使用<code>qemu-img</code>创建一个新的空<code>qcow2</code>磁盘映像文件</li>
+</ul>
+<pre><code>qemu-img create -f qcow2 &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img 15G
+</code></pre>
+<p>输出显示</p>
+<pre><code>Formatting &#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img&#x27;, fmt=qcow2 size=16106127360 encryption=off cluster_size=65536 lazy_refcounts=off
+</code></pre>
+<blockquote>
+<p>也可以先从<code>centos6.img-origin</code>复制一个<code>centos6.img</code>出来，然后再使用<code>qemu-img resize</code>调整大小。不过这个复制过程很缓慢。既然<code>virt-resize</code>就是从<code>centos6.img-origin</code>为基础resize到新的磁盘镜像，不如先创建一个空的<code>qcow2</code>磁盘镜像再使用<code>virt-resize</code>。</p>
+</blockquote>
+<ul>
+<li>检查验证虚拟磁盘镜像</li>
+</ul>
+<pre><code>qemu-img info &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+</code></pre>
+<p>显示<code>qcow2</code>文件虚拟容量15G，实际目前是空的稀疏文件，所以只占用了<code>196K</code>空间</p>
+<pre><code>image: &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+file format: qcow2
+virtual size: 15G (16106127360 bytes)
+disk size: 196K
+cluster_size: 65536
+Format specific information:
+    compat: 1.1
+    lazy refcounts: false
+</code></pre>
+<ul>
+<li>检查<code>centos6.img-origin</code>磁盘分区，确定我们要扩展的分区（LVM卷）</li>
+</ul>
+<pre><code>virt-filesystems -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin --all --long -h
+</code></pre>
+<p>输出显示</p>
+<pre><code>Name                    Type       VFS  Label MBR Size Parent
+&#x2F;dev&#x2F;sda1               filesystem ext4 -     -   500M -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root filesystem ext4 -     -   8.5G -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap filesystem swap -     -   1.0G -
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root lv         -    -     -   8.5G &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap lv         -    -     -   1.0G &#x2F;dev&#x2F;vg_centos6
+&#x2F;dev&#x2F;vg_centos6         vg         -    -     -   9.5G &#x2F;dev&#x2F;sda2
+&#x2F;dev&#x2F;sda2               pv         -    -     -   9.5G -
+&#x2F;dev&#x2F;sda1               partition  -    -     83  500M &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda2               partition  -    -     8e  9.5G &#x2F;dev&#x2F;sda
+&#x2F;dev&#x2F;sda                device     -    -     -   10G  -
+</code></pre>
+<ul>
+<li>使用<code>virt-resize</code>从<code>centos6.img-origin</code>为基础扩展到新的<code>centos6.img</code>磁盘文件</li>
+</ul>
+<pre><code>virt-resize &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img --expand &#x2F;dev&#x2F;sda2 --LV-expand &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root
+</code></pre>
+<p>提示信息</p>
+<pre><code>[   0.0] Examining &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img-origin
+**********
+
+Summary of changes:
+
+&#x2F;dev&#x2F;sda1: This partition will be left alone.
+
+&#x2F;dev&#x2F;sda2: This partition will be resized from 9.5G to 14.5G.  The LVM PV
+on &#x2F;dev&#x2F;sda2 will be expanded using the &#x27;pvresize&#x27; method.
+
+&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root: This logical volume will be expanded to maximum
+size.  The filesystem ext4 on &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root will be expanded
+using the &#x27;resize2fs&#x27; method.
+
+**********
+[   2.8] Setting up initial partition table on &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+[   3.0] Copying &#x2F;dev&#x2F;sda1
+ 100% ⟦▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒⟧ 00:00
+[   8.2] Copying &#x2F;dev&#x2F;sda2
+ 100% ⟦▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒⟧ 00:00
+[  44.0] Expanding &#x2F;dev&#x2F;sda2 using the &#x27;pvresize&#x27; method
+[  44.0] Expanding &#x2F;dev&#x2F;vg_centos6&#x2F;lv_root using the &#x27;resize2fs&#x27; method
+
+Resize operation completed with no errors.  Before deleting the old disk,
+carefully check that the resized disk boots and works correctly.
+</code></pre>
+<ul>
+<li>验证扩容后的<code>centos6.img</code>镜像：</li>
+</ul>
+<pre><code>qemu-img info &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img
+
+virt-filesystems -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img --all --long -h
+</code></pre>
+<p>验证和原始磁盘镜像<code>centos6.img-origin</code>一致。</p>
+<h2 id="virt-inspector-zhen-duan-guestxu-ni-ji"><code>virt-inspector</code>: 诊断guest虚拟机</h2>
+<p><code>virt-inspector</code>是一个诊断磁盘镜像检查使用的是哪种操作系统。该工具包含在<code>libguestfs-tools</code>软件包中。</p>
+<h3 id="yun-xing-virt-inspector">运行<code>virt-inspector</code></h3>
+<p><code>virt-inspector</code>可以针对磁盘镜像或者虚拟机</p>
+<pre><code>virt-inspector -a &#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;images&#x2F;centos6.img &gt; report.xml
+
+virt-inspector -d centos6 &gt; report.xml
+</code></pre>
+<p><code>report.xml</code>内容类似</p>
+<pre><code>&lt;?xml version=&quot;1.0&quot;?&gt;
+&lt;operatingsystems&gt;
+  &lt;operatingsystem&gt;
+    &lt;root&gt;&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root&lt;&#x2F;root&gt;
+    &lt;name&gt;linux&lt;&#x2F;name&gt;
+    &lt;arch&gt;x86_64&lt;&#x2F;arch&gt;
+    &lt;distro&gt;centos&lt;&#x2F;distro&gt;
+    &lt;product_name&gt;CentOS release 6.9 (Final)&lt;&#x2F;product_name&gt;
+    &lt;major_version&gt;6&lt;&#x2F;major_version&gt;
+    &lt;minor_version&gt;9&lt;&#x2F;minor_version&gt;
+    &lt;package_format&gt;rpm&lt;&#x2F;package_format&gt;
+    &lt;package_management&gt;yum&lt;&#x2F;package_management&gt;
+    &lt;hostname&gt;centos6&lt;&#x2F;hostname&gt;
+    &lt;format&gt;installed&lt;&#x2F;format&gt;
+    &lt;mountpoints&gt;
+      &lt;mountpoint dev=&quot;&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root&quot;&gt;&#x2F;&lt;&#x2F;mountpoint&gt;
+      &lt;mountpoint dev=&quot;&#x2F;dev&#x2F;sda1&quot;&gt;&#x2F;boot&lt;&#x2F;mountpoint&gt;
+    &lt;&#x2F;mountpoints&gt;
+    &lt;filesystems&gt;
+      &lt;filesystem dev=&quot;&#x2F;dev&#x2F;sda1&quot;&gt;
+        &lt;type&gt;ext4&lt;&#x2F;type&gt;
+        &lt;uuid&gt;9c30133a-6c16-4d8c-9486-e52b1eaa5f22&lt;&#x2F;uuid&gt;
+      &lt;&#x2F;filesystem&gt;
+...
+</code></pre>
+<p>RHEL 7有一个<code>xpath</code>命令行工具(位于<code>perl-XML-XPath.noarch</code>软件包中)可以用来解读xml</p>
+<pre><code>virt-inspector -d centos6 | xpath &#x2F;&#x2F;filesystem&#x2F;@dev
+</code></pre>
+<p>输出显示</p>
+<pre><code>Found 3 nodes:
+-- NODE --
+ dev=&quot;&#x2F;dev&#x2F;sda1&quot;-- NODE --
+ dev=&quot;&#x2F;dev&#x2F;vg_centos6&#x2F;lv_root&quot;-- NODE --
+ dev=&quot;&#x2F;dev&#x2F;vg_centos6&#x2F;lv_swap&quot;
+</code></pre>
+<h2 id="can-kao">参考</h2>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/5/html/Virtualization/sect-Virtualization-Troubleshooting_Xen-Accessing_data_on_guest_disk_image.html">RHEL 5 Virtualization Guide: Accessing data from a guest disk image</a> - RHEL 5文档关于离线修改guest文件系统</li>
+<li><a rel="noopener" target="_blank" href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/6/html/Virtualization_Administration_Guide/chap-Virtualization_Administration_Guide-Guest_Disks_libguestfs.html">RHEL 6 Virtualization Administration Guide: Guest Virtual Machine Disk Access with Offline Tools</a> - RHEL 6文档 关于离线修改guest磁盘</li>
+<li><a rel="noopener" target="_blank" href="https://access.redhat.com/documentation/en-US/Red_Hat_Enterprise_Linux/7/html/Virtualization_Deployment_and_Administration_Guide/chap-Guest_virtual_machine_disk_access_with_offline_tools.html">RHEL 7 Virtualization Deployment and Administration Guide: Guest Virtual Machine Disk Access with Offline Tools</a> - RHEL 7文档 关于离线修改guest磁盘</li>
+<li><a rel="noopener" target="_blank" href="https://dnaeon.github.io/resizing-a-kvm-disk-image-on-lvm-the-easy-way/">Resizing a QEMU KVM Linux image using virt-resize in CentOS 6.4</a></li>
+<li><a rel="noopener" target="_blank" href="https://rwmj.wordpress.com/2010/09/27/virt-resize-shrink-now-works/">virt-resize –shrink now works</a></li>
+<li><a rel="noopener" target="_blank" href="https://fatmin.com/2016/12/20/how-to-resize-a-qcow2-image-and-filesystem-with-virt-resize/">How to Resize a qcow2 Image and Filesystem with Virt-Resize</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/命令行选项解析函数-c语言-getopt-和getopt_long-肖邦linux-博客园/">&#8249; 命令行选项解析函数(C语言)：getopt()和getopt_long() - 肖邦linux - 博客园</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/qemu-kvm的基本使用方法/"> QEMU KVM的基本使用方法 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#kvmxu-ni-ji-ci-pan-jing-xiang-xiu-gai-zhi-nan-libguestfs">KVM虚拟机磁盘镜像修改指南（libguestfs）</a>
+        </div>
+        <div class="hpad">
+          <a href="#rhel-centos-5xu-ni-ji-jing-xiang-fang-wen"><small>- RHEL&#x2F;CentOS 5虚拟机镜像访问</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#rhel-centos-6-7-xu-ni-ji-jing-xiang-fang-wen"><small>- RHEL&#x2F;CentOS 6&#x2F;7 虚拟机镜像访问</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-yong-yuan-cheng-lian-jie-de-zhu-yi-dian"><small>- 使用远程连接的注意点</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#an-zhuang-libguestfs"><small>- 安装libguestfs</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#guestfish-shell"><small>- guestfish SHELL</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-yong-guestfishcha-kan-wen-jian-xi-tong"><small>- 使用guestfish查看文件系统</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shou-gong-lie-chu-he-cha-kan"><small>· 手工列出和查看</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#tong-guo-guestfishjian-cha-inspection"><small>· 通过guestfish检查(inspection)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#tong-guo-ming-zi-fang-wen-guestxu-ni-ji"><small>· 通过名字访问guest虚拟机</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-yong-guestfishtian-jia-wen-jian"><small>· 使用guestfish添加文件</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-yong-guestfishxiu-gai-wen-jian"><small>· 使用guestfish修改文件</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#qi-ta-guestfishming-ling"><small>· 其他guestfish命令</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zai-shelljiao-ben-zhong-shi-yong-guestfish"><small>· 在Shell脚本中使用guestfish</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#augeas-he-libguestfs-jiao-ben"><small>· Augeas 和 libguestfs 脚本</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qi-ta-ming-ling"><small>- 其他命令</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#virt-rescue-jiu-yuan-shell"><small>- virt-rescue: 救援shell</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yun-xing-virt-rescue"><small>· 运行virt-rescue</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#virt-df-jian-shi-ci-pan-shi-yong"><small>- virt-df: 监视磁盘使用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#virt-resize-chi-xian-gai-bian-guestxu-ni-ji-ci-pan-da-xiao"><small>- virt-resize：离线改变guest虚拟机磁盘大小</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#kuo-zhan-ci-pan-jing-xiang"><small>· 扩展磁盘镜像</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#virt-inspector-zhen-duan-guestxu-ni-ji"><small>- virt-inspector: 诊断guest虚拟机</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yun-xing-virt-inspector"><small>· 运行virt-inspector</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#can-kao"><small>- 参考</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

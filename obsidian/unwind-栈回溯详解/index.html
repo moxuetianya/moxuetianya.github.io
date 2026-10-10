@@ -1,0 +1,1962 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Unwind 栈回溯详解 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="在调试的时候经常需要进行堆栈回溯。最简单的方式是使用一个独立的寄存器(ebp)来保存每层函数调用的堆栈栈顶(frame pointer)：" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/unwind-栈回溯详解/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/unwind-栈回溯详解/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/unwind-栈回溯详解/" />
+  <meta property="og:description" content="在调试的时候经常需要进行堆栈回溯。最简单的方式是使用一个独立的寄存器(ebp)来保存每层函数调用的堆栈栈顶(frame pointer)：" />
+  <meta name="twitter:description" content="在调试的时候经常需要进行堆栈回溯。最简单的方式是使用一个独立的寄存器(ebp)来保存每层函数调用的堆栈栈顶(frame pointer)：" />
+  <meta property="og:title" content="Unwind 栈回溯详解 | 墨雪天琊" />
+  <meta name="twitter:title" content="Unwind 栈回溯详解 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-02-05" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/unwind-栈回溯详解/">Unwind 栈回溯详解</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 二月 05, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/bian-yi-lian-jie/">编译链接</a>  #<a href="https://moxuetianya.github.io/tags/diao-shi/">调试</a> </span>
+
+    
+
+
+<h1 id="unwind-zhan-hui-su-xiang-jie">Unwind 栈回溯详解</h1>
+<h2 id="1-li-shi-bei-jing">1. 历史背景</h2>
+<h3 id="1-1-frame-pointers">1.1 <a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=frame&amp;spm=1001.2101.3001.7020">frame</a> pointers</h3>
+<p>在调试的时候经常需要进行堆栈回溯。最简单的方式是使用一个独立的寄存器(ebp)来保存每层函数调用的堆栈栈顶(frame pointer)：</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">pushl％ebp
+movl％esp，％ebp
+...
+popl％ebp
+ret
+</code></pre>
+<ul>
+<li>x86_64的frame point模式</li>
+</ul>
+<p><img src="/obsidian/assets/unwind-stack-walk/x86-64-frame-pointer-mode.png" alt="在这里插入图片描述" /></p>
+<ul>
+<li>arm64的frame point模式</li>
+</ul>
+<p><img src="/obsidian/assets/unwind-stack-walk/arm64-frame-pointer-mode.png" alt="在这里插入图片描述" /></p>
+<p>这种方式在堆栈回溯时非常方便快捷。但是这种方法也有自己的不足：</p>
+<ul>
+<li>需要一个专门寄存器ebp来保存frame poniter。</li>
+<li>保存ebp寄存器即保存回溯信息(unwind info)的动作会被编译成代码，有指令开销。</li>
+<li>在回溯堆栈时，除了恢复sp，不知道怎么恢复其他的寄存器。(例如gdb中的 frame n, info reg)</li>
+<li>没有源语言信息。</li>
+</ul>
+<h3 id="1-2-debug-frame-dwarf">1.2 .debug_frame (DWARF)</h3>
+<p>调试信息标准<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF(Debugging With Attributed Record Formats)</a>定义了一个<code>.debug_frame</code> section用来解决上述的难题。</p>
+<ul>
+<li>可以把ebp当成常规寄存器使用。</li>
+<li>但是当保存esp时，它必须在.debug_frame节中产生一条注释，告知调试器它将其保存在什么位置以及存放在何处。</li>
+<li>这种机制还有的好处是它不仅仅是用来恢复ebp，还可以用来恢复其他寄存器。</li>
+<li>而且是<code>带外</code>的，不消耗任何指令周期，没有任何性能开销。</li>
+</ul>
+<p>这种机制也有其不足：</p>
+<ul>
+<li>没有源语言信息。</li>
+<li>不支持在程序加载时同时加载调试信息。</li>
+</ul>
+<h3 id="1-3-eh-frame-lsb">1.3 .eh_frame (LSB)</h3>
+<p>现代Linux操作系统在<a rel="noopener" target="_blank" href="https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html">LSB(Linux Standard Base)</a>标准中定义了一个<code>.eh_frame</code> section来解决上述的难题。这个section和<code>.debug_frame</code>非常类似，但是它解决了上述难题：</p>
+<ul>
+<li>拥有源语言信息。</li>
+<li>编码紧凑，并随程序一起加载。</li>
+</ul>
+<p>但是<code>.debug_frame</code>和<code>.eh_frame</code>同时面临一个难题：怎么样生成堆栈信息表？</p>
+<h3 id="1-4-cfi-directives">1.4 CFI directives</h3>
+<p>为了解决上述难题，GAS(GCC Assembler)汇编编译器定义了一组伪指令来协助生成调用栈信息<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs-2.31/as/CFI-directives.html">CFI(Call Frame Information)</a>。</p>
+<p><code>CFI directives</code>伪指令是一组生成CFI调试信息的高级语言，它的形式类似于：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">f：
+.cfi_startproc
+pushl％ebp
+.cfi_def_cfa_offset 8
+.cfi_offset ebp，-8
+</code></pre>
+<p>关于汇编器利用这些伪指令来生成<code>.debug_frame</code>还是<code>.debug_frame</code>，在<code>.cfi_sections</code>指令中定义。如果只是调试需求可以生成<code>.debug_frame</code>，如果需要在运行时调用需要生成<code>.eh_frame</code>。</p>
+<h2 id="2-debug-frame-dwarf-xiang-jie">2. .debug_frame (DWARF) 详解</h2>
+<p>在<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF</a><code>6.4 Call Frame Information</code>一节详细的描述了调用栈帧的定义。</p>
+<h3 id="2-1-call-frame-table">2.1 Call Frame Table</h3>
+<p>抽象的说，整个栈帧计算机制的核心是一张大表：</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/dwarf-call-frame-table.png" alt="在这里插入图片描述" /></p>
+<p>可以使用<code>readelf -wF xxx</code>命令来查看通过elf文件中的<code>.eh_frame</code>解析出来的这张表：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ readelf -wF a.out
+
+...
+
+   LOC           CFA      rbx   rbp   r12   r13   r14   r15   ra
+00000000000006b0 rsp+8    u     u     u     u     u     u     c-8
+00000000000006b2 rsp+16   u     u     u     u     u     c-16  c-8
+00000000000006b4 rsp+24   u     u     u     u     c-24  c-16  c-8
+00000000000006b9 rsp+32   u     u     u     c-32  c-24  c-16  c-8
+00000000000006bb rsp+40   u     u     c-40  c-32  c-24  c-16  c-8
+00000000000006c3 rsp+48   u     c-48  c-40  c-32  c-24  c-16  c-8
+00000000000006cb rsp+56   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+00000000000006d8 rsp+64   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070a rsp+56   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070b rsp+48   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070c rsp+40   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070e rsp+32   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000710 rsp+24   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000712 rsp+16   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000714 rsp+8    c-56  c-48  c-40  c-32  c-24  c-16  c-8
+</code></pre>
+<p>这张表的结构设计如下：</p>
+<ul>
+<li>1、第一列。表示程序中包含代码的每个位置的地址。（在共享对象中，这是一个相对于对象的偏移量。）其余的列包含与指示的位置关联的虚拟展开规则。</li>
+<li>2、CFA列。定义了计算规范帧地址值(Canonical Frame Address)的规则；它可以是寄存器(register)和带符号的偏移量(signed offset)加在一起，也可以是DWARF表达式(DWARF expression)的求值。</li>
+<li>3、其余列。由寄存器编号标记。 其中包括一些在某些架构上具有特殊名称的寄存器，例如PC和堆栈指针寄存器。 （用于特定体系结构的寄存器的实际映射由扩充器定义。）寄存器列包含规则用来描述是否已保存给定寄存器以及在上一帧中查找寄存器值的规则。</li>
+</ul>
+<p>如果按上述说明实际构建，此表将非常大。 该表中任何位置的大多数条目与它们上方的条目相同。通过仅记录从程序中每个子例程的起始地址开始的差异，可以非常紧凑地表示整个表。</p>
+<p>虚拟展开信息被编码在称为<code>.debug_frame</code>的独立部分中。 <code>.debug_frame</code>节中的条目相对于该节的开头按地址大小的倍数对齐，并以两种形式出现：公共信息条目（CIE）和帧描述条目（FDE）。</p>
+<p>如果某个函数的代码地址范围不连续，则可能有多个CIE和FDE与该功能的各个部分相对应。</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/call-frame-table-cie-fde.png" alt="在这里插入图片描述" /></p>
+<p>CIE和FDE的定义在<code>.eh_frame</code>一节会详细描述，这里就不展开。本节重点关注CFA指令的解析。</p>
+<h3 id="2-2-call-frame-instructions">2.2 Call Frame Instructions</h3>
+<p>上一节说明栈帧回溯的核心是一张大表，而这个表的<code>行(Row)</code>和<code>列(Column)</code>最后都是靠CIE和FDE中的指令填充起来的。</p>
+<p>这些指令主要分为以下几大类：</p>
+<ul>
+<li>1、Row Creation Instructions</li>
+</ul>
+<p>本类的指令会确定一个新的Location(PC)值，相当于在表中创建新的一<code>行(Row)</code>。</p>
+<table><thead><tr><th>Instructions</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_set_loc</td><td>Location = AddressDW_CFA_set_loc指令采用单个操作数代表目标地址。<br />所需的操作是使用指定位置的地址来创建新的表行。 新行中的所有其他值最初都与当前行相同。 新位置值始终大于当前位置值。<br />如果此FDE的CIE的segment_size字段不为零，则在初始位置之前是给定长度的段选择器。</td><td>The DW_CFA_set_loc instruction takes a single operand that represents a target address. The required action is to create a new table row using the specified address as the location. All other values in the new row are initially identical to the current row. The new location value is always greater than the current one. If the segment_size field of this FDE's CIE is non-zero, the initial location is preceded by a segment selector of the given length.</td></tr>
+<tr><td>DW_CFA_advance_loc</td><td>Location += (delta * code_alignment_factor)DW_CFA_advance指令采用单个操作数（和操作码一起编码），该操作数表示常数增量。<br />所需的操作是使用位置值创建一个新表行，该位置值是通过获取当前条目的位置值并加上“ delta * code_alignment_factor”的值来计算的。 新行中的所有其他值最初都与当前行相同。</td><td>The DW_CFA_advance instruction takes a single operand (encoded with the opcode) that represents a constant delta. The required action is to create a new table row with a location value that is computed by taking the current entry’s location value and adding the value of `delta * code_alignment_factor`. All other values in the new row are initially identical to the current row.</td></tr>
+<tr><td>DW_CFA_advance_loc1</td><td>Location += (delta * code_alignment_factor)DW_CFA_advance_loc1指令采用一个表示常量增量的单个`ubyte`操作数。<br />除了增量操作数的编码和大小外，该指令与DW_CFA_advance_loc相同。</td><td>The DW_CFA_advance_loc1 instruction takes a single ubyte operand that represents a constant delta. This instruction is identical to DW_CFA_advance_loc except for the encoding and size of the delta operand.</td></tr>
+<tr><td>DW_CFA_advance_loc2</td><td>Location += (delta * code_alignment_factor)DW_CFA_advance_loc2指令采用单个`uhalf`操作数表示常数增量。<br />除了增量操作数的编码和大小外，该指令与DW_CFA_advance_loc相同。</td><td>The DW_CFA_advance_loc2 instruction takes a single uhalf operand that represents a constant delta. This instruction is identical to DW_CFA_advance_loc except for the encoding and size of the delta operand.</td></tr>
+<tr><td>DW_CFA_advance_loc4</td><td>Location += (delta * code_alignment_factor)DW_CFA_advance_loc4指令采用单个`uword`操作数来表示恒定增量。<br />除了增量操作数的编码和大小外，该指令与DW_CFA_advance_loc相同。</td><td>The DW_CFA_advance_loc4 instruction takes a single uword operand that represents a constant delta. This instruction is identical to DW_CFA_advance_loc except for the encoding and size of the delta operand.</td></tr>
+</tbody></table>
+<ul>
+<li>2、CFA Definition Instructions</li>
+</ul>
+<p>在Location相关指令创建一个新<code>行(Row)</code>以后，本节相关指令来定义这一行的CFA计算规则。</p>
+<table><thead><tr><th>Instructions</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_def_cfa</td><td>register = new register num<br />offset = new offset<br />CFA = register + offsetDW_CFA_def_cfa指令采用两个无符号的LEB128操作数，它们代表`寄存器号`和（非因数）`偏移量`。<br />所需的操作是定义当前的CFA规则以使用提供的寄存器和偏移量。</td><td>The DW_CFA_def_cfa instruction takes two unsigned LEB128 operands representing a register number and a (non-factored) offset. The required action is to define the current CFA rule to use the provided register and offset.</td></tr>
+<tr><td>DW_CFA_def_cfa_sf</td><td>register = new register num<br />offset = (factored_offset * data_alignment_factor)<br />CFA = register + offsetDW_CFA_def_cfa_sf指令采用两个操作数：代表寄存器号的无符号LEB128值和有符号LEB128因数偏移量。<br />该指令与DW_CFA_def_cfa相同，不同之处在于第二个操作数是有符号并且乘以因数。 结果偏移量为factored_offset * data_alignment_factor。</td><td>The DW_CFA_def_cfa_sf instruction takes two operands: an unsigned LEB128 value representing a register number and a signed LEB128 factored offset. This instruction is identical to DW_CFA_def_cfa except that the second operand is signed and factored. The resulting offset is factored_offset * data_alignment_factor.</td></tr>
+<tr><td>DW_CFA_def_cfa_register</td><td>register = new register number<br />CFA = register + old offsetDW_CFA_def_cfa_register指令采用单个无符号的LEB128操作数表示寄存器号。<br />所需的操作是定义当前的CFA规则以使用提供的寄存器（但保留旧的偏移量）。<br />仅当当前CFA规则定义为使用寄存器和偏移量时，此操作才有效。</td><td>The DW_CFA_def_cfa_register instruction takes a single unsigned LEB128 operand representing a register number. The required action is to define the current CFA rule to use the provided register (but to keep the old offset). This operation is valid only if the current CFA rule is defined to use a register and offset.</td></tr>
+<tr><td>DW_CFA_def_cfa_offset</td><td>offset = new offset<br />CFA = old register + offsetDW_CFA_def_cfa_offset指令采用单个无符号LEB128操作数表示一个（未分解的）偏移量。<br />所需的操作是定义当前的CFA规则以使用提供的偏移量（但保留旧寄存器）。<br />仅当当前CFA规则定义为使用寄存器和偏移量时，此操作才有效。</td><td>The DW_CFA_def_cfa_offset instruction takes a single unsigned LEB128 operand representing a (non-factored) offset. The required action is to define the current CFA rule to use the provided offset (but to keep the old register). This operation is valid only if the current CFA rule is defined to use a register and offset.</td></tr>
+<tr><td>DW_CFA_def_cfa_offset_sf</td><td>offset = (factored_offset * data_alignment_factor)<br />CFA = old register + offsetDW_CFA_def_cfa_offset_sf指令采用一个带符号的LEB128操作数，代表一个因数偏移量。<br />该指令与DW_CFA_def_cfa_offset相同，除了操作数是有符号并且乘以因数。 结果偏移量为factored_offset * data_alignment_factor。 仅当当前CFA规则定义为使用寄存器和偏移量时，此操作才有效。</td><td>The DW_CFA_def_cfa_offset_sf instruction takes a signed LEB128 operand representing a factored offset. This instruction is identical to DW_CFA_def_cfa_offset except that the operand is signed and factored. The resulting offset is factored_offset * data_alignment_factor. This operation is valid only if the current CFA rule is defined to use a register and offset.</td></tr>
+<tr><td>DW_CFA_def_cfa_expression</td><td>CFA = DWARF expressionDW_CFA_def_cfa_expression指令采用单个操作数编码为代表DWARF表达式的DW_FORM_exprloc值。<br />所需的操作是建立该表达式作为计算当前CFA的方式。</td><td>The DW_CFA_def_cfa_expression instruction takes a single operand encoded as a DW_FORM_exprloc value representing a DWARF expression. The required action is to establish that expression as the means by which the current CFA is computed.</td></tr>
+</tbody></table>
+<ul>
+<li>3、Register Rule Instructions</li>
+</ul>
+<p>本节指令确定一<code>行(Row)</code>寄存器的恢复规则。</p>
+<p>寄存器规则包含以下：</p>
+<table><thead><tr><th>Rule</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>undefined</td><td>具有此规则的寄存器在前一帧中没有可恢复的值。（按照惯例，被调用方不会保留它。）</td><td>A register that has this rule has no recoverable value in the previous frame. (By convention, it is not preserved by a callee.)</td></tr>
+<tr><td>same value</td><td>没有从前一帧修改此寄存器。（按照惯例，它是由被调用方保留的，但是被调用方尚未对其进行修改。）</td><td>This register has not been modified from the previous frame. (By convention, it is preserved by the callee, but the callee has not modified it.)</td></tr>
+<tr><td>offset(N)</td><td>该寄存器的先前值保存在地址CFA + N中，其中CFA是当前CFA值，N是有符号偏移量。</td><td>The previous value of this register is saved at the address CFA+N where CFA is the current CFA value and N is a signed offset.</td></tr>
+<tr><td>val_offset(N)</td><td>该寄存器的前一个值为CFA + N，其中CFA为当前CFA值，N为有符号偏移量。</td><td>The previous value of this register is the value CFA+N where CFA is the current CFA value and N is a signed offset.</td></tr>
+<tr><td>register(R)</td><td>该寄存器的先前值存储在另一个编号为R的寄存器中。</td><td>The previous value of this register is stored in another register numbered R.</td></tr>
+<tr><td>expression(E)</td><td>该寄存器的先前值位于通过执行DWARF表达式E产生的地址。</td><td>The previous value of this register is located at the address produced by executing the DWARF expression E.</td></tr>
+<tr><td>val_expression(E)</td><td>该寄存器的先前值是通过执行DWARF表达式E产生的值。</td><td>The previous value of this register is the value produced by executing the DWARF expression E.</td></tr>
+<tr><td>architectural</td><td>该规则由增强器在此规范的外部定义。</td><td>The rule is defined externally to this specification by the augmenter.</td></tr>
+</tbody></table>
+<p>具体包含以下指令：</p>
+<table><thead><tr><th>Instructions</th><th>Rule</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_undefined</td><td>undefined</td><td>reg num = undefinedDW_CFA_undefined指令采用单个无符号的LEB128操作数来表示寄存器号。<br />所需的操作是将指定寄存器的规则设置为“未定义”。</td><td>The DW_CFA_undefined instruction takes a single unsigned LEB128 operand that represents a register number. The required action is to set the rule for the specified register to “undefined.”</td></tr>
+<tr><td>DW_CFA_same_value</td><td>same value</td><td>reg num = same valueDW_CFA_same_value指令采用单个无符号LEB128操作数来表示寄存器号。<br />所需的操作是将指定寄存器的规则设置为“相同值”。</td><td>The DW_CFA_same_value instruction takes a single unsigned LEB128 operand that represents a register number. The required action is to set the rule for the specified register to “same value.”</td></tr>
+<tr><td>DW_CFA_offset</td><td>offset(N)</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = *(CFA + offset)DW_CFA_offset指令采用两个操作数：一个寄存器号（用操作码编码）和一个无符号的LEB128常量，表示因数偏移量。<br />所需的操作是将由寄存器编号指示的寄存器的规则更改为offset（N）规则，其中N的值是`factored offset* data_alignment_factor`。</td><td>The DW_CFA_offset instruction takes two operands: a register number (encoded with the opcode) and an unsigned LEB128 constant representing a factored offset. The required action is to change the rule for the register indicated by the register number to be an offset(N) rule where the value of N is factored offset * data_alignment_factor.</td></tr>
+<tr><td>DW_CFA_offset_extended</td><td>offset(N)</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = *(CFA + offset)DW_CFA_offset_extended指令采用两个无符号的LEB128操作数，它们代表寄存器号和因数偏移量。<br />该指令与DW_CFA_offset相同，不同之处在于寄存器操作数的编码和大小。</td><td>The DW_CFA_offset_extended instruction takes two unsigned LEB128 operands representing a register number and a factored offset. This instruction is identical to DW_CFA_offset except for the encoding and size of the register operand.</td></tr>
+<tr><td>DW_CFA_offset_extended_sf</td><td>offset(N)</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = *(CFA + offset)DW_CFA_offset_extended_sf指令采用两个操作数：代表寄存器号的无符号LEB128值和有符号LEB128因数偏移量。<br />该指令与DW_CFA_offset_extended相同，不同之处在于第二个操作数有符号且乘以因数。 结果偏移量为factored_offset * data_alignment_factor。</td><td>The DW_CFA_offset_extended_sf instruction takes two operands: an unsigned LEB128 value representing a register number and a signed LEB128 factored offset. This instruction is identical to DW_CFA_offset_extended except that the second operand is signed and factored. The resulting offset is factored_offset * data_alignment_factor.</td></tr>
+<tr><td>DW_CFA_val_offset</td><td>val_offset(N)</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = CFA + offsetDW_CFA_val_offset指令采用两个无符号的LEB128操作数，它们代表寄存器号和因数偏移量。<br />所需的操作是将寄存器编号指示的寄存器规则更改为val_offset（N）规则，其中N的值是factored_offset * data_alignment_factor。</td><td>The DW_CFA_val_offset instruction takes two unsigned LEB128 operands representing a register number and a factored offset. The required action is to change the rule for the register indicated by the register number to be a val_offset(N) rule where the value of N is factored_offset * data_alignment_factor.</td></tr>
+<tr><td>DW_CFA_val_offset_sf</td><td>val_offset(N)</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = CFA + offsetDW_CFA_val_offset_sf指令采用两个操作数：代表寄存器号的无符号LEB128值和有符号LEB128因数偏移量。<br />该指令与DW_CFA_val_offset相同，不同之处在于第二个操作数有符号且乘以因数。 结果偏移量为factored_offset * data_alignment_factor。</td><td>The DW_CFA_val_offset_sf instruction takes two operands: an unsigned LEB128 value representing a register number and a signed LEB128 factored offset. This instruction is identical to DW_CFA_val_offset except that the second operand is signed and factored. The resulting offset is factored_offset * data_alignment_factor.</td></tr>
+<tr><td>DW_CFA_register</td><td>register(R)</td><td>reg num = R (second operands)DW_CFA_register指令采用两个无符号的LEB128操作数表示寄存器编号。<br />所需的操作是将第一个寄存器的规则设置为register（R），其中R是第二个寄存器。</td><td>The DW_CFA_register instruction takes two unsigned LEB128 operands representing register numbers. The required action is to set the rule for the first register to be register(R) where R is the second register.</td></tr>
+<tr><td>DW_CFA_expression</td><td>expression(E)</td><td>reg num = *(DWARF expression)DW_CFA_expression指令采用两个操作数：代表寄存器号的无符号LEB128值和代表DWARF表达式的DW_FORM_block值。<br />所需的操作是将由寄存器编号指示的寄存器的规则更改为expression（E）规则，其中E是DWARF表达式。 即，DWARF表达式计算地址。<br />在执行DWARF表达式之前，将CFA的值压入DWARF评估堆栈。</td><td>The DW_CFA_expression instruction takes two operands: an unsigned LEB128 value representing a register number, and a DW_FORM_block value representing a DWARF expression. The required action is to change the rule for the register indicated by the register number to be an expression(E) rule where E is the DWARF expression. That is, the DWARF expression computes the address. The value of the CFA is pushed on the DWARF evaluation stack prior to execution of the DWARF expression.</td></tr>
+<tr><td>DW_CFA_val_expression</td><td>val_expression(E)</td><td>reg num = DWARF expressionDW_CFA_val_expression指令采用两个操作数：代表寄存器号的无符号LEB128值和代表DWARF表达式的DW_FORM_block值。<br />所需的操作是将由寄存器号指示的寄存器的规则更改为val_expression（E）规则，其中E是DWARF表达式。 也就是说，DWARF表达式计算给定寄存器的值。<br />在执行DWARF表达式之前，将CFA的值压入DWARF评估堆栈。</td><td>The DW_CFA_val_expression instruction takes two operands: an unsigned LEB128 value representing a register number, and a DW_FORM_block value representing a DWARF expression. The required action is to change the rule for the register indicated by the register number to be a val_expression(E) rule where E is the DWARF expression. That is, the DWARF expression computes the value of the given register. The value of the CFA is pushed on the DWARF evaluation stack prior to execution of the DWARF expression.</td></tr>
+<tr><td>DW_CFA_restore</td><td>initial_instructions in the CIE</td><td>reg num = initial_instructions in the CIEDW_CFA_restore指令采用单个操作数（用操作码编码），该操作数代表寄存器号。<br />所需的操作是将指示寄存器的规则更改为CIE中initial_instructions为其分配的规则。</td><td>The DW_CFA_restore instruction takes a single operand (encoded with the opcode) that represents a register number. The required action is to change the rule for the indicated register to the rule assigned it by the initial_instructions in the CIE.</td></tr>
+<tr><td>DW_CFA_restore_extended</td><td>initial_instructions in the CIE</td><td>reg num = initial_instructions in the CIEDW_CFA_restore_extended指令采用单个无符号LEB128操作数来表示寄存器号。<br />该指令与DW_CFA_restore相同，不同之处在于寄存器操作数的编码和大小。</td><td>The DW_CFA_restore_extended instruction takes a single unsigned LEB128 operand that represents a register number. This instruction is identical to DW_CFA_restore except for the encoding and size of the register operand.</td></tr>
+</tbody></table>
+<ul>
+<li>4、Row State Instructions</li>
+</ul>
+<p>接下来的两条指令提供了备份(stack)和恢复(retrieve)完整寄存器状态的能力。</p>
+<table><thead><tr><th>Instructions</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_remember_state</td><td>DW_CFA_remember_state指令不接受任何操作数。<br />所需的操作是将每个寄存器的规则集压入隐式堆栈。</td><td>The DW_CFA_remember_state instruction takes no operands. The required action is to push the set of rules for every register onto an implicit stack.</td></tr>
+<tr><td>DW_CFA_restore_state</td><td>DW_CFA_restore_state指令不接受任何操作数。<br />所需的操作是将规则集从隐式堆栈中弹出，并将其放置在当前行(row)中。</td><td>The DW_CFA_restore_state instruction takes no operands. The required action is to pop the set of rules off the implicit stack and place them in the current row.</td></tr>
+</tbody></table>
+<ul>
+<li>5、Padding Instruction</li>
+</ul>
+<table><thead><tr><th>Instructions</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_nop</td><td>DW_CFA_nop指令没有操作数，也没有必需的操作。 它用作填充以使CIE或FDE大小合适。</td><td>The DW_CFA_nop instruction has no operands and no required actions. It is used as padding to make a CIE or FDE an appropriate size.</td></tr>
+</tbody></table>
+<ul>
+<li>6、CFI Extensions</li>
+</ul>
+<table><thead><tr><th>Instructions</th><th>Descript</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_CFA_GNU_args_size</td><td>DW_CFA_GNU_args_size指令采用表示参数大小的无符号LEB128操作数。 该指令指定已推入堆栈的参数的总大小。</td><td>The DW_CFA_GNU_args_size instruction takes an unsigned LEB128 operand representing an argument size. This instruction specifies the total of the size of the arguments which have been pushed onto the stack.</td></tr>
+<tr><td>DW_CFA_GNU_negative_offset_extended</td><td>offset = (factored offset * data_alignment_factor)<br />reg num = *(CFA + offset)DW_CFA_def_cfa_sf指令采用两个操作数：代表寄存器号的无符号LEB128值和代表偏移量的无符号LEB128。<br />该指令与DW_CFA_offset_extended_sf相同，除了减去操作数以产生偏移量。 该指令已被DW_CFA_offset_extended_sf废弃。</td><td>The DW_CFA_def_cfa_sf instruction takes two operands: an unsigned LEB128 value representing a register number and an unsigned LEB128 which represents the magnitude of the offset. This instruction is identical to DW_CFA_offset_extended_sf except that the operand is subtracted to produce the offset. This instructions is obsoleted by DW_CFA_offset_extended_sf.</td></tr>
+</tbody></table>
+<h3 id="2-3-instructions-opcode">2.3 Instructions Opcode</h3>
+<p>各个指令具体的指令码编码如下：</p>
+<table><thead><tr><th>Instruction</th><th>High 2Bits</th><th>Low 6 Bits</th><th>Operand 1</th><th>Operand 2</th></tr></thead><tbody>
+<tr><td>DW_CFA_advance_loc</td><td>0x1</td><td>delta</td><td></td><td></td></tr>
+<tr><td>DW_CFA_offset</td><td>0x2</td><td>register</td><td>ULEB128 offset</td><td></td></tr>
+<tr><td>DW_CFA_restore</td><td>0x3</td><td>register</td><td></td><td></td></tr>
+<tr><td>DW_CFA_nop</td><td>0</td><td>0</td><td></td><td></td></tr>
+<tr><td>DW_CFA_set_loc</td><td>0</td><td>0x01</td><td>address</td><td></td></tr>
+<tr><td>DW_CFA_advance_loc1</td><td>0</td><td>0x02</td><td>1-byte delta</td><td></td></tr>
+<tr><td>DW_CFA_advance_loc2</td><td>0</td><td>0x03</td><td>2-byte delta</td><td></td></tr>
+<tr><td>DW_CFA_advance_loc4</td><td>0</td><td>0x04</td><td>4-byte delta</td><td></td></tr>
+<tr><td>DW_CFA_offset_extended</td><td>0</td><td>0x05</td><td>ULEB128 register</td><td>ULEB128 offset</td></tr>
+<tr><td>DW_CFA_restore_extended</td><td>0</td><td>0x06</td><td>ULEB128 register</td><td></td></tr>
+<tr><td>DW_CFA_undefined</td><td>0</td><td>0x07</td><td>ULEB128 register</td><td></td></tr>
+<tr><td>DW_CFA_same_value</td><td>0</td><td>0x08</td><td>ULEB128 register</td><td></td></tr>
+<tr><td>DW_CFA_register</td><td>0</td><td>0x09</td><td>ULEB128 register</td><td>ULEB128 register</td></tr>
+<tr><td>DW_CFA_remember_state</td><td>0</td><td>0x0a</td><td></td><td></td></tr>
+<tr><td>DW_CFA_restore_state</td><td>0</td><td>0x0b</td><td></td><td></td></tr>
+<tr><td>DW_CFA_def_cfa</td><td>0</td><td>0x0c</td><td>ULEB128 register</td><td>ULEB128 offset</td></tr>
+<tr><td>DW_CFA_def_cfa_register</td><td>0</td><td>0x0d</td><td>ULEB128 register</td><td></td></tr>
+<tr><td>DW_CFA_def_cfa_offset</td><td>0</td><td>0x0e</td><td>ULEB128 offset</td><td></td></tr>
+<tr><td>DW_CFA_def_cfa_expression</td><td>0</td><td>0x0f</td><td>BLOCK</td><td></td></tr>
+<tr><td>DW_CFA_expression</td><td>0</td><td>0x10</td><td>ULEB128 register</td><td>BLOCK</td></tr>
+<tr><td>DW_CFA_offset_extended_sf</td><td>0</td><td>0x11</td><td>ULEB128 register</td><td>SLEB128 offset</td></tr>
+<tr><td>DW_CFA_def_cfa_sf</td><td>0</td><td>0x12</td><td>ULEB128 register</td><td>SLEB128 offset</td></tr>
+<tr><td>DW_CFA_def_cfa_offset_sf</td><td>0</td><td>0x13</td><td>SLEB128 offset</td><td></td></tr>
+<tr><td>DW_CFA_val_offset</td><td>0</td><td>0x14</td><td>ULEB128</td><td>ULEB128</td></tr>
+<tr><td>DW_CFA_val_offset_sf</td><td>0</td><td>0x15</td><td>ULEB128</td><td>SLEB128</td></tr>
+<tr><td>DW_CFA_val_expression</td><td>0</td><td>0x16</td><td>ULEB128</td><td>BLOCK</td></tr>
+<tr><td>DW_CFA_lo_user</td><td>0</td><td>0x1c</td><td></td><td></td></tr>
+<tr><td>DW_CFA_GNU_args_size</td><td>0</td><td>0x2e</td><td>ULEB128</td><td></td></tr>
+<tr><td>DW_CFA_GNU_negative_offset_extended</td><td>0</td><td>0x2f</td><td>ULEB128</td><td>ULEB128</td></tr>
+<tr><td>DW_CFA_hi_user</td><td>0</td><td>0x3f</td><td></td><td></td></tr>
+</tbody></table>
+<h3 id="2-4-dwarf-expression">2.4 DWARF expression</h3>
+<p>DWARF表达式描述了在程序调试期间如何计算值或命名位置。 它们以对一堆值进行操作的DWARF操作表示。</p>
+<p>所有DWARF操作都被编码为流，每个操作码后跟零个或多个文字操作数。 操作数的数量由操作码决定。</p>
+<p>具体DWARF表达式的运算指令在这里就不展开，感兴趣可以参考<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF</a><code>2.5 DWARF Expressions</code>一节。</p>
+<p><code>DW_CFA_def_cfa_expression</code>、<code>DW_CFA_expression</code> 、 <code>DW_CFA_val_expression</code>这几条指令在计算时用到了DWARF表达式。同时它也有限制，以下DWARF运算符不能在此类操作数中使用：</p>
+<ul>
+<li>DW_OP_call2，DW_OP_call4和DW_OP_call_ref运算符在这些指令的操作数中没有意义，因为没有从调用帧信息到任何对应的调试编译单元信息的映射，因此无法解释调用偏移。</li>
+<li>DW_OP_push_object_address在这些指令的操作数中没有意义，因为没有对象上下文可提供要推送的值。</li>
+<li>DW_OP_call_frame_cfa在这些指令的操作数中没有意义，因为它的使用是循环的。</li>
+</ul>
+<p>因为<code>DWARF expression</code>拥有完备的图灵计算的能力，所以<code>eh_frame</code>容易成为攻击的后门。</p>
+<h3 id="2-5-call-frame-instruction-usage">2.5 Call Frame Instruction Usage</h3>
+<p>CFA相关指令的解析过程如下。</p>
+<p>首先为了给虚拟展开规则集设置一个确定位置(L1)，人们在FDE标头中进行搜索，查看<code>initial_location</code>和<code>address_range</code>值以查看L1是否包含在FDE中。 如果存在，则：</p>
+<ul>
+<li>1.通过读取关联的CIE的initial_instructions字段来初始化寄存器集。</li>
+<li>2.阅读并处理FDE的指令序列，直到遇到DW_CFA_advance_loc，DW_CFA_set_loc或指令流的末尾。</li>
+<li>3.如果遇到DW_CFA_advance_loc或DW_CFA_set_loc指令，则计算新的位置值(L2)。如果 L1 &gt;= L2，则处理指令并返回步骤2。</li>
+<li>4.指令流的末尾可被视为DW_CFA_set_loc（初始位置+地址范围）指令。请注意，如果L2小于L1，则FDE格式不正确。</li>
+<li>5.现在，寄存器集中的规则适用于位置L1。</li>
+</ul>
+<h3 id="2-6-call-frame-calling-address">2.6 Call Frame Calling Address</h3>
+<p>展开帧时，使用者经常希望获得调用子例程的指令的地址。并非总是提供此信息。但是，通常虚拟展开表中的寄存器之一是返回地址。</p>
+<p>如果在虚拟展开表中定义了返回地址寄存器，并且未定义其规则（例如，通过DW_CFA_undefined定义），则没有返回地址(return address)，也没有调用地址(call address)，并且堆栈激活的虚拟展开已完成。</p>
+<p>在大多数情况下，返回地址与调用地址在同一上下文中，但不必如此，特别是如果生产者以某种方式知道该调用永不返回。 “返回地址”的上下文可能在不同的行中，在不同的词法块中或在调用子例程的末尾。如果使用者假定它与呼叫地址处于同一上下文中，则展开可能会失败。</p>
+<p>对于具有恒定长度指令的体系结构，其中返回地址紧跟在调用指令之后，一种简单的解决方案是从返回地址中减去指令的长度以获得调用指令。对于具有可变长度指令的体系结构（例如x86），这是不可能的。但是，从返回地址减去1尽管不能保证提供准确的调用地址，但通常会在与调用地址相同的上下文中生成一个地址，通常就足够了。</p>
+<h3 id="2-7-cfi-example">2.7 CFI Example</h3>
+<p>以下示例使用摩托罗拉88000风格的假想RISC机器。它有以下特性：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">•存储器是按字节寻址的。
+•指令均为4个字节，字对齐。
+•指令操作数通常采用以下形式：&lt;destination.reg&gt;，&lt;source.reg&gt;，&lt;constant&gt;
+•加载和存储指令的地址是通过将源寄存器的内容与常量相加得出的。
+•有8个4字节寄存器：
+	R0 始终为0
+	R1 保存调用时的返回地址
+	R2-R3 临时寄存器（在调用时不保护）
+	R4-R6 在调用时保护
+	R7 堆栈指针
+•堆栈向负方向增长。
+•体系结构ABI委员会指定堆栈指针（R7）与CFA相同
+</code></pre>
+<ul>
+<li>1、源码：</li>
+</ul>
+<p>以下是来自名为foo的子例程的两个代码片段，该子例程使用帧指针（除了堆栈指针之外）。 第一列的值是字节地址。 ``表示以字节为单位的堆栈帧大小，即12。</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">		;; 保存现场，保护 R1&#x2F;R6&#x2F;R4
+		;; start prologue
+foo 	sub R7, R7, &lt;fs&gt; ; Allocate frame
+foo+4 	store R1, R7, (&lt;fs&gt;-4) ; Save the return address
+foo+8 	store R6, R7, (&lt;fs&gt;-8) ; Save R6
+foo+12 	add R6, R7, 0 ; R6 is now the Frame ptr
+foo+16 	store R4, R6, (&lt;fs&gt;-12) ; Save a preserved reg
+		;;  R5 在子函数中没有调用，所以没有保护
+		;;  This subroutine does not change R5
+		...
+		;; 恢复现场，恢复 R4&#x2F;R6&#x2F;R1
+		;; Start epilogue (R7 is returned to entry value)
+foo+64 	load R4, R6, (&lt;fs&gt;-12) ; Restore R4
+foo+68 	load R6, R7, (&lt;fs&gt;-8) ; Restore R6
+foo+72 	load R1, R7, (&lt;fs&gt;-4) ; Restore return address
+foo+76 	add R7, R7, &lt;fs&gt; ; Deallocate frame
+foo+80 	jump R1 ; Return
+foo+84
+</code></pre>
+<ul>
+<li>2、Call Frame Table</li>
+</ul>
+<p>以上代码最终生成的CFI Table如下：</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/cfi-call-frame-table.png" alt="在这里插入图片描述" /></p>
+<p>图中的注释如下：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">1. R8 is the return address
+2. s = same_value rule
+3. u = undefined rule
+4. rN = register(N) rule
+5. cN = offset(N) rule
+6. a = architectural rule
+</code></pre>
+<ul>
+<li>3、CIE</li>
+</ul>
+<p><img src="/obsidian/assets/unwind-stack-walk/dwarf-cie-structure.png" alt="在这里插入图片描述" /></p>
+<ul>
+<li>4、FDE</li>
+</ul>
+<p><img src="/obsidian/assets/unwind-stack-walk/dwarf-fde-structure-example.png" alt="在这里插入图片描述" /></p>
+<p>图中的注释如下：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">1. &lt;fs&gt; = frame size
+2. &lt;caf&gt; = code alignment factor
+3. &lt;daf&gt; = data alignment factor
+</code></pre>
+<h2 id="3-eh-frame-xiang-jie">3. .eh_frame 详解</h2>
+<p>使用<code>gcc -g</code>生成的DWARF信息存储在<code>debug_*</code>类型的section，我们可以使用<code>readelf -wi xxx</code>查看<code>debug_info</code>段，或者<code>dwarfdump xxx</code>查看debug信息。</p>
+<p>无论是否有<code>-g</code>选项，gcc默认都会生成<code>.eh_frame</code>和<code>.eh_frame_hdr</code> section。<code>-fno-asynchronous-unwind-tables</code>选项可以禁止生成<code>.eh_frame</code>和<code>.eh_frame_hdr</code> section。</p>
+<h3 id="3-1-eh-frame-ge-shi">3.1 .eh_frame 格式</h3>
+<p>在<a rel="noopener" target="_blank" href="https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html">LSB(Linux Standard Base)</a>中对<a rel="noopener" target="_blank" href="https://www.airs.com/blog/archives/460">.eh_frame</a>格式有详细的描述。</p>
+<p><code>.eh_frame</code> section 包含一个或者多个CFI(Call Frame Information)记录。每个CFI包含一个CIE(Common Information Entry Record)记录，每个CIE包含一个或者多个FDE(Frame Description Entry)记录。</p>
+<p>通常情况下，CIE对应一个文件，FDE对应一个函数。</p>
+<h4 id="3-1-1-cie-ge-shi">3.1.1 CIE 格式</h4>
+<table><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
+<tr><td>Length</td><td>Required</td></tr>
+<tr><td>Extended Length</td><td>Optional</td></tr>
+<tr><td>CIE ID</td><td>Required</td></tr>
+<tr><td>Version</td><td>Required</td></tr>
+<tr><td>Augmentation String</td><td>Required</td></tr>
+<tr><td>Code Alignment Factor</td><td>Required</td></tr>
+<tr><td>Data Alignment Factor</td><td>Required</td></tr>
+<tr><td>Return Address Register</td><td>Required</td></tr>
+<tr><td>Augmentation Data Length</td><td>Optional</td></tr>
+<tr><td>Augmentation Data</td><td>Optional</td></tr>
+<tr><td>Initial Instructions</td><td>Required</td></tr>
+<tr><td>Padding</td><td></td></tr>
+</tbody></table>
+<p>具体解析如下：</p>
+<ul>
+<li>
+<p>1、Length。读取4个字节。如果它们不是0xffffffff，则它们是CIE或FDE记录的长度。否则，接下来的64位将保留长度，这是64位DWARF格式。就像.debug_frame。</p>
+</li>
+<li>
+<p>2、ID。一个4字节无符号值，对于CIE，它是0。对于FDE，它是从该字段到与该FDE关联的CIE开头的字节偏移。字节偏移量到达CIE的长度记录。正值向后退；也就是说，您必须从当前字节位置减去ID字段的值才能获得CIE位置。这与.debug_frame不同，因为偏移是相对的，而不是.debug_frame节中的偏移。</p>
+</li>
+<li>
+<p>3、Version。1字节的CIE版本。在撰写本文时，该值为1或3。</p>
+</li>
+<li>
+<p>4、Augmentation String。扩充参数字符串，以NULL结尾。这是一个字符序列。非常老版本的gcc在这里使用字符串“ eh”，但我不会对此进行记录。这将在下面进一步描述。</p>
+</li>
+<li>
+<p>5、Code Alignment Factor。代码对齐因子，无符号LEB128（LEB128是数字的DWARF编码，在此不再赘述）。对于.eh_frame，该值应始终为1。</p>
+</li>
+<li>
+<p>6、Data Alignment Factor。数据对齐因子，带符号的LEB128。如.debug_frame中所示，这是偏移指令之外的常数。</p>
+</li>
+<li>
+<p>7、Return Address Register。返回地址寄存器。在CIE版本1中，这是一个字节。在CIE版本3中，这是未签名的LEB128。这表明框架表中的哪一列代表返回地址。</p>
+</li>
+<li>
+<p>8、下面的字段含义，取决于<code>Augmentation String</code>的定义：</p>
+<ul>
+<li>'z’可以作为字符串的第一个字符出现。如果存在，则应显示<code>Augmentation Data</code>字段。 扩展数据的内容应根据扩展字符串中的其他字符来解释。
+如果扩展字符串以’z’开头，下一个字段是一个无符号的LEB128即扩展数据的长度<code>Augmentation Data Length</code>，将其补齐以使CIE在地址边界处结束。如果看到无法识别的扩充字符，则用于跳到扩充数据<code>augmentation data</code>的末尾。</li>
+<li>字符串的第一个字符之后的任何位置都可能存在’L’。 仅当’z’是字符串的第一个字符时，才可以显示该字符。
+如果存在，则表示CIE的扩展数据<code>Augmentation Data</code>中存在一个参数<code>argument</code>，而FDE的扩展数据<code>Augmentation Data</code>中也存在相应的参数<code>argument</code>。
+CIE的扩展数据中的参数为1字节，表示用于FDE的扩展数据中的参数的指针编码。这些编码是DW_EH_PE_xxx值（稍后描述），默认值为DW_EH_PE_absptr。
+FDE的扩展数据是特定于语言的数据区（LSDA）的地址，LSDA指针的大小由所使用的指针编码指定。</li>
+<li>字符串的第一个字符之后的任何位置都可以出现’R’。 仅当’z’是字符串的第一个字符时，才可以显示该字符。
+如果存在，则CIE的扩展数据应包括一个1字节的参数，该参数表示FDE中使用的地址指针的指针编码。这些是DW_EH_PE_xxx值。默认值为DW_EH_PE_absptr。</li>
+<li>扩充字符串中的字符’S’表示此CIE表示用于调用信号处理程序的堆栈帧。展开堆栈时，信号堆栈帧的处理方式略有不同：指令指针被假定为在下一条要执行的指令之前而不是在其之后。</li>
+<li>字符串的第一个字符之后的任何位置都可能存在“ P”。 仅当“ z”是字符串的第一个字符时，才可以显示该字符。
+如果存在，则表示在CIE的扩展数据中存在两个参数。
+第一个参数为1字节，代表用于第二个参数的指针编码(DW_EH_PE_xxx)。
+第二个参数是个性例程处理程序的地址。
+个性例程用于处理语言和特定于供应商的任务。 系统展开库接口通过指向个性例程的指针访问特定于语言的异常处理语义。 个性例程没有特定于ABI的名称。 个性例程指针的大小由所使用的指针编码指定。</li>
+</ul>
+</li>
+<li>
+<p>9、Initial Instructions。其余字节是DW_CFA_xxx操作码数组，它们定义帧表的初始值。然后，根据需要跟在DW_CFA_nop填充字节之后，以匹配CIE的总长度。</p>
+</li>
+</ul>
+<h4 id="3-1-2-fde-ge-shi">3.1.2 FDE 格式</h4>
+<table><thead><tr><th>Field</th><th>Description</th></tr></thead><tbody>
+<tr><td>Length</td><td>Required</td></tr>
+<tr><td>Extended Length</td><td>Optional</td></tr>
+<tr><td>CIE Pointer</td><td>Required</td></tr>
+<tr><td>PC Begin</td><td>Required</td></tr>
+<tr><td>PC Range</td><td>Required</td></tr>
+<tr><td>Augmentation Data Length</td><td>Optional</td></tr>
+<tr><td>Augmentation Data</td><td>Optional</td></tr>
+<tr><td>Call Frame Instructions</td><td>Required</td></tr>
+<tr><td>Padding</td><td></td></tr>
+</tbody></table>
+<p>具体解析如下：</p>
+<ul>
+<li>1、Length。读取4个字节。如果它们不是0xffffffff，则它们是CIE或FDE记录的长度。否则，接下来的64位将保留长度，这是64位DWARF格式。就像.debug_frame。</li>
+<li>2、CIE Pointer。一个4字节无符号值，当从当前FDE中的CIE指针的偏移量中减去该值时，将得出关联的CIE起点的偏移量。此值绝不能为0。</li>
+<li>3、PC Begin。此FDE适用的PC起始地址。使用关联的CIE指定的FDE编码对它进行编码(FDE encoding)。</li>
+<li>4、PC Range。此FDE适用的PC起始地址之后的字节数。这是使用FDE编码进行编码的(FDE encoding)。</li>
+<li>5、Augmentation Data Length。该字段仅在CIE扩展字符串以“ z”开头的情况下出现。对应一个无符号LEB128，这是FDE扩展数据的总大小。这可用于跳过与无法识别的扩展字符关联的数据。</li>
+<li>6、Augmentation Data。如果CIE未将LSDA编码设置为DW_EH_PE_omit，则<code>Augmentation Data</code>中包含指向LSDA的指针，该指针由CIE指定编码(LSDA encoding)。</li>
+<li>7、Call Frame Instructions。FDE中的其余字节是DW_CFA_xxx操作码的数组，这些操作码在帧表中设置值以退回到调用方。</li>
+</ul>
+<h4 id="3-1-3-eh-frame-hdr-ge-shi">3.1.3 .eh_frame_hdr 格式</h4>
+<table><thead><tr><th>Encoding</th><th>Field</th></tr></thead><tbody>
+<tr><td>unsigned byte</td><td>version</td></tr>
+<tr><td>unsigned byte</td><td>eh_frame_ptr_enc</td></tr>
+<tr><td>unsigned byte</td><td>fde_count_enc</td></tr>
+<tr><td>unsigned byte</td><td>table_enc</td></tr>
+<tr><td>encoded</td><td>eh_frame_ptr</td></tr>
+<tr><td>encoded</td><td>fde_count</td></tr>
+<tr><td></td><td>binary search table</td></tr>
+</tbody></table>
+<p><code>.eh_frame_hdr</code> section包含<code>.eh_frame</code>的额外信息。</p>
+<p>具体解析如下：</p>
+<ul>
+<li>1、eh_frame_ptr_enc。eh_frame_ptr字段的编码格式。</li>
+<li>2、fde_count_enc。fde_count字段的编码格式。DW_EH_PE_omit的值指示不存在二进制搜索表。</li>
+<li>3、table_enc。二进制搜索表中条目的编码格式。DW_EH_PE_omit的值指示不存在二进制搜索表。</li>
+<li>4、eh_frame_ptr。指向<code>.eh_frame</code> section开始指针。</li>
+<li>5、fde_count。二进制搜索表中条目的计数值。</li>
+<li>6、binary search table。二进制搜索表，包含fde_count个条目。每个条目包含两个值，初始位置和地址。这些条目按初始位置值的升序排列。</li>
+</ul>
+<h4 id="3-1-4-dwarf-exception-header-encoding">3.1.4 DWARF Exception Header Encoding</h4>
+<p>DWARF异常标头编码用于描述.eh_frame和.eh_frame_hdr部分中使用的数据类型。 高4位指示如何应用该值， 低4位表示数据格式。</p>
+<ul>
+<li>低4位:</li>
+</ul>
+<table><thead><tr><th>Name</th><th>Value</th><th>Meaning</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_EH_PE_absptr</td><td>0x00</td><td>Pointer (long)</td><td>The Value is a literal pointer whose size is determined by the architecture.</td></tr>
+<tr><td>DW_EH_PE_uleb128</td><td>0x01</td><td>Unsigned LEB128</td><td>Unsigned value is encoded using the Little Endian Base 128 (LEB128) as defined by DWARF Debugging Information Format, Revision 2.0.0.</td></tr>
+<tr><td>DW_EH_PE_udata2</td><td>0x02</td><td>A 2 bytes unsigned value.</td><td></td></tr>
+<tr><td>DW_EH_PE_udata4</td><td>0x03</td><td>A 4 bytes unsigned value.</td><td></td></tr>
+<tr><td>DW_EH_PE_udata8</td><td>0x04</td><td>An 8 bytes unsigned value.</td><td></td></tr>
+<tr><td>DW_EH_PE_sleb128</td><td>0x09</td><td>Signed LEB128</td><td>Signed value is encoded using the Little Endian Base 128 (LEB128) as defined by DWARF Debugging Information Format, Revision 2.0.0.</td></tr>
+<tr><td>DW_EH_PE_sdata2</td><td>0x0A</td><td>A 2 bytes signed value.</td><td></td></tr>
+<tr><td>DW_EH_PE_sdata4</td><td>0x0B</td><td>A 4 bytes signed value.</td><td></td></tr>
+<tr><td>DW_EH_PE_sdata8</td><td>0x0C</td><td>An 8 bytes signed value.</td><td></td></tr>
+</tbody></table>
+<ul>
+<li>高4位:</li>
+</ul>
+<table><thead><tr><th>Name</th><th>Value</th><th>Meaning</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_EH_PE_pcrel</td><td>0x10</td><td>Value is relative to the current program counter.</td><td>值是相对于当前程序计数器的。</td></tr>
+<tr><td>DW_EH_PE_textrel</td><td>0x20</td><td>Value is relative to the beginning of the .text section.</td><td>值是相对于.text section的。</td></tr>
+<tr><td>DW_EH_PE_datarel</td><td>0x30</td><td>Value is relative to the beginning of the .got or .eh_frame_hdr section.</td><td>值是相对于.got或者.eh_frame_hdr section的。</td></tr>
+<tr><td>DW_EH_PE_funcrel</td><td>0x40</td><td>Value is relative to the beginning of the function.</td><td>值是相对于当前函数的。</td></tr>
+<tr><td>DW_EH_PE_aligned</td><td>0x50</td><td>Value is aligned to an address unit sized boundary.</td><td>值与地址单元大小的边界对齐。</td></tr>
+</tbody></table>
+<ul>
+<li>特殊值</li>
+</ul>
+<table><thead><tr><th>Name</th><th>Value</th><th>Meaning</th><th>Descript</th></tr></thead><tbody>
+<tr><td>DW_EH_PE_omit</td><td>0xFF</td><td>indicate that no value is present</td><td></td></tr>
+</tbody></table>
+<h3 id="3-2-eh-frame-shi-li">3.2 .eh_frame 实例</h3>
+<p>一段简单的c语言代码：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ cat test.c
+#include &lt;stdio.h&gt;
+
+int test(int x)
+{
+        int c =10;
+
+return x*c;
+}
+
+void main()
+{
+        int a,b;
+
+        a = 10;
+        b = 11;
+
+        printf(&quot;hello test~, %d\n&quot;, a+b);
+
+        a = test(a+b);
+}
+$ gcc test.c
+</code></pre>
+<h4 id="3-2-1-jie-xi-xin-xi">3.2.1 解析信息</h4>
+<p>可以使用<code>readelf -wF xxx</code>命令来查看elf文件中的<code>.eh_frame</code>解析信息：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ readelf -wF a.out
+Contents of the .eh_frame section:
+
+00000000 0000000000000014 00000000 CIE &quot;zR&quot; cf=1 df=-8 ra=16
+   LOC           CFA      ra
+0000000000000000 rsp+8    u
+
+...
+
+000000c8 0000000000000044 0000009c FDE cie=00000030 pc=00000000000006b0..0000000000000715
+   LOC           CFA      rbx   rbp   r12   r13   r14   r15   ra
+00000000000006b0 rsp+8    u     u     u     u     u     u     c-8
+00000000000006b2 rsp+16   u     u     u     u     u     c-16  c-8
+00000000000006b4 rsp+24   u     u     u     u     c-24  c-16  c-8
+00000000000006b9 rsp+32   u     u     u     c-32  c-24  c-16  c-8
+00000000000006bb rsp+40   u     u     c-40  c-32  c-24  c-16  c-8
+00000000000006c3 rsp+48   u     c-48  c-40  c-32  c-24  c-16  c-8
+00000000000006cb rsp+56   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+00000000000006d8 rsp+64   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070a rsp+56   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070b rsp+48   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070c rsp+40   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+000000000000070e rsp+32   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000710 rsp+24   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000712 rsp+16   c-56  c-48  c-40  c-32  c-24  c-16  c-8
+0000000000000714 rsp+8    c-56  c-48  c-40  c-32  c-24  c-16  c-8
+</code></pre>
+<p>可以看到<code>.eh_frame</code>总体架构就是由<code>CIE</code>和<code>FDE</code>组成的。其中最核心的就是FDE的组织，读懂它条目的所有字段基本就理解了unwind的含义：</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/eh-frame-unwind-diagram.png" alt="在这里插入图片描述" /></p>
+<p>CFA (Canonical Frame Address, which is the address of %rsp in the caller frame)，CFA就是上一级调用者的堆栈指针。</p>
+<p>上图详细说明了怎么样利用<code>.eh_frame</code>来进行栈回溯：</p>
+<ul>
+<li>1、根据当前的PC在<code>.eh_frame</code>中找到对应的条目，根据条目提供的各种偏移计算其他信息。</li>
+<li>2、首先根据<code>CFA = rsp+4</code>，把当前rsp+4得到CFA的值。再根据CFA的值计算出通用寄存器和返回地址在堆栈中的位置。</li>
+<li>3、通用寄存器栈位置计算。例如：rbx = CFA-56。</li>
+<li>4、返回地址ra的栈位置计算。ra = CFA-8。</li>
+<li>5、根据ra的值，重复步骤1到4，就形成了完整的栈回溯。</li>
+</ul>
+<h4 id="3-2-2-yuan-shi-xin-xi">3.2.2 原始信息</h4>
+<p>也可以使用<code>readelf -wf xxx</code>命令来查看elf文件中的<code>.eh_frame</code>原始信息：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ readelf -wf a.out
+...
+
+000000c8 0000000000000044 0000009c FDE cie=00000030 pc=00000000000006b0..0000000000000715
+  DW_CFA_advance_loc: 2 to 00000000000006b2
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_offset: r15 (r15) at cfa-16
+  DW_CFA_advance_loc: 2 to 00000000000006b4
+  DW_CFA_def_cfa_offset: 24
+  DW_CFA_offset: r14 (r14) at cfa-24
+  DW_CFA_advance_loc: 5 to 00000000000006b9
+  DW_CFA_def_cfa_offset: 32
+  DW_CFA_offset: r13 (r13) at cfa-32
+  DW_CFA_advance_loc: 2 to 00000000000006bb
+  DW_CFA_def_cfa_offset: 40
+  DW_CFA_offset: r12 (r12) at cfa-40
+  DW_CFA_advance_loc: 8 to 00000000000006c3
+  DW_CFA_def_cfa_offset: 48
+  DW_CFA_offset: r6 (rbp) at cfa-48
+  DW_CFA_advance_loc: 8 to 00000000000006cb
+  DW_CFA_def_cfa_offset: 56
+  DW_CFA_offset: r3 (rbx) at cfa-56
+  DW_CFA_advance_loc: 13 to 00000000000006d8
+  DW_CFA_def_cfa_offset: 64
+  DW_CFA_advance_loc: 50 to 000000000000070a
+  DW_CFA_def_cfa_offset: 56
+  DW_CFA_advance_loc: 1 to 000000000000070b
+  DW_CFA_def_cfa_offset: 48
+  DW_CFA_advance_loc: 1 to 000000000000070c
+  DW_CFA_def_cfa_offset: 40
+  DW_CFA_advance_loc: 2 to 000000000000070e
+  DW_CFA_def_cfa_offset: 32
+  DW_CFA_advance_loc: 2 to 0000000000000710
+  DW_CFA_def_cfa_offset: 24
+  DW_CFA_advance_loc: 2 to 0000000000000712
+  DW_CFA_def_cfa_offset: 16
+  DW_CFA_advance_loc: 2 to 0000000000000714
+  DW_CFA_def_cfa_offset: 8
+  DW_CFA_nop
+</code></pre>
+<p>这些信息就是<code>.eh_frame</code>的原始格式，是GAS(GCC Assembler)汇编编译器搜集汇编代码中所有的CFI伪指令汇总而成。</p>
+<p>其中<code>CIE</code>、<code>FDE</code>的格式在第一节中已经介绍，不好理解的是<code>DW_CFA_*</code>开头的这些指令，这些指令的具体含义可以查看<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF</a><code>6.4.2 Call Frame Instructions</code>一节或者<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs-2.31/as/CFI-directives.html">CFI(Call Frame Information)</a>/<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs/as/ARM-Directives.html#arm_005ffnstart">ARM CFI</a>的定义。</p>
+<p>而上一节使用<code>readelf -wF xxx</code>命令解析了这些信息，我们初步看看对应关系：</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/cfi-fde-readelf-mapping.png" alt="在这里插入图片描述" /></p>
+<h2 id="4-cfi-directives-xiang-jie">4. CFI directives 详解</h2>
+<h3 id="4-1-cfi-xiang-jie">4.1 CFI 详解</h3>
+<p>在GAS(GCC Assembler)汇编编译器<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs-2.31/as/CFI-directives.html">CFI(Call Frame Information)</a>/<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs/as/ARM-Directives.html#arm_005ffnstart">ARM CFI</a>文档中，对所有CFI伪指令的含义有详细描述。或者查看查看<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF</a><code>6.4.2 Call Frame Instructions</code>一节。</p>
+<p>我们介绍其中的一些重点指令：</p>
+<ul>
+<li>.cfi_sections section_list</li>
+</ul>
+<p><code>.cfi_sections</code>用来描述产生的目标是<code>.eh_frame section</code> and/or <code>.debug_frame section</code>。
+如果<code>section_list</code>为.eh_frame，.eh_frame则产生，如果section_list为.debug_frame，.debug_frame则产生。两者同时产生<code>.eh_frame, .debug_frame</code>。如果不使用此指令，则默认值为.cfi_sections .eh_frame。</p>
+<ul>
+<li>.cfi_startproc [simple]</li>
+</ul>
+<p><code>.cfi_startproc</code>用在每个函数的入口处。</p>
+<ul>
+<li>.cfi_endproc</li>
+</ul>
+<p><code>.cfi_endproc</code>用在函数的结束处，和<code>.cfi_startproc</code>对应。</p>
+<ul>
+<li>.cfi_def_cfa register, offset</li>
+</ul>
+<p>用来定义CFA的计算规则：</p>
+<pre data-lang="objectivec" class="language-objectivec "><code class="language-objectivec" data-lang="objectivec">CFA = register + offset
+</code></pre>
+<p>默认基址寄存器register = rsp。</p>
+<p>x86_64的register编号从0-15对应下表。<code>rbp</code>的register编号为6，<code>rsp</code>的register编号为7。</p>
+<pre data-lang="perl" class="language-perl "><code class="language-perl" data-lang="perl">%rax，%rbx，%rcx，%rdx，%esi，%edi，%rbp，%rsp，%r8，%r9，%r10，%r11，%r12，%r13，%r14，%r15
+</code></pre>
+<p>完整x86_64的DWARF Register Number Mapping可以参考<a rel="noopener" target="_blank" href="https://refspecs.linuxfoundation.org/elf/x86_64-abi-0.95.pdf">x86_64 ABI</a><code>3.7 Stack Unwind Algorithm</code>一节。</p>
+<ul>
+<li>.cfi_def_cfa_register register</li>
+</ul>
+<p>用来修改修改CFA计算规则，基址寄存器从<code>rsp</code>转移到新的<code>register</code>。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">register = new register
+</code></pre>
+<ul>
+<li>.cfi_def_cfa_offset offset</li>
+</ul>
+<p>用来修改修改CFA计算规则，基址寄存器不变，offset变化：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">CFA = register + offset(new)
+</code></pre>
+<ul>
+<li>.cfi_adjust_cfa_offset offset</li>
+</ul>
+<p>用来修改修改CFA计算规则，在上一个offset的基础上加上相对的offset：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">CFA = register + pre_offset + offset(new)
+</code></pre>
+<ul>
+<li>.cfi_offset register, offset</li>
+</ul>
+<p>寄存器register上一次值保存在CFA偏移offset的堆栈中：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">*(CFA + offset) = register(pre_value)
+</code></pre>
+<ul>
+<li>.cfi_restore register</li>
+</ul>
+<p>基址寄存器恢复成函数开始时的默认寄存器，默认是<code>rsp</code>。</p>
+<p>更多的指令请查看手册，或者在实际用例中理解。</p>
+<h3 id="4-2-cfi-shi-li">4.2 CFI 实例</h3>
+<p>如果我们直接编写汇编代码，需要自己手工添加CFI伪指令，否者堆栈回溯信息会出错。例如：</p>
+<pre data-lang="objectivec" class="language-objectivec "><code class="language-objectivec" data-lang="objectivec">kernel\arch\x86\kernel\entry_64.S:
+
+ENTRY(system_call)
+CFI_STARTPROC	simple
+CFI_SIGNAL_FRAME
+CFI_DEF_CFA	rsp,KERNEL_STACK_OFFSET
+CFI_REGISTER	rip,rcx
+&#x2F;*CFI_REGISTER	rflags,r11*&#x2F;
+	SWAPGS_UNSAFE_STACK
+
+#define CFI_STARTPROC		.cfi_startproc
+#define CFI_ENDPROC		.cfi_endproc
+#define CFI_DEF_CFA		.cfi_def_cfa
+#define CFI_DEF_CFA_REGISTER	.cfi_def_cfa_register
+#define CFI_DEF_CFA_OFFSET	.cfi_def_cfa_offset
+#define CFI_ADJUST_CFA_OFFSET	.cfi_adjust_cfa_offset
+#define CFI_OFFSET		.cfi_offset
+#define CFI_REL_OFFSET		.cfi_rel_offset
+#define CFI_REGISTER		.cfi_register
+#define CFI_RESTORE		.cfi_restore
+#define CFI_REMEMBER_STATE	.cfi_remember_state
+#define CFI_RESTORE_STATE	.cfi_restore_state
+#define CFI_UNDEFINED		.cfi_undefined
+#define CFI_SAME_VALUE		.cfi_same_value
+</code></pre>
+<p>我们使用c语言编写时，gcc会自动帮我们产生CFI伪指令：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">gcc -S test.c           &#x2F;&#x2F; c语言生成汇编代码
+vim test.s              &#x2F;&#x2F; 查看汇编代码
+</code></pre>
+<p>我们对汇编指令中的CFI伪指令做一个解析：</p>
+<p><img src="/obsidian/assets/unwind-stack-walk/gcc-cfi-directives-assembly.png" alt="在这里插入图片描述" /></p>
+<p>使用<code>readelf -wF xxx</code>读出对应FDE的信息：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">000000a8 000000000000001c 0000007c FDE cie=00000030 pc=0000000000000661..00000000000006a7
+   LOC           CFA      rbp   ra
+0000000000000661 rsp+8    u     c-8
+0000000000000662 rsp+16   c-16  c-8
+0000000000000665 rbp+16   c-16  c-8
+00000000000006a6 rsp+8    c-16  c-8
+</code></pre>
+<h2 id="5-kernel-unwind-shi-xian">5. kernel unwind 实现</h2>
+<p>在内核中已经有现成的代码实现了kernel代码的unwind方式栈回溯。</p>
+<h3 id="5-1-eh-framede-jia-zai">5.1 <code>.eh_frame</code>的加载</h3>
+<p>内核vmlinux也是一个elf文件，它编译完成后默认也生成了<code>.eh_frame</code>和<code>.eh_frame_hdr</code>section。这两个段运行的时候被一起加载到内存，运行的时候需要有方法能找到它们。</p>
+<p>内核在链接脚本<code>vmlinux.lds.h</code>中制定了定义：<code>__start_unwind_hdr</code>和<code>__end_unwind_hdr</code>变量用来标识<code>.eh_frame_hdr</code>的位置，<code>__start_unwind</code>和<code>__end_unwind</code>变量用来标识<code>.eh_frame</code>的位置。</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">kernel\include\asm-generic\vmlinux.lds.h
+
+#ifdef CONFIG_STACK_UNWIND
+#define EH_FRAME							\
+&#x2F;* Unwind data binary search table *&#x2F;			\
+		. = ALIGN(8);						\
+		.eh_frame_hdr : AT(ADDR(.eh_frame_hdr) - LOAD_OFFSET) {	\
+			VMLINUX_SYMBOL(__start_unwind_hdr) = .;		\
+*(.eh_frame_hdr)				\
+			VMLINUX_SYMBOL(__end_unwind_hdr) = .;		\
+		}							\
+&#x2F;* Unwind data *&#x2F;					\
+		. = ALIGN(8);						\
+		.eh_frame : AT(ADDR(.eh_frame) - LOAD_OFFSET) {		\
+			VMLINUX_SYMBOL(__start_unwind) = .;		\
+*(.eh_frame)					\
+			VMLINUX_SYMBOL(__end_unwind) = .;		\
+		}
+#else
+#define EH_FRAME
+#endif
+</code></pre>
+<p>在系统启动时，把内核的<code>.eh_frame</code>和<code>.eh_frame_hdr</code>section当成一张<code>table</code>管理起来：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">start_kernel()
+
+void __init unwind_init(void)
+{
+	init_unwind_table(&amp;root_table, &quot;kernel&quot;,
+	                  _text, _end - _text,
+NULL, 0,
+	                  __start_unwind, __end_unwind - __start_unwind,
+	                  __start_unwind_hdr, __end_unwind_hdr - __start_unwind_hdr);
+}
+
+static void init_unwind_table(struct unwind_table *table,
+                              const char *name,
+                              const void *core_start,
+                              unsigned long core_size,
+                              const void *init_start,
+                              unsigned long init_size,
+                              const void *table_start,
+                              unsigned long table_size,
+                              const u8 *header_start,
+                              unsigned long header_size)
+{
+	const u8 *ptr = header_start + 4;
+	const u8 *end = header_start + header_size;
+
+table-&gt;core.pc = (unsigned long)core_start;
+table-&gt;core.range = core_size;
+table-&gt;init.pc = (unsigned long)init_start;
+table-&gt;init.range = init_size;
+table-&gt;address = table_start;
+table-&gt;size = table_size;
+&#x2F;* See if the linker provided table looks valid. *&#x2F;
+if (header_size &lt;= 4
+	    || header_start[0] != 1
+	    || (void *)read_pointer(&amp;ptr, end, header_start[1], 0, 0)
+	       != table_start
+	    || !read_pointer(&amp;ptr, end, header_start[2], 0, 0)
+	    || !read_pointer(&amp;ptr, end, header_start[3], 0,
+	                     (unsigned long)header_start)
+	    || !read_pointer(&amp;ptr, end, header_start[3], 0,
+	                     (unsigned long)header_start))
+		header_start = NULL;
+table-&gt;hdrsz = header_size;
+	smp_wmb();
+table-&gt;header = header_start;
+table-&gt;link = NULL;
+table-&gt;name = name;
+}
+</code></pre>
+<p>驱动模块在加载的时候也需要把自己的<code>.eh_frame</code>加进来，接口函数<code>unwind_add_table()</code>，这样就形成了一张unwind信息table链表。</p>
+<h3 id="5-2-unwindjie-xi">5.2 unwind解析</h3>
+<p>通常我们调用dump_stack()来打印出内核的当前调用栈，其具体实现如下：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">dump_stack()
+↓
+show_trace()
+↓
+
+void
+show_trace_log_lvl(struct task_struct *task, struct pt_regs *regs,
+		unsigned long *stack, unsigned long bp, char *log_lvl)
+{
+	printk(&quot;%sCall Trace:\n&quot;, log_lvl);
+&#x2F;* 指定了ops为print_trace_ops *&#x2F;
+	dump_trace(task, regs, stack, bp, &amp;print_trace_ops, log_lvl);
+}
+
+↓
+dump_trace()
+↓
+try_stack_unwind()
+↓
+
+kernel\arch\x86\kernel\entry_64.S:
+
+#ifdef CONFIG_STACK_UNWIND
+&#x2F;*
+	%rdi 参数1：unwind_frame_info
+	%rsi 参数2：unwind_callback_fn = dump_trace_unwind()
+	%rdx 参数3：stacktrace_ops
+	%rcx 参数4：void *data = NULL
+ *&#x2F;
+ENTRY(arch_unwind_init_running)
+	CFI_STARTPROC
+	movq	%r15, R15(%rdi)     &#x2F;* 给参数1赋值：构造本进程的寄存器值 unwind_frame_info-&gt;regs *&#x2F;
+	movq	%r14, R14(%rdi)
+	xchgq	%rsi, %rdx
+	movq	%r13, R13(%rdi)
+	movq	%r12, R12(%rdi)
+	xorl	%eax, %eax
+	movq	%rbp, RBP(%rdi)
+	movq	%rbx, RBX(%rdi)
+	movq	(%rsp), %r9
+	xchgq	%rdx, %rcx			&#x2F;* 交换参数3和参数4 *&#x2F;
+	movq	%rax, R11(%rdi)
+	movq	%rax, R10(%rdi)
+	movq	%rax, R9(%rdi)
+	movq	%rax, R8(%rdi)
+	movq	%rax, RAX(%rdi)
+	movq	%rax, RCX(%rdi)
+	movq	%rax, RDX(%rdi)
+	movq	%rax, RSI(%rdi)
+	movq	%rax, RDI(%rdi)
+	movq	%rax, ORIG_RAX(%rdi)
+	movq	%r9, RIP(%rdi)
+	leaq	8(%rsp), %r9
+	movq	$__KERNEL_CS, CS(%rdi)
+	movq	%rax, EFLAGS(%rdi)
+	movq	%r9, RSP(%rdi)
+	movq	$__KERNEL_DS, SS(%rdi)
+	jmpq	*%rcx               &#x2F;* 使用构造好的参数来调用dump_trace_unwind() *&#x2F;
+	CFI_ENDPROC
+END(arch_unwind_init_running)
+#endif
+
+↓
+
+int asmlinkage dump_trace_unwind(struct unwind_frame_info *info,
+		      const struct stacktrace_ops *ops, void *data)
+{
+	int n = 0;
+#ifdef CONFIG_STACK_UNWIND
+	unsigned long sp = UNW_SP(info);
+
+if (arch_unw_user_mode(info))
+return -1;
+
+&#x2F;* (1) 循环调用unwind()函数
+        获取每一层堆栈的寄存器信息 info-&gt;regs
+     *&#x2F;
+	while (unwind(info) == 0 &amp;&amp; UNW_PC(info)) {
+		n++;
+
+&#x2F;* (1.1) 调用ops-&gt;address来处理每一层的pc值 *&#x2F;
+		ops-&gt;address(data, UNW_PC(info), 1);
+
+&#x2F;* (1.2) 是否是用户态判断 *&#x2F;
+if (arch_unw_user_mode(info))
+			break;
+
+&#x2F;* (1.3) sp合法性判断 *&#x2F;
+if ((sp &amp; ~(PAGE_SIZE - 1)) == (UNW_SP(info) &amp; ~(PAGE_SIZE - 1))
+&amp;&amp; sp &gt; UNW_SP(info))
+			break;
+		sp = UNW_SP(info);
+	}
+#endif
+return n;
+}
+</code></pre>
+<p>最核心的函数unwind()，所有unwind的具体算法都在其中：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">int unwind(struct unwind_frame_info *frame)
+{
+#define FRAME_REG(r, t) (((t *)frame)[reg_info[r].offs])
+	const u32 *fde = NULL, *cie = NULL;
+	const u8 *ptr = NULL, *end = NULL;
+	unsigned long pc = UNW_PC(frame) - frame-&gt;call_frame, sp;
+	unsigned long startLoc = 0, endLoc = 0, cfa;
+	unsigned i;
+	signed ptrType = -1;
+	uleb128_t retAddrReg = 0;
+	const struct unwind_table *table;
+	struct unwind_state state;
+
+if (UNW_PC(frame) == 0)
+return -EINVAL;
+
+&#x2F;* (1) 根据pc找到对应的unwind table
+         查找PC对应的FDE
+     *&#x2F;
+if ((table = find_table(pc)) != NULL
+&amp;&amp; !(table-&gt;size &amp; (sizeof(*fde) - 1))) {
+		const u8 *hdr = table-&gt;header;
+		unsigned long tableSize;
+
+		smp_rmb();
+
+&#x2F;* (1.1) 根据`.eh_frame_hdr`查找到PC对应的FDE
+            `.eh_frame_hdr`的格式
+            --------------------------------------------------------------------
+            Field               | expression
+            --------------------------------------------------------------------
+            version             | hdr[0]
+            eh_frame_ptr_enc    | hdr[1]
+            fde_count_enc       | hdr[2]
+table_enc           | hdr[3]
+            eh_frame_ptr        | read_pointer(&amp;ptr, end, hdr[1], 0, 0)
+            fde_count           | read_pointer(&amp;ptr, end, hdr[2], 0, 0))
+binary search table | (2 * tableSize)*fde_count ,(location, address)
+            ---------------------------------------------------------------------
+
+            `binary search table`是一张FDE的查询表:
+                每张表有fde_count个条目
+                每个条目有两个元素(location, address)，每个元素的大小为tableSize
+                表以降序来排序
+*&#x2F;
+if (hdr &amp;&amp; hdr[0] == 1) {
+
+&#x2F;* 根据`table_enc`计算出tableSize大小 *&#x2F;
+			switch (hdr[3] &amp; DW_EH_PE_FORM) {
+			case DW_EH_PE_native: tableSize = sizeof(unsigned long); break;
+			case DW_EH_PE_data2: tableSize = 2; break;
+			case DW_EH_PE_data4: tableSize = 4; break;
+			case DW_EH_PE_data8: tableSize = 8; break;
+default: tableSize = 0; break;
+			}
+			ptr = hdr + 4;
+end = hdr + table-&gt;hdrsz;
+if (tableSize
+&#x2F;* 确认`eh_frame_ptr`指向的是`.eh_frame` *&#x2F;
+&amp;&amp; read_pointer(&amp;ptr, end, hdr[1], 0, 0)
+== (unsigned long)table-&gt;address
+
+&#x2F;* 计算`fde_count`存储到i变量，并且进行合法性判断 *&#x2F;
+&amp;&amp; (i = read_pointer(&amp;ptr, end, hdr[2], 0, 0)) &gt; 0
+&amp;&amp; i == (end - ptr) &#x2F; (2 * tableSize)
+&amp;&amp; !((end - ptr) % (2 * tableSize))) {
+
+&#x2F;* 使用二分法在`binary search table`入口表中查询，
+                    根据PC找到对应的FDE地址
+*&#x2F;
+				do {
+					const u8 *cur = ptr + (i &#x2F; 2) * (2 * tableSize);
+
+					startLoc = read_pointer(&amp;cur,
+					                        cur + tableSize,
+					                        hdr[3], 0,
+					                        (unsigned long)hdr);
+if (pc &lt; startLoc)
+						i &#x2F;= 2;
+else {
+						ptr = cur - tableSize;
+						i = (i + 1) &#x2F; 2;
+					}
+				} while (startLoc &amp;&amp; i &gt; 1);
+if (i == 1
+&amp;&amp; (startLoc = read_pointer(&amp;ptr,
+				                                ptr + tableSize,
+				                                hdr[3], 0,
+				                                (unsigned long)hdr)) != 0
+&amp;&amp; pc &gt;= startLoc)
+					fde = (void *)read_pointer(&amp;ptr,
+					                           ptr + tableSize,
+					                           hdr[3], 0,
+					                           (unsigned long)hdr);
+			}
+		}
+if (hdr &amp;&amp; !fde)
+			dprintk(3, &quot;Binary lookup for %lx failed.&quot;, pc);
+
+&#x2F;* (1.2) 解析`FDE`，确认PC值是否在FDE的范围中
+            --------------------------------------------------------------------
+            Field                     | expression
+            --------------------------|------------------------------------------
+Length	                  | fde
+            CIE Pointer	              | (fde + 1)
+            PC Begin	              | ptr = (const u8 *)(fde + 2);
+                                      | read_pointer(&amp;ptr, (const u8 *)(fde + 1) + *fde, ptrType, 0, 0)
+            PC Range	              | read_pointer(&amp;ptr, (const u8 *)(fde + 1) + *fde, ptrType, 0, 0)
+            Augmentation Data Length  |
+            Augmentation Data	      |
+Call Frame Instructions	  |
+            Padding	                  |
+            ---------------------------------------------------------------------
+*&#x2F;
+if (fde != NULL) {
+&#x2F;* 根据fde中的指针找到对应cie *&#x2F;
+			cie = cie_for_fde(fde, table);
+			ptr = (const u8 *)(fde + 2);
+if (cie != NULL
+&amp;&amp; cie != &amp;bad_cie
+&amp;&amp; cie != &amp;not_fde
+&#x2F;* 得到cie中的指针类型 *&#x2F;
+&amp;&amp; (ptrType = fde_pointer_type(cie)) &gt;= 0
+&#x2F;* 读出`PC Begin`，确认`.eh_frame_hdr`中的PC基址和FDE中的PC基址相等 *&#x2F;
+&amp;&amp; read_pointer(&amp;ptr,
+			                    (const u8 *)(fde + 1) + *fde,
+			                    ptrType, 0, 0) == startLoc) {
+if (!(ptrType &amp; DW_EH_PE_indirect))
+					ptrType &amp;= DW_EH_PE_FORM|DW_EH_PE_signed;
+
+&#x2F;* 读出`PC Range`，得到FDE的结束PC值 *&#x2F;
+				endLoc = startLoc
++ read_pointer(&amp;ptr,
+				                        (const u8 *)(fde + 1) + *fde,
+				                        ptrType, 0, 0);
+if (pc &gt;= endLoc)
+					fde = NULL;
+			} else
+				fde = NULL;
+if (!fde)
+				dprintk(1, &quot;Binary lookup result for %lx discarded.&quot;, pc);
+		}
+
+&#x2F;* (1.3) 如果从`.eh_frame_hdr`中查找PC对应的FDE失败 (快路径)
+                尝试直接从`.eh_frame`中查找PC对应的FDE (慢路径)
+*&#x2F;
+if (fde == NULL) {
+for (fde = table-&gt;address, tableSize = table-&gt;size;
+			     cie = NULL, tableSize &gt; sizeof(*fde)
+&amp;&amp; tableSize - sizeof(*fde) &gt;= *fde;
+			     tableSize -= sizeof(*fde) + *fde,
+			     fde += 1 + *fde &#x2F; sizeof(*fde)) {
+				cie = cie_for_fde(fde, table);
+if (cie == &amp;bad_cie) {
+					cie = NULL;
+					break;
+				}
+if (cie == NULL
+				    || cie == &amp;not_fde
+				    || (ptrType = fde_pointer_type(cie)) &lt; 0)
+continue;
+				ptr = (const u8 *)(fde + 2);
+				startLoc = read_pointer(&amp;ptr,
+				                        (const u8 *)(fde + 1) + *fde,
+				                        ptrType, 0, 0);
+if (!startLoc)
+continue;
+if (!(ptrType &amp; DW_EH_PE_indirect))
+					ptrType &amp;= DW_EH_PE_FORM|DW_EH_PE_signed;
+				endLoc = startLoc
++ read_pointer(&amp;ptr,
+				                        (const u8 *)(fde + 1) + *fde,
+				                        ptrType, 0, 0);
+if (pc &gt;= startLoc &amp;&amp; pc &lt; endLoc)
+					break;
+			}
+if (!fde)
+				dprintk(3, &quot;Linear lookup for %lx failed.&quot;, pc);
+		}
+	}
+
+&#x2F;* (2) 解析出`CIE`各字段
+        --------------------------------------------------------------------
+        Field                     | expression
+        --------------------------|------------------------------------------
+Length	                  | cie
+        CIE ID	                  | (cie + 1)
+        Version	                  | ptr = (const u8 *)(cie + 2)
+        Augmentation String	      |
+Code Alignment Factor	  |
+Data Alignment Factor	  |
+Return Address Register	  |
+        Augmentation Data Length  |
+        Augmentation Data	      |
+Initial Instructions	  |
+        Padding	                  |
+        ---------------------------------------------------------------------
+        (2.1) 解析出CIE中的`Length`、`CIE ID`、`Version`、`Augmentation String`这几个字段
+     *&#x2F;
+if (cie != NULL) {
+		memset(&amp;state, 0, sizeof(state));
+		state.cieEnd = ptr; &#x2F;* keep here temporarily *&#x2F;
+		ptr = (const u8 *)(cie + 2);
+end = (const u8 *)(cie + 1) + *cie;
+		frame-&gt;call_frame = 1;
+&#x2F;* 解析出`Version` *&#x2F;
+if ((state.version = *ptr) != 1)
+			cie = NULL; &#x2F;* unsupported version *&#x2F;
+&#x2F;* 解析出`Augmentation String` *&#x2F;
+else if (*++ptr) {
+&#x2F;* check if augmentation size is first (and thus present) *&#x2F;
+if (*ptr == &#x27;z&#x27;) {
+				while (++ptr &lt; end &amp;&amp; *ptr) {
+					switch (*ptr) {
+&#x2F;* check for ignorable (or already handled)
+* nul-terminated augmentation string *&#x2F;
+					case &#x27;L&#x27;:
+					case &#x27;P&#x27;:
+					case &#x27;R&#x27;:
+continue;
+					case &#x27;S&#x27;:
+						frame-&gt;call_frame = 0;
+continue;
+default:
+						break;
+					}
+					break;
+				}
+			}
+if (ptr &gt;= end || *ptr)
+				cie = NULL;
+		}
+if (!cie)
+			dprintk(1, &quot;CIE unusable (%p,%p).&quot;, ptr, end);
+++ptr;
+	}
+
+&#x2F;* (2.2) 解析出CIE中的`Code Alignment Factor`、`Data Alignment Factor`、
+        `Return Address Register`、`Augmentation Data Length`、`Augmentation Data`这几个字段
+     *&#x2F;
+if (cie != NULL) {
+&#x2F;* get code aligment factor *&#x2F;
+&#x2F;* 解析出`Code Alignment Factor` *&#x2F;
+		state.codeAlign = get_uleb128(&amp;ptr, end);
+
+&#x2F;* get data aligment factor *&#x2F;
+&#x2F;* 解析出`Data Alignment Factor` *&#x2F;
+		state.dataAlign = get_sleb128(&amp;ptr, end);
+if (state.codeAlign == 0 || state.dataAlign == 0 || ptr &gt;= end)
+			cie = NULL;
+else if (UNW_PC(frame) % state.codeAlign
+		         || UNW_SP(frame) % sleb128abs(state.dataAlign)) {
+			dprintk(1, &quot;Input pointer(s) misaligned (%lx,%lx).&quot;,
+			        UNW_PC(frame), UNW_SP(frame));
+return -EPERM;
+		} else {
+&#x2F;* 解析出`Return Address Register` *&#x2F;
+			retAddrReg = state.version &lt;= 1 ? *ptr++ : get_uleb128(&amp;ptr, end);
+
+&#x2F;* skip augmentation *&#x2F;
+&#x2F;* 解析出`Augmentation Data Length` *&#x2F;
+if (((const char *)(cie + 2))[1] == &#x27;z&#x27;) {
+				uleb128_t augSize = get_uleb128(&amp;ptr, end);
+
+				ptr += augSize;
+			}
+if (ptr &gt; end
+			    || retAddrReg &gt;= ARRAY_SIZE(reg_info)
+			    || REG_INVALID(retAddrReg)
+			    || reg_info[retAddrReg].width != sizeof(unsigned long))
+				cie = NULL;
+		}
+if (!cie)
+			dprintk(1, &quot;CIE validation failed (%p,%p).&quot;, ptr, end);
+	}
+
+&#x2F;* (2.3) 解析出CIE中的`Initial Instructions`位置
+			 和FDE中的`Call Frame Instructions`位置
+     *&#x2F;
+if (cie != NULL) {
+		state.cieStart = ptr;                   &#x2F;* state.cieStart: CIE的`Initial Instructions`开始 *&#x2F;
+		ptr = state.cieEnd;
+		state.cieEnd = end;                     &#x2F;* state.cieEnd: CIE的`Initial Instructions`结束 *&#x2F;
+end = (const u8 *)(fde + 1) + *fde;     &#x2F;* end: FDE的`Call Frame Instructions`结束 *&#x2F;
+&#x2F;* skip augmentation *&#x2F;
+if (((const char *)(cie + 2))[1] == &#x27;z&#x27;) {
+			uleb128_t augSize = get_uleb128(&amp;ptr, end);
+
+if ((ptr += augSize) &gt; end)         &#x2F;* ptr: FDE的`Call Frame Instructions`开始 *&#x2F;
+				fde = NULL;
+		}
+if (!fde)
+			dprintk(1, &quot;FDE validation failed (%p,%p).&quot;, ptr, end);
+	}
+
+&#x2F;* (3) 如果CIE和FDE任一为空，出错返回 *&#x2F;
+if (cie == NULL || fde == NULL) {
+#ifdef CONFIG_FRAME_POINTER
+		unsigned long top = TSK_STACK_TOP(frame-&gt;task);
+		unsigned long bottom = STACK_BOTTOM(frame-&gt;task);
+		unsigned long fp = UNW_FP(frame);
+		unsigned long sp = UNW_SP(frame);
+		unsigned long link;
+
+if ((sp | fp) &amp; (sizeof(unsigned long) - 1))
+return -EPERM;
+
+# if FRAME_RETADDR_OFFSET &lt; 0
+if (!(sp &lt; top &amp;&amp; fp &lt;= sp &amp;&amp; bottom &lt; fp))
+# else
+if (!(sp &gt; top &amp;&amp; fp &gt;= sp &amp;&amp; bottom &gt; fp))
+# endif
+return -ENXIO;
+
+if (probe_kernel_address(fp + FRAME_LINK_OFFSET, link))
+return -ENXIO;
+
+# if FRAME_RETADDR_OFFSET &lt; 0
+if (!(link &gt; bottom &amp;&amp; link &lt; fp))
+# else
+if (!(link &lt; bottom &amp;&amp; link &gt; fp))
+# endif
+return -ENXIO;
+
+if (link &amp; (sizeof(link) - 1))
+return -ENXIO;
+
+		fp += FRAME_RETADDR_OFFSET;
+if (probe_kernel_address(fp, UNW_PC(frame)))
+return -ENXIO;
+
+&#x2F;* Ok, we can use it *&#x2F;
+# if FRAME_RETADDR_OFFSET &lt; 0
+		UNW_SP(frame) = fp - sizeof(UNW_PC(frame));
+# else
+		UNW_SP(frame) = fp + sizeof(UNW_PC(frame));
+# endif
+		UNW_FP(frame) = link;
+return 0;
+#else
+return -ENXIO;
+#endif
+	}
+
+&#x2F;* (4) 解析CIE的`Initial Instructions`中的cfa指令 和
+            FDE的`Call Frame Instructions`中的cfa指令
+			解析结果放到state数据结构中
+     *&#x2F;
+	state.org = startLoc;
+	memcpy(&amp;state.cfa, &amp;badCFA, sizeof(state.cfa));
+&#x2F;* process instructions *&#x2F;
+if (!processCFI(ptr, end, pc, ptrType, &amp;state)
+	    || state.loc &gt; endLoc
+	    || state.regs[retAddrReg].where == Nowhere
+	    || state.cfa.reg &gt;= ARRAY_SIZE(reg_info)
+	    || reg_info[state.cfa.reg].width != sizeof(unsigned long)
+	    || FRAME_REG(state.cfa.reg, unsigned long) % sizeof(unsigned long)
+	    || state.cfa.offs % sizeof(unsigned long)) {
+		dprintk(1, &quot;Unusable unwind info (%p,%p).&quot;, ptr, end);
+return -EIO;
+	}
+
+&#x2F;* update frame *&#x2F;
+&#x2F;* (5) 信号相关的帧处理 *&#x2F;
+#ifndef CONFIG_AS_CFI_SIGNAL_FRAME
+if (frame-&gt;call_frame
+&amp;&amp; !UNW_DEFAULT_RA(state.regs[retAddrReg], state.dataAlign))
+		frame-&gt;call_frame = 0;
+#endif
+
+&#x2F;* (6) 首先根据指令解析结果，计算cfa的值：
+         CFA = register + offset
+     *&#x2F;
+	cfa = FRAME_REG(state.cfa.reg, unsigned long) + state.cfa.offs;
+	startLoc = min((unsigned long)UNW_SP(frame), cfa);
+	endLoc = max((unsigned long)UNW_SP(frame), cfa);
+if (STACK_LIMIT(startLoc) != STACK_LIMIT(endLoc)) {
+		startLoc = min(STACK_LIMIT(cfa), cfa);
+		endLoc = max(STACK_LIMIT(cfa), cfa);
+	}
+#ifndef CONFIG_64BIT
+# define CASES CASE(8); CASE(16); CASE(32)
+#else
+# define CASES CASE(8); CASE(16); CASE(32); CASE(64)
+#endif
+	pc = UNW_PC(frame);
+	sp = UNW_SP(frame);
+
+&#x2F;* (7) 再根据指令解析结果更新寄存器集的值
+
+       (7.1) 第1遍轮询解析
+            Register类型：state.regs[i].value = FRAME_REG(state.regs[i].value)
+     *&#x2F;
+for (i = 0; i &lt; ARRAY_SIZE(state.regs); ++i) {
+if (REG_INVALID(i)) {
+if (state.regs[i].where == Nowhere)
+continue;
+			dprintk(1, &quot;Cannot restore register %u (%d).&quot;,
+			        i, state.regs[i].where);
+return -EIO;
+		}
+		switch (state.regs[i].where) {
+default:
+			break;
+		case Register:
+if (state.regs[i].value &gt;= ARRAY_SIZE(reg_info)
+			    || REG_INVALID(state.regs[i].value)
+			    || reg_info[i].width &gt; reg_info[state.regs[i].value].width) {
+				dprintk(1, &quot;Cannot restore register %u from register %lu.&quot;,
+				        i, state.regs[i].value);
+return -EIO;
+			}
+			switch (reg_info[state.regs[i].value].width) {
+#define CASE(n) \
+			case sizeof(u##n): \
+				state.regs[i].value = FRAME_REG(state.regs[i].value, \
+				                                const u##n); \
+				break
+			CASES;
+#undef CASE
+default:
+				dprintk(1, &quot;Unsupported register size %u (%lu).&quot;,
+				        reg_info[state.regs[i].value].width,
+				        state.regs[i].value);
+return -EIO;
+			}
+			break;
+		}
+	}
+
+&#x2F;* (7.2) 第2遍轮询解析
+     *&#x2F;
+for (i = 0; i &lt; ARRAY_SIZE(state.regs); ++i) {
+if (REG_INVALID(i))
+continue;
+		switch (state.regs[i].where) {
+
+&#x2F;* Nowhere类型：UNW_SP(frame) = cfa; *&#x2F;
+		case Nowhere:
+if (reg_info[i].width != sizeof(UNW_SP(frame))
+			    || &amp;FRAME_REG(i, __typeof__(UNW_SP(frame)))
+			       != &amp;UNW_SP(frame))
+continue;
+			UNW_SP(frame) = cfa;
+			break;
+
+&#x2F;* Register类型：把第一轮计算出来的寄存器的值state.regs[i].value，
+						更新完到FRAME_REG(i)结构中
+*&#x2F;
+		case Register:
+			switch (reg_info[i].width) {
+#define CASE(n) case sizeof(u##n): \
+				FRAME_REG(i, u##n) = state.regs[i].value; \
+				break
+			CASES;
+#undef CASE
+default:
+				dprintk(1, &quot;Unsupported register size %u (%u).&quot;,
+				        reg_info[i].width, i);
+return -EIO;
+			}
+			break;
+
+&#x2F;* Value类型：
+			reg =  CFA +  (factored offset * data_alignment_factor)
+*&#x2F;
+		case Value:
+if (reg_info[i].width != sizeof(unsigned long)) {
+				dprintk(1, &quot;Unsupported value size %u (%u).&quot;,
+				        reg_info[i].width, i);
+return -EIO;
+			}
+			FRAME_REG(i, unsigned long) = cfa + state.regs[i].value
+* state.dataAlign;
+			break;
+
+&#x2F;* Memory类型：
+			reg =  *(CFA +  (factored offset * data_alignment_factor))
+*&#x2F;
+		case Memory: {
+				unsigned long addr = cfa + state.regs[i].value
+* state.dataAlign;
+
+if ((state.regs[i].value * state.dataAlign)
+				    % sizeof(unsigned long)
+				    || addr &lt; startLoc
+				    || addr + sizeof(unsigned long) &lt; addr
+				    || addr + sizeof(unsigned long) &gt; endLoc) {
+					dprintk(1, &quot;Bad memory location %lx (%lx).&quot;,
+					        addr, state.regs[i].value);
+return -EIO;
+				}
+				switch (reg_info[i].width) {
+#define CASE(n)			case sizeof(u##n): \
+if (probe_kernel_address(addr, \
+								 FRAME_REG(i, u##n))) \
+return -EFAULT; \
+					break
+				CASES;
+#undef CASE
+default:
+					dprintk(1, &quot;Unsupported memory size %u (%u).&quot;,
+					        reg_info[i].width, i);
+return -EIO;
+				}
+			}
+			break;
+		}
+	}
+
+if (UNW_PC(frame) % state.codeAlign
+	    || UNW_SP(frame) % sleb128abs(state.dataAlign)) {
+		dprintk(1, &quot;Output pointer(s) misaligned (%lx,%lx).&quot;,
+		        UNW_PC(frame), UNW_SP(frame));
+return -EIO;
+	}
+if (pc == UNW_PC(frame) &amp;&amp; sp == UNW_SP(frame)) {
+		dprintk(1, &quot;No progress (%lx,%lx).&quot;, pc, sp);
+return -EIO;
+	}
+
+return 0;
+#undef CASES
+#undef FRAME_REG
+}
+
+↓
+
+static int processCFI(const u8 *start,
+                      const u8 *end,
+                      unsigned long targetLoc,
+                      signed ptrType,
+                      struct unwind_state *state)
+{
+	union {
+		const u8 *p8;
+		const u16 *p16;
+		const u32 *p32;
+	} ptr;
+	int result = 1;
+
+&#x2F;* (4.1) 先递归的解析CIE中的cfa指令 *&#x2F;
+if (start != state-&gt;cieStart) {
+		state-&gt;loc = state-&gt;org;
+		result = processCFI(state-&gt;cieStart, state-&gt;cieEnd, 0, ptrType, state);
+if (targetLoc == 0 &amp;&amp; state-&gt;label == NULL)
+return result;
+	}
+
+&#x2F;* (4.2) 再解析FDE中的cfa指令
+		这段指令解析请参考本文的`2.2 Call Frame Instructions`一节，就非常好理解了
+*&#x2F;
+for (ptr.p8 = start; result &amp;&amp; ptr.p8 &lt; end; ) {
+		switch (*ptr.p8 &gt;&gt; 6) {
+			uleb128_t value;
+
+		case 0:
+			switch (*ptr.p8++) {
+
+&#x2F;* (4.2.1) 更新PC位置到：state-&gt;loc *&#x2F;
+			case DW_CFA_nop:
+				break;
+			case DW_CFA_set_loc:
+&#x2F;* 计算：Location = Address *&#x2F;
+				state-&gt;loc = read_pointer(&amp;ptr.p8, end, ptrType, 0, 0);
+if (state-&gt;loc == 0)
+					result = 0;
+				break;
+			case DW_CFA_advance_loc1:
+&#x2F;* 计算：Location += (delta * code_alignment_factor) *&#x2F;
+				result = ptr.p8 &lt; end &amp;&amp; advance_loc(*ptr.p8++, state);
+				break;
+			case DW_CFA_advance_loc2:
+&#x2F;* 计算：Location += (delta * code_alignment_factor) *&#x2F;
+				result = ptr.p8 &lt;= end + 2
+&amp;&amp; advance_loc(*ptr.p16++, state);
+				break;
+			case DW_CFA_advance_loc4:
+&#x2F;* 计算：Location += (delta * code_alignment_factor) *&#x2F;
+				result = ptr.p8 &lt;= end + 4
+&amp;&amp; advance_loc(*ptr.p32++, state);
+				break;
+
+&#x2F;* (4.2.2) 更新通用寄存器的值：state-&gt;regs[reg].where&#x2F;value *&#x2F;
+			case DW_CFA_offset_extended:
+&#x2F;*  计算 rule：offset(N)
+					reg num = *(CFA + (factored offset * data_alignment_factor))
+*&#x2F;
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value, Memory, get_uleb128(&amp;ptr.p8, end), state);
+				break;
+			case DW_CFA_val_offset:
+&#x2F;*  计算 rule：val_offset(N)
+					reg num = CFA + (factored offset * data_alignment_factor)
+*&#x2F;
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value, Value, get_uleb128(&amp;ptr.p8, end), state);
+				break;
+			case DW_CFA_offset_extended_sf:
+&#x2F;*  计算 rule：offset(N)
+					reg num = *(CFA + (factored offset * data_alignment_factor))
+*&#x2F;
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value, Memory, get_sleb128(&amp;ptr.p8, end), state);
+				break;
+			case DW_CFA_val_offset_sf:
+&#x2F;*  计算 rule：val_offset(N)
+					reg num = CFA + (factored offset * data_alignment_factor)
+*&#x2F;
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value, Value, get_sleb128(&amp;ptr.p8, end), state);
+				break;
+			case DW_CFA_restore_extended:
+			case DW_CFA_undefined:
+			case DW_CFA_same_value:
+set_rule(get_uleb128(&amp;ptr.p8, end), Nowhere, 0, state);
+				break;
+			case DW_CFA_register:
+&#x2F;*  计算 rule：register(R)
+					reg num = R (second operands)
+*&#x2F;
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value,
+				         Register,
+get_uleb128(&amp;ptr.p8, end), state);
+				break;
+
+&#x2F;* (4.2.3) 寄存器集的存栈和恢复 *&#x2F;
+			case DW_CFA_remember_state:
+&#x2F;*  本次是寄存器集恢复动作：重新解析指令一直恢复到label处 *&#x2F;
+if (ptr.p8 == state-&gt;label) {
+					state-&gt;label = NULL;
+return 1;
+				}
+if (state-&gt;stackDepth &gt;= MAX_STACK_DEPTH) {
+					dprintk(1, &quot;State stack overflow (%p,%p).&quot;, ptr.p8, end);
+return 0;
+				}
+&#x2F;* 本次是寄存器集存栈动作：把当前location存入到堆栈中 *&#x2F;
+				state-&gt;stack[state-&gt;stackDepth++] = ptr.p8;
+				break;
+			case DW_CFA_restore_state:
+if (state-&gt;stackDepth) {
+					const uleb128_t loc = state-&gt;loc;
+					const u8 *label = state-&gt;label;
+
+&#x2F;* 碰到需要恢复寄存器的情况：
+1、从堆栈中弹出需要恢复到哪一步的label
+2、把cfa和regs寄存器集的值都设置成初始状态
+3、从头重新开始解析，直到label处为止
+4、寄存器集就恢复到了之前`DW_CFA_remember_state`指令保存的状态
+*&#x2F;
+					state-&gt;label = state-&gt;stack[state-&gt;stackDepth - 1];
+					memcpy(&amp;state-&gt;cfa, &amp;badCFA, sizeof(state-&gt;cfa));
+					memset(state-&gt;regs, 0, sizeof(state-&gt;regs));
+					state-&gt;stackDepth = 0;
+					result = processCFI(start, end, 0, ptrType, state);
+					state-&gt;loc = loc;
+					state-&gt;label = label;
+				} else {
+					dprintk(1, &quot;State stack underflow (%p,%p).&quot;, ptr.p8, end);
+return 0;
+				}
+				break;
+
+&#x2F;* (4.2.4) cfa值的更新：state-&gt;cfa
+				更新cfa计算公式的两个变量register和offset
+				通常情况下：CFA = regitser + offset
+*&#x2F;
+			case DW_CFA_def_cfa:
+&#x2F;* 同时更新register和offset：
+					register = new register
+					offset = new offset
+*&#x2F;
+				state-&gt;cfa.reg = get_uleb128(&amp;ptr.p8, end);
+&#x2F;*nobreak*&#x2F;
+			case DW_CFA_def_cfa_offset:
+&#x2F;* 只更新offset：
+					offset = new offset
+*&#x2F;
+				state-&gt;cfa.offs = get_uleb128(&amp;ptr.p8, end);
+				break;
+			case DW_CFA_def_cfa_sf:
+&#x2F;* 同时更新register和offset：
+					register = new register
+					offset = (new offset * data_alignment_factor)
+*&#x2F;
+				state-&gt;cfa.reg = get_uleb128(&amp;ptr.p8, end);
+&#x2F;*nobreak*&#x2F;
+			case DW_CFA_def_cfa_offset_sf:
+&#x2F;* 只更新offset：
+					offset = (new offset * data_alignment_factor)
+*&#x2F;
+				state-&gt;cfa.offs = get_sleb128(&amp;ptr.p8, end)
+* state-&gt;dataAlign;
+				break;
+			case DW_CFA_def_cfa_register:
+&#x2F;* 只更新register：
+					register = new register
+*&#x2F;
+				state-&gt;cfa.reg = get_uleb128(&amp;ptr.p8, end);
+				break;
+
+&#x2F;* (4.2.5) 对 DWARF expression的处理，没看明白  *&#x2F;
+&#x2F;*todo case DW_CFA_def_cfa_expression: *&#x2F;
+&#x2F;*todo case DW_CFA_expression: *&#x2F;
+&#x2F;*todo case DW_CFA_val_expression: *&#x2F;
+			case DW_CFA_GNU_args_size:
+get_uleb128(&amp;ptr.p8, end);
+				break;
+			case DW_CFA_GNU_negative_offset_extended:
+value = get_uleb128(&amp;ptr.p8, end);
+set_rule(value,
+				         Memory,
+				         (uleb128_t)0 - get_uleb128(&amp;ptr.p8, end), state);
+				break;
+			case DW_CFA_GNU_window_save:
+default:
+				dprintk(1, &quot;Unrecognized CFI op %02X (%p,%p).&quot;, ptr.p8[-1], ptr.p8 - 1, end);
+				result = 0;
+				break;
+			}
+			break;
+
+&#x2F;* DW_CFA_advance_loc *&#x2F;
+		case 1:
+&#x2F;* 计算：Location += (delta * code_alignment_factor) *&#x2F;
+			result = advance_loc(*ptr.p8++ &amp; 0x3f, state);
+			break;
+&#x2F;* DW_CFA_offset *&#x2F;
+		case 2:
+&#x2F;*  计算 rule：offset(N)
+				reg num = *(CFA + (factored offset * data_alignment_factor))
+*&#x2F;
+value = *ptr.p8++ &amp; 0x3f;
+set_rule(value, Memory, get_uleb128(&amp;ptr.p8, end), state);
+			break;
+&#x2F;* DW_CFA_restore *&#x2F;
+		case 3:
+&#x2F;*  计算 rule：initial_instructions in the CIE
+				reg num = initial_instructions in the CIE
+*&#x2F;
+set_rule(*ptr.p8++ &amp; 0x3f, Nowhere, 0, state);
+			break;
+		}
+if (ptr.p8 &gt; end) {
+			dprintk(1, &quot;Data overrun (%p,%p).&quot;, ptr.p8, end);
+			result = 0;
+		}
+
+&#x2F;* (4.2.6) 读取fde的条目，直到大于PC值的位置 *&#x2F;
+if (result &amp;&amp; targetLoc != 0 &amp;&amp; targetLoc &lt; state-&gt;loc)
+return 1;
+	}
+
+if (result &amp;&amp; ptr.p8 &lt; end)
+		dprintk(1, &quot;Data underrun (%p,%p).&quot;, ptr.p8, end);
+
+return result
+&amp;&amp; ptr.p8 == end
+&amp;&amp; (targetLoc == 0
+	           || (&#x2F;*todo While in theory this should apply, gcc in practice omits
+	                 everything past the function prolog, and hence the location
+	                 never reaches the end of the function.
+	               targetLoc &lt; state-&gt;loc &amp;&amp;*&#x2F; state-&gt;label == NULL));
+}
+</code></pre>
+<h2 id="6-yong-hu-tai-chang-jian-qu-zhan-fang-fa">6. 用户态常见取栈方法</h2>
+<h3 id="6-1-gccqu-zhan">6.1 gcc取栈</h3>
+<p>gcc提供了__builtin_return_address() 宏来做栈的回溯：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">#include &lt;stdio.h&gt;
+
+void do_backtrace()
+{
+    void *pc0 = __builtin_return_address(0);
+    void *pc1 = __builtin_return_address(1);
+&#x2F;&#x2F;void *pc2 = __builtin_return_address(2);
+&#x2F;&#x2F;void *pc3 = __builtin_return_address(3);
+
+    printf(&quot;Frame 0: PC=%p\n&quot;, pc0);
+    printf(&quot;Frame 1: PC=%p\n&quot;, pc1);
+&#x2F;&#x2F;printf(&quot;Frame 2: PC=%p\n&quot;, pc2);
+&#x2F;&#x2F;printf(&quot;Frame 3: PC=%p\n&quot;, pc3);
+}
+
+int main()
+{
+    do_backtrace();
+
+}
+</code></pre>
+<p>编译并运行：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">&gt; gcc gcc_backtrace.c
+&gt; .&#x2F;a.out
+Frame 0: PC=0x400590
+Frame 1: PC=0x7f4052ab8c36
+</code></pre>
+<h3 id="6-2-glibcqu-zhan">6.2 glibc取栈</h3>
+<p>glibc提供了一对函数backtrace()和backtrace_symbols()来回溯栈信息：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">#include &lt;stdio.h&gt;
+#include &lt;execinfo.h&gt;
+
+#define BACKTRACE_SIZ   64
+void do_backtrace()
+{
+    void    *array[BACKTRACE_SIZ];
+size_t   size, i;
+    char   **strings;
+
+size = backtrace(array, BACKTRACE_SIZ);
+    strings = backtrace_symbols(array, size);
+
+for (i = 0; i &lt; size; i++) {
+        printf(&quot;%p : %s\n&quot;, array[i], strings[i]);
+    }
+
+free(strings);  &#x2F;&#x2F; malloced by backtrace_symbols
+}
+
+int  main()
+{
+    do_backtrace();
+return 0;
+}
+</code></pre>
+<p>编译并运行：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">&gt; gcc glibc_backtrace.c
+&gt; .&#x2F;a.out
+0x400646 : .&#x2F;a.out() [0x400646]
+0x4006c0 : .&#x2F;a.out() [0x4006c0]
+0x7fd564f97c36 : &#x2F;lib64&#x2F;libc.so.6(__libc_start_main+0xe6) [0x7fd564f97c36]
+0x400569 : .&#x2F;a.out() [0x400569]
+</code></pre>
+<p>编译时使用<code>-rdynamic</code>把调试信息链接进文件，运行会打印出更详细的符号信息：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">&gt; gcc -g -rdynamic glibc_backtrace.c
+&gt; .&#x2F;a.out
+0x4008d6 : .&#x2F;a.out(do_backtrace+0x1c) [0x4008d6]
+0x400950 : .&#x2F;a.out(main+0xe) [0x400950]
+0x7f9ed1f6bc36 : &#x2F;lib64&#x2F;libc.so.6(__libc_start_main+0xe6) [0x7f9ed1f6bc36]
+0x4007f9 : .&#x2F;a.out() [0x4007f9]
+</code></pre>
+<p>gcc的<code>-g</code>和<code>rdynamic</code>选项：</p>
+<ul>
+<li>gcc的<code>-g</code>，应该没有人不知道它是一个调试选项，因此在一般需要进行程序调试的场景下，我们都会加上该选项，并且根据调试工具的不同，还能直接选择更有针对性的说明，比如-ggdb。-g是一个<code>编译选项</code>，即在源代码编译的过程中起作用，让gcc把更多调试信息（也就包括符号信息）收集起来并将存放到最终的可执行文件内。</li>
+<li><code>-rdynamic</code>却是一个<code>连接选项</code>，它将指示连接器把所有符号（而不仅仅只是程序已使用到的外部符号，但不包括静态符号，比如被static修饰的函数）都添加到动态符号表（即.dynsym表）里，以便那些通过dlopen()或backtrace()（这一系列函数使用.dynsym表内符号）这样的函数使用。</li>
+</ul>
+<h3 id="6-3-libunwindqu-zhan">6.3 libunwind取栈</h3>
+<p>安装libunwind：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">&#x2F;&#x2F; suse11sp4
+sudo zypper install libunwind libunwind-devel
+
+&#x2F;&#x2F; ubuntu18.04
+sudo apt-get install libunwind-dev
+</code></pre>
+<p>例程：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">#include &lt;stdio.h&gt;
+#define UNW_LOCAL_ONLY
+#include &lt;libunwind.h&gt;
+
+void do_backtrace()
+{
+    unw_cursor_t    cursor;
+    unw_context_t   context;
+
+    unw_getcontext(&amp;context);
+    unw_init_local(&amp;cursor, &amp;context);
+
+    while (unw_step(&amp;cursor) &gt; 0) {
+        unw_word_t  offset, pc;
+        char        fname[64];
+
+        unw_get_reg(&amp;cursor, UNW_REG_IP, &amp;pc);
+
+        fname[0] = &#x27;\0&#x27;;
+        (void) unw_get_proc_name(&amp;cursor, fname, sizeof(fname), &amp;offset);
+
+        printf (&quot;%p : (%s+0x%x) [%p]\n&quot;, pc, fname, offset, pc);
+    }
+}
+
+int main()
+{
+    do_backtrace();
+
+}
+</code></pre>
+<p>编译并运行：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ gcc -g libunwind_backtrace.c -lunwind
+$ .&#x2F;a.out
+0x55e6635819cb : (main+0xe) [0x55e6635819cb]
+0x7f8f4e88db97 : (__libc_start_main+0xe7) [0x7f8f4e88db97]
+0x55e6635817fa : (_start+0x2a) [0x55e6635817fa]
+</code></pre>
+<p>libunwind提供了更多能力来检查每帧的程序状态。 例如，可以打印保存的寄存器值：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">void do_backtrace2()
+{
+    unw_cursor_t    cursor;
+    unw_context_t   context;
+
+    unw_getcontext(&amp;context);
+    unw_init_local(&amp;cursor, &amp;context);
+    while (unw_step(&amp;cursor) &gt; 0) {
+        unw_word_t  offset;
+        unw_word_t  pc, eax, ebx, ecx, edx;
+        char        fname[64];
+
+        unw_get_reg(&amp;cursor, UNW_REG_IP,  &amp;pc);
+        unw_get_reg(&amp;cursor, UNW_X86_64_RAX, &amp;eax);
+        unw_get_reg(&amp;cursor, UNW_X86_64_RDX, &amp;edx);
+        unw_get_reg(&amp;cursor, UNW_X86_64_RCX, &amp;ecx);
+        unw_get_reg(&amp;cursor, UNW_X86_64_RBX, &amp;ebx);
+
+        fname[0] = &#x27;\0&#x27;;
+        unw_get_proc_name(&amp;cursor, fname, sizeof(fname), &amp;offset);
+        printf (&quot;%p : (%s+0x%x) [%p]\n&quot;, pc, fname, offset, pc);
+        printf(&quot;\tEAX=0x%08x EDX=0x%08x ECX=0x%08x EBX=0x%08x\n&quot;,
+                eax, edx, ecx, ebx);
+    }
+}
+</code></pre>
+<p>编译并运行：</p>
+<pre data-lang="cobol" class="language-cobol "><code class="language-cobol" data-lang="cobol">$ gcc libunwind_bt.c  -lunwind
+$ .&#x2F;a.out
+0x55e24c1f7b50 : (main+0xe) [0x55e24c1f7b50]
+        EAX=0xe8a1c4e0 EDX=0x7f6977ca ECX=0x4c1f7b60 EBX=0x00000000
+0x7f027f095b97 : (__libc_start_main+0xe7) [0x7f027f095b97]
+        EAX=0xe8a1c4e0 EDX=0x7f6977ca ECX=0x4c1f7b60 EBX=0x00000000
+0x55e24c1f77fa : (_start+0x2a) [0x55e24c1f77fa]
+        EAX=0xe8a1c4e0 EDX=0x7f6977ca ECX=0x4c1f7b60 EBX=0x00000000
+</code></pre>
+<blockquote>
+<p>相关资源：<a rel="noopener" target="_blank" href="http://www.nongnu.org/libunwind/index.html">libunwind project</a>、<a rel="noopener" target="_blank" href="https://github.com/ehsan/libunwind">libunwind with Android ARM support</a></p>
+</blockquote>
+<h2 id="can-kao-wen-dang">参考文档：</h2>
+<p>1.<a rel="noopener" target="_blank" href="http://web.archive.org/web/20130111101034/http://blog.mozilla.org/respindola/2011/05/12/cfi-directives">CFI directives introduce</a>
+2.<a rel="noopener" target="_blank" href="https://refspecs.linuxfoundation.org/LSB_5.0.0/LSB-Core-generic/LSB-Core-generic/ehframechpt.html">.eh_frame section</a>
+3.<a rel="noopener" target="_blank" href="http://dwarfstd.org/doc/DWARF4.pdf">DWARF Version 4</a>
+4.<a rel="noopener" target="_blank" href="https://www.airs.com/blog/archives/460">.eh_frame</a>
+5.<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs/as/ARM-Unwinding-Tutorial.html#ARM-Unwinding-Tutorial">ARM-Unwinding-Tutorial</a>
+6.<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs/as/ARM-Directives.html#arm_005ffnstart">ARM-Directives</a>
+7.<a rel="noopener" target="_blank" href="https://sourceware.org/binutils/docs-2.31/as/CFI-directives.html">CFI-directives</a>
+8.<a rel="noopener" target="_blank" href="https://www.cnblogs.com/welhzh/p/4813778.html">linux c 及 c++打印调用者函数caller function的方法，包括arm c平台</a>
+9.<a rel="noopener" target="_blank" href="http://www.lenky.info/archives/2013/01/2190">gcc选项-g与-rdynamic的异同</a>
+10.<a rel="noopener" target="_blank" href="https://blog.csdn.net/liao20081228/article/details/79734887">X86系列CPU标准寄存器</a>
+11.<a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/27339191">x86-64 下函数调用及栈帧原理</a>
+12.<a rel="noopener" target="_blank" href="https://www.usenix.org/legacy/events/woot11/tech/slides/oakley.pdf">Exploiting the Hard-Working DWARF</a>
+13.<a rel="noopener" target="_blank" href="https://felixzhang00.github.io/2016/12/24/2016-12-24-ELF%E6%96%87%E4%BB%B6%E8%A3%85%E8%BD%BD%E9%93%BE%E6%8E%A5%E8%BF%87%E7%A8%8B%E5%8F%8Ahook%E5%8E%9F%E7%90%86/">ELF文件装载链接过程及hook原理</a>
+14.<a rel="noopener" target="_blank" href="https://blog.csdn.net/rockrockwu/article/details/81707909">Linux ELF文件和VMA间的关系</a>
+15.<a rel="noopener" target="_blank" href="https://github.com/etherealvisage/unread/tree/master/src">unread</a>
+16.<a rel="noopener" target="_blank" href="https://refspecs.linuxbase.org/LSB_3.0.0/LSB-PDA/LSB-PDA/dwarfext.html">DWARF Extensions</a></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/漫谈微信libco协程设计及实现-万字长文/">&#8249; 漫谈微信libco协程设计及实现（万字长文）</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/afl/"> AFL &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#unwind-zhan-hui-su-xiang-jie">Unwind 栈回溯详解</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-li-shi-bei-jing"><small>- 1. 历史背景</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-1-frame-pointers"><small>· 1.1 frame pointers</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-2-debug-frame-dwarf"><small>· 1.2 .debug_frame (DWARF)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-3-eh-frame-lsb"><small>· 1.3 .eh_frame (LSB)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-4-cfi-directives"><small>· 1.4 CFI directives</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-debug-frame-dwarf-xiang-jie"><small>- 2. .debug_frame (DWARF) 详解</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-1-call-frame-table"><small>· 2.1 Call Frame Table</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-2-call-frame-instructions"><small>· 2.2 Call Frame Instructions</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-3-instructions-opcode"><small>· 2.3 Instructions Opcode</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-4-dwarf-expression"><small>· 2.4 DWARF expression</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-5-call-frame-instruction-usage"><small>· 2.5 Call Frame Instruction Usage</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-6-call-frame-calling-address"><small>· 2.6 Call Frame Calling Address</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-7-cfi-example"><small>· 2.7 CFI Example</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-eh-frame-xiang-jie"><small>- 3. .eh_frame 详解</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-1-eh-frame-ge-shi"><small>· 3.1 .eh_frame 格式</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-2-eh-frame-shi-li"><small>· 3.2 .eh_frame 实例</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-cfi-directives-xiang-jie"><small>- 4. CFI directives 详解</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-1-cfi-xiang-jie"><small>· 4.1 CFI 详解</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-2-cfi-shi-li"><small>· 4.2 CFI 实例</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-kernel-unwind-shi-xian"><small>- 5. kernel unwind 实现</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-1-eh-framede-jia-zai"><small>· 5.1 .eh_frame的加载</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#5-2-unwindjie-xi"><small>· 5.2 unwind解析</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-yong-hu-tai-chang-jian-qu-zhan-fang-fa"><small>- 6. 用户态常见取栈方法</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-1-gccqu-zhan"><small>· 6.1 gcc取栈</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-2-glibcqu-zhan"><small>· 6.2 glibc取栈</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#6-3-libunwindqu-zhan"><small>· 6.3 libunwind取栈</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#can-kao-wen-dang"><small>- 参考文档：</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

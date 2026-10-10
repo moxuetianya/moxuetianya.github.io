@@ -1,0 +1,369 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>issue24 实现一个简单的CRT | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="本文介绍如何实现自己的CRT(c runtime library)来完成标准库glibc的部分工作，该CRT只提供了read, write, close, ex" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/issue24-实现一个简单的crt/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/issue24-实现一个简单的crt/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/issue24-实现一个简单的crt/" />
+  <meta property="og:description" content="本文介绍如何实现自己的CRT(c runtime library)来完成标准库glibc的部分工作，该CRT只提供了read, write, close, ex" />
+  <meta name="twitter:description" content="本文介绍如何实现自己的CRT(c runtime library)来完成标准库glibc的部分工作，该CRT只提供了read, write, close, ex" />
+  <meta property="og:title" content="issue24 实现一个简单的CRT | 墨雪天琊" />
+  <meta name="twitter:title" content="issue24 实现一个简单的CRT | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-04-20" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/issue24-实现一个简单的crt/">issue24 实现一个简单的CRT</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 四月 20, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/shell-yu-ming-ling-xing/">Shell 与命令行</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a>  #<a href="https://moxuetianya.github.io/tags/bian-yi-lian-jie/">编译链接</a> </span>
+
+    
+
+
+<h1 id="issue24-shi-xian-yi-ge-jian-dan-de-crt">issue24 实现一个简单的CRT</h1>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://github.com/chenpengcong/blog/issues/24">https://github.com/chenpengcong/blog/issues/24 - GitHub</a></li>
+</ul>
+<p>本文介绍如何实现自己的CRT(c runtime library)来完成标准库glibc的部分工作，该CRT只提供了read, write, close, exit这几个系统调用，完整代码在<a rel="noopener" target="_blank" href="https://github.com/chenpengcong/mini_crt">mini_crt</a></p>
+<p>本文所编写的代码在下面环境下测试通过</p>
+<pre><code>$ cat &#x2F;etc&#x2F;issue
+Ubuntu 18.04.1 LTS
+$ uname -a
+Linux c1 4.15.0-36-generic #39-Ubuntu SMP Mon Sep 24 16:19:09 UTC 2018 x86_64 x86_64 x86_64 GNU&#x2F;Linux
+$ gcc --version
+gcc (Ubuntu 7.3.0-27ubuntu1~18.04) 7.3.0
+$ ld --version
+GNU ld (GNU Binutils for Ubuntu) 2.30
+</code></pre>
+<p>首先，我们需要实现一个入口函数, 它需要取得argc和argv, 然后调用main函数, 最终调用exit系统调用退出程序</p>
+<p>我们平时编写的依赖于glibc的ELF可执行程序默认入口是_start, 定义在<a rel="noopener" target="_blank" href="https://github.com/lattera/glibc/blob/master/sysdeps/x86_64/start.S">glibc/sysdeps/x86_64/start.S</a>, 它是通过在链接控制脚本中指定的，可以通过<code>$ ld -verbose</code>查看ld使用的链接控制脚本</p>
+<pre><code>$ ld -verbose | grep ENTRY
+ENTRY(_start)
+</code></pre>
+<p>_start函数除了上面描述的入口函数的功能还做了许多工作，这里不细究，部分内容可以参考我的另一篇文章<a rel="noopener" target="_blank" href="https://github.com/chenpengcong/blog/issues/19">glibc的构造函数和析构函数</a></p>
+<p>实现的入口函数如下(entry.c)</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">#include &quot;util.h&quot;
+
+extern int main(int argc, char **argv);
+
+void mini_crt_entry()
+{
+    int argc;
+    char **argv;
+    int status = 42;
+    char* rbp_reg = 0;
+    asm(&quot;mov %%rbp, %0 \n\t&quot;:&quot;=m&quot;(rbp_reg):);
+    argc = *((int *)(rbp_reg + 8));
+    argv = (char **)(rbp_reg + 16);
+    status = main(argc, argv);
+    exit(status);
+}
+</code></pre>
+<p>argc和argv是从当前栈顶往高地址方向偏移8字节和16字节拿到的</p>
+<p><strong>为什么从堆栈中取得这argc和argv呢?</strong>
+因为当ELF加载器(ELF Loader)将ELF文件加载到内存后，会初始化进程堆栈，包括argc, argv等, 所以在程序进入mini_crt_entry前, 进程堆栈中已经存放了argc和argv了，如下表所示,。进程堆栈初始化的细节可以看我的另一篇文章<a rel="noopener" target="_blank" href="https://github.com/chenpengcong/blog/issues/18">进程堆栈初始化</a></p>
+<pre><code>position            content                         size(bytes) + comment
+-------------------------------------------------------------------------------------------------
+
+stack pointer -&gt;    [argc = number of args]         8
+                    [argv[0](pointer)]              8
+                    [argv[1](pointer)]              8
+                    [argv[...](pointer)]            8 * x
+                    [argv[n-1](pointer)]            8
+                    [argv[n](pointer)]              8 (=NULL)
+</code></pre>
+<p><strong>为什么是从偏移8字节开始取得呢？</strong>
+因为函数执行的第一条指令就是保存堆栈基地址: <code>push %rbp</code>(重新强调下本文代码是基于64位机器编写的，因此是rbp寄存器), 栈增长了8字节, 所以我们需要从偏移8字节位置拿到argc</p>
+<p>接下来在util.c中实现read, write, close和exit函数去调用真正的系统调用, 由于是在64位系统下编写, 所以使用了syscall来调用系统调用, 看懂下面代码需要了解<a rel="noopener" target="_blank" href="https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html">Extended Asm(扩展汇编)</a>的知识</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">#include &quot;util.h&quot;
+long read(int fd, void *buf, long count)
+{
+    long ret;
+    asm(&quot;movq $0, %%rax \n\t&quot;
+        &quot;movq %1, %%rdi \n\t&quot;
+        &quot;movq %2, %%rsi \n\t&quot;
+        &quot;movq %3, %%rdx \n\t&quot;
+        &quot;syscall \n\t&quot;
+        &quot;movq %%rax, %0 \n\t&quot;
+        :&quot;=m&quot;(ret)
+        :&quot;m&quot;(fd),&quot;m&quot;(buf),&quot;m&quot;(count)
+        :&quot;rax&quot;, &quot;rdi&quot;, &quot;rsi&quot;, &quot;rdx&quot;);
+    return ret;
+}
+
+long write(int fd, const void *buf, long count)
+{
+    long ret;
+    asm(&quot;movq $1, %%rax \n\t&quot;
+        &quot;movq %1, %%rdi \n\t&quot;
+        &quot;movq %2, %%rsi \n\t&quot;
+        &quot;movq %3, %%rdx \n\t&quot;
+        &quot;syscall \n\t&quot;
+        &quot;movq %%rax, %0 \n\t&quot;
+        :&quot;=m&quot;(ret)
+        :&quot;m&quot;(fd),&quot;m&quot;(buf),&quot;m&quot;(count)
+        :&quot;rax&quot;, &quot;rdi&quot;, &quot;rsi&quot;, &quot;rdx&quot;);
+    return ret;
+}
+
+int open(const char *pathname, int flags, int mode)
+{
+    long fd;
+    asm(&quot;movq $2, %%rax \n\t&quot;
+        &quot;movq %1, %%rdi \n\t&quot;
+        &quot;movq %2, %%rsi \n\t&quot;
+        &quot;movq %3, %%rdx \n\t&quot;
+        &quot;syscall \n\t&quot;
+        &quot;movq %%rax, %0 \n\t&quot;
+        :&quot;=m&quot;(fd)
+        :&quot;m&quot;(pathname),&quot;m&quot;(flags),&quot;m&quot;(mode)
+        :&quot;rax&quot;, &quot;rdi&quot;, &quot;rsi&quot;, &quot;rdx&quot;);
+    return fd;
+}
+
+int close(int fd)
+{
+    long ret;
+    asm(&quot;movq $3, %%rax \n\t&quot;
+        &quot;movq %1, %%rdi \n\t&quot;
+        &quot;syscall \n\t&quot;
+        &quot;movq %%rax, %0 \n\t&quot;
+        :&quot;=m&quot;(ret)
+        :&quot;m&quot;(fd)
+        :&quot;rax&quot;, &quot;rdi&quot;);
+    return ret;
+}
+
+void exit(int status)
+{
+    asm(&quot;movq $60, %%rax \n\t&quot;
+        &quot;movq %0, %%rdi \n\t&quot;
+        &quot;syscall \n\t&quot;
+        :
+        :&quot;m&quot;(status));
+}
+</code></pre>
+<p>util.h代码如下</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">#define O_RDONLY 00
+#define O_WRONLY 01
+#define O_RDWR 02
+
+long read(int fd, void *buf, long count);
+long write(int fd, const void *buf, long count);
+int open(const char *pathname, int flags, int mode);
+int close(int fd);
+void exit(int status);
+</code></pre>
+<p>到这里一个简单的crt就完成了, 将代码编译成静态库</p>
+<pre><code>$ gcc -c -fno-builtin -nostdlib entry.c util.c
+$ ar -rs minicrt.a util.o entry.o
+</code></pre>
+<p>编译选项</p>
+<ul>
+<li>-fno-builtin参数关闭gcc的内置函数功能, 默认情况下gcc会把strlen, strcmp, exit等常用函数展开它内部的实现</li>
+<li>-nostdlib表示不使用来自glibc, gcc的库文件和启动文件</li>
+</ul>
+<p>接下来编写测试程序去使用这个库而不是默认的glibc, 该程序从命令行参数读取文件名, 然后根据文件名读取1KB内容输出到标准输出(文件描述符0)</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">#include &quot;util.h&quot;
+
+int main(int argc, char **argv)
+{
+    int fd;
+    long count = 0;
+    char buf[1024] = {0};
+    if (argc == 2) {
+        fd = open(argv[1], O_RDONLY, 0);
+        count = read(fd, buf, 1024);
+        write(1, buf, count);
+        close(fd);
+    }
+    return 0;
+}
+</code></pre>
+<p>编译, 链接, 运行如下</p>
+<pre><code>$ gcc -c -fno-builtin -nostdlib test.c
+$ ld -static -e mini_crt_entry test.o minicrt.a -o test
+$ .&#x2F;test test.c
+#include &quot;util.h&quot;
+
+int main(int argc, char **argv)
+{
+    int fd;
+    long count = 0;
+    char buf[1024] = {0};
+    if (argc == 2) {
+        fd = open(argv[1], O_RDONLY, 0);
+        count = read(fd, buf, 1024);
+        write(1, buf, count);
+        close(fd);
+    }
+    return 0;
+}
+</code></pre>
+<p>其中链接选项<code>-e mini_crt_entry</code>指定程序入口为mini_crt_entry函数</p>
+<p>至此, 一个简单的C语言运行时库就完成了, 下面讲解编写该crt所遇到的坑</p>
+<p><strong>函数read, write的中的变量ret类型不能为int</strong></p>
+<p>比如我在read函数中将变量ret定义为int, 会导致错误<code>Segmentation fault (core dumped)</code></p>
+<p>使用<code>objdump</code>反编译查看汇编代码，比较ret为long和int情况有什么不同</p>
+<pre><code>  # 这是ret为long的汇编代码
+  0000000000400159 &lt;read&gt;:
+  400159:	55                   	push   %rbp
+  40015a:	48 89 e5             	mov    %rsp,%rbp
+  40015d:	89 7d ec             	mov    %edi,-0x14(%rbp)
+  400160:	48 89 75 e0          	mov    %rsi,-0x20(%rbp)
+  400164:	48 89 55 d8          	mov    %rdx,-0x28(%rbp)
+  400168:	48 c7 c0 00 00 00 00 	mov    $0x0,%rax
+  40016f:	48 8b 7d ec          	mov    -0x14(%rbp),%rdi
+  400173:	48 8b 75 e0          	mov    -0x20(%rbp),%rsi
+  400177:	48 8b 55 d8          	mov    -0x28(%rbp),%rdx
+  40017b:	0f 05                	syscall
+  40017d:	48 89 45 f8          	mov    %rax,-0x8(%rbp)
+  400181:	48 8b 45 f8          	mov    -0x8(%rbp),%rax
+  400185:	5d                   	pop    %rbp
+  400186:	c3                   	retq
+
+  # 这是ret为int的汇编代码
+  0000000000400159 &lt;read&gt;:
+  400159:	55                   	push   %rbp
+  40015a:	48 89 e5             	mov    %rsp,%rbp
+  40015d:	89 7d ec             	mov    %edi,-0x14(%rbp)
+  400160:	48 89 75 e0          	mov    %rsi,-0x20(%rbp)
+  400164:	48 89 55 d8          	mov    %rdx,-0x28(%rbp)
+  400168:	48 c7 c0 00 00 00 00 	mov    $0x0,%rax
+  40016f:	48 8b 7d ec          	mov    -0x14(%rbp),%rdi
+  400173:	48 8b 75 e0          	mov    -0x20(%rbp),%rsi
+  400177:	48 8b 55 d8          	mov    -0x28(%rbp),%rdx
+  40017b:	0f 05                	syscall
+  40017d:	48 89 45 fc          	mov    %rax,-0x4(%rbp)
+  400181:	8b 45 fc             	mov    -0x4(%rbp),%eax
+  400184:	48 98                	cltq
+  400186:	5d                   	pop    %rbp
+  400187:	c3                   	retq
+
+</code></pre>
+<p>区别在于40017d处的指令，<code>mov %rax,-0x8(%rbp)</code>和<code>mov %rax,-0x4(%rbp)</code>，为什么右边这条指令会导致崩溃，原因在于该指令使用的偏移量有问题，导致指令<code>push %rbp</code>在栈中保存的值(main函数的堆栈基地址)被覆盖。下面我使用编译选项-g，然后用gdb调试证明堆栈确实被破坏了</p>
+<pre><code>(gdb) disas
+Dump of assembler code for function read:
+=&gt; 0x0000000000400159 &lt;+0&gt;:	push   %rbp
+   0x000000000040015a &lt;+1&gt;:	mov    %rsp,%rbp
+   0x000000000040015d &lt;+4&gt;:	mov    %edi,-0x14(%rbp)
+   0x0000000000400160 &lt;+7&gt;:	mov    %rsi,-0x20(%rbp)
+   0x0000000000400164 &lt;+11&gt;:	mov    %rdx,-0x28(%rbp)
+   0x0000000000400168 &lt;+15&gt;:	mov    $0x0,%rax
+   0x000000000040016f &lt;+22&gt;:	mov    -0x14(%rbp),%rdi
+   0x0000000000400173 &lt;+26&gt;:	mov    -0x20(%rbp),%rsi
+   0x0000000000400177 &lt;+30&gt;:	mov    -0x28(%rbp),%rdx
+   0x000000000040017b &lt;+34&gt;:	syscall
+   0x000000000040017d &lt;+36&gt;:	mov    %rax,-0x4(%rbp)
+   0x0000000000400181 &lt;+40&gt;:	mov    -0x4(%rbp),%eax
+   0x0000000000400184 &lt;+43&gt;:	cltq
+   0x0000000000400186 &lt;+45&gt;:	pop    %rbp
+   0x0000000000400187 &lt;+46&gt;:	retq
+End of assembler dump.
+(gdb) p $rbp
+$1 = (void *) 0x7fffffffe418
+(gdb) b *read+46
+Breakpoint 3 at 0x400187: file util.c, line 15.
+(gdb) c
+Continuing.
+
+Breakpoint 3, 0x0000000000400187 in read (fd=3, buf=0x7fffffffe008, count=1024) at util.c:15
+15	}
+(gdb) p $rbp
+$2 = (void *) 0x7fff00000000
+</code></pre>
+<p>可以看到read函数一开始保存的rbp寄存器的值为0x7fffffffe418，当函数准备返回时，rbp寄存器的值却变成了0x7fff00000000，下面图示有助于理解是怎么被覆盖的</p>
+<p><img src="/obsidian/assets/crt-issue24/crt-rbp-overwrite-stack.png" alt="crt01" /></p>
+<p>最后返回到main函数后堆栈基地址是错误的，那么使用该错误地址+偏移量去访问结果是未定义的</p>
+<p><strong>References</strong></p>
+<ul>
+<li>《程序员自我修养》Chapter13</li>
+<li><a rel="noopener" target="_blank" href="https://github.com/chenpengcong/blog/issues/19">glibc的构造函数和析构函数</a></li>
+<li><a rel="noopener" target="_blank" href="https://github.com/chenpengcong/blog/issues/18">进程堆栈初始化</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/用rust实现udp-echo服务器和客户端/">&#8249; 用Rust实现UDP Echo服务器和客户端</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/qcow2、raw、vmdk等镜像格式/"> qcow2、raw、vmdk等镜像格式 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#issue24-shi-xian-yi-ge-jian-dan-de-crt">issue24 实现一个简单的CRT</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

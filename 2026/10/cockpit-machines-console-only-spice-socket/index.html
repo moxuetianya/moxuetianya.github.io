@@ -1,0 +1,330 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="cockpit 网页端虚拟机详情页图形 console 与 Launch Remote Viewer 按钮同时消失只剩串口的排查记录：从 libvirt-dbus、cockpit-bridge 端到端模拟一路排到前端 bundle 解包，最终根因是 virgl 配套的 SPICE unix socket 监听缺 port&#x2F;listen 属性被前端解析器丢弃；附 virt-viewer 入口优化（zsh abbr + GNOME desktop 启动器、update-desktop-database 误区、MimeType 字段语义）" />
+  <link rel="canonical" href="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/" />
+  <meta property="og:description" content="cockpit 网页端虚拟机详情页图形 console 与 Launch Remote Viewer 按钮同时消失只剩串口的排查记录：从 libvirt-dbus、cockpit-bridge 端到端模拟一路排到前端 bundle 解包，最终根因是 virgl 配套的 SPICE unix socket 监听缺 port&#x2F;listen 属性被前端解析器丢弃；附 virt-viewer 入口优化（zsh abbr + GNOME desktop 启动器、update-desktop-database 误区、MimeType 字段语义）" />
+  <meta name="twitter:description" content="cockpit 网页端虚拟机详情页图形 console 与 Launch Remote Viewer 按钮同时消失只剩串口的排查记录：从 libvirt-dbus、cockpit-bridge 端到端模拟一路排到前端 bundle 解包，最终根因是 virgl 配套的 SPICE unix socket 监听缺 port&#x2F;listen 属性被前端解析器丢弃；附 virt-viewer 入口优化（zsh abbr + GNOME desktop 启动器、update-desktop-database 误区、MimeType 字段语义）" />
+  <meta property="og:title" content="cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记 | 墨雪天琊" />
+  <meta name="twitter:title" content="cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-09" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/">cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 09, 2026 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/troubleshooting/">troubleshooting</a>, <a href="https://moxuetianya.github.io/categories/virtualization/">virtualization</a>] #<a href="https://moxuetianya.github.io/tags/qemu/">qemu</a>  #<a href="https://moxuetianya.github.io/tags/debug/">debug</a> </span>
+
+    
+
+
+<h1 id="xian-xiang">现象</h1>
+<p>宿主机上三台 virsh 管理的虚拟机（<code>qemu:///system</code> 下），其中日常开发机 <code>ubuntu.code</code>（16 vCPU / 32G，virtiofs 共享目录 + virgl 3D 加速）在 cockpit 的 Virtual machines 页面里：</p>
+<ul>
+<li>详情页 Console 卡片<strong>只剩 Serial Console</strong>（串口）；</li>
+<li>图形 console 消失；</li>
+<li>连 SPICE 模式下应有的 <strong>Launch Remote Viewer 按钮（下载 <code>.vv</code> 文件）也没有了</strong>。</li>
+</ul>
+<p>另外两台（<code>106</code>、<code>win11</code>）一切正常。</p>
+<h1 id="pai-cha-guo-cheng">排查过程</h1>
+<h2 id="di-yi-bu-wan-lu-zi-di-xiang-shang-cha-ji-chu-she-shi">第一步（弯路）：自底向上查基础设施</h2>
+<p>一开始的思路是"数据链路上某层断了"，于是从底往上逐层验证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># libvirtd 与 libvirt-dbus 服务状态
+systemctl status libvirtd            # active，monolithic legacy daemon
+busctl list | grep libvirt           # 系统总线上 org.libvirt 存在（libvirt-dbus --system）
+
+# 直接实测 D-Bus 方法（绕过 cockpit 前端）
+busctl call org.libvirt &#x2F;org&#x2F;libvirt&#x2F;QEMU org.libvirt.Connect ListDomains u 0
+# → 正常返回 3 个 domain 对象路径
+
+busctl call org.libvirt &#x2F;org&#x2F;libvirt&#x2F;QEMU&#x2F;domain&#x2F;&lt;uuid&gt; \
+  org.freedesktop.DBus.Properties GetAll s org.libvirt.Domain
+# → 正常返回 Name&#x2F;Active&#x2F;Id&#x2F;UUID...
+
+busctl call org.libvirt &#x2F;org&#x2F;libvirt&#x2F;QEMU org.libvirt.Connect ListStoragePools u 0
+busctl call org.libvirt &lt;pool-path&gt; org.freedesktop.DBus.Properties GetAll s org.libvirt.StoragePool
+# → pools&#x2F;networks 全部正常
+</code></pre>
+<p>D-Bus 层全绿。权限层也排除了：<code>org.libvirt.conf</code> 允许 <code>libvirt</code> 组向 <code>org.libvirt</code> 发消息，用户在该组；polkit 规则放行 <code>libvirtdbus</code>。</p>
+<p>甚至写了个 Python 脚本<strong>模拟浏览器驱动 cockpit-bridge</strong>：用正确的帧协议（<code>&lt;长度&gt;\n&lt;channel&gt;\n&lt;payload&gt;</code>）打开 <code>dbus-json3</code> 通道调 <code>ListDomains</code>——bridge 端到端也正常返回。</p>
+<blockquote>
+<p>这段弯路的教训：<strong>从底往上排查前，先确认最直接的数据源</strong>。前端渲染 VM 详情的原料就是 <code>DomainGetXMLDesc</code> 的 XML，而这个从第一步就该直接 dump 出来看。</p>
+</blockquote>
+<h2 id="di-er-bu-dui-bi-san-tai-vm-de-xml">第二步：对比三台 VM 的 XML</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virsh -c qemu:&#x2F;&#x2F;&#x2F;system dumpxml ubuntu.code &gt; u.xml
+virsh -c qemu:&#x2F;&#x2F;&#x2F;system dumpxml 106 &gt; 1.xml
+virsh -c qemu:&#x2F;&#x2F;&#x2F;system dumpxml win11 &gt; w.xml
+</code></pre>
+<p>diff 之后，<code>ubuntu.code</code> 独有的 graphics 定义浮出水面：</p>
+<pre data-lang="xml" class="language-xml "><code class="language-xml" data-lang="xml">&lt;!-- ubuntu.code：unix socket 监听（virgl 配套） --&gt;
+&lt;graphics type=&#x27;spice&#x27;&gt;
+  &lt;listen type=&#x27;socket&#x27; socket=&#x27;&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;qemu&#x2F;domain-7-ubuntu.code&#x2F;spice.sock&#x27;&#x2F;&gt;
+  &lt;image compression=&#x27;off&#x27;&#x2F;&gt;
+  &lt;gl enable=&#x27;yes&#x27; rendernode=&#x27;&#x2F;dev&#x2F;dri&#x2F;renderD128&#x27;&#x2F;&gt;
+&lt;&#x2F;graphics&gt;
+
+&lt;!-- 106 &#x2F; win11：TCP 监听，属性齐全 --&gt;
+&lt;graphics type=&#x27;spice&#x27; autoport=&#x27;yes&#x27; listen=&#x27;0.0.0.0&#x27;&gt;
+  &lt;listen type=&#x27;address&#x27; address=&#x27;0.0.0.0&#x27;&#x2F;&gt;
+&lt;&#x2F;graphics&gt;
+</code></pre>
+<p>关键差异：<code>ubuntu.code</code> 的 <code>&lt;graphics&gt;</code> 元素<strong>属性上没有</strong> <code>autoport</code> / <code>listen</code> / <code>port</code> / <code>tlsPort</code>——监听信息全在 <code>&lt;listen type='socket'&gt;</code> 子元素里。</p>
+<h2 id="di-san-bu-jie-bao-qian-duan-dai-ma-zhao-jie-xi-luo-ji">第三步：解包前端代码找解析逻辑</h2>
+<p>cockpit-machines 是打包压缩的 React 应用，直接 grep 解包产物：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">gunzip -c &#x2F;usr&#x2F;share&#x2F;cockpit&#x2F;machines&#x2F;index.js.gz &gt; index.js
+grep -o &#x27;function wie(e){.\{0,900\}&#x27; index.js
+</code></pre>
+<p>找到 <code>parseDumpxmlForConsoles()</code>（minified 后叫 <code>wie</code>）：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">function parseDumpxmlForConsoles(e) {
+  let t = [], o = e.getElementsByTagName(&quot;graphics&quot;);
+  if (o) for (let a = 0; a &lt; o.length; a++) {
+    let n = o[a], i = {
+      type:      n.getAttribute(&quot;type&quot;),      &#x2F;&#x2F; &quot;spice&quot;
+      port:      n.getAttribute(&quot;port&quot;),      &#x2F;&#x2F; socket 监听 → null
+      tlsPort:   n.getAttribute(&quot;tlsPort&quot;),   &#x2F;&#x2F; null
+      address:   n.getAttribute(&quot;listen&quot;),    &#x2F;&#x2F; null（listen 是子元素）
+      autoport:  n.getAttribute(&quot;autoport&quot;),  &#x2F;&#x2F; null
+    };
+    i.type &amp;&amp; (i.autoport || i.address &amp;&amp; (i.port || i.tlsPort))
+      ? t.push(i)   &#x2F;&#x2F; 属性齐全才收录
+      : console.warn(&quot;parseDumpxmlForConsoles(): mandatory properties are missing in dumpxml, found: &quot; + JSON.stringify(i));
+      &#x2F;&#x2F; socket 监听 → 走 warn 分支，整个 graphics 被丢弃！
+  }
+  &#x2F;&#x2F; ...console type=&#x27;pty&#x27;（串口）无条件收录
+}
+</code></pre>
+<p>而 Console 卡片的类型决策同样消费这份解析结果：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">displays.find(c =&gt; c.type == &quot;spice&quot;) ? &quot;DesktopViewer&quot;   &#x2F;&#x2F; Launch Remote Viewer 按钮
+                                      : (hasSerial ? &quot;SerialConsole&quot; : null)
+</code></pre>
+<h1 id="gen-yin">根因</h1>
+<p><strong>virtio-gpu virgl 3D 加速要求 SPICE 使用 unix socket 监听</strong>（<code>&lt;gl enable='yes'&gt;</code> 与 TCP listen 互斥，本地渲染语义），socket 监听时 <code>&lt;graphics&gt;</code> 元素属性上没有任何 <code>port</code>/<code>listen</code>/<code>autoport</code>；cockpit-machines 332 的 <code>parseDumpxmlForConsoles()</code> 只认这些属性，判定 "mandatory properties are missing" 后<strong>把整个 graphics 设备丢弃</strong>——于是：</p>
+<ul>
+<li>图形 console 消失；</li>
+<li><code>displays</code> 里没有 spice 项 → <code>"DesktopViewer"</code> 类型不成立 → <strong>Launch Remote Viewer 按钮一起消失</strong>（两者共用同一份解析结果）；</li>
+<li>落到 fallback → 只渲染 SerialConsole。</li>
+</ul>
+<p>浏览器 F12 的 Console 里能看到那条 warn 作为佐证。另外还有一层设计原因：<code>.vv</code> 文件需要 <code>host</code>/<code>port</code> 的 TCP 地址，remote-viewer 无法连接远程 unix socket，所以上游对 socket 监听就是按"没有图形设备"处理。</p>
+<h1 id="fang-an-qu-she">方案取舍</h1>
+<p>virgl 3D 加速与 cockpit 网页端图形 console <strong>不可兼得</strong>：</p>
+<table><thead><tr><th>方案</th><th>cockpit 网页端</th><th>virgl</th><th>代价</th></tr></thead><tbody>
+<tr><td>SPICE + TCP（去 gl）</td><td>恢复 Launch viewer</td><td>❌</td><td>关机重启生效</td></tr>
+<tr><td>VNC + TCP</td><td><strong>内嵌 noVNC 直接看</strong>（唯一支持内嵌）</td><td>❌</td><td>丢音频/剪贴板/USB 重定向</td></tr>
+<tr><td><strong>保持 SPICE socket + virgl（现状）</strong></td><td>只剩串口</td><td>✅</td><td>图形入口改走 virt-viewer</td></tr>
+</tbody></table>
+<p>最终选择保持现状，图形入口用 virt-viewer 直连（本地 unix socket，virgl 照常生效）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virt-viewer -c qemu:&#x2F;&#x2F;&#x2F;system ubuntu.code
+</code></pre>
+<p>顺手加了个 zsh abbr（<code>dotfiles/.my_abbr.d/vm</code>）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">abbr add --force --quiet view-vm=&#x27;virt-viewer -c qemu:&#x2F;&#x2F;&#x2F;system&#x27;
+# view-vm ubuntu.code
+</code></pre>
+<h1 id="ru-kou-you-hua-desktop-qi-dong-qi-yu-gnome-ji-cheng-de-san-ge-keng">入口优化：desktop 启动器与 GNOME 集成的三个坑</h1>
+<p>图形入口从 cockpit 网页搬到 virt-viewer 后，为了顺手做了两层入口：终端里的 zsh abbr（上文 <code>view-vm</code>），以及桌面环境的启动器 <code>~/.local/share/applications/local-vm.desktop</code>：</p>
+<pre data-lang="ini" class="language-ini "><code class="language-ini" data-lang="ini">[Desktop Entry]
+Name=local-vm
+Comment=Connect to local VM via SPICE
+Exec=virt-viewer -c qemu:&#x2F;&#x2F;&#x2F;system ubuntu.code
+Type=Application
+Terminal=false
+Icon=virt-manager
+Categories=System;X-Virtualization;
+</code></pre>
+<p>配这个文件的过程里踩了三个坑，都和"改完为什么不生效"有关。</p>
+<h2 id="keng-1-update-desktop-database-de-bao-cuo-shi-yan-wu-dan">坑 1：<code>update-desktop-database</code> 的报错是烟雾弹</h2>
+<p>改完文件跑了 <code>update-desktop-database</code>，输出：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">The databases in [&#x2F;home&#x2F;peter&#x2F;.local&#x2F;share&#x2F;flatpak&#x2F;exports&#x2F;share&#x2F;applications,
+&#x2F;var&#x2F;lib&#x2F;flatpak&#x2F;exports&#x2F;share&#x2F;applications, &#x2F;usr&#x2F;local&#x2F;share&#x2F;applications,
+&#x2F;usr&#x2F;share&#x2F;applications, ...] could not be updated.
+</code></pre>
+<p>看起来像出错了，实际是<strong>不带参数时它会尝试更新所有 XDG 数据目录</strong>（含 <code>/usr/share/applications</code> 等系统目录），普通用户没有写权限，列出来的就是这些；注意列表里<strong>没有</strong> <code>~/.local/share/applications</code>——用户目录是更新成功的。</p>
+<p>更重要的是：这个命令维护的是 <strong>MIME 文件关联缓存</strong>，而 GNOME Shell 启动应用根本不查它。对一个没有 <code>MimeType=</code> 字段的启动器，跑了也是空转。</p>
+<h2 id="keng-2-zhen-zheng-jue-ding-exec-de-shi-gnome-shell-de-nei-cun-huan-cun">坑 2：真正决定 Exec 的是 GNOME Shell 的内存缓存</h2>
+<p>在 apps 里点图标，启动的还是<strong>旧的 Exec</strong>——文件明明已经改了、也没有同名 desktop 文件覆盖。原因：GNOME Shell 的应用列表（Activities 搜索、应用网格）来自 ShellAppSystem <strong>进程内存里的缓存</strong>，靠 inotify 增量感知文件变化；很多编辑器"写临时文件 + rename"的原子替换偶尔不会触发重扫。</p>
+<p>三个"缓存"各管一摊，别再跑错命令：</p>
+<table><thead><tr><th>缓存</th><th>管什么</th><th>启动器场景相关吗</th></tr></thead><tbody>
+<tr><td><code>update-desktop-database</code> / <code>mimeinfo.cache</code></td><td>文件类型 → 程序<strong>关联</strong>（打开 .pdf 用谁）</td><td>❌ 启动应用不查它</td></tr>
+<tr><td>GTK 图标缓存 (<code>gtk-update-icon-cache</code>)</td><td>图标渲染</td><td>❌ 只有图标不刷新时相关</td></tr>
+<tr><td>GNOME Shell 应用列表 (ShellAppSystem)</td><td>搜索/网格里<strong>显示什么、Exec 是什么</strong></td><td>✅ 就是它没刷新</td></tr>
+</tbody></table>
+<p>处理方法按代价排序：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 1. 改 mtime 踢一脚 inotify
+touch ~&#x2F;.local&#x2F;share&#x2F;applications&#x2F;local-vm.desktop
+
+# 2. 立刻想用：直接读文件启动，绕过 Shell 缓存（也是测试 desktop 文件的最快方式）
+gio launch ~&#x2F;.local&#x2F;share&#x2F;applications&#x2F;local-vm.desktop
+
+# 3. 仍不生效 → 注销重登
+#    Wayland 会话没有 Alt+F2 敲 r 重启 Shell 的能力，注销是唯一彻底重置方式
+</code></pre>
+<h2 id="keng-3-categories-de-wei-zhu-ce-zhi">坑 3：<code>Categories</code> 的未注册值</h2>
+<p><code>desktop-file-validate</code> 抓出的真问题：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">error: value &quot;System;Virtualization;&quot; for key &quot;Categories&quot; ... contains an
+unregistered value &quot;Virtualization&quot;; values extending the format should start with &quot;X-&quot;
+</code></pre>
+<p>桌面菜单规范维护着注册分类表，<code>Virtualization</code> 不在其中，自定义值必须 <code>X-</code> 前缀：改成 <code>Categories=System;X-Virtualization;</code> 后校验通过，<code>gio launch</code> 实测拉起 virt-viewer 进程。</p>
+<h2 id="fu-mimetype-zi-duan-xie-bu-xie">附：<code>MimeType=</code> 字段写不写？</h2>
+<p><code>MimeType=</code> 声明"这个应用能打开哪些类型的文件/URL"，是 desktop 文件接入文件关联系统的钩子：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">双击 foo.pdf → 探测 MIME 类型 → 查 mimeinfo.cache（倒排索引）
+→ 结合 ~&#x2F;.config&#x2F;mimeapps.list 的默认设置 → 决定用谁打开 + &quot;打开方式&quot;列表
+</code></pre>
+<ul>
+<li>desktop 文件的 <code>MimeType=</code> 是<strong>能力声明</strong>（"我能处理这些"）；</li>
+<li><code>mimeapps.list</code> 决定<strong>默认</strong>用谁；</li>
+<li><code>mimeinfo.cache</code> 只是加速反查的缓存（所以没有 <code>MimeType=</code> 的应用不会进这个索引）。</li>
+</ul>
+<table><thead><tr><th>用途</th><th>要不要写</th></tr></thead><tbody>
+<tr><td>纯启动器（本例 local-vm）</td><td>❌ 不写，写了反而可能抢关联</td></tr>
+<tr><td>文件处理器（编辑器、播放器）</td><td>✅ 必须写，否则不进"打开方式"</td></tr>
+<tr><td>协议处理器（浏览器、IDE）</td><td>✅ 用 <code>x-scheme-handler/…</code></td></tr>
+</tbody></table>
+<p><code>local-vm.desktop</code> 的语义是"连接到固定一台 VM 的动作"，没有任何"打开某类文件"的含义，不写是正确姿势。哪天想让"双击 <code>.vv</code> 文件就用 virt-viewer 打开"，才需要给 virt-viewer 的 desktop 文件加 <code>MimeType=application/x-virt-viewer;</code> 并跑一次 <code>update-desktop-database ~/.local/share/applications</code>。</p>
+<h1 id="gai-nian-bian-xi-virgl-virtio-gpu-spice-vnc">概念辨析：virgl、virtio-gpu、SPICE、VNC</h1>
+<ul>
+<li><strong>virtio-gpu</strong> 是一种半虚拟化显卡<strong>设备</strong>（<code>&lt;video&gt;&lt;model type='virtio'/&gt;</code>），有 2D（纯帧缓冲）和 3D 两种模式；</li>
+<li><strong>virgl</strong> 是 virtio-gpu 的 3D 加速机制（宿主侧 virglrenderer 把 guest 的 OpenGL 命令转译给真实 GPU），开启需要 <code>video/model</code> 的 <code>accel3d='yes'</code> 与 SPICE 的 <code>gl enable='yes'</code> 配合；</li>
+<li><strong>SPICE / VNC</strong> 是图形传输协议（一台 VM 二选一）。SPICE 功能强（音频、剪贴板、USB 重定向、virgl 配套），但查看器基本只有 virt-viewer/remote-viewer；VNC 生态最广、有浏览器端 noVNC，但没有任何加速与外设透传。</li>
+</ul>
+<p>一句话：virtio-gpu 是显卡，virgl 是这块显卡的 3D 特性，SPICE 是把画面（含 3D 渲染结果）传出来的管道。</p>
+<h1 id="pai-cha-ji-qiao-chen-dian">排查技巧沉淀</h1>
+<ol>
+<li><strong>先看最直接的数据源</strong>：前端渲染异常时，第一反应应该是 dump 出它消费的原始数据（本例是 <code>virsh dumpxml</code>），而不是从守护进程开始向上排查；</li>
+<li><strong>busctl 直接调 D-Bus 方法</strong>可以一把绕过三层（前端/bridge/代理）验证服务端；</li>
+<li><strong>模拟 cockpit-bridge 的 dbus-json3 通道</strong>：帧协议是 <code>&lt;十进制长度&gt;\n&lt;channel&gt;\n&lt;payload&gt;</code>，channel 为空行即控制消息，客户端必须先发 <code>{"command":"init","version":1,"host":...}</code> 才能开通道，调用格式 <code>{"id":..,"call":[path,iface,method,args]}</code>；</li>
+<li><strong>前端 bundle 解包 grep</strong>：<code>gunzip -c index.js.gz</code> 后按函数特征（<code>getElementsByTagName("graphics")</code> 等）定位解析逻辑，比读源码仓库更快对应到实际部署版本。</li>
+</ol>
+<h1 id="xiang-guan-yue-du">相关阅读</h1>
+<ul>
+<li><a href="https://moxuetianya.github.io/2025/10/cockpit%E7%AE%A1%E7%90%86qemu%E8%99%9A%E6%8B%9F%E6%9C%BA/">cockpit管理qemu虚拟机</a>（virt-viewer 登录、SPICE 远程连接与 pybridge 断连 bug）</li>
+<li><a href="https://moxuetianya.github.io/2026/06/virtiofs-enfile-diagnosis/">virtiofs ENFILE 排查</a>（同一台 VM 的另一段故事）</li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/dns-delegation-glue-tld-deep-dive/">&#8249; DNS 委派、TLD 与胶水记录：把新域名 NS 切到 Cloudflare 的实战与原理</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/2026/10/libvirt-external-snapshot-delete/"> libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-guo-cheng">排查过程</a>
+        </div>
+        <div class="hpad">
+          <a href="#di-yi-bu-wan-lu-zi-di-xiang-shang-cha-ji-chu-she-shi"><small>- 第一步（弯路）：自底向上查基础设施</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-er-bu-dui-bi-san-tai-vm-de-xml"><small>- 第二步：对比三台 VM 的 XML</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-san-bu-jie-bao-qian-duan-dai-ma-zhao-jie-xi-luo-ji"><small>- 第三步：解包前端代码找解析逻辑</small></a>
+        </div>
+        <div>
+          <a href="#gen-yin">根因</a>
+        </div>
+        <div>
+          <a href="#fang-an-qu-she">方案取舍</a>
+        </div>
+        <div>
+          <a href="#ru-kou-you-hua-desktop-qi-dong-qi-yu-gnome-ji-cheng-de-san-ge-keng">入口优化：desktop 启动器与 GNOME 集成的三个坑</a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-1-update-desktop-database-de-bao-cuo-shi-yan-wu-dan"><small>- 坑 1：update-desktop-database 的报错是烟雾弹</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-2-zhen-zheng-jue-ding-exec-de-shi-gnome-shell-de-nei-cun-huan-cun"><small>- 坑 2：真正决定 Exec 的是 GNOME Shell 的内存缓存</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#keng-3-categories-de-wei-zhu-ce-zhi"><small>- 坑 3：Categories 的未注册值</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu-mimetype-zi-duan-xie-bu-xie"><small>- 附：MimeType= 字段写不写？</small></a>
+        </div>
+        <div>
+          <a href="#gai-nian-bian-xi-virgl-virtio-gpu-spice-vnc">概念辨析：virgl、virtio-gpu、SPICE、VNC</a>
+        </div>
+        <div>
+          <a href="#pai-cha-ji-qiao-chen-dian">排查技巧沉淀</a>
+        </div>
+        <div>
+          <a href="#xiang-guan-yue-du">相关阅读</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

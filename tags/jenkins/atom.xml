@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - jenkins</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/jenkins/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-08-11T12:00:00+08:00</updated>
+    <id>https://moxuetianya.github.io/tags/jenkins/atom.xml</id>
+    <entry xml:lang="en">
+        <title>git 常见问题记录</title>
+        <published>2026-08-11T12:00:00+08:00</published>
+        <updated>2026-08-11T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/08/git常见问题记录/"/>
+        <id>https://moxuetianya.github.io/2026/08/git常见问题记录/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/08/git常见问题记录/">&lt;p&gt;工作中遇到的 git 常见问题，按主题持续补充。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zi-mo-kuai-li-shi-zhong-yin-yong-de-commit-bi-xu-zai-yuan-cheng-ke-da&quot;&gt;子模块历史中引用的 commit 必须在远程可达&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;Jenkins 构建时在 SCM checkout 阶段失败，还没有进入编译：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Fetching submodule cmake
+ * [new branch]      xxx-db-tar -&amp;gt; origin&amp;#x2F;xxx-db-tar
+fatal: git upload-pack: not our ref 869a283bf32a3ec38e4c4224e0babdad3c97e019
+fatal: remote error: upload-pack: not our ref 869a283bf32a3ec38e4c4224e0babdad3c97e019
+Errors during submodule fetch:
+	cmake
+ERROR: Error fetching remote repo &amp;#x27;origin&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;bei-jing&quot;&gt;背景&lt;&#x2F;h2&gt;
+&lt;p&gt;父仓库（这里用 xxx-tool-database 代替真名）的 refactor 分支历史中，较早的提交 &lt;code&gt;ba5e751&lt;&#x2F;code&gt; 引用过 cmake 子模块的提交 &lt;code&gt;869a283&lt;&#x2F;code&gt;。之后子模块被回退、新开了 &lt;code&gt;xxx-db-tar&lt;&#x2F;code&gt; 分支并推送，但 &lt;code&gt;869a283&lt;&#x2F;code&gt; 这个旧提交只存在于本地，从未推送到远程 xxx-cmake 仓库。&lt;&#x2F;p&gt;
+&lt;p&gt;Jenkins 递归拉取子模块时，需要为父仓库 gitlink 引用的提交做 fetch，远程仓库里没有这个对象，于是报 &lt;code&gt;not our ref&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yuan-li-pu-tong-git-yu-jenkins-de-yao-qiu-chai-yi&quot;&gt;原理：普通 git 与 Jenkins 的要求差异&lt;&#x2F;h2&gt;
+&lt;p&gt;普通 git 本身并不要求&quot;父仓库所有历史引用的子模块 commit 都在远程&quot;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;clone 父仓库时，gitlink 只记录一个 SHA（160000 模式条目），不做可达性校验；&lt;&#x2F;li&gt;
+&lt;li&gt;只有执行 &lt;code&gt;git submodule update --init&lt;&#x2F;code&gt; 时，才需要&lt;strong&gt;当前 gitlink 指向的那一个&lt;&#x2F;strong&gt; commit 的对象可获取；&lt;&#x2F;li&gt;
+&lt;li&gt;因此普通 git 只关心&quot;现在要 checkout 的那个 commit&quot;，不关心其他历史提交。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;但远程服务端（GitLab&#x2F;GitHub）对 &lt;code&gt;git fetch &amp;lt;明确 SHA&amp;gt;&lt;&#x2F;code&gt; 有限制：默认只允许 fetch 在某个分支&#x2F;标签上可达的对象（&lt;code&gt;uploadpack.allowAnySHA1InWant&lt;&#x2F;code&gt; 关闭）。所以子模块 commit 必须推到了远程某个 ref 上才能被 fetch。&lt;&#x2F;p&gt;
+&lt;p&gt;Jenkins 的 SCM checkout 会对子模块做 fetch，把父仓库 gitlink 引用的 commit 取下来。当父仓库历史中引用过某个从未推送的子模块 commit 时，就会触发上述 &lt;code&gt;not our ref&lt;&#x2F;code&gt; 错误。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-lun&quot;&gt;结论&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;父仓库历史中引用过的所有子模块 commit，都必须在子模块远程仓库的某个 ref 上可达&lt;&#x2F;strong&gt;，否则 Jenkins 递归拉取子模块会失败。推父仓库分支到上游前，先确认历史中引用过的子模块提交都已在远程推送。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-fang-fa&quot;&gt;排查方法&lt;&#x2F;h2&gt;
+&lt;p&gt;列出父仓库历史中引用的子模块提交：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git log --format=&amp;#x27;%h %s&amp;#x27; -- &amp;lt;submodule-path&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;逐个确认这些提交是否在子模块远程分支上可达：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git -C &amp;lt;submodule&amp;gt; merge-base --is-ancestor &amp;lt;sha&amp;gt; origin&amp;#x2F;master
+git -C &amp;lt;submodule&amp;gt; merge-base --is-ancestor &amp;lt;sha&amp;gt; origin&amp;#x2F;&amp;lt;branch&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;缺失时补推一个临时分支即可：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git -C &amp;lt;submodule&amp;gt; push origin &amp;lt;sha&amp;gt;:temp-&amp;lt;short-sha&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

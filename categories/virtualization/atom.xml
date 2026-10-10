@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - virtualization</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/categories/virtualization/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-09T23:10:00+08:00</updated>
+    <id>https://moxuetianya.github.io/categories/virtualization/atom.xml</id>
+    <entry xml:lang="en">
+        <title>cockpit-machines 只剩串口 console？——SPICE unix socket 监听踩坑记</title>
+        <published>2026-10-09T23:10:00+08:00</published>
+        <updated>2026-10-09T23:10:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/"/>
+        <id>https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/10/cockpit-machines-console-only-spice-socket/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;宿主机上三台 virsh 管理的虚拟机（&lt;code&gt;qemu:&#x2F;&#x2F;&#x2F;system&lt;&#x2F;code&gt; 下），其中日常开发机 &lt;code&gt;ubuntu.code&lt;&#x2F;code&gt;（16 vCPU &#x2F; 32G，virtiofs 共享目录 + virgl 3D 加速）在 cockpit 的 Virtual machines 页面里：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;详情页 Console 卡片&lt;strong&gt;只剩 Serial Console&lt;&#x2F;strong&gt;（串口）；&lt;&#x2F;li&gt;
+&lt;li&gt;图形 console 消失；&lt;&#x2F;li&gt;
+&lt;li&gt;连 SPICE 模式下应有的 &lt;strong&gt;Launch Remote Viewer 按钮（下载 &lt;code&gt;.vv&lt;&#x2F;code&gt; 文件）也没有了&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;另外两台（&lt;code&gt;106&lt;&#x2F;code&gt;、&lt;code&gt;win11&lt;&#x2F;code&gt;）一切正常。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-guo-cheng&quot;&gt;排查过程&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;di-yi-bu-wan-lu-zi-di-xiang-shang-cha-ji-chu-she-shi&quot;&gt;第一步（弯路）：自底向上查基础设施&lt;&#x2F;h2&gt;
+&lt;p&gt;一开始的思路是&quot;数据链路上某层断了&quot;，于是从底往上逐层验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# libvirtd 与 libvirt-dbus 服务状态
+systemctl status libvirtd            # active，monolithic legacy daemon
+busctl list | grep libvirt           # 系统总线上 org.libvirt 存在（libvirt-dbus --system）
+
+# 直接实测 D-Bus 方法（绕过 cockpit 前端）
+busctl call org.libvirt &amp;#x2F;org&amp;#x2F;libvirt&amp;#x2F;QEMU org.libvirt.Connect ListDomains u 0
+# → 正常返回 3 个 domain 对象路径
+
+busctl call org.libvirt &amp;#x2F;org&amp;#x2F;libvirt&amp;#x2F;QEMU&amp;#x2F;domain&amp;#x2F;&amp;lt;uuid&amp;gt; \
+  org.freedesktop.DBus.Properties GetAll s org.libvirt.Domain
+# → 正常返回 Name&amp;#x2F;Active&amp;#x2F;Id&amp;#x2F;UUID...
+
+busctl call org.libvirt &amp;#x2F;org&amp;#x2F;libvirt&amp;#x2F;QEMU org.libvirt.Connect ListStoragePools u 0
+busctl call org.libvirt &amp;lt;pool-path&amp;gt; org.freedesktop.DBus.Properties GetAll s org.libvirt.StoragePool
+# → pools&amp;#x2F;networks 全部正常
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;D-Bus 层全绿。权限层也排除了：&lt;code&gt;org.libvirt.conf&lt;&#x2F;code&gt; 允许 &lt;code&gt;libvirt&lt;&#x2F;code&gt; 组向 &lt;code&gt;org.libvirt&lt;&#x2F;code&gt; 发消息，用户在该组；polkit 规则放行 &lt;code&gt;libvirtdbus&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;甚至写了个 Python 脚本&lt;strong&gt;模拟浏览器驱动 cockpit-bridge&lt;&#x2F;strong&gt;：用正确的帧协议（&lt;code&gt;&amp;lt;长度&amp;gt;\n&amp;lt;channel&amp;gt;\n&amp;lt;payload&amp;gt;&lt;&#x2F;code&gt;）打开 &lt;code&gt;dbus-json3&lt;&#x2F;code&gt; 通道调 &lt;code&gt;ListDomains&lt;&#x2F;code&gt;——bridge 端到端也正常返回。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;这段弯路的教训：&lt;strong&gt;从底往上排查前，先确认最直接的数据源&lt;&#x2F;strong&gt;。前端渲染 VM 详情的原料就是 &lt;code&gt;DomainGetXMLDesc&lt;&#x2F;code&gt; 的 XML，而这个从第一步就该直接 dump 出来看。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;di-er-bu-dui-bi-san-tai-vm-de-xml&quot;&gt;第二步：对比三台 VM 的 XML&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virsh -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system dumpxml ubuntu.code &amp;gt; u.xml
+virsh -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system dumpxml 106 &amp;gt; 1.xml
+virsh -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system dumpxml win11 &amp;gt; w.xml
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;diff 之后，&lt;code&gt;ubuntu.code&lt;&#x2F;code&gt; 独有的 graphics 定义浮出水面：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;xml&quot; class=&quot;language-xml &quot;&gt;&lt;code class=&quot;language-xml&quot; data-lang=&quot;xml&quot;&gt;&amp;lt;!-- ubuntu.code：unix socket 监听（virgl 配套） --&amp;gt;
+&amp;lt;graphics type=&amp;#x27;spice&amp;#x27;&amp;gt;
+  &amp;lt;listen type=&amp;#x27;socket&amp;#x27; socket=&amp;#x27;&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;qemu&amp;#x2F;domain-7-ubuntu.code&amp;#x2F;spice.sock&amp;#x27;&amp;#x2F;&amp;gt;
+  &amp;lt;image compression=&amp;#x27;off&amp;#x27;&amp;#x2F;&amp;gt;
+  &amp;lt;gl enable=&amp;#x27;yes&amp;#x27; rendernode=&amp;#x27;&amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;graphics&amp;gt;
+
+&amp;lt;!-- 106 &amp;#x2F; win11：TCP 监听，属性齐全 --&amp;gt;
+&amp;lt;graphics type=&amp;#x27;spice&amp;#x27; autoport=&amp;#x27;yes&amp;#x27; listen=&amp;#x27;0.0.0.0&amp;#x27;&amp;gt;
+  &amp;lt;listen type=&amp;#x27;address&amp;#x27; address=&amp;#x27;0.0.0.0&amp;#x27;&amp;#x2F;&amp;gt;
+&amp;lt;&amp;#x2F;graphics&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;关键差异：&lt;code&gt;ubuntu.code&lt;&#x2F;code&gt; 的 &lt;code&gt;&amp;lt;graphics&amp;gt;&lt;&#x2F;code&gt; 元素&lt;strong&gt;属性上没有&lt;&#x2F;strong&gt; &lt;code&gt;autoport&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;listen&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;port&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;tlsPort&lt;&#x2F;code&gt;——监听信息全在 &lt;code&gt;&amp;lt;listen type=&#x27;socket&#x27;&amp;gt;&lt;&#x2F;code&gt; 子元素里。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;di-san-bu-jie-bao-qian-duan-dai-ma-zhao-jie-xi-luo-ji&quot;&gt;第三步：解包前端代码找解析逻辑&lt;&#x2F;h2&gt;
+&lt;p&gt;cockpit-machines 是打包压缩的 React 应用，直接 grep 解包产物：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gunzip -c &amp;#x2F;usr&amp;#x2F;share&amp;#x2F;cockpit&amp;#x2F;machines&amp;#x2F;index.js.gz &amp;gt; index.js
+grep -o &amp;#x27;function wie(e){.\{0,900\}&amp;#x27; index.js
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;找到 &lt;code&gt;parseDumpxmlForConsoles()&lt;&#x2F;code&gt;（minified 后叫 &lt;code&gt;wie&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;javascript&quot; class=&quot;language-javascript &quot;&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;function parseDumpxmlForConsoles(e) {
+  let t = [], o = e.getElementsByTagName(&amp;quot;graphics&amp;quot;);
+  if (o) for (let a = 0; a &amp;lt; o.length; a++) {
+    let n = o[a], i = {
+      type:      n.getAttribute(&amp;quot;type&amp;quot;),      &amp;#x2F;&amp;#x2F; &amp;quot;spice&amp;quot;
+      port:      n.getAttribute(&amp;quot;port&amp;quot;),      &amp;#x2F;&amp;#x2F; socket 监听 → null
+      tlsPort:   n.getAttribute(&amp;quot;tlsPort&amp;quot;),   &amp;#x2F;&amp;#x2F; null
+      address:   n.getAttribute(&amp;quot;listen&amp;quot;),    &amp;#x2F;&amp;#x2F; null（listen 是子元素）
+      autoport:  n.getAttribute(&amp;quot;autoport&amp;quot;),  &amp;#x2F;&amp;#x2F; null
+    };
+    i.type &amp;amp;&amp;amp; (i.autoport || i.address &amp;amp;&amp;amp; (i.port || i.tlsPort))
+      ? t.push(i)   &amp;#x2F;&amp;#x2F; 属性齐全才收录
+      : console.warn(&amp;quot;parseDumpxmlForConsoles(): mandatory properties are missing in dumpxml, found: &amp;quot; + JSON.stringify(i));
+      &amp;#x2F;&amp;#x2F; socket 监听 → 走 warn 分支，整个 graphics 被丢弃！
+  }
+  &amp;#x2F;&amp;#x2F; ...console type=&amp;#x27;pty&amp;#x27;（串口）无条件收录
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;而 Console 卡片的类型决策同样消费这份解析结果：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;javascript&quot; class=&quot;language-javascript &quot;&gt;&lt;code class=&quot;language-javascript&quot; data-lang=&quot;javascript&quot;&gt;displays.find(c =&amp;gt; c.type == &amp;quot;spice&amp;quot;) ? &amp;quot;DesktopViewer&amp;quot;   &amp;#x2F;&amp;#x2F; Launch Remote Viewer 按钮
+                                      : (hasSerial ? &amp;quot;SerialConsole&amp;quot; : null)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;gen-yin&quot;&gt;根因&lt;&#x2F;h1&gt;
+&lt;p&gt;&lt;strong&gt;virtio-gpu virgl 3D 加速要求 SPICE 使用 unix socket 监听&lt;&#x2F;strong&gt;（&lt;code&gt;&amp;lt;gl enable=&#x27;yes&#x27;&amp;gt;&lt;&#x2F;code&gt; 与 TCP listen 互斥，本地渲染语义），socket 监听时 &lt;code&gt;&amp;lt;graphics&amp;gt;&lt;&#x2F;code&gt; 元素属性上没有任何 &lt;code&gt;port&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;listen&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;autoport&lt;&#x2F;code&gt;；cockpit-machines 332 的 &lt;code&gt;parseDumpxmlForConsoles()&lt;&#x2F;code&gt; 只认这些属性，判定 &quot;mandatory properties are missing&quot; 后&lt;strong&gt;把整个 graphics 设备丢弃&lt;&#x2F;strong&gt;——于是：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;图形 console 消失；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;displays&lt;&#x2F;code&gt; 里没有 spice 项 → &lt;code&gt;&quot;DesktopViewer&quot;&lt;&#x2F;code&gt; 类型不成立 → &lt;strong&gt;Launch Remote Viewer 按钮一起消失&lt;&#x2F;strong&gt;（两者共用同一份解析结果）；&lt;&#x2F;li&gt;
+&lt;li&gt;落到 fallback → 只渲染 SerialConsole。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;浏览器 F12 的 Console 里能看到那条 warn 作为佐证。另外还有一层设计原因：&lt;code&gt;.vv&lt;&#x2F;code&gt; 文件需要 &lt;code&gt;host&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;port&lt;&#x2F;code&gt; 的 TCP 地址，remote-viewer 无法连接远程 unix socket，所以上游对 socket 监听就是按&quot;没有图形设备&quot;处理。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;fang-an-qu-she&quot;&gt;方案取舍&lt;&#x2F;h1&gt;
+&lt;p&gt;virgl 3D 加速与 cockpit 网页端图形 console &lt;strong&gt;不可兼得&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;cockpit 网页端&lt;&#x2F;th&gt;&lt;th&gt;virgl&lt;&#x2F;th&gt;&lt;th&gt;代价&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;SPICE + TCP（去 gl）&lt;&#x2F;td&gt;&lt;td&gt;恢复 Launch viewer&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;关机重启生效&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VNC + TCP&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;内嵌 noVNC 直接看&lt;&#x2F;strong&gt;（唯一支持内嵌）&lt;&#x2F;td&gt;&lt;td&gt;❌&lt;&#x2F;td&gt;&lt;td&gt;丢音频&#x2F;剪贴板&#x2F;USB 重定向&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;strong&gt;保持 SPICE socket + virgl（现状）&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;只剩串口&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;图形入口改走 virt-viewer&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;最终选择保持现状，图形入口用 virt-viewer 直连（本地 unix socket，virgl 照常生效）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;virt-viewer -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system ubuntu.code
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;顺手加了个 zsh abbr（&lt;code&gt;dotfiles&#x2F;.my_abbr.d&#x2F;vm&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;abbr add --force --quiet view-vm=&amp;#x27;virt-viewer -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system&amp;#x27;
+# view-vm ubuntu.code
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;ru-kou-you-hua-desktop-qi-dong-qi-yu-gnome-ji-cheng-de-san-ge-keng&quot;&gt;入口优化：desktop 启动器与 GNOME 集成的三个坑&lt;&#x2F;h1&gt;
+&lt;p&gt;图形入口从 cockpit 网页搬到 virt-viewer 后，为了顺手做了两层入口：终端里的 zsh abbr（上文 &lt;code&gt;view-vm&lt;&#x2F;code&gt;），以及桌面环境的启动器 &lt;code&gt;~&#x2F;.local&#x2F;share&#x2F;applications&#x2F;local-vm.desktop&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Desktop Entry]
+Name=local-vm
+Comment=Connect to local VM via SPICE
+Exec=virt-viewer -c qemu:&amp;#x2F;&amp;#x2F;&amp;#x2F;system ubuntu.code
+Type=Application
+Terminal=false
+Icon=virt-manager
+Categories=System;X-Virtualization;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;配这个文件的过程里踩了三个坑，都和&quot;改完为什么不生效&quot;有关。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-1-update-desktop-database-de-bao-cuo-shi-yan-wu-dan&quot;&gt;坑 1：&lt;code&gt;update-desktop-database&lt;&#x2F;code&gt; 的报错是烟雾弹&lt;&#x2F;h2&gt;
+&lt;p&gt;改完文件跑了 &lt;code&gt;update-desktop-database&lt;&#x2F;code&gt;，输出：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;The databases in [&amp;#x2F;home&amp;#x2F;peter&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;flatpak&amp;#x2F;exports&amp;#x2F;share&amp;#x2F;applications,
+&amp;#x2F;var&amp;#x2F;lib&amp;#x2F;flatpak&amp;#x2F;exports&amp;#x2F;share&amp;#x2F;applications, &amp;#x2F;usr&amp;#x2F;local&amp;#x2F;share&amp;#x2F;applications,
+&amp;#x2F;usr&amp;#x2F;share&amp;#x2F;applications, ...] could not be updated.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;看起来像出错了，实际是&lt;strong&gt;不带参数时它会尝试更新所有 XDG 数据目录&lt;&#x2F;strong&gt;（含 &lt;code&gt;&#x2F;usr&#x2F;share&#x2F;applications&lt;&#x2F;code&gt; 等系统目录），普通用户没有写权限，列出来的就是这些；注意列表里&lt;strong&gt;没有&lt;&#x2F;strong&gt; &lt;code&gt;~&#x2F;.local&#x2F;share&#x2F;applications&lt;&#x2F;code&gt;——用户目录是更新成功的。&lt;&#x2F;p&gt;
+&lt;p&gt;更重要的是：这个命令维护的是 &lt;strong&gt;MIME 文件关联缓存&lt;&#x2F;strong&gt;，而 GNOME Shell 启动应用根本不查它。对一个没有 &lt;code&gt;MimeType=&lt;&#x2F;code&gt; 字段的启动器，跑了也是空转。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;keng-2-zhen-zheng-jue-ding-exec-de-shi-gnome-shell-de-nei-cun-huan-cun&quot;&gt;坑 2：真正决定 Exec 的是 GNOME Shell 的内存缓存&lt;&#x2F;h2&gt;
+&lt;p&gt;在 apps 里点图标，启动的还是&lt;strong&gt;旧的 Exec&lt;&#x2F;strong&gt;——文件明明已经改了、也没有同名 desktop 文件覆盖。原因：GNOME Shell 的应用列表（Activities 搜索、应用网格）来自 ShellAppSystem &lt;strong&gt;进程内存里的缓存&lt;&#x2F;strong&gt;，靠 inotify 增量感知文件变化；很多编辑器&quot;写临时文件 + rename&quot;的原子替换偶尔不会触发重扫。&lt;&#x2F;p&gt;
+&lt;p&gt;三个&quot;缓存&quot;各管一摊，别再跑错命令：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;缓存&lt;&#x2F;th&gt;&lt;th&gt;管什么&lt;&#x2F;th&gt;&lt;th&gt;启动器场景相关吗&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;update-desktop-database&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;mimeinfo.cache&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;文件类型 → 程序&lt;strong&gt;关联&lt;&#x2F;strong&gt;（打开 .pdf 用谁）&lt;&#x2F;td&gt;&lt;td&gt;❌ 启动应用不查它&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GTK 图标缓存 (&lt;code&gt;gtk-update-icon-cache&lt;&#x2F;code&gt;)&lt;&#x2F;td&gt;&lt;td&gt;图标渲染&lt;&#x2F;td&gt;&lt;td&gt;❌ 只有图标不刷新时相关&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GNOME Shell 应用列表 (ShellAppSystem)&lt;&#x2F;td&gt;&lt;td&gt;搜索&#x2F;网格里&lt;strong&gt;显示什么、Exec 是什么&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;td&gt;✅ 就是它没刷新&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;处理方法按代价排序：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 1. 改 mtime 踢一脚 inotify
+touch ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;local-vm.desktop
+
+# 2. 立刻想用：直接读文件启动，绕过 Shell 缓存（也是测试 desktop 文件的最快方式）
+gio launch ~&amp;#x2F;.local&amp;#x2F;share&amp;#x2F;applications&amp;#x2F;local-vm.desktop
+
+# 3. 仍不生效 → 注销重登
+#    Wayland 会话没有 Alt+F2 敲 r 重启 Shell 的能力，注销是唯一彻底重置方式
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;keng-3-categories-de-wei-zhu-ce-zhi&quot;&gt;坑 3：&lt;code&gt;Categories&lt;&#x2F;code&gt; 的未注册值&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;desktop-file-validate&lt;&#x2F;code&gt; 抓出的真问题：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;error: value &amp;quot;System;Virtualization;&amp;quot; for key &amp;quot;Categories&amp;quot; ... contains an
+unregistered value &amp;quot;Virtualization&amp;quot;; values extending the format should start with &amp;quot;X-&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;桌面菜单规范维护着注册分类表，&lt;code&gt;Virtualization&lt;&#x2F;code&gt; 不在其中，自定义值必须 &lt;code&gt;X-&lt;&#x2F;code&gt; 前缀：改成 &lt;code&gt;Categories=System;X-Virtualization;&lt;&#x2F;code&gt; 后校验通过，&lt;code&gt;gio launch&lt;&#x2F;code&gt; 实测拉起 virt-viewer 进程。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;fu-mimetype-zi-duan-xie-bu-xie&quot;&gt;附：&lt;code&gt;MimeType=&lt;&#x2F;code&gt; 字段写不写？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;MimeType=&lt;&#x2F;code&gt; 声明&quot;这个应用能打开哪些类型的文件&#x2F;URL&quot;，是 desktop 文件接入文件关联系统的钩子：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;双击 foo.pdf → 探测 MIME 类型 → 查 mimeinfo.cache（倒排索引）
+→ 结合 ~&amp;#x2F;.config&amp;#x2F;mimeapps.list 的默认设置 → 决定用谁打开 + &amp;quot;打开方式&amp;quot;列表
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;desktop 文件的 &lt;code&gt;MimeType=&lt;&#x2F;code&gt; 是&lt;strong&gt;能力声明&lt;&#x2F;strong&gt;（&quot;我能处理这些&quot;）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;mimeapps.list&lt;&#x2F;code&gt; 决定&lt;strong&gt;默认&lt;&#x2F;strong&gt;用谁；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;mimeinfo.cache&lt;&#x2F;code&gt; 只是加速反查的缓存（所以没有 &lt;code&gt;MimeType=&lt;&#x2F;code&gt; 的应用不会进这个索引）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;th&gt;要不要写&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;纯启动器（本例 local-vm）&lt;&#x2F;td&gt;&lt;td&gt;❌ 不写，写了反而可能抢关联&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;文件处理器（编辑器、播放器）&lt;&#x2F;td&gt;&lt;td&gt;✅ 必须写，否则不进&quot;打开方式&quot;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;协议处理器（浏览器、IDE）&lt;&#x2F;td&gt;&lt;td&gt;✅ 用 &lt;code&gt;x-scheme-handler&#x2F;…&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;code&gt;local-vm.desktop&lt;&#x2F;code&gt; 的语义是&quot;连接到固定一台 VM 的动作&quot;，没有任何&quot;打开某类文件&quot;的含义，不写是正确姿势。哪天想让&quot;双击 &lt;code&gt;.vv&lt;&#x2F;code&gt; 文件就用 virt-viewer 打开&quot;，才需要给 virt-viewer 的 desktop 文件加 &lt;code&gt;MimeType=application&#x2F;x-virt-viewer;&lt;&#x2F;code&gt; 并跑一次 &lt;code&gt;update-desktop-database ~&#x2F;.local&#x2F;share&#x2F;applications&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;gai-nian-bian-xi-virgl-virtio-gpu-spice-vnc&quot;&gt;概念辨析：virgl、virtio-gpu、SPICE、VNC&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;virtio-gpu&lt;&#x2F;strong&gt; 是一种半虚拟化显卡&lt;strong&gt;设备&lt;&#x2F;strong&gt;（&lt;code&gt;&amp;lt;video&amp;gt;&amp;lt;model type=&#x27;virtio&#x27;&#x2F;&amp;gt;&lt;&#x2F;code&gt;），有 2D（纯帧缓冲）和 3D 两种模式；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;virgl&lt;&#x2F;strong&gt; 是 virtio-gpu 的 3D 加速机制（宿主侧 virglrenderer 把 guest 的 OpenGL 命令转译给真实 GPU），开启需要 &lt;code&gt;video&#x2F;model&lt;&#x2F;code&gt; 的 &lt;code&gt;accel3d=&#x27;yes&#x27;&lt;&#x2F;code&gt; 与 SPICE 的 &lt;code&gt;gl enable=&#x27;yes&#x27;&lt;&#x2F;code&gt; 配合；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;SPICE &#x2F; VNC&lt;&#x2F;strong&gt; 是图形传输协议（一台 VM 二选一）。SPICE 功能强（音频、剪贴板、USB 重定向、virgl 配套），但查看器基本只有 virt-viewer&#x2F;remote-viewer；VNC 生态最广、有浏览器端 noVNC，但没有任何加速与外设透传。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;一句话：virtio-gpu 是显卡，virgl 是这块显卡的 3D 特性，SPICE 是把画面（含 3D 渲染结果）传出来的管道。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pai-cha-ji-qiao-chen-dian&quot;&gt;排查技巧沉淀&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;先看最直接的数据源&lt;&#x2F;strong&gt;：前端渲染异常时，第一反应应该是 dump 出它消费的原始数据（本例是 &lt;code&gt;virsh dumpxml&lt;&#x2F;code&gt;），而不是从守护进程开始向上排查；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;busctl 直接调 D-Bus 方法&lt;&#x2F;strong&gt;可以一把绕过三层（前端&#x2F;bridge&#x2F;代理）验证服务端；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;模拟 cockpit-bridge 的 dbus-json3 通道&lt;&#x2F;strong&gt;：帧协议是 &lt;code&gt;&amp;lt;十进制长度&amp;gt;\n&amp;lt;channel&amp;gt;\n&amp;lt;payload&amp;gt;&lt;&#x2F;code&gt;，channel 为空行即控制消息，客户端必须先发 &lt;code&gt;{&quot;command&quot;:&quot;init&quot;,&quot;version&quot;:1,&quot;host&quot;:...}&lt;&#x2F;code&gt; 才能开通道，调用格式 &lt;code&gt;{&quot;id&quot;:..,&quot;call&quot;:[path,iface,method,args]}&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;前端 bundle 解包 grep&lt;&#x2F;strong&gt;：&lt;code&gt;gunzip -c index.js.gz&lt;&#x2F;code&gt; 后按函数特征（&lt;code&gt;getElementsByTagName(&quot;graphics&quot;)&lt;&#x2F;code&gt; 等）定位解析逻辑，比读源码仓库更快对应到实际部署版本。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;xiang-guan-yue-du&quot;&gt;相关阅读&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2025&#x2F;10&#x2F;cockpit%E7%AE%A1%E7%90%86qemu%E8%99%9A%E6%8B%9F%E6%9C%BA&#x2F;&quot;&gt;cockpit管理qemu虚拟机&lt;&#x2F;a&gt;（virt-viewer 登录、SPICE 远程连接与 pybridge 断连 bug）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2026&#x2F;06&#x2F;virtiofs-enfile-diagnosis&#x2F;&quot;&gt;virtiofs ENFILE 排查&lt;&#x2F;a&gt;（同一台 VM 的另一段故事）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

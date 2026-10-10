@@ -1,0 +1,1244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - Windows 与 WSL</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/windows-yu-wsl/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-10T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/windows-yu-wsl/atom.xml</id>
+    <entry xml:lang="en">
+        <title>Windows 开启 SSH 与远程桌面完整指南：OpenSSH、WSL、家庭版 RDPWrap 与 Remmina 调优</title>
+        <published>2026-10-09T17:45:00+08:00</published>
+        <updated>2026-10-10T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2026/10/windows-openssh-server-guide/"/>
+        <id>https://moxuetianya.github.io/2026/10/windows-openssh-server-guide/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2026/10/windows-openssh-server-guide/">&lt;blockquote&gt;
+&lt;p&gt;摘要：本文整理 Windows 开启 SSH Server 的两种方式（原生 OpenSSH Server 与 WSL），覆盖 ICMP 放行、账户密码与 PIN、公钥认证、默认 Shell、提权与密码修改；后半部分是家庭版开启远程桌面的 RDPWrap 实战——Smart App Control 拦截排查、从安装器中雕刻提取 rdpwrap.dll 手工安装、版本匹配与长期维护，以及 Linux 下 Remmina 客户端黑背景&#x2F;清晰度问题的完整调优。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;1-fang-an-yi-windows-yuan-sheng-openssh-server&quot;&gt;1. 方案一：Windows 原生 OpenSSH Server&lt;&#x2F;h2&gt;
+&lt;p&gt;从 Windows 10 1809 和 Windows 11 开始，系统内置了 OpenSSH 服务器组件，无需额外下载安装包。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-1-jian-cha-shi-fou-yi-an-zhuang&quot;&gt;1.1 检查是否已安装&lt;&#x2F;h3&gt;
+&lt;p&gt;以管理员身份打开 PowerShell：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-WindowsCapability -Online | Where-Object Name -like &amp;#x27;OpenSSH*&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果 &lt;code&gt;OpenSSH.Server&lt;&#x2F;code&gt; 的 &lt;code&gt;State&lt;&#x2F;code&gt; 显示为 &lt;code&gt;Installed&lt;&#x2F;code&gt;，说明已安装；否则需要手动安装。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-2-an-zhuang-openssh-fu-wu-qi&quot;&gt;1.2 安装 OpenSSH 服务器&lt;&#x2F;h3&gt;
+&lt;p&gt;图形界面方式：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;打开「设置」→「应用」→「可选功能」。&lt;&#x2F;li&gt;
+&lt;li&gt;点击「添加可选功能」。&lt;&#x2F;li&gt;
+&lt;li&gt;搜索并安装 &lt;strong&gt;OpenSSH 服务器&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;PowerShell 方式：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;1-3-qi-dong-fu-wu-bing-she-zhi-kai-ji-zi-qi&quot;&gt;1.3 启动服务并设置开机自启&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;验证服务状态：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-Service sshd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;Status&lt;&#x2F;code&gt; 显示 &lt;code&gt;Running&lt;&#x2F;code&gt; 即表示 SSH 服务已正常运行。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-4-fang-huo-qiang-gui-ze-zhong-fu-chuang-jian-bao-cuo-zen-me-ban&quot;&gt;1.4 防火墙规则：重复创建报错怎么办&lt;&#x2F;h3&gt;
+&lt;p&gt;安装 OpenSSH Server 时，系统通常会自动创建名为 &lt;code&gt;OpenSSH-Server-In-TCP&lt;&#x2F;code&gt; 的防火墙规则，允许 TCP 22 端口入站。&lt;&#x2F;p&gt;
+&lt;p&gt;如果你手动执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;New-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27; -DisplayName &amp;#x27;OpenSSH Server (sshd)&amp;#x27; -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;可能会遇到：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;New-NetFirewallRule : 当文件已存在时，无法创建该文件。
+Windows System Error 183
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这说明规则已经存在，不需要重复创建。正确做法是先查看：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27; | Select-Object Name, DisplayName, Enabled, Direction, Action
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果 &lt;code&gt;Enabled&lt;&#x2F;code&gt; 为 &lt;code&gt;True&lt;&#x2F;code&gt;，说明规则已生效。&lt;&#x2F;p&gt;
+&lt;p&gt;如果规则存在但未启用，使用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Set-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27; -Enabled True
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果确实需要重建：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Remove-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27;
+New-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27; -DisplayName &amp;#x27;OpenSSH Server (sshd)&amp;#x27; -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;1-5-fang-xing-icmp-rang-wai-bu-ke-yi-ping-tong&quot;&gt;1.5 放行 ICMP，让外部可以 ping 通&lt;&#x2F;h3&gt;
+&lt;p&gt;开启 SSH 与允许 ICMP ping 是两个独立操作，可以同时进行。&lt;&#x2F;p&gt;
+&lt;p&gt;Windows 防火墙默认会阻止 ICMP 回显请求。以管理员身份运行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;netsh advfirewall firewall add rule name=&amp;quot;ICMP Allow incoming V4 echo request&amp;quot; protocol=icmpv4:8,any dir=in action=allow
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;也可以使用 PowerShell：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;New-NetFirewallRule -DisplayName &amp;quot;Allow ICMPv4-In&amp;quot; -Protocol ICMPv4 -IcmpType 8 -Direction Inbound -Action Allow
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;安全提示：允许 ICMP 会增加主机在网络上被发现的概率。公共网络环境下建议限定来源 IP，或谨慎开启。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;2-fang-an-er-wsl-zhong-kai-qi-ssh-server&quot;&gt;2. 方案二：WSL 中开启 SSH Server&lt;&#x2F;h2&gt;
+&lt;p&gt;WSL 本质上是运行在 Windows 中的 Linux 子系统，可以在其中安装 Linux 版 OpenSSH Server。适合需要 Linux 开发环境的场景，但需要处理端口转发和 WSL IP 变动问题。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-1-zai-wsl-zhong-an-zhuang-openssh-server&quot;&gt;2.1 在 WSL 中安装 OpenSSH Server&lt;&#x2F;h3&gt;
+&lt;p&gt;进入 WSL 终端，例如 Ubuntu：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt update
+sudo apt install openssh-server -y
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-2-xiu-gai-ssh-pei-zhi&quot;&gt;2.2 修改 SSH 配置&lt;&#x2F;h3&gt;
+&lt;p&gt;编辑配置文件：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo nano &amp;#x2F;etc&amp;#x2F;ssh&amp;#x2F;sshd_config
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;建议修改：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;Port 2222
+ListenAddress 0.0.0.0
+PasswordAuthentication yes
+PermitRootLogin no
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;说明：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;Port 2222&lt;&#x2F;code&gt;：避免与 Windows 原生 SSH 的 22 端口冲突。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;ListenAddress 0.0.0.0&lt;&#x2F;code&gt;：允许所有网络接口连接。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;PasswordAuthentication yes&lt;&#x2F;code&gt;：启用密码登录。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;PermitRootLogin no&lt;&#x2F;code&gt;：禁用 root 直接登录。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;2-3-qi-yong-systemd-bing-qi-dong-ssh&quot;&gt;2.3 启用 systemd 并启动 SSH&lt;&#x2F;h3&gt;
+&lt;p&gt;在 WSL 中创建或编辑 &lt;code&gt;&#x2F;etc&#x2F;wsl.conf&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[boot]
+systemd=true
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启 WSL 后执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo systemctl enable ssh
+sudo systemctl start ssh
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果 &lt;code&gt;systemctl&lt;&#x2F;code&gt; 不可用，可以临时使用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo service ssh start
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;2-4-windows-zhu-ji-duan-kou-zhuan-fa&quot;&gt;2.4 Windows 主机端口转发&lt;&#x2F;h3&gt;
+&lt;p&gt;WSL2 使用虚拟网络，外部设备无法直接访问 WSL 内部 IP，需要将 Windows 主机端口转发到 WSL。&lt;&#x2F;p&gt;
+&lt;p&gt;先获取 WSL IP：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;hostname -I
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后在管理员 PowerShell 中执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=2222 connectaddress=172.23.22.69 connectport=2222
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;将 &lt;code&gt;172.23.22.69&lt;&#x2F;code&gt; 替换为实际 WSL IP。&lt;&#x2F;p&gt;
+&lt;p&gt;添加防火墙入站规则：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;netsh advfirewall firewall add rule name=&amp;quot;WSL2 SSH&amp;quot; dir=in action=allow protocol=TCP localport=2222
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;局域网设备可通过以下方式连接：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh 用户名@Windows主机IP -p 2222
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：portproxy 指向的是 WSL IP，而 WSL 每次重启后 IP 可能变化，转发会失效。需要重新执行 &lt;code&gt;netsh interface portproxy delete v4tov4 listenport=2222&lt;&#x2F;code&gt; 再添加，或改用下面的镜像网络模式。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-5-wsl-jing-xiang-wang-luo-mo-shi&quot;&gt;2.5 WSL 镜像网络模式&lt;&#x2F;h3&gt;
+&lt;p&gt;如果希望 WSL 与 Windows 共享同一 IP，可以启用镜像网络模式。&lt;&#x2F;p&gt;
+&lt;p&gt;编辑或创建 &lt;code&gt;C:\Users\你的用户名\.wslconfig&lt;&#x2F;code&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[wsl2]
+networkingMode=mirrored
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;保存后执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;wsl --shutdown
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启 WSL 后生效。启用镜像模式后，再结合 Windows 防火墙规则，外部访问 WSL 会更直接，也省去了 portproxy 的 IP 变动问题。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;3-deng-lu-yong-hu-ming-he-mi-ma-shi-shen-me&quot;&gt;3. 登录用户名和密码是什么&lt;&#x2F;h2&gt;
+&lt;p&gt;Windows OpenSSH Server 本身没有独立的用户名和密码，它直接使用 Windows 系统账户凭据。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-1-yong-hu-ming&quot;&gt;3.1 用户名&lt;&#x2F;h3&gt;
+&lt;p&gt;用户名就是当前 Windows 账户名，可通过以下命令查看：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;whoami
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出通常形如：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;desktop-abc123\peter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;SSH 登录时可以使用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh peter@Windows主机IP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;3-2-mi-ma&quot;&gt;3.2 密码&lt;&#x2F;h3&gt;
+&lt;p&gt;密码取决于账户类型：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;本地账户&lt;&#x2F;strong&gt;：密码就是你设置的 Windows 登录密码。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Microsoft 账户&lt;&#x2F;strong&gt;：必须使用 Microsoft 账户的在线密码，而不是 PIN 码。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;如果你在电脑上只设置了 PIN，需要回想或重置 Microsoft 账户的完整密码。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-3-zhi-zhi-dao-yong-hu-ming-he-pin-zen-me-ban&quot;&gt;3.3 只知道用户名和 PIN 怎么办&lt;&#x2F;h3&gt;
+&lt;p&gt;SSH 不支持 PIN 码。可以尝试以下方案。&lt;&#x2F;p&gt;
+&lt;p&gt;方案一：关闭&quot;仅允许 Windows Hello 登录&quot;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;打开「设置」→「账户」→「登录选项」。&lt;&#x2F;li&gt;
+&lt;li&gt;找到「为了提高安全性，仅允许对此设备上的 Microsoft 账户使用 Windows Hello 登录」。&lt;&#x2F;li&gt;
+&lt;li&gt;将其关闭。&lt;&#x2F;li&gt;
+&lt;li&gt;锁定电脑再重新解锁。&lt;&#x2F;li&gt;
+&lt;li&gt;重启 sshd 服务：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Restart-Service sshd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后设置或使用 Microsoft 账户在线密码登录 SSH。&lt;&#x2F;p&gt;
+&lt;p&gt;方案二：配置 SSH 公钥认证&lt;&#x2F;p&gt;
+&lt;p&gt;使用密钥登录，不再依赖账户密码。见下一节。&lt;&#x2F;p&gt;
+&lt;p&gt;方案三：创建专用本地用户&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;net user peter YourPassword123 &amp;#x2F;add
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;该用户默认属于 Users 标准用户组，不具备管理员权限。&lt;&#x2F;p&gt;
+&lt;p&gt;如果只是 SSH 登录并执行普通命令，标准用户足够。若需要管理员权限，可加入 Administrators：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;net localgroup Administrators peter &amp;#x2F;add
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;Remote Management Users&lt;&#x2F;code&gt; 组主要面向 WinRM，不是管理员组，也不是 SSH 必需。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;4-ssh-gong-yao-ren-zheng&quot;&gt;4. SSH 公钥认证&lt;&#x2F;h2&gt;
+&lt;p&gt;长期使用密码登录不够安全，更推荐 SSH 公钥认证。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-1-zai-ke-hu-duan-sheng-cheng-mi-yao&quot;&gt;4.1 在客户端生成密钥&lt;&#x2F;h3&gt;
+&lt;p&gt;在客户端机器执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh-keygen -t ed25519
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;默认会生成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;~&amp;#x2F;.ssh&amp;#x2F;id_ed25519
+~&amp;#x2F;.ssh&amp;#x2F;id_ed25519.pub
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;4-2-bu-shu-gong-yao-dao-windows&quot;&gt;4.2 部署公钥到 Windows&lt;&#x2F;h3&gt;
+&lt;p&gt;普通用户：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;C:\Users\用户名\.ssh\authorized_keys
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;管理员用户：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;C:\ProgramData\ssh\administrators_authorized_keys
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果用户属于 Administrators 组，公钥必须放到 &lt;code&gt;administrators_authorized_keys&lt;&#x2F;code&gt;，否则可能无法登录。这是 &lt;code&gt;sshd_config&lt;&#x2F;code&gt; 默认末尾的 &lt;code&gt;Match Group Administrators&lt;&#x2F;code&gt; 段决定的行为。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-3-ming-ling-xing-tian-jia-guan-li-yuan-gong-yao&quot;&gt;4.3 命令行添加管理员公钥&lt;&#x2F;h3&gt;
+&lt;p&gt;在管理员 PowerShell 中执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;$path = &amp;quot;C:\ProgramData\ssh\administrators_authorized_keys&amp;quot;
+$key  = &amp;quot;ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@client&amp;quot;
+
+# 确保目录存在
+$dir = Split-Path $path
+if (!(Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+
+# 如果文件不存在则创建
+if (!(Test-Path $path)) { New-Item -Path $path -ItemType File -Force | Out-Null }
+
+# 检查公钥是否已存在，不存在则追加
+if (-not (Select-String -Path $path -Pattern ([regex]::Escape($key)) -Quiet)) {
+    Add-Content -Path $path -Value $key -Encoding Ascii
+    Write-Host &amp;quot;公钥已添加。&amp;quot;
+} else {
+    Write-Host &amp;quot;公钥已存在，未重复添加。&amp;quot;
+}
+
+# 设置严格权限：移除继承，只允许 SYSTEM 和 Administrators 完全控制
+icacls $path &amp;#x2F;inheritance:r
+icacls $path &amp;#x2F;grant &amp;#x27;*S-1-5-18:F&amp;#x27;
+icacls $path &amp;#x2F;grant &amp;#x27;*S-1-5-32-544:F&amp;#x27;
+
+# 显示最终内容和权限
+Write-Host &amp;quot;`n--- 文件内容 ---&amp;quot;
+Get-Content $path
+Write-Host &amp;quot;`n--- 文件权限 ---&amp;quot;
+icacls $path
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;说明：&lt;code&gt;*S-1-5-18&lt;&#x2F;code&gt; 是 SYSTEM，&lt;code&gt;*S-1-5-32-544&lt;&#x2F;code&gt; 是 Administrators，用 SID 授权可避免中文系统上组名不一致的问题。权限过宽（如继承了 Users 组读取）会导致 sshd 拒绝使用该公钥文件。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;4-4-yan-zheng&quot;&gt;4.4 验证&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-Content C:\ProgramData\ssh\administrators_authorized_keys
+icacls C:\ProgramData\ssh\administrators_authorized_keys
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;确认内容正确，且权限列表中只有 SYSTEM 和 Administrators。&lt;&#x2F;p&gt;
+&lt;p&gt;客户端登录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh -i 私钥路径 用户名@Windows主机IP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;无需重启 sshd，OpenSSH 每次认证都会重新读取该文件。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;5-mo-ren-jin-ru-cmd-huan-shi-powershell&quot;&gt;5. 默认进入 cmd 还是 PowerShell&lt;&#x2F;h2&gt;
+&lt;p&gt;Windows OpenSSH Server 默认进入的是 &lt;code&gt;cmd.exe&lt;&#x2F;code&gt;，不是 PowerShell。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-1-ru-he-cha-kan-dang-qian-shell&quot;&gt;5.1 如何查看当前 Shell&lt;&#x2F;h3&gt;
+&lt;p&gt;看提示符：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;cmd：&lt;code&gt;C:\Users\peter&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;PowerShell：&lt;code&gt;PS C:\Users\peter&amp;gt;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;在 cmd 中验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cmd&quot; class=&quot;language-cmd &quot;&gt;&lt;code class=&quot;language-cmd&quot; data-lang=&quot;cmd&quot;&gt;echo %COMSPEC%
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出 &lt;code&gt;C:\Windows\System32\cmd.exe&lt;&#x2F;code&gt; 说明当前是 cmd。&lt;&#x2F;p&gt;
+&lt;p&gt;在 PowerShell 中验证：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;$PSVersionTable
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;能输出版本表格就是 PowerShell。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-2-xiu-gai-mo-ren-shell-wei-powershell&quot;&gt;5.2 修改默认 Shell 为 PowerShell&lt;&#x2F;h3&gt;
+&lt;p&gt;以管理员身份运行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;if (!(Test-Path &amp;quot;HKLM:\SOFTWARE\OpenSSH&amp;quot;)) {
+    New-Item -Path &amp;quot;HKLM:\SOFTWARE\OpenSSH&amp;quot; -Force
+}
+
+New-ItemProperty -Path &amp;quot;HKLM:\SOFTWARE\OpenSSH&amp;quot; -Name DefaultShell -Value &amp;quot;C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe&amp;quot; -PropertyType String -Force
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重启 sshd：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Restart-Service sshd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;重新 SSH 登录后，提示符会变成：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;PS C:\Users\peter&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;如果安装了 PowerShell 7，也可以改为：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;C:\Program Files\PowerShell\7\pwsh.exe
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;临时切换：在 cmd 中输入 &lt;code&gt;powershell&lt;&#x2F;code&gt; 回车即可进入 PowerShell，输入 &lt;code&gt;exit&lt;&#x2F;code&gt; 退回 cmd。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;5-3-shi-zhan-keng-reg-add-xie-liao-que-bu-sheng-xiao&quot;&gt;5.3 实战坑：reg add 写了却不生效&lt;&#x2F;h3&gt;
+&lt;p&gt;实测一台 Windows 11 25H2（OpenSSH 9.5p2）上，用 &lt;code&gt;reg add&lt;&#x2F;code&gt; 写入 &lt;code&gt;DefaultShell&lt;&#x2F;code&gt; 后 &lt;code&gt;net stop sshd &amp;amp;&amp;amp; net start sshd&lt;&#x2F;code&gt;，新会话仍然进 cmd；换成 PowerShell 原生方式一次性生效：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;New-ItemProperty -Path &amp;quot;HKLM:\SOFTWARE\OpenSSH&amp;quot; -Name DefaultShell `
+  -Value &amp;quot;C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe&amp;quot; `
+  -PropertyType String -Force
+Restart-Service sshd -Force
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查思路备忘：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;确认新连接命中的是哪个监听进程：&lt;code&gt;netstat -ano | findstr :22&lt;&#x2F;code&gt;，再对照 &lt;code&gt;Get-CimInstance Win32_Process -Filter &quot;Name=&#x27;sshd.exe&#x27;&quot;&lt;&#x2F;code&gt; 的 &lt;code&gt;CreationDate&lt;&#x2F;code&gt;，确认服务真的重启过；&lt;&#x2F;li&gt;
+&lt;li&gt;验证 shell 是否切换成功，用一条只有 PowerShell 认识的命令最干净：&lt;code&gt;ssh 用户名@主机 &#x27;Write-Output PS-OK&#x27;&lt;&#x2F;code&gt;——报「不是内部或外部命令」说明还是 cmd；&lt;&#x2F;li&gt;
+&lt;li&gt;SSH 会话是否拿到管理员完整令牌：&lt;code&gt;whoami &#x2F;groups | findstr S-1-16-&lt;&#x2F;code&gt;，&lt;code&gt;S-1-16-12288&lt;&#x2F;code&gt;（High）才是提权令牌，&lt;code&gt;net session&lt;&#x2F;code&gt; 能跑通同样说明有完整管理员权限。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;另一个高频痛点：默认 shell 是 cmd 时，从 Linux 远程执行复杂命令会陷入&lt;strong&gt;引号转义地狱&lt;&#x2F;strong&gt;（&lt;code&gt;%&lt;&#x2F;code&gt;、&lt;code&gt;&quot;&lt;&#x2F;code&gt;、嵌套引号层层剥皮，&lt;code&gt;curl -w &quot;%{http_code}&quot;&lt;&#x2F;code&gt; 这类必然阵亡）。最稳的办法是根本不让 cmd 解析——本地把 PowerShell 脚本编码后用 &lt;code&gt;-EncodedCommand&lt;&#x2F;code&gt; 传输，全程无引号：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 本地任意复杂的 PowerShell，base64(UTF-16LE) 后传给远端
+ENC=$(printf &amp;#x27;%s&amp;#x27; &amp;#x27;Get-Service sshd | Select-Object Status,Name | Out-String&amp;#x27; \
+      | iconv -t UTF-16LE | base64 -w0)
+ssh 用户名@Windows主机IP &amp;quot;powershell -EncodedCommand $ENC&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;顺带的编码坑：中文系统 cmd 远程输出是 GBK，&lt;code&gt;curl -w&lt;&#x2F;code&gt; 的 &lt;code&gt;%%&lt;&#x2F;code&gt; 转义在不同层级表现不一致，&lt;code&gt;timeout &#x2F;t&lt;&#x2F;code&gt; 在 SSH 无 stdin 时直接报错不可用于延时（改用 &lt;code&gt;Start-Sleep&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;6-ti-quan-sudo-runas-yu-zhuan-yong-guan-li-yuan-zhang-hu&quot;&gt;6. 提权：sudo、runas 与专用管理员账户&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;6-1-windows-11-nei-zhi-sudo&quot;&gt;6.1 Windows 11 内置 sudo&lt;&#x2F;h3&gt;
+&lt;p&gt;Windows 11 24H2 及以上版本支持原生 sudo。&lt;&#x2F;p&gt;
+&lt;p&gt;打开「设置」→「系统」→「开发者选项」，启用 sudo。&lt;&#x2F;p&gt;
+&lt;p&gt;之后可以：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;sudo netstat -ab
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：该功能依赖 UAC 弹窗，在纯 SSH 会话中可能无法正常工作。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;6-2-shi-yong-runas&quot;&gt;6.2 使用 runas&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;code&gt;runas&lt;&#x2F;code&gt; 是 Windows 传统提权命令，兼容所有版本。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cmd&quot; class=&quot;language-cmd &quot;&gt;&lt;code class=&quot;language-cmd&quot; data-lang=&quot;cmd&quot;&gt;runas &amp;#x2F;user:Administrator &amp;quot;powershell.exe&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;执行后会提示输入 Administrator 密码。&lt;&#x2F;p&gt;
+&lt;p&gt;注意事项：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;runas&lt;&#x2F;code&gt; 会启动一个新进程，当前 SSH 会话仍然是原用户。&lt;&#x2F;li&gt;
+&lt;li&gt;新启动的窗口在 SSH 中可能不可见，输出不一定回显到当前终端。&lt;&#x2F;li&gt;
+&lt;li&gt;每次都需要交互输入密码，不适合自动化。&lt;&#x2F;li&gt;
+&lt;li&gt;新进程的工作目录可能变成 &lt;code&gt;C:\Windows\System32&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;如果内置 Administrator 账户未启用，需要先启用并设置密码：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;net user administrator &amp;#x2F;active:yes
+net user administrator YourStrongPassword
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;用完建议禁用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;net user administrator &amp;#x2F;active:no
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;6-3-geng-tui-jian-zhuan-yong-guan-li-yuan-ssh-zhang-hu&quot;&gt;6.3 更推荐：专用管理员 SSH 账户&lt;&#x2F;h3&gt;
+&lt;p&gt;创建一个专用本地管理员账户：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;net user SSHAdmin YourStrongPassword &amp;#x2F;add
+net localgroup Administrators SSHAdmin &amp;#x2F;add
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;然后为 &lt;code&gt;SSHAdmin&lt;&#x2F;code&gt; 配置 SSH 公钥，公钥放到：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;C:\ProgramData\ssh\administrators_authorized_keys
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;之后直接登录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ssh SSHAdmin@Windows主机IP
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这种方式登录后的会话通常具备管理员权限，不需要再 &lt;code&gt;runas&lt;&#x2F;code&gt; 或 &lt;code&gt;sudo&lt;&#x2F;code&gt;，更适合长期 SSH 管理。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;7-ben-di-zhang-hu-yu-microsoft-zai-xian-zhang-hu&quot;&gt;7. 本地账户与 Microsoft 在线账户&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;7-1-liang-zhe-de-qu-bie&quot;&gt;7.1 两者的区别&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;类型&lt;&#x2F;th&gt;&lt;th&gt;凭据存储位置&lt;&#x2F;th&gt;&lt;th&gt;验证方式&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Microsoft 账户&lt;&#x2F;td&gt;&lt;td&gt;微软在线服务器&lt;&#x2F;td&gt;&lt;td&gt;需要在线密码&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;本地账户&lt;&#x2F;td&gt;&lt;td&gt;本机 SAM 数据库&lt;&#x2F;td&gt;&lt;td&gt;本地密码验证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;Windows OpenSSH Server 验证的是本地账户数据库。使用 Microsoft 账户登录 Windows 时，系统会在后台创建一个对应的本地用户，但密码验证会转发到微软服务器。因此 SSH 登录 Microsoft 账户时，需要的是在线密码，而不是 PIN。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;7-2-xu-qiu-dui-zhao&quot;&gt;7.2 需求对照&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;需求&lt;&#x2F;th&gt;&lt;th&gt;是否需要 Microsoft 在线账户&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;SSH 远程管理，使用本地管理员&lt;&#x2F;td&gt;&lt;td&gt;不需要&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;桌面日常登录，使用 PIN &#x2F; Windows Hello&lt;&#x2F;td&gt;&lt;td&gt;需要，保持现状即可&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;用原 Microsoft 账户 SSH 登录&lt;&#x2F;td&gt;&lt;td&gt;需要在线密码，或改用公钥认证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;结论：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;有了本地管理员账户后，SSH 管理完全不需要 Microsoft 在线账户。&lt;&#x2F;li&gt;
+&lt;li&gt;Microsoft 账户可以继续用于桌面登录和同步。&lt;&#x2F;li&gt;
+&lt;li&gt;两者互不冲突。&lt;&#x2F;li&gt;
+&lt;li&gt;如果长期 SSH 管理，建议创建专用本地管理员账户，而不是长期启用内置 Administrator。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;7-3-zai-xian-zhang-hu-diu-shi-shi-fou-ying-xiang-ben-di-yong-hu&quot;&gt;7.3 在线账户丢失是否影响本地用户&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;不影响。&lt;&#x2F;strong&gt; 即使 Microsoft 在线账户丢失、无法登录、密码遗忘或被注销，本地用户仍然可以正常使用，包括：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;在 Windows 登录界面本地登录。&lt;&#x2F;li&gt;
+&lt;li&gt;通过 SSH 远程登录。&lt;&#x2F;li&gt;
+&lt;li&gt;运行程序、访问文件。&lt;&#x2F;li&gt;
+&lt;li&gt;如果属于 Administrators 组，拥有管理员权限。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;原因：本地账户的用户名和密码哈希存储在本地 SAM 数据库中，验证完全在本地完成，不依赖微软服务器。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;7-4-xu-yao-zhu-yi-de-li-wai-qing-kuang&quot;&gt;7.4 需要注意的例外情况&lt;&#x2F;h3&gt;
+&lt;p&gt;虽然本地账户本身不受影响，但以下事项可能和 Microsoft 账户有关：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;BitLocker 恢复密钥&lt;&#x2F;strong&gt;
+如果系统盘启用了 BitLocker，恢复密钥可能备份在 Microsoft 账户中。在线账户丢失可能导致无法获取恢复密钥。但这影响的是磁盘解锁，不是本地账户本身。&lt;&#x2F;p&gt;
+&lt;p&gt;查看本机是否开启了 BitLocker（需管理员，家庭版对应的是「设备加密」，机制相同）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-BitLockerVolume | Select-Object MountPoint,VolumeStatus,ProtectionStatus,EncryptionPercentage,EncryptionMethod
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;实测一台 Windows 11 家庭中文版的输出（两块盘全部加密、TPM 就绪）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;MountPoint   VolumeStatus     ProtectionStatus   EncryptionPercentage   EncryptionMethod
+----------   --------------   -----------------   --------------------   ---------------
+C:           FullyEncrypted   On                 100                   XtsAes128
+D:           FullyEncrypted   On                 100                   XtsAes128
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;VolumeStatus = FullyEncrypted&lt;&#x2F;code&gt; 且 &lt;code&gt;ProtectionStatus = On&lt;&#x2F;code&gt; 即已启用。顺手确认 TPM 状态：&lt;code&gt;Get-Tpm&lt;&#x2F;code&gt;，&lt;code&gt;TpmReady&lt;&#x2F;code&gt; 为 &lt;code&gt;True&lt;&#x2F;code&gt; 才能无感解锁。&lt;&#x2F;p&gt;
+&lt;p&gt;查看恢复密钥保护器（只看 ID，不在终端展开密钥本身）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;(Get-BitLockerVolume -MountPoint C:).KeyProtector |
+  Where-Object KeyProtectorType -eq RecoveryPassword |
+  Select-Object KeyProtectorId
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;有 &lt;code&gt;RecoveryPassword&lt;&#x2F;code&gt; 条目说明恢复密钥存在。&lt;strong&gt;务必确认它至少有一份离线备份&lt;&#x2F;strong&gt;：登录 &lt;code&gt;aka.ms&#x2F;myrecoverykey&lt;&#x2F;code&gt; 查看 Microsoft 账户中的托管记录，同时建议额外保存一份（打印或密码管理器）——恢复密钥是 48 位数字，主板&#x2F;TPM 变更、系统重装后是唯一解锁手段，且不要把密钥明文贴到任何终端输出或笔记里。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;读出恢复密钥本身&lt;&#x2F;strong&gt;（管理员权限，SSH &#x2F; RDP &#x2F; 本地终端均可）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;# 方式一：PowerShell 原生
+(Get-BitLockerVolume -MountPoint C:).KeyProtector |
+  Where-Object KeyProtectorType -eq RecoveryPassword |
+  Select-Object KeyProtectorId, RecoveryPassword
+
+# 方式二：老牌工具，ID + 密钥分栏显示，更直观
+manage-bde -protectors -get C:
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意事项：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;每个卷有独立的恢复密钥&lt;&#x2F;strong&gt;，多块盘要逐卷执行（把 &lt;code&gt;C:&lt;&#x2F;code&gt; 换成 &lt;code&gt;D:&lt;&#x2F;code&gt; 等）。&lt;&#x2F;li&gt;
+&lt;li&gt;本机读出的与 &lt;code&gt;aka.ms&#x2F;myrecoverykey&lt;&#x2F;code&gt; 里托管的是&lt;strong&gt;同一把&lt;&#x2F;strong&gt;——两边核对：微软账户里查不到，则本机这份就是唯一副本，立即存入密码管理器。&lt;&#x2F;li&gt;
+&lt;li&gt;密钥属于敏感凭据：在自己的终端里查看、存好后清掉终端回滚缓冲；&lt;strong&gt;不要让 AI 助手 &#x2F; 聊天工具代查&lt;&#x2F;strong&gt;（密钥会进入会话记录，与密码不进任何中间上下文是同一条原则）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;若怀疑密钥已泄露，可以轮换（生成全新随机恢复密钥，旧的可后续用 &lt;code&gt;Remove-BitLockerKeyProtector&lt;&#x2F;code&gt; 删除）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Add-BitLockerKeyProtector -MountPoint C: -RecoveryPasswordProtector
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;原 Microsoft 账户的用户配置文件&lt;&#x2F;strong&gt;
+原在线账户对应的 &lt;code&gt;C:\Users\原用户名&lt;&#x2F;code&gt; 文件夹仍然存在，但本地新用户默认无权访问。如需里面的文件，需要手动修改权限或取得所有权。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;OneDrive &#x2F; Microsoft 服务&lt;&#x2F;strong&gt;
+原账户关联的 OneDrive、Office 订阅、Edge 同步等会失效，但这些与本地登录和 SSH 无关。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;密码重置盘 &#x2F; PIN&lt;&#x2F;strong&gt;
+本地用户默认没有 PIN，只能用密码登录。请务必记住密码。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;组策略限制&lt;&#x2F;strong&gt;
+极少数情况下，域策略或本地安全策略可能限制某些用户本地登录。默认情况下，Users 和 Administrators 组都有&quot;允许本地登录&quot;权限。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;7-5-jian-yi&quot;&gt;7.5 建议&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;给本地管理员账户设置强密码并妥善保存。&lt;&#x2F;li&gt;
+&lt;li&gt;不要删除或禁用这个本地账户。&lt;&#x2F;li&gt;
+&lt;li&gt;如果担心忘记密码，可以提前创建密码重置盘。&lt;&#x2F;li&gt;
+&lt;li&gt;本地账户和 Microsoft 账户可以共存，互不干扰。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;8-xiu-gai-yong-hu-mi-ma&quot;&gt;8. 修改用户密码&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;8-1-shi-yong-net-user&quot;&gt;8.1 使用 net user&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;cmd&quot; class=&quot;language-cmd &quot;&gt;&lt;code class=&quot;language-cmd&quot; data-lang=&quot;cmd&quot;&gt;net user 用户名 新密码
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;示例：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cmd&quot; class=&quot;language-cmd &quot;&gt;&lt;code class=&quot;language-cmd&quot; data-lang=&quot;cmd&quot;&gt;net user peter NewP@ssw0rd2026!
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;交互式输入，避免密码出现在命令历史中：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cmd&quot; class=&quot;language-cmd &quot;&gt;&lt;code class=&quot;language-cmd&quot; data-lang=&quot;cmd&quot;&gt;net user peter *
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;系统会提示输入两次密码。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;8-2-shi-yong-powershell-set-localuser&quot;&gt;8.2 使用 PowerShell Set-LocalUser&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Set-LocalUser -Name &amp;quot;peter&amp;quot; -Password (ConvertTo-SecureString &amp;quot;NewP@ssw0rd2026!&amp;quot; -AsPlainText -Force)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;8-3-tu-xing-jie-mian&quot;&gt;8.3 图形界面&lt;&#x2F;h3&gt;
+&lt;p&gt;如果能通过远程桌面连接：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;按 &lt;code&gt;Win + R&lt;&#x2F;code&gt;，输入 &lt;code&gt;control&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;进入「用户账户」→「管理其他账户」。&lt;&#x2F;li&gt;
+&lt;li&gt;选择目标账户，点击「更改密码」。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;执行修改密码命令的 SSH 会话必须具备管理员权限。&lt;&#x2F;li&gt;
+&lt;li&gt;修改后立即生效，无需重启系统或 sshd。&lt;&#x2F;li&gt;
+&lt;li&gt;新密码需要符合系统密码策略要求。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;9-chang-jian-wen-ti-pai-cha&quot;&gt;9. 常见问题排查&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;9-1-new-netfirewallrule-bao-cuo-wen-jian-yi-cun-zai&quot;&gt;9.1 New-NetFirewallRule 报错&quot;文件已存在&quot;&lt;&#x2F;h3&gt;
+&lt;p&gt;说明规则已经存在。使用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27;
+Set-NetFirewallRule -Name &amp;#x27;OpenSSH-Server-In-TCP&amp;#x27; -Enabled True
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;9-2-ssh-deng-lu-ti-shi-permission-denied&quot;&gt;9.2 SSH 登录提示 Permission denied&lt;&#x2F;h3&gt;
+&lt;p&gt;可能原因：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;使用的是 PIN，而不是账户密码。&lt;&#x2F;li&gt;
+&lt;li&gt;Microsoft 账户需要在线密码。&lt;&#x2F;li&gt;
+&lt;li&gt;公钥未放到正确位置。&lt;&#x2F;li&gt;
+&lt;li&gt;管理员公钥未放到 &lt;code&gt;administrators_authorized_keys&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;文件权限不正确。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;查看日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;C:\ProgramData\ssh\logs\sshd.log
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;9-3-zhi-zhi-dao-pin-bu-zhi-dao-mi-ma&quot;&gt;9.3 只知道 PIN，不知道密码&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;关闭&quot;仅允许 Windows Hello 登录&quot;。&lt;&#x2F;li&gt;
+&lt;li&gt;设置或重置 Microsoft 账户在线密码。&lt;&#x2F;li&gt;
+&lt;li&gt;或改用 SSH 公钥认证。&lt;&#x2F;li&gt;
+&lt;li&gt;或创建专用本地用户。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;9-4-sudo-bei-jin-yong&quot;&gt;9.4 sudo 被禁用&lt;&#x2F;h3&gt;
+&lt;p&gt;Windows 默认禁用 sudo。可在 Windows 11 开发者设置中启用，但 SSH 中可能受 UAC 限制。更推荐使用专用管理员 SSH 账户。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;9-5-deng-lu-hou-mo-ren-shi-cmd&quot;&gt;9.5 登录后默认是 cmd&lt;&#x2F;h3&gt;
+&lt;p&gt;这是正常默认行为。可通过注册表 &lt;code&gt;DefaultShell&lt;&#x2F;code&gt; 改为 PowerShell。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;9-6-cuo-wu-dai-ma-1326&quot;&gt;9.6 错误代码 1326&lt;&#x2F;h3&gt;
+&lt;p&gt;常见于 Microsoft 账户认证失败。可尝试关闭 Windows Hello 限制，或改用本地账户 &#x2F; 公钥认证。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;9-7-ben-di-yong-hu-neng-fou-zheng-chang-ben-di-deng-lu&quot;&gt;9.7 本地用户能否正常本地登录&lt;&#x2F;h3&gt;
+&lt;p&gt;可以。使用 &lt;code&gt;net user&lt;&#x2F;code&gt; 创建的本地用户默认属于 Users 组，拥有本地登录权限。在登录界面选择&quot;其他用户&quot;，输入 &lt;code&gt;电脑名\用户名&lt;&#x2F;code&gt; 和密码即可登录。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;9-8-microsoft-zhang-hu-diu-shi-hou-ben-di-yong-hu-huan-neng-yong-ma&quot;&gt;9.8 Microsoft 账户丢失后本地用户还能用吗&lt;&#x2F;h3&gt;
+&lt;p&gt;可以。本地账户的验证完全在本地进行，不依赖 Microsoft 在线账户。在线账户丢失不影响本地用户的本地登录、SSH 登录和日常使用。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;10-an-quan-jian-yi&quot;&gt;10. 安全建议&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;优先使用 SSH 公钥认证，而不是密码登录。&lt;&#x2F;li&gt;
+&lt;li&gt;不要长期启用内置 Administrator 账户。&lt;&#x2F;li&gt;
+&lt;li&gt;创建专用本地管理员账户用于 SSH 管理。&lt;&#x2F;li&gt;
+&lt;li&gt;公钥文件权限必须严格限制。&lt;&#x2F;li&gt;
+&lt;li&gt;ICMP 放行尽量限定来源 IP。&lt;&#x2F;li&gt;
+&lt;li&gt;定期查看 SSH 日志。&lt;&#x2F;li&gt;
+&lt;li&gt;公网环境不要直接暴露 22 端口，建议修改端口或使用跳板机、VPN。&lt;&#x2F;li&gt;
+&lt;li&gt;定期更新 Windows 和 OpenSSH。&lt;&#x2F;li&gt;
+&lt;li&gt;为本地管理员账户设置强密码，并妥善保存。&lt;&#x2F;li&gt;
+&lt;li&gt;如果使用 BitLocker，确保恢复密钥有额外备份，不要只依赖 Microsoft 账户。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;11-jin-jie-jia-ting-ban-kai-qi-yuan-cheng-zhuo-mian-rdpwrap-shi-zhan&quot;&gt;11. 进阶：家庭版开启远程桌面（RDPWrap 实战）&lt;&#x2F;h2&gt;
+&lt;p&gt;需求：Windows 11 家庭中文版（&lt;code&gt;EditionID = CoreCountrySpecific&lt;&#x2F;code&gt;）通过 SSH 开启原生 RDP 服务。家庭版&lt;strong&gt;没有 RDP 服务端&lt;&#x2F;strong&gt;，这是功能阉割不是配置问题——&lt;code&gt;TermService&lt;&#x2F;code&gt; 服务存在、&lt;code&gt;fDenyTSConnections&lt;&#x2F;code&gt; 注册表键也在，但 termsrv 有版本许可检查，改键也拒绝连接。免升级的专业版解锁方案是 RDPWrap。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;11-1-ban-ben-pan-ding-kan-termsrv-dll-er-bu-shi-os-build&quot;&gt;11.1 版本判定：看 termsrv.dll 而不是 OS build&lt;&#x2F;h3&gt;
+&lt;p&gt;RDPWrap 按 &lt;code&gt;termsrv.dll&lt;&#x2F;code&gt; 的&lt;strong&gt;文件版本精确匹配&lt;&#x2F;strong&gt; ini 配置段，这里有两个极易踩的坑：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;OS build ≠ dll build&lt;&#x2F;strong&gt;。Windows 11 25H2 是 enablement 升级包，OS 显示 26200.x，但很多系统 DLL 仍在 26100 分支。实测一台 25H2（OS 26200.9168）的 &lt;code&gt;termsrv.dll&lt;&#x2F;code&gt; 是 10.0.26100.8972——按 OS build 去搜 ini 会搜错方向。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;字符串属性会骗人&lt;&#x2F;strong&gt;。&lt;code&gt;(Get-Item C:\Windows\System32\termsrv.dll).VersionInfo.FileVersion&lt;&#x2F;code&gt; 返回的字符串显示 26100.8875，但 &lt;code&gt;FileVersionRaw&lt;&#x2F;code&gt; 才是 RDPWrap 实际读取的字段：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;(Get-Item C:\Windows\System32\termsrv.dll).VersionInfo.FileVersionRaw
+# Major  Minor  Build  Revision
+# 10    0      26100  8972
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;ini 用社区持续维护的版本（官方 stascorp 仓库 2017 年就停更了）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;text&quot; class=&quot;language-text &quot;&gt;&lt;code class=&quot;language-text&quot; data-lang=&quot;text&quot;&gt;https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;sebaxakerhtc&amp;#x2F;rdpwrap.ini
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;下载后 &lt;code&gt;Select-String -Pattern &#x27;^\[10\.0\.26100\.8972\]&#x27;&lt;&#x2F;code&gt; 确认有对应段再继续。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;11-2-smart-app-control-win11-24h2-de-tou-hao-lan-lu-hu&quot;&gt;11.2 Smart App Control：Win11 24H2+ 的头号拦路虎&lt;&#x2F;h3&gt;
+&lt;p&gt;新版 Windows 出厂默认开启 SAC 评估模式（&lt;code&gt;VerifiedAndReputablePolicyState=1&lt;&#x2F;code&gt;），基于云信誉拦截&quot;无签名无信誉&quot;的程序。RDPWInst.exe（2017 年的老 exe）必被拦，症状很有迷惑性：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;cmd 执行报「系统无法执行指定的程序」，无任何其他输出；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;[System.Reflection.Assembly]::LoadFile()&lt;&#x2F;code&gt; 也失败，HRESULT &lt;code&gt;0x800711CD&lt;&#x2F;code&gt;（应用程序控制策略阻止）——不只是拦进程执行；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;连 DLL 加载都拦&lt;&#x2F;strong&gt;：把 &lt;code&gt;TermService&lt;&#x2F;code&gt; 的 &lt;code&gt;ServiceDll&lt;&#x2F;code&gt; 换成未签名的 rdpwrap.dll 后，服务 7023 报「应用程序控制策略阻止了文件」。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;实锤方法看 CodeIntegrity 事件日志：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Get-WinEvent -LogName &amp;#x27;Microsoft-Windows-CodeIntegrity&amp;#x2F;Operational&amp;#x27; -MaxEvents 10
+# 事件 3077&amp;#x2F;3033: ... did not meet the Enterprise signing level requirements
+# 事件 3118: Smart App Control Block
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排除法过程记录（都不是原因，但值得知道）：MOTW 标记（&lt;code&gt;Get-Item -Stream Zone.Identifier&lt;&#x2F;code&gt;，curl.exe 下载的文件本来就不带）、Defender 拦截（&lt;code&gt;Get-MpThreat&lt;&#x2F;code&gt; 为空）、WOW64（32 位 exe，&lt;code&gt;SysWOW64\cmd.exe&lt;&#x2F;code&gt; 能跑）、.NET 运行库（4.8 在、3.5 也装了）。&lt;&#x2F;p&gt;
+&lt;p&gt;关闭 SAC（&lt;strong&gt;不可逆&lt;&#x2F;strong&gt;，重装系统才能再开，个人桌面跑社区工具的标准前提）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;Set-ItemProperty &amp;#x27;HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy&amp;#x27; `
+  -Name VerifiedAndReputablePolicyState -Value 0 -Type DWord
+Restart-Computer -Force   # 必须重启才生效，重启服务无效
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;11-3-guan-sac-qian-de-an-zhuang-lu-jing-cong-an-zhuang-qi-li-diao-ke-chu-rdpwrap-dll&quot;&gt;11.3 关 SAC 前的安装路径：从安装器里&quot;雕刻&quot;出 rdpwrap.dll&lt;&#x2F;h3&gt;
+&lt;p&gt;若不想关 SAC，还有一条硬核路：SAC 拦的是&lt;strong&gt;执行&lt;&#x2F;strong&gt;，纯文件读写不受影响。而官方安装包 RDPWInst.exe 里以资源形式内嵌了所有需要的 DLL（rdpwrap.dll x86&#x2F;x64、rdpclip、RfxVmt.dll），可以用 PowerShell 按 PE 结构手工提取（官方 GitHub Release 是 &lt;code&gt;RDPWrap-v1.6.2.zip&lt;&#x2F;code&gt;，注意老的 &lt;code&gt;RDPWInst.zip&lt;&#x2F;code&gt; 路径已 404）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;$b = [IO.File]::ReadAllBytes(&amp;#x27;C:\Users\你的用户名\rdpwrap\RDPWInst.exe&amp;#x27;)
+
+# 扫描所有内嵌 PE：MZ 头 + e_lfanew 指向合法 PE 签名
+for ($i = 0; $i -lt $b.Length - 0x40; $i++) {
+    if ($b[$i] -eq 0x4D -and $b[$i+1] -eq 0x5A) {
+        $pe = [BitConverter]::ToInt32($b, $i + 0x3C)
+        if ($pe -gt 0 -and $pe -lt 0x400 -and
+            $b[$i+$pe] -eq 0x50 -and $b[$i+$pe+1] -eq 0x45) {
+            $mach = [BitConverter]::ToUInt16($b, $i + $pe + 4)
+            Write-Output (&amp;quot;MZ at {0} machine 0x{1:X4}&amp;quot; -f $i, $mach)
+        }
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;得到一串内嵌 PE 后按特征识别：&lt;code&gt;machine=0x8664&lt;&#x2F;code&gt; 的是 x64，其中内含 &lt;code&gt;ServiceMain&lt;&#x2F;code&gt; 字样、无 &lt;code&gt;.pdb&lt;&#x2F;code&gt; 调试路径的 116736 字节那块就是 &lt;strong&gt;rdpwrap.dll&lt;&#x2F;strong&gt;（有 &lt;code&gt;rdpclip.pdb&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;RfxVmt.pdb&lt;&#x2F;code&gt; 字样的是另两个）。按节表计算精确长度后 carve 出来：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;$dll = New-Object byte[] 116736
+[Array]::Copy($b, 1271752, $dll, 0, 116736)   # 偏移&amp;#x2F;长度按实际扫描结果
+[IO.File]::WriteAllBytes(&amp;#x27;C:\Users\你的用户名\rdpwrap\rdpwrap.dll&amp;#x27;, $dll)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;家庭版通常还缺 &lt;code&gt;RfxVmt.dll&lt;&#x2F;code&gt;（远程会话虚拟通道组件，同样内嵌在安装器里），一并提取备用。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;11-4-shou-gong-an-zhuang-zhu-ce-biao-jie-xian-wu-bu&quot;&gt;11.4 手工安装：注册表接线五步&lt;&#x2F;h3&gt;
+&lt;p&gt;关掉 SAC 并重启后（或直接用官方安装器 &lt;code&gt;RDPWInst.exe -i&lt;&#x2F;code&gt;，把新 ini 放同目录），手工安装的完整步骤：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;# 1. 就位文件（ini 与 dll 同目录）
+New-Item -Path &amp;#x27;C:\Program Files\RDP Wrapper&amp;#x27; -ItemType Directory -Force
+Copy-Item C:\Users\你的用户名\rdpwrap\rdpwrap.dll &amp;#x27;C:\Program Files\RDP Wrapper\&amp;#x27;
+Copy-Item C:\Users\你的用户名\rdpwrap\rdpwrap.ini &amp;#x27;C:\Program Files\RDP Wrapper\&amp;#x27;
+Copy-Item C:\Users\你的用户名\rdpwrap\RfxVmt.dll C:\Windows\System32\   # 家庭版缺失时
+
+# 2. 核心接线：让 svchost 加载 rdpwrap.dll（它再加载真 termsrv.dll 并内存补丁）
+Set-ItemProperty &amp;#x27;HKLM:\SYSTEM\CurrentControlSet\Services\TermService\Parameters&amp;#x27; `
+  -Name ServiceDll -Value &amp;#x27;C:\Program Files\RDP Wrapper\rdpwrap.dll&amp;#x27;
+
+# 3. 放开远程连接总开关
+Set-ItemProperty &amp;#x27;HKLM:\SYSTEM\CurrentControlSet\Control\Terminal Server&amp;#x27; `
+  -Name fDenyTSConnections -Value 0
+
+# 4. 防火墙放行 3389（TCP+UDP）
+netsh advfirewall firewall add rule name=&amp;quot;RDPWrap-TCP-3389&amp;quot; dir=in action=allow protocol=TCP localport=3389
+netsh advfirewall firewall add rule name=&amp;quot;RDPWrap-UDP-3389&amp;quot; dir=in action=allow protocol=UDP localport=3389
+
+# 5. 重启服务并验证
+Restart-Service TermService -Force
+netstat -ano | Select-String &amp;#x27;:3389&amp;#x27;   # 应看到 LISTENING
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;端到端验证技巧&lt;&#x2F;strong&gt;：不需要真实登录，用假凭据做一次 NLA 探测——错误码是 &lt;code&gt;LOGON_FAILURE&lt;&#x2F;code&gt;（凭据被真实校验后拒绝）就证明 TLS + CredSSP + 补丁后的 termsrv 全链路正常；若是协议层错误才是真有问题：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;xfreerdp &amp;#x2F;v:Windows主机IP &amp;#x2F;u:probe &amp;#x2F;p:wrong &amp;#x2F;cert:ignore &amp;#x2F;auth-only &amp;#x2F;sec:nla
+# ERRCONNECT_LOGON_FAILURE = 栈正常，只是密码错 —— 预期结果
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;11-5-chang-qi-wei-hu-yu-xie-zai&quot;&gt;11.5 长期维护与卸载&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Windows 大更新后 RDP 突然连不上&lt;&#x2F;strong&gt;：多半是累积更新把 &lt;code&gt;termsrv.dll&lt;&#x2F;code&gt; 升到了 ini 没有的修订号。重新下载 sebaxakerhtc 的最新 ini 覆盖 &lt;code&gt;C:\Program Files\RDP Wrapper\rdpwrap.ini&lt;&#x2F;code&gt;，&lt;code&gt;Restart-Service TermService&lt;&#x2F;code&gt; 即可。先查 &lt;code&gt;FileVersionRaw&lt;&#x2F;code&gt; 再去 ini 里找段，思路同 11.1。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;卸载&lt;&#x2F;strong&gt;：把 &lt;code&gt;ServiceDll&lt;&#x2F;code&gt; 改回 &lt;code&gt;C:\Windows\System32\termsrv.dll&lt;&#x2F;code&gt;，删除 &lt;code&gt;C:\Program Files\RDP Wrapper\&lt;&#x2F;code&gt;，重启 TermService。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;会话机制备忘&lt;&#x2F;strong&gt;：RDP 登录创建的是独立会话，远程接入时物理屏幕会切到锁屏（控制台用户的程序仍在后台，断开远程后解锁即回）。想「远程操作、本地围观」的同屏演示场景，RDP 做不到（shadow 模式 Linux 客户端基本无支持），需要 RustDesk 这类共享同一会话的远程协助工具。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;12-linux-ke-hu-duan-remmina-hei-bei-jing-yu-qing-xi-du-diao-you&quot;&gt;12. Linux 客户端（Remmina）黑背景与清晰度调优&lt;&#x2F;h2&gt;
+&lt;p&gt;RDP 通了只是第一步，Remmina 默认配置连上去是「小窗 + 黑背景 + 文字发虚」三连，对应 profile（&lt;code&gt;~&#x2F;.local&#x2F;share&#x2F;remmina&#x2F;xxx.remmina&lt;&#x2F;code&gt;）里三个键：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;症状&lt;&#x2F;th&gt;&lt;th&gt;原因&lt;&#x2F;th&gt;&lt;th&gt;修复&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;窗口很小&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;resolution_mode=2&lt;&#x2F;code&gt; + 宽高为 0，回落到默认小分辨率&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;resolution_mode=1&lt;&#x2F;code&gt;（跟随本地屏幕）或设固定宽高&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;背景纯黑&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;quality=0&lt;&#x2F;code&gt;（Poor 档）为省带宽主动剥离壁纸&#x2F;主题&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;quality=9&lt;&#x2F;code&gt;（Best 档）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;文字发虚&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;colordepth=99&lt;&#x2F;code&gt; 是 GFX AVC444（H.264 有损编码）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;colordepth=32&lt;&#x2F;code&gt;（无损位图）+ &lt;code&gt;viewmode=4&lt;&#x2F;code&gt;（全屏 1:1）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;改完必须断开重连（RDP 分辨率与编码在会话建立时协商）。全屏模式下鼠标移到屏幕顶部中央可呼出 Remmina 工具条退出全屏。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;12-1-ru-he-ke-guan-yan-zheng-dao-di-hu-bu-hu&quot;&gt;12.1 如何客观验证「到底糊不糊」&lt;&#x2F;h3&gt;
+&lt;p&gt;感知不可靠时，两个可复现的诊断手段：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;一、从客户端往 RDP 会话内注入探针&lt;&#x2F;strong&gt;——SSH 在 Windows 上跑的进程不在 RDP 会话里，直接查分辨率查到的是控制台会话；用交互式计划任务把探针打进会话内部：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;# 探针脚本: 输出会话 ID、屏幕尺寸、DPI、ClearType 状态
+schtasks &amp;#x2F;create &amp;#x2F;tn RDPProbe &amp;#x2F;it &amp;#x2F;ru 用户名 &amp;#x2F;sc once &amp;#x2F;st 23:59 `
+  &amp;#x2F;tr &amp;#x27;powershell -ExecutionPolicy Bypass -File C:\Users\用户名\probe.ps1&amp;#x27; &amp;#x2F;f
+schtasks &amp;#x2F;run &amp;#x2F;tn RDPProbe
+Get-Content C:\Users\用户名\probe.txt
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;powershell&quot; class=&quot;language-powershell &quot;&gt;&lt;code class=&quot;language-powershell&quot; data-lang=&quot;powershell&quot;&gt;# probe.ps1 内容
+Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+&amp;quot;session: $([Diagnostics.Process]::GetCurrentProcess().SessionId)&amp;quot;
+[System.Windows.Forms.Screen]::AllScreens | % { &amp;quot;screen: $($_.Bounds)&amp;quot; }
+$g = [Drawing.Graphics]::FromHwnd([IntPtr]::Zero); &amp;quot;dpi: $($g.DpiX)&amp;quot;
+&amp;quot;fontSmoothing: $((Get-ItemProperty &amp;#x27;HKCU:\Control Panel\Desktop&amp;#x27;).FontSmoothing)&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;预期健康值：屏幕尺寸 = 本地显示器原生分辨率、dpi 96（100%）、fontSmoothing 2（ClearType 开）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;二、截图做像素级测量&lt;&#x2F;strong&gt;——GNOME Wayland 下 CLI 截屏走 xdg-desktop-portal（&lt;code&gt;org.freedesktop.portal.Desktop&lt;&#x2F;code&gt; 的 &lt;code&gt;Screenshot&lt;&#x2F;code&gt; 方法，会弹一次用户确认框），拿到截屏后用拉普拉斯高频能量对比、并检查 1px UI 线（任务栏边缘）是否仍是单像素：若 80% 强边缘保持 1px 锐利，说明客户端无缩放重采样、像素严格对齐，模糊感另有原因。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;12-2-diao-you-shang-xian-de-cheng-shi-jie-lun&quot;&gt;12.2 调优上限的诚实结论&lt;&#x2F;h3&gt;
+&lt;p&gt;无损 32bpp + 分辨率 1:1 + 全屏 + ClearType 开启，就是 RDP 的画质上限。剩余与「坐在实体机前」的观感差来自远端会话光栅化时的次像素排列&#x2F;伽马假设与物理面板出厂校准不一致，属于协议固有特性（微软官方 mstsc 客户端同样存在），无法靠配置消除。缓解手段：在远程会话里 &lt;code&gt;Win+R&lt;&#x2F;code&gt; 运行 &lt;code&gt;cttune&lt;&#x2F;code&gt; 重新走一遍 ClearType 调谐向导。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;h2 id=&quot;13-zong-jie&quot;&gt;13. 总结&lt;&#x2F;h2&gt;
+&lt;p&gt;Windows 开启 SSH Server 有两条主要路线：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Windows 原生 OpenSSH Server&lt;&#x2F;strong&gt;：安装简单，适合远程管理 Windows 本身。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;WSL 中开启 SSH Server&lt;&#x2F;strong&gt;：适合 Linux 开发环境，但需要处理端口转发和网络模式。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;远程桌面方面：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;专业版&lt;&#x2F;strong&gt;直接开系统设置里的远程桌面即可；&lt;strong&gt;家庭版&lt;&#x2F;strong&gt;没有 RDP 服务端，RDPWrap 可以免升级解锁，但 Win11 24H2+ 需先关闭 Smart App Control（不可逆），且 Windows 大更新后可能需要更新 ini。&lt;&#x2F;li&gt;
+&lt;li&gt;Linux 客户端 Remmina 的推荐配置：&lt;code&gt;resolution_mode=1&lt;&#x2F;code&gt;（跟随本地屏幕）、&lt;code&gt;quality=9&lt;&#x2F;code&gt;（恢复壁纸）、&lt;code&gt;colordepth=32&lt;&#x2F;code&gt;（无损）、&lt;code&gt;viewmode=4&lt;&#x2F;code&gt;（全屏 1:1）。无损 + 1:1 已是 RDP 画质上限，剩余观感差是协议固有特性。&lt;&#x2F;li&gt;
+&lt;li&gt;需要「远程操作、本地围观」的同屏演示场景，RDP 会话隔离机制做不了，用 RustDesk 类工具。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;登录时，SSH 使用的是 Windows 账户凭据：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;本地账户：使用本地密码。&lt;&#x2F;li&gt;
+&lt;li&gt;Microsoft 账户：使用在线密码，不是 PIN。&lt;&#x2F;li&gt;
+&lt;li&gt;管理员账户：公钥要放到 &lt;code&gt;administrators_authorized_keys&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;如果长期使用 SSH 管理，推荐：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;创建专用本地管理员账户。&lt;&#x2F;li&gt;
+&lt;li&gt;配置 SSH 公钥认证。&lt;&#x2F;li&gt;
+&lt;li&gt;修改默认 Shell 为 PowerShell。&lt;&#x2F;li&gt;
+&lt;li&gt;按需放行 ICMP。&lt;&#x2F;li&gt;
+&lt;li&gt;禁用内置 Administrator，降低风险。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;本地账户与 Microsoft 在线账户相互独立。即使在线账户丢失，本地用户仍然可以正常本地登录和 SSH 登录。建议保留一个可用的本地管理员账户作为备用，并妥善保管密码。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>开放性问题 Windows 和 Linux 哪个更加安全？</title>
+        <published>2025-06-24T00:00:00+00:00</published>
+        <updated>2025-06-24T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/开放性问题-windows-和-linux-哪个更加安全/"/>
+        <id>https://moxuetianya.github.io/obsidian/开放性问题-windows-和-linux-哪个更加安全/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/开放性问题-windows-和-linux-哪个更加安全/">&lt;h1 id=&quot;kai-fang-xing-wen-ti-windows-he-linux-na-ge-geng-jia-an-quan&quot;&gt;开放性问题 Windows 和 Linux 哪个更加安全？&lt;&#x2F;h1&gt;
+&lt;p&gt;原文链接：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;anduin.aiursoft.cn&#x2F;post&#x2F;2024&#x2F;7&#x2F;14&#x2F;win-vs-linux&quot;&gt;https:&#x2F;&#x2F;anduin.aiursoft.cn&#x2F;post&#x2F;2024&#x2F;7&#x2F;14&#x2F;win-vs-linux&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;author-avatar-anduin.jpg&quot; alt=&quot;Anduin Xue&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;问题看起来越简单，回答它就越困难。&lt;&#x2F;p&gt;
+&lt;p&gt;在我们仔细分析这个问题之前，或许我们可以先讨论讨论 Windows 和 Linux 的安全策略和保障措施。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;windows&quot;&gt;Windows&lt;&#x2F;h2&gt;
+&lt;p&gt;Windows，在默认情况下，对于普通用户的场景，其保护是非常全面的。例如：Windows 针对物理入侵的防范，是有一系列技术共同组合而成。&lt;&#x2F;p&gt;
+&lt;p&gt;BitLocker 是非常经典的全盘加密工具。它可以保护你的数据不被盗取。在黑客即使偷走了你整台计算机，在没有密钥的情况下，仍然无法获取你的数据。而且它在登录账号后默认就会开启，集成在 Windows 操作系统中也不需要额外安装。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;bitlocker-full-disk-encryption.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;但是，让用户每次开机都输入完整的 BitLocker 密钥，这显然是不现实的。因此，Windows 会使用 TPM（Trusted Platform Module）来保护 BitLocker 密钥。TPM 是一种特殊的硬件安全模块，其能够安全的存储密钥。&lt;&#x2F;p&gt;
+&lt;p&gt;TPM 并不在硬盘上，而是在主板或CPU内部。非常难以通过软件手段来攻击 TPM。TPM 可以将密钥与特定的硬件和软件状态绑定。只有当系统在预期的可信状态下启动时，TPM 才会释放绑定的密钥。这个功能确保了密钥只能在特定的硬件和软件环境中使用。&lt;&#x2F;p&gt;
+&lt;p&gt;在系统启动时，TPM 会记录系统的启动过程，包括 BIOS、引导加载程序、操作系统内核和其他关键组件的哈希函数。这些哈希函数会存储在 TPM 的特定寄存器中，被称为平台配置寄存器（PCR）。通过这种方式，TPM 可以确保系统的启动环境没有被篡改。这样，普通用户只需打开电源，就可以自动解锁硬盘，进入操作系统，而无需输入 Bitlocker Key。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;learn.microsoft.com&#x2F;en-us&#x2F;windows&#x2F;security&#x2F;hardware-security&#x2F;tpm&#x2F;switch-pcr-banks-on-tpm-2-0-devices#what-happens-when-pcr-banks-are-switched&quot;&gt;https:&#x2F;&#x2F;learn.microsoft.com&#x2F;en-us&#x2F;windows&#x2F;security&#x2F;hardware-security&#x2F;tpm&#x2F;switch-pcr-banks-on-tpm-2-0-devices#what-happens-when-pcr-banks-are-switched&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;（迁移注：原图片缺失 &lt;code&gt;assets&#x2F;img-1f4a22a1-6b93-47f3-a03d-103f1770dfae-20250624102543-dqy12h3.png&lt;&#x2F;code&gt;，已移除）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;当然，只有 TPM 技术保护 BitLocker 是远远不够的。如果黑客能够通过物理手段攻击你的计算机，例如将一个人脸识别摄像头的固件进行篡改，那么黑客就可以在不改变 TPM 密钥的情况下，通过篡改摄像头的固件，来绕过登录验证。&lt;&#x2F;p&gt;
+&lt;p&gt;因此，Windows 还有一项技术叫做 Secure Boot。Secure Boot 是一种基于 UEFI 的技术，它可以确保系统启动时只加载由 Microsoft 或者硬件厂商签名的操作系统和驱动程序。如果黑客损坏了系统引导加载程序或者操作系统内核，Secure Boot 就会拒绝启动系统。&lt;&#x2F;p&gt;
+&lt;p&gt;在实际场景中，即使理论设计的非常安全，也很可能会因为遇到了愚蠢的用户，将自己的重要的密码直接写在了纸上，或者将自己的密码在摄像头下输入，从而导致了安全隐患。为了提高实际安全能力，并缩小攻击面，使用生物识别验证有的时候甚至比理论防范更加重要。&lt;&#x2F;p&gt;
+&lt;p&gt;为了方便用户登录不要麻烦的输入密码或犯傻，Windows 还支持 Windows Hello。Windows Hello 是一种生物识别技术，它可以使用人脸识别、指纹识别、虹膜扫描等方式来验证用户身份。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;（迁移注：原图片缺失 &lt;code&gt;assets&#x2F;img-f778dd83-69d1-4867-8525-683f88348dd9-20250624102543-x796zk6.png&lt;&#x2F;code&gt;，已移除）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;当然，Windows 本身也尽力避免了黑客可能对其的恶意篡改，自从 Windows Vista 开始就已经引入了 UAC（User Account Control）用户账户控制。UAC 可以确保用户在执行敏感操作时，需要进行二次确认。这样可以避免用户在不知情的情况下，被恶意软件获取到较高级别的权限。&lt;&#x2F;p&gt;
+&lt;p&gt;同时，Windows 的基于数字签名的代码完整性检查也在 Windows Vista 引入。这个功能可以确保系统启动时，只有经过数字签名的代码才能被加载。这样可以避免恶意软件在系统启动时就加载到内存中。如果黑客或恶意软件试图篡改系统文件，Windows 会拒绝启动，甚至可以通过 sfc &#x2F;scannow 命令来修复系统文件。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;windows-uac-prompt.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;Windows 的安全策略对于普通用户来说还不止这些。例如 Windows 10 以后就开始默认开启了 Windows Defender 防病毒软件。它会实时监控系统里进程的行为，对于可疑的行为也可以立刻阻断。Windows 的防火墙也是非常强大的，并且对于普通用户来说几乎不会打扰日常的使用的同时，也有着非常好的防护能力。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;windows-vbs-security.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;我记得在 Windows 10 发布了一段时间以后，Windows 还推出了一款非常有意思的功能，叫作 Virtualization Based Security。也就是将操作系统的内核和用户态的应用，借助 Hypervisor 硬件加速虚拟化技术，跑在不同的虚拟硬件上。这一功能可以非常彻底的杜绝任何可能的恶意软件访问内核态的内存的地址。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;windows-vbs-architecture.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;Windows 的更新策略也非常简单，就是所有更新都来自微软唯一分发渠道，而代码的编写也完全由微软的工程师完成。这可以确保用户运行的 Windows 上的全部代码都是微软的工程师开发的，并不会可能混入一些恶意代码。&lt;&#x2F;p&gt;
+&lt;p&gt;记得在过去 Windows XP 的时代，许多用户把自己设为管理员，然后所有程序都有管理员权限，系统文件可以随意篡改，甚至一个普通的进程也可以随意的篡改系统的内存。当年的安全程度确实可以做到浏览几个网页电脑就被黑客完全掌控，甚至同时感染几百个病毒在电脑上养蛊的神奇操作。当然今天，对于一个安全功能默认的 Windows 来说，黑客即使物理接触到电脑，想要读取、篡改、伪装里面的信息已经非常困难了。&lt;&#x2F;p&gt;
+&lt;p&gt;也就是说，Windows 对于普通用户的安全而言，它不是一两个技术的保护，也不是几个软件就能解决的问题。这是一整个生态链，从硬件到软件，从固件到操作系统，从检测到拦截，是全链路的防护。这些技术包括但不限于：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Kernel DMA Protection&lt;&#x2F;li&gt;
+&lt;li&gt;Virtualization Based Security&lt;&#x2F;li&gt;
+&lt;li&gt;Code Integrity Policy Enforcement&lt;&#x2F;li&gt;
+&lt;li&gt;TPM&lt;&#x2F;li&gt;
+&lt;li&gt;UEFI&lt;&#x2F;li&gt;
+&lt;li&gt;Secure Boot&lt;&#x2F;li&gt;
+&lt;li&gt;Modern Standby&lt;&#x2F;li&gt;
+&lt;li&gt;BitLocker&lt;&#x2F;li&gt;
+&lt;li&gt;Device Encryption&lt;&#x2F;li&gt;
+&lt;li&gt;Windows Recovery Environment&lt;&#x2F;li&gt;
+&lt;li&gt;UAC&lt;&#x2F;li&gt;
+&lt;li&gt;Windows Defender&lt;&#x2F;li&gt;
+&lt;li&gt;Windows Firewall&lt;&#x2F;li&gt;
+&lt;li&gt;Windows Update&lt;&#x2F;li&gt;
+&lt;li&gt;Windows Hello&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;（迁移注：原图片缺失 &lt;code&gt;assets&#x2F;img-d298b879-770e-4756-950d-33a978c4c967-20250624102542-vh4z6vf.png&lt;&#x2F;code&gt;，已移除）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;(上图源自 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;AiursoftWeb&#x2F;Safe-Windows&quot;&gt;Safe-Windows&lt;&#x2F;a&gt;)&lt;&#x2F;p&gt;
+&lt;p&gt;这样的闭环可以确保 Windows 的安全性。（这并不是因为我是微软的员工我才吹 Windows 的安全，而实际上对于一个普通用户来说，基于上面的防护，Windows 的安全性是非常高的。）&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;linux&quot;&gt;Linux&lt;&#x2F;h2&gt;
+&lt;p&gt;对于一个普通用户而言，如果我们类比上面的比较过程，我们会发现：&lt;&#x2F;p&gt;
+&lt;p&gt;Linux 也有全盘加密工具 LUKS2，它也可以保护你的数据不被盗取。在黑客即使偷走了你整台计算机，在没有密钥的情况下，仍然无法获取你的数据。不过，一般这项保护并不会默认开启。&lt;&#x2F;p&gt;
+&lt;p&gt;当然，LUKS2 的开启很可能意味着你每次开机都需要输入密码。当然 Linux 里完全也可以使用 TPM 来保护 LUKS 密钥，这和 Windows 的策略是类似的。TPM 可以确保系统只有在特定的硬件和软件环境下才能使用密钥，并且通过记录启动过程中的哈希值来确保系统的启动环境没有被篡改。&lt;&#x2F;p&gt;
+&lt;p&gt;Linux 的世界里，Secure Boot 非常不流行。实际上我见过非常多的人在安装操作系统前第一步就是关闭 Secure Boot。这是因为 Secure Boot 会限制用户安装非官方的操作系统和驱动程序。这对于 Linux 用户来说是非常不友好的。Linux 作为一个非常鼓励自由和变更的操作系统，其实对代码进行完整性保护都是非常不流行的。&lt;&#x2F;p&gt;
+&lt;p&gt;严格来说，Secure Boot 在 Linux 里是完全可以实现的。很多发行版默认就支持 Secure Boot，例如 Ubuntu 和 Fedora。这些发行版在启动时可以确保只加载由可信任签名的操作系统和驱动程序。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;📄 [图片文字版] Windows 安全启动链：CPU（Intel Boot Guard）→ BIOS&#x2F;UEFI → Boot Loader（GRUB&#x2F;IPXE）→ Kernel+Initrd → 应用程序，每级镜像带签名，加载前先 Verify 再 Execute，构成固件到应用的信任链；下半部分为配套截图：openssl 生成密钥、sbsign 签名、qemu 加载自定义 uefi.bin 验证 UEFI 签名及 DxeImageVerificationLib 代码。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;(上图源自 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.youtube.com&#x2F;watch?app=desktop&amp;amp;v=SQ7Ajv2Cnzg&quot;&gt;https:&#x2F;&#x2F;www.youtube.com&#x2F;watch?app=desktop&amp;amp;v=SQ7Ajv2Cnzg&lt;&#x2F;a&gt; )&lt;&#x2F;p&gt;
+&lt;p&gt;生物识别技术在 Linux 上的支持也在逐步完善。虽然不像 Windows Hello 那样集成在系统中，但通过一些开源项目，例如 fprintd（用于指纹识别）和 howdy（用于人脸识别），用户可以在 Linux 上实现类似的生物识别功能。（当然它并不能解决摄像头被黑客控制的问题）&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;linux-biometric-fprintd-howdy.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;在用户权限控制方面，Linux 也有类似 UAC 的机制，例如 sudo 命令，可以确保用户在执行敏感操作时，需要输入管理员密码以进行确认。这样可以避免用户在不知情的情况下，被恶意软件利用。但是相比于 Windows 的 UAC 会在安全桌面中展示不同，sudo 并没有任何安全桌面的概念。并且很多用户也会配置允许 sudo 不需要密码。&lt;&#x2F;p&gt;
+&lt;p&gt;对于 Linux 用户来说，安全很可能代价就是不方便，需要频繁的输入密码。&lt;&#x2F;p&gt;
+&lt;p&gt;Linux 系统通常没有集成的防病毒软件，但有一些开源防病毒工具，例如 ClamAV，可以用于扫描和清理病毒。不过，由于 Linux 系统的安全设计和广泛使用的包管理系统，再加上普通用户群体中，Linux 的使用率相对较低，这使得 Linux 遭受病毒攻击的风险相对较低。&lt;&#x2F;p&gt;
+&lt;p&gt;Linux 的防火墙有流行的 iptables 和 nftables，它们可以用于配置网络规则，限制网络访问。当然，其需要用户自己非常清晰的理解自己究竟在干什么。如果用户本身被逼疯了，他也做得出来直接把防火墙规则全关掉这种事情。&lt;&#x2F;p&gt;
+&lt;p&gt;对于 VBS 来说，Linux 的世界里几乎没有任何替代品（或许 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;heki-linux&quot;&gt;Heki-Linux&lt;&#x2F;a&gt; ）。唯一的替代品或许就是 KVM，将真正的关键业务运行在虚拟机中以确保安全。但是我也相信普通用户绝对不会这么干。&lt;&#x2F;p&gt;
+&lt;p&gt;与 Windows 不同的是，Linux 的更新和软件分发通常是通过各个发行版的包管理系统来实现的，例如 apt、yum 和 dnf 等。大多数情况下，Linux 用户会从官方的软件源中安装和更新软件，这些软件源通常由发行版的开发团队维护，确保软件的安全性。但是历史上仍然出现过大量有贡献者往开源库里下毒的故事，尤其是 SSH 是重灾区。几乎每年都会发现个 0day 。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;windows-vs-linux-security&#x2F;linux-open-source-security.png&quot; alt=&quot;file&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;自由的操作系统也会有新的优势：代码是公开的，全球的使用者可以审查代码，从而非常容易的找到里面的后门，对于隐私和安全的保护也非常有利。用户也可以根据自己的需要深度定制、魔改和裁剪自己需要的操作系统，这样可以减少系统的攻击面。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;chu-bu-dui-bi&quot;&gt;初步对比&lt;&#x2F;h2&gt;
+&lt;p&gt;听我这么说完，怎么感觉 Windows 的安全性完爆 Linux？无论是硬件还是软件，微软已经建立了一整套信任链，确保从硬件到软件都是全链有信任和检查的。而 Linux 由于其开源的特性，虽然可以确保代码的透明性，但是也意味着什么都能跑，就什么都可能跑到黑客的代码。&lt;&#x2F;p&gt;
+&lt;p&gt;但是，我上面的比较中，一直包含了一个隐藏条件：普通用户。甚至，我在开始回答这个问题之前，都没有真正定义：什么是所谓的“安全”。&lt;&#x2F;p&gt;
+&lt;p&gt;这就是为什么这是一个开放性的问题。它一定不会有标准答案，而是仁者见仁智者见智的。例如，有些人安装 Windows 可能仅仅只是为了运行 PUBG 这一款游戏而已，他们甚至不会关心自己的系统是否安全。他们会关闭 VBS 来提高帧率，会购买不包含固件完整性检查和 DMA 功能的游戏电脑，会关闭 Bitlocker 来提高磁盘性能，甚至会使用 Administrator 用户来打游戏。他们很可能早把安全功能关干净了。那他们真的陷入什么危险了吗？&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;（迁移注：原图片缺失 &lt;code&gt;assets&#x2F;img-01c19faa-3935-49f1-b060-3cdf68f90a9b-20250624102543-jx8nkhz.png&lt;&#x2F;code&gt;，已移除）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;我认为不。是否陷入危险取决于黑客攻击你对你造出的代价。如果这是一台单纯的游戏电脑，黑客可能造出的最大破坏无非就是盗走了你的账号。而 PUBG 明明是个免费游戏，你的账号里也没有绑定任何银行卡信息，那么黑客盗走你的账号对你造成的损失是多少呢？&lt;&#x2F;p&gt;
+&lt;p&gt;所以此时这个场景下，Windows 和 Linux 哪个更安全，很可能答案是：我不在乎。&lt;&#x2F;p&gt;
+&lt;p&gt;我们讨论信息安全，必须要有具体的场景，具体要防范的对象，要避免的事故是什么。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;zhong-xin-si-kao-zhe-ge-wen-ti&quot;&gt;重新思考这个问题&lt;&#x2F;h2&gt;
+&lt;p&gt;重新思考上面的问题。对于普通家庭用户，如果只讨论黑客偷走电脑后取出用户目录下的数据的概率，毫无疑问 Windows 是绝对更加安全的。其在默认设置下就会开启众多安全功能，而且这些功能对于普通用户来说几乎是透明的。&lt;&#x2F;p&gt;
+&lt;p&gt;问题就在于，很多 Windows 用户并不是普通家庭用户，而是“以为自己专业但其实不专业的用户”。他们认为自己并不需要被防范，从而关闭了大量安全功能，例如 BitLocker，VBS，UAC，防火墙，Windows Hello，Windows Defender 等，来换来更好的性能。但是他们可能忽视了自己可能遭到攻击的方面。例如电脑被黑客窃取，从而偷走浏览器的 Cookie 文件，账号被远程登录，直播间被黑客控制，播放数字货币的广告等等。而这些事情在历史上也多次真实发生过。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;（迁移注：原图片缺失 &lt;code&gt;assets&#x2F;img-f5a19255-7d4c-4e84-b653-a58266de11f9-20250624102542-hktnxlp.png&lt;&#x2F;code&gt;，已移除）&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;(图自 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.youtube.com&#x2F;watch?app=desktop&amp;amp;v=CB7m8-VMKzw&quot;&gt;https:&#x2F;&#x2F;www.youtube.com&#x2F;watch?app=desktop&amp;amp;v=CB7m8-VMKzw&lt;&#x2F;a&gt; )&lt;&#x2F;p&gt;
+&lt;p&gt;但是，为什么很多开发人员和服务器仍然选择 Linux？更多的在于，对于一个懂得如何防御的人来说，Linux 其高度定制性反而给了你很高的开发上限。你仍然可以使用 LUKS2，可以自己对自己的内核签名再让 Secure Boot 信任你自己的数字证书。你仍然可以自己手工审查代码，只部署你信任的软件。你也可以配置 dm-vereify 来实现完整性检查。你也可以找生物验证脚本来实现指纹识别来解锁 root 权限。Linux 的病毒也更少，也不必那么害怕病毒。你也可以深度了解包管理的工作原理，建设白名单的软件源，构建零信任的防火墙……&lt;&#x2F;p&gt;
+&lt;p&gt;这就是为什么这是一个开放性问题。因为安全性不是一个绝对的概念，而是一个场景下的概念。安全性取决于你的需求，取决于你的使用场景，取决于你的对手，取决于你的技术水平。&lt;&#x2F;p&gt;
+&lt;p&gt;所以，Windows 和 Linux 哪个更加安全？这个问题的答案是：取决于你。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>穿透 wsl 和 ssh, 新版本 neovim 跨设备任意复制，copy anywhere!</title>
+        <published>2024-09-12T00:00:00+00:00</published>
+        <updated>2024-09-12T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/穿透-wsl-和-ssh-新版本-neovim-跨设备任意复制-copy-anywhere/"/>
+        <id>https://moxuetianya.github.io/obsidian/穿透-wsl-和-ssh-新版本-neovim-跨设备任意复制-copy-anywhere/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/穿透-wsl-和-ssh-新版本-neovim-跨设备任意复制-copy-anywhere/">&lt;h1 id=&quot;chuan-tou-wsl-he-ssh-xin-ban-ben-neovim-kua-she-bei-ren-yi-fu-zhi-copy-anywhere&quot;&gt;穿透 wsl 和 ssh, 新版本 neovim 跨设备任意复制，copy anywhere!&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;1-chuang-zuo-dong-ji-p&quot;&gt;1. 创作动机&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#1-%E5%88%9B%E4%BD%9C%E5%8A%A8%E6%9C%BA&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;最近一个星期，我入坑了 neovim, 然后开始配置各种插件。同一个时间点，我入手了一台 surface go2, 这是个 Windows 平板，我在上面也是装好了各种软件，配置了 wsl2, 并且配置了 ssh。然后我发现当我 ssh 连接到宿舍的高性能笔记本的时候，我打开 neovim 时候无法进行复制粘贴。严格地说，是无法进行复制，因为你无法使用 &lt;code&gt;ctrl+shift+C&lt;&#x2F;code&gt; 进行复制。所以我们通常在本机配置 &lt;code&gt;opt.clipboard:append(&quot;unnamedplus&quot;)&lt;&#x2F;code&gt; 来直接让 neovim 和系统剪贴板打通。但是这一次我们通过 ssh 传输数据，傻眼了。&lt;&#x2F;p&gt;
+&lt;p&gt;因此，寻找一个可以通过 ssh 传输剪贴板的方案，&lt;del&gt;迫在眉睫&lt;&#x2F;del&gt;.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;2-yuan-li-jie-shao-p&quot;&gt;2. 原理介绍&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#2-%E5%8E%9F%E7%90%86%E4%BB%8B%E7%BB%8D&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;首先，我们要介绍一下 nvim 传输剪贴板的方式。&lt;&#x2F;p&gt;
+&lt;p&gt;第一步，当 neovim 执行 &lt;code&gt;&quot;*y&lt;&#x2F;code&gt; 或者 &lt;code&gt;&quot;+y&lt;&#x2F;code&gt; 的时候，就会把选中的内容写入到系统剪贴板中。这一步，并不是直接写入系统剪贴板的。neovim 会按照一定的优先级调用程序，而当某个程序符合要求的时候，neovim 就会调用这个程序。在以 X11 驱动的 Linux 桌面上，这个程序是 &lt;code&gt;xclip&lt;&#x2F;code&gt;。也就是说只要有 &lt;code&gt;xclip&lt;&#x2F;code&gt; 这个程序，neovim 就可以把内容写入到剪贴板。Wayland 、MacOS 、Windows 等平台都是有对应的剪贴板程序的，我们可以在 neovim 中使用 &lt;code&gt;:help clipboard-tool&lt;&#x2F;code&gt; 来查看对应的程序。&lt;&#x2F;p&gt;
+&lt;p&gt;还是第一步，如果 neovim 是使用 ssh 远程连接的，那么远程的我们肯定也是无法访问到系统剪贴板的。所以我们可以通过设置 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 这个变量，让 neovim 执行 &lt;code&gt;&quot;*y&lt;&#x2F;code&gt; 或者 &lt;code&gt;&quot;+y&lt;&#x2F;code&gt; 的时候，把内容作为传入到 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 这个变量定义的函数中。这一步我们可以实现将复制的内容利用 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 传输到远程的机器上。&lt;&#x2F;p&gt;
+&lt;p&gt;第二步，我们在本地的机器上操控远程的 neovim 时，会接收到传来的 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 内容。如果你的终端模拟器能支持 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 的话，它就会帮你自动的把传来的内容写入到系统剪贴板中。但是反过来的话却不一定，这个是安全原因，因为如果你的终端想要发送剪贴板的内容，必然需要读取系统剪贴板。这个是有风险的。如果开启，我们可以在远程上直接使用 &lt;code&gt;p&lt;&#x2F;code&gt; 命令粘贴。但是不开启的话，我们仍然可以进入 &lt;code&gt;insert&lt;&#x2F;code&gt; 模式，然后使用 &lt;code&gt;ctrl+shift+v&lt;&#x2F;code&gt; 粘贴。&lt;&#x2F;p&gt;
+&lt;p&gt;第三步，我们配置好 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 变量之后，就可以直接使用 &lt;code&gt;&quot;*y&lt;&#x2F;code&gt; 或者 &lt;code&gt;&quot;+y&lt;&#x2F;code&gt; 进行复制。但是如果我们想要更方便，不想使用寄存器，直接使用 &lt;code&gt;y&lt;&#x2F;code&gt; &lt;code&gt;p&lt;&#x2F;code&gt; 命令，那么我们需要让 neovim 默认使用无名寄存器，配置加入这么一条就行了: &lt;code&gt;opt.clipboard:append(&quot;unnamedplus&quot;)&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;如图就是这一套剪贴板内容传输的流程图。当你配置完成之后，你就可以不需要多余的操作而直接复制粘贴了。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;neovim-copy-anywhere&#x2F;neovim-clipboard-flow.png&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;下面就是具体的各种情况的配置过程。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;3-pei-zhi-ssh-chuan-shu-p&quot;&gt;3. 配置 ssh 传输&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#3-%E9%85%8D%E7%BD%AE-ssh-%E4%BC%A0%E8%BE%93&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;3-1-li-lun-ji-chu-p&quot;&gt;3.1 理论基础&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#31-%E7%90%86%E8%AE%BA%E5%9F%BA%E7%A1%80&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;ssh 传输剪贴板是目前用处最广的, 配置它我们就需要利用好 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议。&lt;&#x2F;p&gt;
+&lt;p&gt;首先，我们需要确认好我们目前使用的终端是否支持 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议。网上可以找到一张主流终端模拟器是否对 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议的支持表。这里我就贴下来了。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Windows平台 - Windows Terminal：支持&lt;&#x2F;li&gt;
+&lt;li&gt;Mac 平台 - iTerm2：支持&lt;&#x2F;li&gt;
+&lt;li&gt;Mac 平台 - terminal.app：不支持&lt;&#x2F;li&gt;
+&lt;li&gt;Ubuntu 平台 - Gnome Terminal：不支持&lt;&#x2F;li&gt;
+&lt;li&gt;Chromebook - hterm：支持&lt;&#x2F;li&gt;
+&lt;li&gt;跨平台 - alacritty：支持&lt;&#x2F;li&gt;
+&lt;li&gt;跨平台 - kitty：支持&lt;&#x2F;li&gt;
+&lt;li&gt;终端复用 - tmux：支持&lt;&#x2F;li&gt;
+&lt;li&gt;终端复用 - screen：支持&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;也就是说，当你使用 Windows Terminal 作为你连接和使用远程 linux 上的 neovim 时，你就可以直接使用 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议进行剪贴板传输，请放心使用。&lt;&#x2F;p&gt;
+&lt;p&gt;然后，我们需要在远程的 neovim 中配置 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 变量。这个变量分为两个部分，一部分是 copy，另一部分是 paste。copy 部分是当执行 &lt;code&gt;&quot;*y&lt;&#x2F;code&gt; 或者 &lt;code&gt;&quot;+y&lt;&#x2F;code&gt; 的时候，把选中的内容作为参数传给 &lt;code&gt;g:clipboard.copy，&lt;&#x2F;code&gt;paste 部分是当执行 &lt;code&gt;&quot;*p&lt;&#x2F;code&gt; 的时候，把远程的 neovim 的剪贴板内容作为参数传给 neovim 来直接粘贴。然而通常，paste 会导致终端读取我们本地的剪贴板，经过网络传输，不太安全。所以一般大部分终端模拟器的 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议是&lt;strong&gt;不可读取&lt;&#x2F;strong&gt;的。这包括了&lt;strong&gt;Windows Terminal&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;打开 neovim， 输入 &lt;code&gt;:help clipboard-osc52&lt;&#x2F;code&gt; 就可以看到 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 的帮助文档。这说明 neovim 已经原生支持了 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议。网上似乎说这一条的毕竟少，毕竟 neovim 0.10 是三个星期前刚发布的，之前用的人多了就没有关注这个新配置。而我正好是最近入坑的，查帮助文档看到了这个。在此之前人们基本上都是推荐 &lt;code&gt;vim.oscyank&lt;&#x2F;code&gt; 这个插件来支持 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议的。既然有原生的支持，我们就&lt;strong&gt;不需要&lt;&#x2F;strong&gt;再安装这个插件了。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-2-an-zhao-guan-fang-wen-dang-pei-zhi-p&quot;&gt;3.2 按照官方文档配置&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#32-%E6%8C%89%E7%85%A7%E5%AE%98%E6%96%B9%E6%96%87%E6%A1%A3%E9%85%8D%E7%BD%AE&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;我们先在 neovim 里面执行 &lt;code&gt;:help clipboard-osc52&lt;&#x2F;code&gt; 看一下官方文档。如果你之前正常配置过 neovim ，就应该会有一个自己的配置文件目录，这里不再赘述，所以我们直接贴出官方的配置文档。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;    vim.g.clipboard = {
+      name = &amp;#x27;OSC 52&amp;#x27;,
+      copy = {
+        [&amp;#x27;+&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).copy(&amp;#x27;+&amp;#x27;),
+        [&amp;#x27;*&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).copy(&amp;#x27;*&amp;#x27;),
+      },
+      paste = {
+        [&amp;#x27;+&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).paste(&amp;#x27;+&amp;#x27;),
+        [&amp;#x27;*&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).paste(&amp;#x27;*&amp;#x27;),
+      },
+    }
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;我们只需要把这一段配置复制到自己的配置文件中，然后重启 neovim 即可。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;del&gt;如果配置到这里就结束了，那么也不失为美好的结果。但是既然是个新东西，又怎么会让你如愿呢？&lt;&#x2F;del&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;之前说过，Windows Terminal 是不支持读取剪贴板的，所以当远程的 neovim 尝试执行 &lt;code&gt;&quot;*p&lt;&#x2F;code&gt; 的时候，会试图通过 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议读取本地剪贴板的内容，然后传给远程的 neovim。但是 Windows Terminal 是不支持读取剪贴板的，所以这个过程会失败。我们在 neovim 中执行 &lt;code&gt;:reg&lt;&#x2F;code&gt; 来查看寄存器，可以看到 neovim 弹出了报错：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Waiting for OSC 52 response from the terminal. Press Ctrl-C to interrupt ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;正因如此，每当我们执行 &lt;code&gt;&quot;*p&lt;&#x2F;code&gt; 的时候，都会弹出一个报错。我们必须要手动按下一个回车键，才能正常粘贴，而且粘贴的还是普通的 &lt;code&gt;&quot;&quot;&lt;&#x2F;code&gt; 临时寄存器。这非常的影响体验。因为我们确实只需要复制功能，粘贴功能我们只需要进入 &lt;code&gt;INSERT&lt;&#x2F;code&gt; 模式，然后使用 &lt;code&gt;ctrl+shift+v&lt;&#x2F;code&gt; 粘贴就可以了。现在我们来重新配置一下，让它不再报错。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;3-3-pei-zhi-bu-bao-cuo-p&quot;&gt;3.3 配置不报错&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#33-%E9%85%8D%E7%BD%AE%E4%B8%8D%E6%8A%A5%E9%94%99&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h3&gt;
+&lt;p&gt;上文说到，如果本地终端不支持剪贴板的读取，那么远程的 neovim 会尝试通过 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议读取本地剪贴板的内容，然后失败，影响写作体验。&lt;&#x2F;p&gt;
+&lt;p&gt;在 github 上有这么一个 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;neovim&#x2F;neovim&#x2F;issues&#x2F;28611&quot;&gt;issue&lt;&#x2F;a&gt;，提出了一个解决方案如下：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;function no_paste(reg)
+    return function(lines)
+        -- Do nothing! We can&amp;#x27;t paste with OSC52
+    end
+end
+
+vim.g.clipboard = {
+    name = &amp;quot;OSC 52&amp;quot;,
+    copy = {
+         [&amp;quot;+&amp;quot;] = require(&amp;quot;vim.ui.clipboard.osc52&amp;quot;).copy(&amp;quot;+&amp;quot;),
+         [&amp;quot;*&amp;quot;] = require(&amp;quot;vim.ui.clipboard.osc52&amp;quot;).copy(&amp;quot;*&amp;quot;),
+    },
+    paste = {
+        [&amp;quot;+&amp;quot;] = no_paste(&amp;quot;+&amp;quot;), -- Pasting disabled
+        [&amp;quot;*&amp;quot;] = no_paste(&amp;quot;*&amp;quot;), -- Pasting disabled
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;可以看到，这个方案是直接把 &lt;code&gt;paste&lt;&#x2F;code&gt; 设置为一个空函数。这样当 neovim 执行 &lt;code&gt;&quot;*p&lt;&#x2F;code&gt; 的时候，就不会再试图去利用 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议读取本地剪贴板的内容了。&lt;&#x2F;p&gt;
+&lt;p&gt;但是这个方法有一个问题，就是说当进行粘贴的时候，因为函数返回的格式并不符合官方文档的要求，那么 neovim 就会报错。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;clipboard: provider returned invalid data
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这个报错每一次粘贴都会出现，还是红字非常刺眼。我对此很难受，所以还需要想办法解决这个问题。解决思路就是：&lt;strong&gt;因为我们预期的粘贴命令是粘贴 neovim 自己的&lt;&#x2F;strong&gt;**&lt;code&gt;y&lt;&#x2F;code&gt;**&lt;strong&gt;复制，所以我们只需要让 paste 可以返回&lt;&#x2F;strong&gt; &lt;strong&gt;&lt;code&gt;&quot;&quot;&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt; &lt;strong&gt;临时寄存器的内容就可以了。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;以下就是我的配置，把上面的配置替换成下面这个：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;function my_paste(reg)
+    return function(lines)
+
+        --[ 返回 “” 寄存器的内容，用来作为 p 操作符的粘贴物 ]
+        local content = vim.fn.getreg(&amp;#x27;&amp;quot;&amp;#x27;)
+        return vim.split(content, &amp;#x27;\n&amp;#x27;)
+
+    end
+end
+
+if (os.getenv(&amp;#x27;SSH_TTY&amp;#x27;) == nil)
+then
+    --[ 当前环境为本地环境，也包括 wsl ]
+    opt.clipboard:append(&amp;quot;unnamedplus&amp;quot;)
+else
+    opt.clipboard:append(&amp;quot;unnamedplus&amp;quot;)
+    vim.g.clipboard = {
+      name = &amp;#x27;OSC 52&amp;#x27;,
+      copy = {
+        [&amp;#x27;+&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).copy(&amp;#x27;+&amp;#x27;),
+        [&amp;#x27;*&amp;#x27;] = require(&amp;#x27;vim.ui.clipboard.osc52&amp;#x27;).copy(&amp;#x27;*&amp;#x27;),
+      },
+      paste = {
+        --[ 小括号里面的内容可能是毫无意义的，但是保持原样可能看起来更好一点 ]
+        [&amp;quot;+&amp;quot;] = my_paste(&amp;quot;+&amp;quot;),
+        [&amp;quot;*&amp;quot;] = my_paste(&amp;quot;*&amp;quot;),
+
+    },
+}
+end
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;在这一段 lua 配置中，可以看到我用了一个 if 条件判断，检测 &lt;code&gt;$SSH_TTY&lt;&#x2F;code&gt; 环境变量来检测是否为本地环境。如果当前环境是本地环境，那么除了使用 &lt;code&gt;unnamedplus&lt;&#x2F;code&gt; 寄存器以外什么也不做，否则就使用 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议传输剪贴板。&lt;&#x2F;p&gt;
+&lt;p&gt;关于本地环境，因为没有设置 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 变量，所以 neovim 就会根据 &lt;code&gt;:help clipboard-tool&lt;&#x2F;code&gt; 文档来选择默认的剪贴板。因为我们 linux 机器上面安装了 &lt;code&gt;xclip&lt;&#x2F;code&gt; 这个软件，所以 neovim 就会把内容复制到本地的系统剪贴板。&lt;&#x2F;p&gt;
+&lt;p&gt;而远程环境，因为设置了 &lt;code&gt;g:clipboard&lt;&#x2F;code&gt; 变量，所以 neovim 会使用 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议来传输它打算复制到系统剪贴板的内容。而粘贴的时候，则会调用我写的 &lt;code&gt;my_paste&lt;&#x2F;code&gt; 函数，这个函数会返回 &lt;code&gt;&quot;&quot;&lt;&#x2F;code&gt; 寄存器的内容。因此，我成功的把 &lt;code&gt;p&lt;&#x2F;code&gt; 的功能给修复到了正常的状态。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;4-pei-zhi-tmux-ke-xuan-p&quot;&gt;4. 配置 tmux (可选)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#4-%E9%85%8D%E7%BD%AE-tmux-%E5%8F%AF%E9%80%89&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;如果你使用的是 tmux，那么你可以通过配置 tmux 来跳过步骤 3。我并没有使用 tmux 的打算，但是如果你使用 tmux，那么你需要配置一下。网上关于 tmux 开启 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议的配置很多，这里我不再赘述，我也暂时没有配置的打算。我只讲一下 tmux 代理的原理。&lt;&#x2F;p&gt;
+&lt;p&gt;其实也非常好懂，当你使用 tmux 的时候，neovim 不会认为你的终端是来自远程 ssh 连接的。他只知道将内容发送到 tmux 进程，然后由 tmux 转发给远程的 neovim。&lt;&#x2F;p&gt;
+&lt;p&gt;根据&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;tmux&#x2F;tmux&#x2F;wiki&#x2F;Clipboard&quot;&gt;官方文档&lt;&#x2F;a&gt;，tmux 只需要这么设置就可以开启 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议了。&lt;&#x2F;p&gt;
+&lt;p&gt;在 &lt;code&gt;.tmux.conf&lt;&#x2F;code&gt; 文件中添加如下配置：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;set -s set-cliplboard on
+# 好像还有一些，为了避免误人子弟还是建议自己去查一下
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这样，tmux 就会把内容发送给本地终端。&lt;&#x2F;p&gt;
+&lt;p&gt;勘误&lt;&#x2F;p&gt;
+&lt;p&gt;上文说到，neovim 不会认为你的终端是来自远程 ssh 连接的。其实这句话是不对的，&lt;code&gt;$SSH_TTY&lt;&#x2F;code&gt; 环境变量是否设置，取决于你的 tmux 实在什么环境下开启的。那么如果你是 tmux 和直连混用的人，你需要这么配置&lt;&#x2F;p&gt;
+&lt;p&gt;首先先 &lt;code&gt;echo $TERM&lt;&#x2F;code&gt; 检查一下你的终端类型。通常情况下，当我直连终端时，这个值为 &lt;code&gt;xterm-256color&lt;&#x2F;code&gt;，当使用 tmux 的时候，这个值会变成 &lt;code&gt;tmux-256color&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;然后，改写我之前的 lua 配置，利用 &lt;code&gt;if (os.getenv(&#x27;TERM&#x27;) == &#x27;tmux-256color&#x27;)&lt;&#x2F;code&gt; 判断。具体的配置教程可以参考 &lt;code&gt;:help g:clipboard&lt;&#x2F;code&gt;, 也可以参考网上教程。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;5-pei-zhi-wslp&quot;&gt;5. 配置 wsl&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#5-%E9%85%8D%E7%BD%AE-wsl&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;到了这里，我很高兴的告诉你，在我的设备上(wsl 2.1.0, neovim 0.10.0)，只需要一个 &lt;code&gt;opt clipboard:append(&#x27;unnamedplus&#x27;)&lt;&#x2F;code&gt;，wsl 就会自动和系统剪贴板交换，虽然使用 &lt;code&gt;win+V&lt;&#x2F;code&gt; 快捷键查看系统剪贴板可能不一定能看见。&lt;&#x2F;p&gt;
+&lt;p&gt;如果你的配置还是不行，建议参考一下 &lt;code&gt;:help clipboard-wsl&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;6-zong-jie-p&quot;&gt;6. 总结&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;永久链接&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;blog&#x2F;2024&#x2F;06&#x2F;06&#x2F;neovim-copy-anywhere&#x2F;#6-%E6%80%BB%E7%BB%93&quot;&gt;¶&lt;&#x2F;a&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;我本来是不愿意来 neovim 的，所以自从接触 vim 之后也是过了大半年才入了 neovim 的坑。正因为来晚了，我才看到官方已经原生支持 &lt;code&gt;OSC-52&lt;&#x2F;code&gt; 协议了。当然对于各位早已入坑的 neovim 玩家来说，也完全没必要去折腾。我希望这篇文章能带给和我一样的 neovim 新手，让他们能够在被 neovim 的剪贴板折磨的时候，能够通过搜索引擎，搜索到这么一篇 2024 年的教程。也希望大家和我多多交流，互相学习。个人网站下方的评论区已开放，欢迎大家来到博客园、知乎、个人网站的评论区一起交流。&lt;&#x2F;p&gt;
+&lt;hr &#x2F;&gt;
+&lt;p&gt;作者：Sxrhhh&lt;&#x2F;p&gt;
+&lt;p&gt;个人网站：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.sxrhhh.top&#x2F;&quot;&gt;https:&#x2F;&#x2F;www.sxrhhh.top&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;博客园：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.cnblogs.com&#x2F;sxrhhh&#x2F;&quot;&gt;Sxrhhh - 博客园 (cnblogs.com)&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>Qemu win11 虚拟化之Machine Type</title>
+        <published>2024-06-25T00:00:00+00:00</published>
+        <updated>2024-06-25T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/qemu-win11-虚拟化之machine-type/"/>
+        <id>https://moxuetianya.github.io/obsidian/qemu-win11-虚拟化之machine-type/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/qemu-win11-虚拟化之machine-type/">&lt;h1 id=&quot;qemu-win11-xu-ni-hua-zhi-machine-type&quot;&gt;Qemu win11 虚拟化之Machine Type&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;qemu-x86jia-gou-de-machine-type&quot;&gt;Qemu X86架构的Machine Type&lt;&#x2F;h2&gt;
+&lt;p&gt;QEMU支持的X86架构非常少，在Q35出现之前，就只有诞生于1996年的i440FX + PIIX一个架构。一方面是Intel不断推出新的芯片组， 加入了PCIe、AHCI等等。i440FX已经无法满足需求，为此在 KVM Forum 2012 上Jason Baron带来了 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.linux-kvm.org&#x2F;images&#x2F;0&#x2F;06&#x2F;2012-forum-Q35.pdf&quot;&gt;A New Chipset For Qemu - Intel’s Q35&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q35-vs-i440fx&quot;&gt;Q35 vs. I440FX&lt;&#x2F;h2&gt;
+&lt;p&gt;Q35是Intel在2007年9月推出的芯片组，与I440FX&#x2F;PIIX差别在于：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Q35 has IOMMU&lt;&#x2F;li&gt;
+&lt;li&gt;Q35 has PCIe&lt;&#x2F;li&gt;
+&lt;li&gt;Q35 has Super I&#x2F;O chip with LPC interconnect&lt;&#x2F;li&gt;
+&lt;li&gt;Q35 has 12 USB ports&lt;&#x2F;li&gt;
+&lt;li&gt;Q35 SATA vs. PATA&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;Irq routing&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;Q35 PIRQ has 8 pins - PIRQ A-H&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Q35 has two PIC modes – legacy PIC vs I&#x2F;O APIC&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Q35 runs in I&#x2F;O APIC mode&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Slots 0-24 are mapped to PIRQ E-H round robin&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;PCIe Bus to PIRQ mappings can be programmed&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;Slots 25-31&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Q35 has 8 PCI IRQ vectors available, I440FX&#x2F;PIIX4 only 2&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;I440FX&#x2F;PIIX4 vs. Q35 devices&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;AHCI vs. Legacy IDE&lt;&#x2F;li&gt;
+&lt;li&gt;PCI addresses&lt;&#x2F;li&gt;
+&lt;li&gt;Populate slots using flags&lt;&#x2F;li&gt;
+&lt;li&gt;Default slots&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;i440fx-piixjia-gou&quot;&gt;i440fx&#x2F;PIIX架构&lt;&#x2F;h3&gt;
+&lt;p&gt;Intel 440FX PMC（PCI and Memory Controller）为北桥芯片用于连接主板上的高速设备，向上提供了连接处理器的Host总线接口， 可以连接多个处理器，向下则主要提供了连接内存DRAM的接口和连接PCI总线系统的PCI总线接口， 通过该PCI root port扩展出整个PCI设备树，包括PIIX南桥芯片。&lt;&#x2F;p&gt;
+&lt;p&gt;PIIX（PCI ISA IDE Xcelerator）南桥芯片则用于连接主板上的低速设备，主要包括IDE控制器、DMA控制器，USB控制器， SMBus总线控制器，X-Bus控制器，USB控制，PIT（Programmable Interval Timer）， RTC（Real Time Clock，实时时钟)， PIC（可编程中断控制器）等，并且提供PCI-ISA bridge链接ISA总线用于连接更多的低速设备，如键盘、鼠标、BIOS ROM等。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;i440fx-piix-architecture.png&quot; alt=&quot;I440FX&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;q35jia-gou&quot;&gt;Q35架构&lt;&#x2F;h2&gt;
+&lt;p&gt;北桥为MCH(Memory Controller Hub )，南桥为ICH9(I&#x2F;O Controller Hub)。CPU 通过前端总线(FSB)连接到北桥(MCH)，MCH链接内存，显卡， 高速PCIe接口等，南桥芯片则为USB，低速PCIe &#x2F; SATA 等提供接入。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;q35-chipset-architecture.png&quot; alt=&quot;Q35&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;q35-motherboard-diagram.png&quot; alt=&quot;Motherboard_diagram&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pci-vs-pcie&quot;&gt;PCI vs. PCIe&lt;&#x2F;h2&gt;
+&lt;p&gt;Q35与i440FX其中一个最大的差异就是支持PCIe，那么先了解一下PCI与PCIe的差别。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pci-peripheral-component-interconnect&quot;&gt;PCI(Peripheral Component Interconnect)&lt;&#x2F;h3&gt;
+&lt;p&gt;PCI（Peripheral Component Interconnect）顾名思义就是外部设备的互联总线。PCI连接基于总线控制， 所有设备&lt;strong&gt;共享双向并行总线&lt;&#x2F;strong&gt;， 总线仲裁规则用于决定PCI挂载的外设什么时间可以访问总线。PCI总线最多支持32个外设， 可以通过PCI-to-PCI bridge(PPB)扩展PCI外设支持，如&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;remimin.github.io&#x2F;2019&#x2F;07&#x2F;09&#x2F;qemu_machine_type&#x2F;#PCI%E6%8B%93%E6%89%91&quot;&gt;图1&lt;&#x2F;a&gt;， Bus1&#x2F;Bus2都是由Bus0通过PPB扩展的PCI总线。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-bus-topology.png&quot; alt=&quot;PCI拓扑&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;PCI设备与CPU和内存通过主桥（host bridge）进行通信，如图&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;remimin.github.io&#x2F;2019&#x2F;07&#x2F;09&#x2F;qemu_machine_type&#x2F;#PCI_compute_topo&quot;&gt;PCI体系结构&lt;&#x2F;a&gt;，这种体系结构分隔了I&#x2F;O总线与处理器的主机总线。&lt;&#x2F;p&gt;
+&lt;p&gt;PCI主桥 (host bridge) 提供了CPU， 内存和外围组件之间的互连，CPU可以通过PCI主桥 (host bridge)直接访问独立于其他PCI总线主控器的主内存， PCI设备也可以通过该主桥直接访问系统内存。&lt;&#x2F;p&gt;
+&lt;p&gt;PCI主桥 (host bridge) 还可提供CPU和外围I&#x2F;O设备之间的数据&lt;strong&gt;地址映射&lt;&#x2F;strong&gt;。该桥会将每个外围设备映射到主机地址域， 以便处理器可以通过地址域访问此设备。主桥(host bridge)也会将系统内存映射到PCI地址域， 以便PCI设备可以作为总线主控器访问主机内存。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-compute-topology.gif&quot; alt=&quot;PCI_compute_topo&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;X86架构采用了独立的地址空间，x86使用16位地址总线(也就是64K i&#x2F;o地址空间)对io设备进行寻址，这个地址也称为i&#x2F;o端口。在Linux操作系统中，可以通过&lt;code&gt;&#x2F;proc&#x2F;ioports&lt;&#x2F;code&gt;查看 系统的io端口。PCI包含三种不同的地址空间：配置、内存以及 I&#x2F;O 空间。通过&lt;code&gt;&#x2F;proc&#x2F;ioports&lt;&#x2F;code&gt;可以看到&lt;code&gt;0cf8-0cff : PCI conf1&lt;&#x2F;code&gt;为PCI设备的 io端口。这8个字节实际上构成两个32位的寄存器，第一个是”地址寄存器”0cf8，第二个是”数据寄存器”0cff，CPU与PCI之间交互就是地址寄存器用于 配置和控制外设，数据寄存器用于数据传输。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;📄 [图片文字版] PCI 配置空间结构图：每功能 256 字节配置空间，前 64 字节标准配置头（Header 0&#x2F;1），后 192 字节设备特定寄存器；经 CF8h&#x2F;CFCh 端口访问。Header 0 双字布局：00h Device&#x2F;Vendor ID；01h Status&#x2F;Command；02h Class Code&#x2F;Rev ID；04h~09h BAR0~5；0Bh Subsystem ID；0Ch Expansion ROM 基址；0Fh Interrupt Pin&#x2F;Line。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;####　&lt;strong&gt;配置空间&lt;&#x2F;strong&gt;（configuration space）&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;PCI配置空间为256B，是由PCI spec定义的，如图所示，配置空间对pci device是必须的。
+PCI头64B是固定的PCI configuration header由两种类型header Type 0代表是PCI设备，Type 1表明是PCI桥。
+
+**Device ID 和 Vendor ID**设备信息和厂商信息
+
+**Command寄存器**
+存放了设备的配置信息，比如是否允许 Memory&amp;#x2F;IO 方式的总线操作、是否为主设备等。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-command-register-bits.png&quot; alt=&quot;pci_command_reg&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;**Status 寄存器**存放了设备的状态信息，比如中断状态、错误状态等。    ![pci_status_reg](&amp;#x2F;img&amp;#x2F;2019-07-02-qemu_machine_type&amp;#x2F;pci_status_reg.png)
+
+**Header Type 寄存器**定义了设备类型，比如 PCI 设备、PCI 桥。
+
+**基址寄存器(BAR)**PCI设备的io地址空间和内存空间的基址，是可选的，当pci device需要配置时
+进行配置。基址寄存器的位 0 包含的值用于标识类型。位 0 中的值为 0 表示内存空间，值为 1 表示 I&amp;#x2F;O 空间。
+下图显示了两种基址寄存器： 一种表示内存类型，另一种表示 I&amp;#x2F;O 类型。PCI 设备最多有6个基址寄存器，
+而 PCI 桥最多有2个基址寄存器。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-bar-memory-layout.png&quot; alt=&quot;pci_bar_mem&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-bar-io-format.png&quot; alt=&quot;pc_bar_mem&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;**Subordinate Bus Number，Secondary Bus Number 和 Primary Bus Number 寄存器**
+
+这三个寄存器只在 PCI 桥配置空间中存在，因为 PCI 桥会连接两条 PCI 总线，上行的总线被称为 Primary Bus，
+下行的总线被称为 Secondary Bus，Primary Bus Number 和 Secondary Bus Number 寄存器分别存储了上行和下行总线的编号，
+而 Subordinate Bus Number 寄存器则是存储了当前桥所能直接或者间接访问到的总线的最大编号。
+
+**Capabilities Pointer**
+
+开启Capbility支持需要在status register中，对应的bit设置为1. PCI设备capabilities是链表模式的。
+那么何谓Capabilities呢？它是PCI 2.2新加入的一个特性，之所以加入是因为当初规定所有PCI SPEC相关的配置寄存器都要放在PCI header内，
+到PCI2.2以后发现新加入的register在Configuration Header Space中放不下了，所以引入了Capabilities List。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;PCI 内存地址空间(MMIO space)&lt;&#x2F;strong&gt;
+对于不采用独立编址的系统架构，对于I&#x2F;O设备的访问是通过内存映射的方式进行，MMIO space类似于   X86系统的I&#x2F;O port。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;PCI I&#x2F;O 地址空间(IO space)&lt;&#x2F;strong&gt;
+PCI支持32位 I&#x2F;O 空间。可以在不同的平台上以不同方式访问 I&#x2F;O 空间。带有特殊 I&#x2F;O 指令的处理器，如Intel处理器系列   使用&lt;code&gt;in&lt;&#x2F;code&gt;和&lt;code&gt;out&lt;&#x2F;code&gt;指令访问I&#x2F;O 空间。没有特殊I&#x2F;O 指令的计算机将映射到对应于主机地址域中 PCI 主桥 (host bridge) 的地址位置。   处理器访问内存映射的地址时，会向PCI主桥 (host bridge) 发送一个 I&#x2F;O 请求，   该主桥 (host bridge) 随后会将地址转换为 I&#x2F;O 周期并将其放置在 PCI 总线上。内存映射的I&#x2F;O通过处理器的本机装入&#x2F;存储指令执行。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;pci-zhong-duan-ji-zhi&quot;&gt;PCI 中断机制&lt;&#x2F;h4&gt;
+&lt;p&gt;在PCI协议中规定，每个设备支持对多四个中断信号，INTA，INTB，INTC，INTD。中断是电平触发的，当信号线为低电平，这引发中断。 一旦产生中断，则该信号线则一直保持低电平，直到驱动程序清除这个中断请求。这些信号线可以连接在一起。 在设备的配置空间里(Configuration Space)有一组寄存器(Interrupt Pin)表明一个功能(Function)使用哪个中断信号。&lt;&#x2F;p&gt;
+&lt;p&gt;所有的中断信号都与系统的可编程中断路由器(Programmable Interrupt Router)相连，这个路由器有四个中断输入接口。 设备与这个路由器的中断输入接口怎么相连是系统的设计者在设计系统的时候就已经决定了，用户是不能改变的。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;pcie-peripheral-component-interconnect-express&quot;&gt;PCIe(Peripheral Component Interconnect Express)&lt;&#x2F;h3&gt;
+&lt;p&gt;PCI Express (Peripheral Component Interconnect Express) 很明显就是高速的外部设备互联。 PCIe相对于PCI共享总线模式，采用的是Point-to-Point总线拓扑，PCIe中每个device都有自己的专属总线称为&lt;code&gt;link&lt;&#x2F;code&gt;， &lt;code&gt;lane&lt;&#x2F;code&gt;是一对差分信号组成，分别负责收发数据（Rx&#x2F;Tx)，也称作x1通道。 device之间的通路称为&lt;code&gt;link&lt;&#x2F;code&gt;，是由一组&lt;code&gt;lane&lt;&#x2F;code&gt;组成的单双工通道，n组&lt;code&gt;lane&lt;&#x2F;code&gt;组成的link提高了传输带宽。 通常看到的，PCIe x4等类似的，表明了通道数量为4。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pcie-lane-link-diagram.png&quot; alt=&quot;PCIe_lane_link&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;Root Complex链接CPU memory 和PCIe设备。最多支持256 bus， 每个bus最多支持32个PCIe设备， 每个设备最多8个functions，每个function对应4KB配置空间。PCIe从硬件层面看与PCI由很大不同，如图所示。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pcie-topology.png&quot; alt=&quot;PCIe拓扑&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;qemu-win11-machine-type&#x2F;pci-vs-pcie.png&quot; alt=&quot;PCI_vs_PCIe&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h4 id=&quot;pciepei-zhi-kong-jian&quot;&gt;&lt;strong&gt;PCIe配置空间&lt;&#x2F;strong&gt;&lt;&#x2F;h4&gt;
+&lt;pre&gt;&lt;code&gt;从软件层面看，PCIe配置空间从258B增加到了4KB，为了保证与PCI协议的兼容性，PCIe即支持io port访问，也支持mmio访问，
+但是超过256B的配置空间访问则只能通过MMIO的方式。
+
+![PCIe_config_space](&amp;#x2F;img&amp;#x2F;2019-07-02-qemu_machine_type&amp;#x2F;PCIe_conf_space.png)
+
+*  **PCIe Extended Capabilities**
+
+与PCI的capabilities类似采用链表结构，只是起始的为100H
+
+* **PCIe ARI Extended Capabilities**
+
+PCIe链路采用端到端的通信方式，每一个链路只能挂接一个设备，因此在多数情况下，使用3位描述Device Number是多余的，
+因此PCIe V2.1总线规范提出了ARI (Alternative Routing-ID Interpretation)格式，ARI格式将ID号分为两个字段，
+分别为Bus号和Function号，而不使用Device号，ARI格式如图所示。
+
+|---|---|
+|7：0|7：0|
+|---|---|
+|Bus No. | Function No. |
+|---|---|
+
+PCIe总线引入ARI格式的依据是在一个PCIe链路上仅可能存在一个PCIe设备，因而其Device号一定为0。
+一个PCIe设备最多可以支持**256**个Function，而传统的PCIe设备最多只能支持8个Function。
+
+* **SR-IOV Extended Capability**
+
+SR-IOV(single root I&amp;#x2F;O virtualization)
+
+PCI-SIG定义的PCIe设备的I&amp;#x2F;O虚拟化标准，主要目标就是将单个的PCIe设备可以虚拟化为多个，包含两个概念PF &amp;amp; VF
+
+- PF (Physical Function)： 包含完整的PCIe功能，包括SR-IOV的扩张能力，该功能用于SR-IOV的配置和管理。
+- VF (Virtual Function)： 包含轻量级的PCIe功能。每一个VF有它自己独享的PCI配置区域，并且可能与其他VF共享着同一个物理资源
+
+* **其他的capabilities**
+
+- Function Level Reset (FLR)
+- Advanced Error Reporting (AER)
+- Access Control Services (ACS)
+- etc...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h4 id=&quot;pciezhong-duan-ji-zhi&quot;&gt;PCIe中断机制&lt;&#x2F;h4&gt;
+&lt;pre&gt;&lt;code&gt;在PCI总线中，所有需要提交中断请求的设备，必须能够通过INTx引脚提交中断请求，而MSI机制是一个可选机制。而在PCIe总线中，
+PCIe设备必须支持MSI或者MSI-X中断请求机制，而可以不支持INTx中断消息。PCIe设备在提交MSI中断请求时，
+是向MSI&amp;#x2F;MSI-X Capability结构中的Message Address的地址写Message Data数据，从而组成一个存储器写TLP，向处理器提交中断请求。
+
+MSI和MSI-X机制的基本原理相同，其中MSI中断机制最多只能支持32个中断请求，而且要求中断向量连续，而MSI-X中断机制可以支持更多的中断请求，
+而并不要求中断向量连续。与MSI中断机制相比，MSI-X中断机制更为合理。
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;参考链接&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.ibm.com&#x2F;developerworks&#x2F;cn&#x2F;linux&#x2F;l-cn-pci&#x2F;index.html&quot;&gt;浅谈 Linux 内核开发之 PCI 设备驱动&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.linux-kvm.org&#x2F;images&#x2F;0&#x2F;06&#x2F;2012-forum-Q35.pdf&quot;&gt;A New Chipset For Qemu - Intel’s Q35&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.cnblogs.com&#x2F;zszmhd&#x2F;archive&#x2F;2012&#x2F;05&#x2F;08&#x2F;2490105.html&quot;&gt;PCI设备地址空间&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;mcu.eetrend.com&#x2F;content&#x2F;2018&#x2F;100012210.html&quot;&gt;详解io端口与io内存&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;pcisig.com&#x2F;sites&#x2F;default&#x2F;files&#x2F;files&#x2F;PCI_Express_Basics_Background.pdf&quot;&gt;PCI Express® Basics &amp;amp;Background&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;feiskyer&#x2F;sdn-handbook&#x2F;blob&#x2F;master&#x2F;linux&#x2F;sr-iov.md&quot;&gt;sr-iov&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.deansys.com&#x2F;doc&#x2F;ldd3&#x2F;ch12.html&quot;&gt;Linux设备驱动之PCI设备&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;wiki.qemu.org&#x2F;images&#x2F;f&#x2F;f6&#x2F;PCIvsPCIe.pdf&quot;&gt;PCI vs. PCIe&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;example61560.wordpress.com&#x2F;2016&#x2F;06&#x2F;30&#x2F;pcipcie-%E6%80%BB%E7%BA%BF%E6%A6%82%E8%BF%B05&#x2F;&quot;&gt;PCI&#x2F;PCIE 总线概述(5)—PCIE总线事务层&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;zhuanlan.zhihu.com&#x2F;PCI-Express&quot;&gt;知乎PCIe专栏&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;example61560.wordpress.com&#x2F;2016&#x2F;06&#x2F;30&#x2F;pcipcie-%E6%80%BB%E7%BA%BF%E6%A6%82%E8%BF%B06&#x2F;&quot;&gt;MSI和MSI-X中断机制&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.10tiao.com&#x2F;html&#x2F;606&#x2F;201808&#x2F;2664605565&#x2F;1.html&quot;&gt;Linux中断机制：硬件处理，初始化和中断处理&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;hr &#x2F;&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>将windows的显示器作为linux的扩展屏_linux miracast-CSDN博客</title>
+        <published>2024-05-24T00:00:00+00:00</published>
+        <updated>2024-05-24T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/将windows的显示器作为linux的扩展屏_linux-miracast-csdn博客/"/>
+        <id>https://moxuetianya.github.io/obsidian/将windows的显示器作为linux的扩展屏_linux-miracast-csdn博客/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/将windows的显示器作为linux的扩展屏_linux-miracast-csdn博客/">&lt;h2 id=&quot;qian-yan&quot;&gt;前言&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;测试的linux系统为ubuntu 18.04&lt;&#x2F;li&gt;
+&lt;li&gt;测试的windows系统为win10&lt;&#x2F;li&gt;
+&lt;li&gt;将windows的显示器作为linux的扩展屏，需要使用微软的Miracast技术。windows自带就不多说了，linux使用的是这个开源软件&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;albfan&#x2F;miraclecast&quot;&gt;albfan&#x2F;miraclecast&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;操作分成两个部分，在linux和windows上都要进行配置&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;win&quot;&gt;Win&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;打开蓝牙，连接WiFi&lt;&#x2F;li&gt;
+&lt;li&gt;进入设置，找到系统=&amp;gt;投影到此电脑&lt;&#x2F;li&gt;
+&lt;li&gt;如果其中的选项都是灰色无法设置，可能是没有安装相应的功能，则在设置中搜索可选功能，然后找到“无线显示器”安装即可&lt;&#x2F;li&gt;
+&lt;li&gt;若选项可以设置，则根据自己的需求设置&lt;&#x2F;li&gt;
+&lt;li&gt;然后打开软件“连接”（可以直接在菜单栏中搜索）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;linux&quot;&gt;Linux&lt;&#x2F;h2&gt;
+&lt;p&gt;==强烈建议参考官方README设置==，下面的方法仅仅是做个记录，==操作默认使用root权限==&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;requirements&quot;&gt;Requirements&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;首先下载代码&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;git clone --depth=1 https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;albfan&amp;#x2F;miraclecast.git
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;systemd: 要求版本&amp;gt;=221，查看方式如下&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;dpkg -l|grep systemd
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;glib: A &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;so.csdn.net&#x2F;so&#x2F;search?q=utility&amp;amp;spm=1001.2101.3001.7020&quot;&gt;utility&lt;&#x2F;a&gt; library. Used by the current DHCP implementation. Will be removed once sd-dns gains DHCP-server capabilities. required: ~=glib2-2.38 (might work with older releases, untested…)&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;运行源码中的&lt;code&gt;res&#x2F;test-viewer.sh&lt;&#x2F;code&gt;，如果没有安装完全的话会提示类似&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;wpa_supplicant: MiracleCast spawns wpa_supplicant with a custom config.&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install wpasupplicant
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;检查无线网卡是否支持P2P：进入源码中的&lt;code&gt;res&lt;&#x2F;code&gt;文件夹，运行&lt;code&gt;test-hardware-capabilities.sh&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;（可选）check: 作者测试的版本是0.9.11&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install check
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;build-and-install&quot;&gt;Build and install&lt;&#x2F;h3&gt;
+&lt;p&gt;==参考====&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;albfan&#x2F;miraclecast&#x2F;wiki&#x2F;Building&quot;&gt;官方文档&lt;&#x2F;a&gt;==&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;安装依赖，ubuntu18.04的如下&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install cmake libglib2.0-dev libudev-dev libsystemd-dev libreadline-dev check libtool autoconf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;然后我选择使用cmake进行build&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;mkdir build
+cmake -DCMAKE_INSTALL_PREFIX=&amp;#x2F;usr&amp;#x2F;local&amp;#x2F; -S . -B build
+cd build &amp;amp;&amp;amp; make -j12 &amp;amp;&amp;amp; make install
+# 则根据[issue](https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;albfan&amp;#x2F;miraclecast&amp;#x2F;issues&amp;#x2F;458)，
+# 可能需要在源码的`src&amp;#x2F;shared&amp;#x2F;CMakeLists.txt`后面加上一行`target_link_libraries(miracle-shared m)`
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;yun-xing&quot;&gt;运行&lt;&#x2F;h3&gt;
+&lt;blockquote&gt;
+&lt;p&gt;关于sink和peer，作者在这个&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;albfan&#x2F;miraclecast&#x2F;issues&#x2F;298&quot;&gt;issue&lt;&#x2F;a&gt;中有解释：
+“in miracast protocol your device can act as source (share a video stream (normally from its screen)) or as sink( receives and shows a video streaming). Both are peers for miracast”&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;shutdown wpa_supplicant and NetworkManager&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl stop NetworkManager.service
+systemctl stop wpa_supplicant.service
+miracle-wifid
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;launch wifi control&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;miracle-wifictl
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Enable visibility for other devices&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;Locate them using scanning&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;p2p-scan
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+</feed>

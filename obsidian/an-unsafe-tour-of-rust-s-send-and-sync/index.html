@@ -1,0 +1,333 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>An unsafe tour of Rust's Send and Sync | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Written by nyanpasu64" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/an-unsafe-tour-of-rust-s-send-and-sync/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/an-unsafe-tour-of-rust-s-send-and-sync/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/an-unsafe-tour-of-rust-s-send-and-sync/" />
+  <meta property="og:description" content="Written by nyanpasu64" />
+  <meta name="twitter:description" content="Written by nyanpasu64" />
+  <meta property="og:title" content="An unsafe tour of Rust&#x27;s Send and Sync | 墨雪天琊" />
+  <meta name="twitter:title" content="An unsafe tour of Rust&#x27;s Send and Sync | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-07-04" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/an-unsafe-tour-of-rust-s-send-and-sync/">An unsafe tour of Rust's Send and Sync</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 04, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c-c/">C&#x2F;C++</a>] #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/bian-yi-lian-jie/">编译链接</a> </span>
+
+    
+
+
+<h1 id="an-unsafe-tour-of-rust-s-send-and-sync">An unsafe tour of Rust's Send and Sync</h1>
+<h2 id="an-unsafe-tour-of-rust-s-send-and-sync-1">An unsafe tour of Rust's Send and Sync</h2>
+<p>Written by nyanpasu64
+on January  1, 2021</p>
+<p>Rust's concurrency safety is based around the <code>Send</code> and <code>Sync</code> traits. For people writing safe code, you don't really need to understand these traits on a deep level, only enough to satisfy the compiler when it spits errors at you (or switch from <code>std</code> threads to Crossbeam scoped threads to make errors go away). However if you're writing unsafe concurrent code, such as having a <code>&amp;UnsafeCell&lt;T&gt;</code> hand out <code>&amp;T</code> and <code>&amp;mut T</code>, you need to understand <code>Send</code> and <code>Sync</code> at a more fundamental level, to pick the appropriate trait bounds when writing <code>unsafe impl Send/Sync</code> statements, or add the appropriate <code>PhantomData&lt;T&gt;</code> to your types.</p>
+<p>In this article, I will explore the precise behavior of <code>Send</code> and <code>Sync</code>, and explain <em>why</em> the standard library's trait bounds are the way they are.</p>
+<h2 id="prior-art">Prior art</h2>
+<blockquote>
+<p>You can think of Send as "Exclusive access is thread-safe," and Sync as "Shared access is thread-safe."</p>
+<p>[<a rel="noopener" target="_blank" href="https://www.reddit.com/r/rust/comments/9elom2/why_does_implt_send_for_mut_t_require_t_send/">Source]</a></p>
+</blockquote>
+<p>I recommended first reading <a rel="noopener" target="_blank" href="https://limpet.net/mbrubeck/2019/02/07/rust-a-unique-perspective.html">"Rust: A unique perspective"</a>. This article gives a conceptual overview of the mechanics (unique and shared references) I will analyze in more depth.</p>
+<h2 id="defining-sync-and-send">Defining Sync and Send</h2>
+<p><code>T: Send</code> means <code>T</code> and <code>&amp;mut T</code> (which allow dropping <code>T</code>) can be passed between threads. <code>T: Sync</code> means <code>&amp;T</code> (which allows shared/aliased access to <code>T</code>) can be passed between threads. Either or both may be true for any given type. <code>T: Sync</code> ≡ <code>&amp;T: Send</code> (by definition).</p>
+<p>One way that <code>T: !Sync</code> can occur is <strong>if a type has non-atomic interior mutability</strong>. This means that every <code>&amp;T</code> (there can be more than one) can mutate <code>T</code> at the same time non-atomically, causing data races if a <code>&amp;T</code> is sent to another thread. <code>T: !Sync</code> includes <code>Cell&lt;RefCount&gt;</code> and <code>RefCell&lt;i32&gt;</code>, as well as <code>Rc</code> (which acts like <code>&amp;(Cell&lt;RefCount&gt;, V)</code>).</p>
+<p><code>T: !Send</code><strong>if a type is bound to the current thread</strong>. Examples:</p>
+<ul>
+<li><code>MutexGuard&lt;i32&gt;</code>, where the "unlock" syscall must occur on the same thread as "lock".</li>
+<li><code>&amp;V</code> where <code>V</code> can be modified non-atomically (only safe from a single thread) through multiple <code>&amp;V</code> (explained above).</li>
+</ul>
+<h2 id="primitives">Primitives</h2>
+<p>Most primitive types (like <code>i32</code>) are <code>Send+Sync</code>. They can be read through shared references (<code>&amp;</code>) by multiple threads at once (<code>Sync</code>), and modified through unique references (<code>&amp;mut</code>) by any one thread at a time (<code>Send</code>).</p>
+<h2 id="owning-references">Owning references</h2>
+<p><code>Box&lt;T&gt;</code> and <code>&amp;mut T</code> give the same access as having a <code>T</code> directly, so it shares the same Sync/Send status as <code>T</code>.</p>
+<p>(Sidenote) Technically, <code>&amp;mut T</code> allows swapping the <code>T</code> (which cannot panic), but prohibits moving the <code>T</code>. This is because moving invalidates the <code>&amp;mut T</code>, and the <code>&amp;mut T</code>s and <code>T</code> it's constructed from.</p>
+<p>For a demonstration of <code>&amp;mut T</code>, see <a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-passing-mut-t-send-between-threads">"Example: Passing </a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-passing-mut-t-send-between-threads"><code>&amp;amp;mut (T: Send)</code></a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-passing-mut-t-send-between-threads"> between threads"</a> section in this page.</p>
+<h3 id="where-these-semantics-are-defined">Where these semantics are defined</h3>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/primitive.reference.html#impl-Send-1"><code>impl Send for &amp;amp;mut T where T: Send</code></a></li>
+<li><code>impl Sync for &amp;mut T where T: Sync</code> is not on the page...</li>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/boxed/struct.Box.html#impl-Send"><code>impl Send for Box&amp;lt;T&amp;gt; where T: Send</code></a></li>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/boxed/struct.Box.html#impl-Sync"><code>impl Sync for Box&amp;lt;T&amp;gt; where T: Sync</code></a></li>
+</ul>
+<h2 id="shared-references">Shared references</h2>
+<p>Unlike owning references, many <code>&amp;T</code> can be created from the same <code>T</code>. And an unlimited number of <code>&amp;T</code> and <code>Rc</code> and <code>Arc&lt;T&gt;</code> copies/clones can point to the same <code>T</code>.</p>
+<p>By definition, you can <code>Send&amp;T</code> instances to other threads iff <code>T</code> is <code>Sync</code>. For example, <code>&amp;i32</code> is <code>Send</code> because <code>i32</code> is <code>Sync</code>.</p>
+<p>Less obvious is that <code>&amp;T: Sync</code> requires that <code>T: Sync</code>. Why is this the case?</p>
+<ul>
+<li>Why must <code>T</code> be <code>Sync</code>? We want <code>&amp;T: Sync</code>. This means <code>&amp;&amp;T</code> (which is clonable/copyable) is <code>Send</code>, allowing multiple threads to concurrently obtain <code>&amp;&amp;T</code> and <code>&amp;T</code>, which is only legal if <code>T: Sync</code>.</li>
+<li>Why is <code>&amp;&amp;T: Send</code> legal? Because <code>&amp;T</code> lacks interior mutability (a <code>&amp;&amp;T</code> can't modify the <code>&amp;T</code> to point to a different <code>T</code>).</li>
+</ul>
+<h3 id="sources">Sources</h3>
+<ul>
+<li>
+<p><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/primitive.reference.html#impl-Send"><code>impl Send for &amp;amp;T where T: Sync</code></a></p>
+</li>
+<li>
+<p><code>impl Sync for &amp;T where T: Sync</code> is not on the page...</p>
+<ul>
+<li>For a demonstration, see the <a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-t-send-or-sync-both-depend-on-t-sync">"Example: </a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-t-send-or-sync-both-depend-on-t-sync"><code>&amp;amp;T: Send or Sync</code></a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-t-send-or-sync-both-depend-on-t-sync"> both depend on </a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-t-send-or-sync-both-depend-on-t-sync"><code>T: Sync</code></a><a rel="noopener" target="_blank" href="https://nyanpasu64.gitlab.io/blog/an-unsafe-tour-of-rust-s-send-and-sync/#example-t-send-or-sync-both-depend-on-t-sync">"</a> section in this page.</li>
+</ul>
+</li>
+</ul>
+<h2 id="interior-mutability">Interior mutability</h2>
+<p><code>Cell&lt;RefCount&gt;</code> (and <code>RefCell&lt;i32&gt;</code>) is <code>!Sync</code> because it has single-threaded <strong>interior mutability</strong>, which translates to multithreaded<strong>data races</strong>.</p>
+<p><code>UnsafeCell&lt;i32&gt;</code> is <code>!Sync</code> to prevent misuse, since only some usages are <code>Sync</code> and <code>impl !Sync</code> is unstable. As a result, you need to <code>unsafe impl Sync</code> (which shows up in grep) if you want concurrent access.</p>
+<h2 id="smart-pointers-rc">Smart pointers: <code>Rc</code></h2>
+<p><code>Rc</code> acts like <code>&amp;(Cell&lt;RefCount&gt;, i32)</code>. It is <code>!Sync</code> because <code>Cell&lt;RefCount&gt;</code> has <strong>interior mutability</strong> and<strong>data races</strong> on <code>RefCount</code>, and <code>!Send</code> because <code>Rc</code> is clonable, acts like a<code>&amp;Cell&lt;RefCount&gt;</code>, and <code>Cell&lt;RefCount&gt;</code> is <code>!Sync</code>.</p>
+<p>(Technically <code>Rc</code> also acts like <code>&amp;mut T</code> in its ability to drop <code>T</code>, but it doesn't matter because it's always <code>!Send</code> and <code>!Sync</code>.)</p>
+<h3 id="sources-1">Sources</h3>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/rc/struct.Rc.html#impl-Send"><code>impl&amp;lt;T&amp;gt; !Send for Rc&amp;lt;T&amp;gt;</code></a></li>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/rc/struct.Rc.html#impl-Sync"><code>impl&amp;lt;T&amp;gt; !Sync for Rc&amp;lt;T&amp;gt;</code></a></li>
+</ul>
+<h2 id="smart-pointers-arc-t-atomic-refcounting">Smart pointers: <code>Arc&lt;T&gt;</code> (atomic refcounting)</h2>
+<p><code>Arc&lt;T&gt;</code> is a doozy. It acts like <code>&amp;(Atomic&lt;RefCount&gt;, T)</code> in its ability to alias <code>T</code>, and <code>T</code>/<code>&amp;mut T</code> in its ability to drop or <code>get_mut</code> or <code>try_unwrap</code> the <code>T</code>.</p>
+<p>Because <code>&amp;T</code> can alias, <code>Arc&lt;T&gt;: Send+Sync</code> requires <code>T: Sync</code>.</p>
+<p>Additionally, <code>Arc&lt;T&gt;: Send</code> requires <code>T: Send</code> (because you can move <code>Arc&lt;T&gt;</code> across threads, and <code>T</code> with it).</p>
+<p>And <code>Arc&lt;T&gt;: Sync</code> requires <code>T: Send</code>, because if <code>T: !Send</code> but <code>Arc&lt;T&gt;: Sync</code>, you could clone the Arc (via <code>&amp;Arc&lt;T&gt;</code>) from another thread, and drop (or <code>get_mut</code> or <code>try_unwrap</code>) the clone last, violating <code>T: !Send</code>.</p>
+<p>(<code>Atomic&lt;RefCount&gt;</code> is <code>Send+Sync</code> and does not contribute to <code>Arc&lt;T&gt;</code>'s thread safety.)</p>
+<h3 id="sources-2">Sources</h3>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-Send"><code>impl&amp;lt;T&amp;gt; Send for Arc&amp;lt;T&amp;gt; where T: Send + Sync</code></a></li>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.Arc.html#impl-Sync"><code>impl&amp;lt;T&amp;gt; Sync for Arc&amp;lt;T&amp;gt; where T: Send + Sync</code></a></li>
+</ul>
+<p>This was also discussed in a <a rel="noopener" target="_blank" href="https://stackoverflow.com/questions/41909811/why-does-arct-require-t-to-be-both-send-and-sync-in-order-to-be-send">Stack Overflow question</a>.</p>
+<h2 id="mutexes">Mutexes</h2>
+<p><code>Mutex&lt;T&gt;</code> is <code>Sync</code> even if <code>T</code> isn't, because if multiple threads obtain <code>&amp;Mutex&lt;T&gt;</code>, they can't all obtain <code>&amp;T</code>.</p>
+<p><code>Mutex&lt;T&gt;: Sync</code> requires <code>T: Send</code>. We want <code>&amp;Mutex&lt;T&gt;</code> to be <code>Send</code>, meaning multiple threads can lock the mutex and obtain a <code>&amp;mut T</code> (which lets you swap <code>T</code> and control which thread calls <code>Drop</code>). To hand-wave, exclusive access to <code>T</code> gets passed between threads, requiring that <code>T: Send</code>.</p>
+<p><code>Mutex&lt;T&gt;: Send</code> requires <code>T: Send</code> because <code>Mutex&lt;T&gt;</code> is a value type.</p>
+<p><code>MutexGuard&lt;i32&gt;</code> is <code>!Send</code> because it's <strong>bound to the constructing thread</strong> (on some OSes including Windows, you can't send or exchange "responsibility for freeing a mutex" to another thread). Otherwise it acts like a <code>&amp;mut T</code>, which is <code>Sync</code> if T is <code>Sync</code>. Additionally you can extract a <code>&amp;mut T</code> (which is <code>Send</code>) using <code>&amp;mut *guard</code>.</p>
+<h3 id="sources-3">Sources</h3>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.Mutex.html#impl-Send"><code>Mutex&lt;T&gt;</code></a><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.Mutex.html#impl-Send"> traits</a></li>
+<li><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.MutexGuard.html#impl-Send"><code>MutexGuard&lt;i32&gt;</code></a><a rel="noopener" target="_blank" href="https://doc.rust-lang.org/std/sync/struct.MutexGuard.html#impl-Send"> traits</a></li>
+</ul>
+<h3 id="contrived-corner-cases">Contrived corner cases</h3>
+<p><code>Mutex&lt;MutexGuard&lt;i32&gt;&gt;</code> is <code>!Sync</code> because <code>MutexGuard&lt;i32&gt;</code> is <code>!Send</code>.</p>
+<h2 id="thoughts-on-trait-bounds-and-flexibility-for-users">Thoughts on trait bounds and flexibility for users</h2>
+<p>Why does <code>Arc&lt;T&gt;</code> not have a <code>where T: Send + Sync</code> trait bound, but instead allows you to construct <code>Arc&lt;T&gt;</code> for any <code>T</code> (but just not send/share it across threads)?</p>
+<p>I've heard that you should avoid putting trait bounds in types, but (if I remember correctly) instead in method implementations, or (in the case of <code>Arc&lt;T&gt;</code>) in conditional <code>Send</code>/<code>Sync</code> implementations. One person said:</p>
+<blockquote>
+<p>The reason the restrictions are usually on the implementations rather than on the type in general is that you don't usually know every possible implementation If you later realize you can add other functionality, you can just add additional impl blocks with different restrictions, whereas if they were on the type you would potentially have to worry about unifying the restrictions (which can be really awkward) or removing them altogether</p>
+</blockquote>
+<p>When asking about this topic, I was pointed to the <a rel="noopener" target="_blank" href="https://rust-lang.github.io/api-guidelines/about.html">Rust API guidelines</a>, but I couldn't find any discussion of this issue.</p>
+<hr />
+<p>I personally encountered this topic when I used an <code>Arc&lt;T&gt;</code> internally for <a rel="noopener" target="_blank" href="https://github.com/nyanpasu64/spectro2/blob/master/flip-cell/src/lib.rs">the </a><a rel="noopener" target="_blank" href="https://github.com/nyanpasu64/spectro2/blob/master/flip-cell/src/lib.rs"><code>flip-cell</code></a><a rel="noopener" target="_blank" href="https://github.com/nyanpasu64/spectro2/blob/master/flip-cell/src/lib.rs"> crate</a> (which turns out to be equivalent to <a rel="noopener" target="_blank" href="https://github.com/Ralith/oddio/blob/main/src/swap.rs">Oddio's </a><a rel="noopener" target="_blank" href="https://github.com/Ralith/oddio/blob/main/src/swap.rs"><code>Swap</code></a><a rel="noopener" target="_blank" href="https://github.com/Ralith/oddio/blob/main/src/swap.rs"> type</a> and the <a rel="noopener" target="_blank" href="https://github.com/HadrienG2/triple-buffer"><code>triple-buffer</code></a><a rel="noopener" target="_blank" href="https://github.com/HadrienG2/triple-buffer"> crate</a>).</p>
+<p><code>Arc&lt;T&gt;: Sync</code> is only safe if <code>T: Send</code>, not just <code>T: Sync</code>; this is because another thread can look at an <code>&amp;Arc&lt;T&gt;</code>, clone it, and obtain an <code>Arc&lt;T&gt;</code> sharing ownership over the same object. But if we create a type <code>FlipReader&lt;T&gt;</code> (<a rel="noopener" target="_blank" href="https://github.com/nyanpasu64/spectro2/blob/05561a21d85fc5fc0e8e92140edf01d6b64401bc/flip-cell/src/lib.rs#L188-L201">source</a>) which contains an <code>Arc&lt;Wrapper&lt;T&gt;&gt;</code> but prohibits cloning it, then making <code>FlipReader&lt;T&gt;: Sync</code> does not allow another thread to take shared ownership of <code>Wrapper&lt;T&gt;</code>, so the <code>Wrapper&lt;T&gt;: Send</code> trait bound is unnecessary.</p>
+<p>Had the struct <code>Arc&lt;T&gt;</code> required <code>T: Send + Sync</code> to even be constructed, <code>Arc&lt;T&gt;</code> would be crippled as a building block for unsafe code.</p>
+<h2 id="example-passing-mut-t-send-between-threads">Example: Passing <code>&amp;mut (T: Send)</code> between threads</h2>
+<p>Cell is <code>Send</code> but not <code>Sync</code>. Both <code>Cell&lt;RefCount&gt;</code> and <code>&amp;mut Cell</code> can be passed between threads. The following code builds as-is, but not if <code>&amp;mut</code> is changed to <code>&amp;</code>.</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">use std::thread;
+use std::cell::Cell;
+
+fn main() {
+    &#x2F;&#x2F; Send + !Sync
+    let cell_ref: &amp;mut Cell&lt;i32&gt; = Box::leak(Box::new(Cell::new(0)));
+
+    thread::spawn(move || {
+        cell_ref.replace(1);
+    });
+}
+</code></pre>
+<h2 id="example-t-send-or-sync-both-depend-on-t-sync">Example: <code>&amp;T: Send or Sync</code> both depend on <code>T: Sync</code></h2>
+<p>If <code>T: !Sync</code> (for example <code>Cell&lt;RefCount&gt;</code>), then <code>&amp;T</code> is neither <code>Send</code> nor <code>Sync</code>.</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">use std::cell::Cell;
+
+fn ensure_sync&lt;T: Sync&gt;(_: T) {}
+fn ensure_send&lt;T: Send&gt;(_: T) {}
+
+fn main() {
+    let foo = Cell::new(1i32);
+    ensure_sync(&amp;foo);
+    ensure_send(&amp;foo);
+}
+</code></pre>
+<p>Trying to compile this code returns the errors:</p>
+<pre><code>Standard Error
+
+   Compiling playground v0.0.1 (&#x2F;playground)
+error[E0277]: `Cell&lt;i32&gt;` cannot be shared between threads safely
+ --&gt; src&#x2F;main.rs:8:17
+  |
+3 | fn ensure_sync&lt;T: Sync&gt;(_: T) {}
+  |                   ---- required by this bound in `ensure_sync`
+...
+8 |     ensure_sync(&amp;foo);
+  |                 ^^^^ `Cell&lt;i32&gt;` cannot be shared between threads safely
+  |
+  = help: within `&amp;Cell&lt;i32&gt;`, the trait `Sync` is not implemented for `Cell&lt;i32&gt;`
+  = note: required because it appears within the type `&amp;Cell&lt;i32&gt;`
+
+error[E0277]: `Cell&lt;i32&gt;` cannot be shared between threads safely
+ --&gt; src&#x2F;main.rs:9:17
+  |
+4 | fn ensure_send&lt;T: Send&gt;(_: T) {}
+  |                   ---- required by this bound in `ensure_send`
+...
+9 |     ensure_send(&amp;foo);
+  |                 ^^^^ `Cell&lt;i32&gt;` cannot be shared between threads safely
+  |
+  = help: the trait `Sync` is not implemented for `Cell&lt;i32&gt;`
+  = note: required because of the requirements on the impl of `Send` for `&amp;Cell&lt;i32&gt;`
+</code></pre>
+<p>If <code>T: !Send + Sync</code> (for example <code>MutexGuard&lt;i32&gt;</code>), then <code>&amp;T</code> is still <code>Send + Sync</code>. (This makes sense, because <code>T: !Send</code> only constrains the behavior of a <code>&amp;mut T</code>, and should not affect the properties of a <code>&amp;T</code>.)</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">use std::marker::PhantomData;
+use std::sync::MutexGuard;
+
+fn ensure_sync&lt;T: Sync&gt;(_: T) {}
+fn ensure_send&lt;T: Send&gt;(_: T) {}
+
+fn main() {
+    let foo = PhantomData::&lt;MutexGuard&lt;i32&gt;&gt; {};
+    ensure_sync(&amp;foo);
+    ensure_send(&amp;foo);
+}
+</code></pre>
+<p><em>This blog post was edited on 2021-02-09 to fix minor errors and clarify</em> <em><code>Rc</code></em>  <em>.</em></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/串口线悬空带来的灾难-定位一次意想不到的linux系统崩溃/">&#8249; 串口线悬空带来的灾难：定位一次意想不到的Linux系统崩溃</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/rust-高阶生命周期/"> rust 高阶生命周期 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#an-unsafe-tour-of-rust-s-send-and-sync">An unsafe tour of Rust&#x27;s Send and Sync</a>
+        </div>
+        <div class="hpad">
+          <a href="#an-unsafe-tour-of-rust-s-send-and-sync-1"><small>- An unsafe tour of Rust&#x27;s Send and Sync</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#prior-art"><small>- Prior art</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#defining-sync-and-send"><small>- Defining Sync and Send</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#primitives"><small>- Primitives</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#owning-references"><small>- Owning references</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#where-these-semantics-are-defined"><small>· Where these semantics are defined</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shared-references"><small>- Shared references</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sources"><small>· Sources</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#interior-mutability"><small>- Interior mutability</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#smart-pointers-rc"><small>- Smart pointers: Rc</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sources-1"><small>· Sources</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#smart-pointers-arc-t-atomic-refcounting"><small>- Smart pointers: Arc&lt;T&gt; (atomic refcounting)</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sources-2"><small>· Sources</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#mutexes"><small>- Mutexes</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#sources-3"><small>· Sources</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#contrived-corner-cases"><small>· Contrived corner cases</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#thoughts-on-trait-bounds-and-flexibility-for-users"><small>- Thoughts on trait bounds and flexibility for users</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#example-passing-mut-t-send-between-threads"><small>- Example: Passing &amp;mut (T: Send) between threads</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#example-t-send-or-sync-both-depend-on-t-sync"><small>- Example: &amp;T: Send or Sync both depend on T: Sync</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

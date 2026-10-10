@@ -1,0 +1,973 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Digging Into Runtimes – runc | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="Everyone knows about Docker but not a lot of people are aware of the underlying " />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/digging-into-runtimes-–-runc/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/digging-into-runtimes-–-runc/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/digging-into-runtimes-–-runc/" />
+  <meta property="og:description" content="Everyone knows about Docker but not a lot of people are aware of the underlying " />
+  <meta name="twitter:description" content="Everyone knows about Docker but not a lot of people are aware of the underlying " />
+  <meta property="og:title" content="Digging Into Runtimes – runc | 墨雪天琊" />
+  <meta name="twitter:title" content="Digging Into Runtimes – runc | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-09-01" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/digging-into-runtimes-–-runc/">Digging Into Runtimes – runc</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 九月 01, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/xu-ni-hua-yu-rong-qi/">虚拟化与容器</a>] #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/rong-qi/">容器</a> </span>
+
+    
+
+
+<h1 id="digging-into-runtimes-runc">Digging Into Runtimes – runc</h1>
+<p>Everyone knows about Docker but not a lot of people are aware of the underlying technologies used by it. In this blogpost we will analyze one of the most fundamental and powerful technologies hidden behind Docker - runc.</p>
+<p><a rel="noopener" target="_blank" href="https://mkdev.me/en/posts/the-tool-that-really-runs-your-containers-deep-dive-into-runc-and-oci-specifications">https://mkdev.me/en/posts/the-tool-that-really-runs-your-containers-deep-dive-into-runc-and-oci-specifications</a></p>
+<p><em>Picture by Kirill Shirinkin</em></p>
+<h2 id="brief-container-history-from-a-mess-to-standards-and-proper-architecture">Brief container history: from a mess to standards and proper architecture</h2>
+<p>Container technologies appeared for the first time after the invention of <em>cgroups</em> and <em>namespaces</em>. Two of the first-known projects trying to combine them to achieve isolated process environments were<a rel="noopener" target="_blank" href="https://linuxcontainers.org/lxc/introduction/">LXC</a> and<a rel="noopener" target="_blank" href="https://github.com/google/lmctfy">LMCTFY</a>. The latter, in a typical<em>Google</em> style, tried to provide a stable abstraction from the Linux internals via an intuitive API.</p>
+<p>In 2013 a technology named <em>Docker</em>, built on top of <em>LXC</em>, was created. The <em>Docker</em> team introduced the notions of container “packaging” (called images) and “portability” of these images between different machines. In other words, <em>Docker</em> tried to create an independent software component following the Unix philosophy (minimalism, modularity, interoperability).</p>
+<p>In 2014 a software called<a rel="noopener" target="_blank" href="https://github.com/docker-archive/libcontainer">libcontainer</a> was created. Its objectives were to create processes into isolated environments and manage their lifecycle. Also in 2014,<a rel="noopener" target="_blank" href="https://kubernetes.io/">Kubernetes</a> was announced at<a rel="noopener" target="_blank" href="https://dockerconeurope2014.sched.com/list/descriptions/">DockerCon</a>and that is when a lot of things started to happen in the container world.</p>
+<p>The <a rel="noopener" target="_blank" href="https://opencontainers.org/">OCI (Open Container Initiative)</a> was then created in response to the need for standardization and structured governance. The <em>OCI</em>project ended up with two specifications - the Runtime Specification (<em>runtime-spec</em>) and the Image Specification (<em>image-spec</em>). The former defined a detailed API for the developers of <strong>runtimes</strong> to follow. The <em>libcontainer</em> project was donated to <em>OCI</em> and the first standardized runtime following the <em>runtime-spec</em> was created -<strong>runc</strong>. It represents a fully compatible API on top of libcontainer allowing users to directly spawn and manage containers.</p>
+<p>Today container runtimes are often divided into two categories - low-level (runc, gVisor, Firecracker) and high-level (containerd, Docker, CRI-O, podman). The difference is in the amount of consumed<em>OCI</em> specification and additional features.</p>
+<p><em>Runc</em> is a standardized runtime for spawning and running containers on Linux according to the <em>OCI</em> specification. However, it doesn’t follow the <em>image-spec</em> specification of the <em>OCI</em>.</p>
+<p>There are other more high-level runtimes, like <em>Docker</em> and<em>Containerd</em>, which implement this specification on top of <em>runc</em>. By doing so, they solve several disadvantages related to the usage of <em>runc</em>  alone namely -  image integrity, bundle history log and efficient container root file system usage. Be prepared, we are going to look into these more evaluated runtimes in the next article !</p>
+<p><img src="/obsidian/assets/runc-internals/container-runtimes-high-low-level.png" alt="High level to low level" /><img src="/obsidian/assets/runc-internals/container-runtime-high-low-level.png" alt="High level to low level" /></p>
+<p><em>Drawing by Ivan Velichko</em></p>
+<h2 id="runc"><a rel="noopener" target="_blank" href="https://github.com/opencontainers/runc">Runc</a></h2>
+<blockquote>
+<p>runc - Open Container Initiative runtime runc is a command line client for running applications packaged according to the Open Container Initiative (OCI) format and is a compliant implementation of the Open Container Initiative specification Runc is a so-called “container runtime”.</p>
+</blockquote>
+<p>As mentioned above, <em>runc</em> is an <em>OCI</em> compliant runtime - a software component responsible for the creation, configuration and management of isolated Linux processes also called containers. Formally, <em>runc</em> is a client wrapper around <em>libcontainer</em>. As <em>runc</em> follows the <em>OCI</em> specification for container runtimes it requires two pieces of information:</p>
+<ul>
+<li><strong>OCI configuration</strong> - a JSON-like file containing container process information like namespaces, capabilities, environment variables, etc.</li>
+<li><strong>Root filesystem directory</strong> - the root file system directory which is going to be used by the container process (chroot).</li>
+</ul>
+<p>Let’s now inspect how we can use <em>runc</em> and the above-mentioned specification components.</p>
+<h3 id="generating-an-oci-configuration">Generating an OCI configuration</h3>
+<p><em>Runc</em> comes out of the box with a feature to generate a default <em>OCI</em>configuration:</p>
+<pre><code>cryptonite@host:~$ runc spec &amp;&amp; cat config.json
+{
+    &quot;ociVersion&quot;: &quot;1.0.2-dev&quot;,
+    &quot;process&quot;: {
+        &quot;terminal&quot;: true,
+        &quot;user&quot;: {
+            &quot;uid&quot;: 0,
+            &quot;gid&quot;: 0
+        },
+        &quot;args&quot;: [
+            &quot;sh&quot;
+        ],
+        &quot;env&quot;: [
+            &quot;PATH=&#x2F;usr&#x2F;local&#x2F;sbin:&#x2F;usr&#x2F;local&#x2F;bin:&#x2F;usr&#x2F;sbin:&#x2F;usr&#x2F;bin:&#x2F;sbin:&#x2F;bin&quot;,
+            &quot;TERM=xterm&quot;
+        ],
+        &quot;cwd&quot;: &quot;&#x2F;&quot;,
+        &quot;capabilities&quot;: {
+            &quot;bounding&quot;: [
+                &quot;CAP_AUDIT_WRITE&quot;,
+                &quot;CAP_KILL&quot;,
+                &quot;CAP_NET_BIND_SERVICE&quot;
+            ],
+            &quot;effective&quot;: [
+                &quot;CAP_AUDIT_WRITE&quot;,
+                &quot;CAP_KILL&quot;,
+                &quot;CAP_NET_BIND_SERVICE&quot;
+            ],
+            &quot;inheritable&quot;: [
+                &quot;CAP_AUDIT_WRITE&quot;,
+                &quot;CAP_KILL&quot;,
+                &quot;CAP_NET_BIND_SERVICE&quot;
+            ],
+            &quot;permitted&quot;: [
+                &quot;CAP_AUDIT_WRITE&quot;,
+                &quot;CAP_KILL&quot;,
+                &quot;CAP_NET_BIND_SERVICE&quot;
+            ],
+            &quot;ambient&quot;: [
+                &quot;CAP_AUDIT_WRITE&quot;,
+                &quot;CAP_KILL&quot;,
+                &quot;CAP_NET_BIND_SERVICE&quot;
+            ]
+        },
+        &quot;rlimits&quot;: [
+            {
+                &quot;type&quot;: &quot;RLIMIT_NOFILE&quot;,
+                &quot;hard&quot;: 1024,
+                &quot;soft&quot;: 1024
+            }
+        ],
+        &quot;noNewPrivileges&quot;: true
+    },
+    &quot;root&quot;: {
+        &quot;path&quot;: &quot;rootfs&quot;,
+        &quot;readonly&quot;: true
+    },
+    &quot;hostname&quot;: &quot;runc&quot;,
+    &quot;mounts&quot;: [
+        {
+            &quot;destination&quot;: &quot;&#x2F;proc&quot;,
+            &quot;type&quot;: &quot;proc&quot;,
+            &quot;source&quot;: &quot;proc&quot;
+        },
+        {
+            &quot;destination&quot;: &quot;&#x2F;dev&quot;,
+            &quot;type&quot;: &quot;tmpfs&quot;,
+            &quot;source&quot;: &quot;tmpfs&quot;,
+            &quot;options&quot;: [
+                &quot;nosuid&quot;,
+                &quot;strictatime&quot;,
+                &quot;mode=755&quot;,
+                &quot;size=65536k&quot;
+            ]
+        },
+        {
+            &quot;destination&quot;: &quot;&#x2F;sys&#x2F;fs&#x2F;cgroup&quot;,
+            &quot;type&quot;: &quot;cgroup&quot;,
+            &quot;source&quot;: &quot;cgroup&quot;,
+            &quot;options&quot;: [
+                &quot;nosuid&quot;,
+                &quot;noexec&quot;,
+                &quot;nodev&quot;,
+                &quot;relatime&quot;,
+                &quot;ro&quot;
+            ]
+        }
+    ],
+    &quot;linux&quot;: {
+        &quot;resources&quot;: {
+            &quot;devices&quot;: [
+                {
+                    &quot;allow&quot;: false,
+                    &quot;access&quot;: &quot;rwm&quot;
+                }
+            ]
+        },
+        &quot;namespaces&quot;: [
+            {
+                &quot;type&quot;: &quot;pid&quot;
+            },
+            {
+                &quot;type&quot;: &quot;network&quot;
+            },
+            {
+                &quot;type&quot;: &quot;ipc&quot;
+            },
+            {
+                &quot;type&quot;: &quot;uts&quot;
+            },
+            {
+                &quot;type&quot;: &quot;mount&quot;
+            }
+        ],
+        &quot;maskedPaths&quot;: [
+            &quot;&#x2F;proc&#x2F;acpi&quot;,
+            &quot;&#x2F;proc&#x2F;asound&quot;,
+            &quot;&#x2F;proc&#x2F;kcore&quot;,
+            &quot;&#x2F;proc&#x2F;keys&quot;,
+            &quot;&#x2F;proc&#x2F;latency_stats&quot;,
+            &quot;&#x2F;proc&#x2F;timer_list&quot;,
+            &quot;&#x2F;proc&#x2F;timer_stats&quot;,
+            &quot;&#x2F;proc&#x2F;sched_debug&quot;,
+            &quot;&#x2F;sys&#x2F;firmware&quot;,
+            &quot;&#x2F;proc&#x2F;scsi&quot;
+        ],
+        &quot;readonlyPaths&quot;: [
+            &quot;&#x2F;proc&#x2F;bus&quot;,
+            &quot;&#x2F;proc&#x2F;fs&quot;,
+            &quot;&#x2F;proc&#x2F;irq&quot;,
+            &quot;&#x2F;proc&#x2F;sys&quot;,
+            &quot;&#x2F;proc&#x2F;sysrq-trigger&quot;
+        ]
+    }
+}
+</code></pre>
+<p>From the above code snippet, one can see that the <em>config.json</em> file contains information about:</p>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://man7.org/linux/man-pages/man7/capabilities.7.html">capabilities</a>;</li>
+<li><a rel="noopener" target="_blank" href="https://docs.huihoo.com/doxygen/linux/kernel/3.7/structtask__struct.html">task structure info</a>;</li>
+<li><a rel="noopener" target="_blank" href="https://www.linuxtopia.org/online_books/introduction_to_linux/linux_Mount_points.html">mount points</a>;</li>
+<li><a rel="noopener" target="_blank" href="https://man7.org/linux/man-pages/man7/namespaces.7.html">namespaces</a>;</li>
+<li><a rel="noopener" target="_blank" href="https://man7.org/linux/man-pages/man7/cgroups.7.html">cgroups</a>.</li>
+</ul>
+<p>All of the above configuration is almost completely sufficient for<em>libcontainer</em> to create an isolated <em>Linux</em> process (container). There is one thing missing to spawn a container - the process root directory. Let’s download one and make it available for <em>runc</em>.</p>
+<pre><code># download an alpine fs
+cryptonite@host:~$  wget http:&#x2F;&#x2F;dl-cdn.alpinelinux.org&#x2F;alpine&#x2F;v3.10&#x2F;releases&#x2F;x86_64&#x2F;alpine-minirootfs-3.10.1-x86_64.tar.gz
+...
+cryptonite@host:~$ mkdir rootfs &amp;&amp; tar -xzf \
+    alpine-minirootfs-3.10.1-x86_64.tar.gz -C rootfs
+cryptonite@host:~$ ls rootfs
+bin  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var
+</code></pre>
+<p>We have downloaded the root file system of an <a rel="noopener" target="_blank" href="https://alpinelinux.org/">Alpine Linux</a> image - the missing part of the <em>OCI runtime-spec</em>. Now we can create a container process executing a <em>sh</em>shell.</p>
+<pre><code>cryptonite@host:~$ runc create --help
+NAME:
+   runc create - create a container
+...
+DESCRIPTION:
+   The create command creates an instance of a container for a bundle. The bundle
+is a directory with a specification file named &quot;config.json&quot; and a root
+filesystem.
+</code></pre>
+<p>Okay, let’s put everything together in this bundle and spawn a new baby container! We will distinguish two types of containers: - <strong>root</strong> - containers running under UID=0. -<strong>rootless</strong> - containers running under a UID different from 0.</p>
+<h2 id="creating-root-container">Creating root container</h2>
+<p>To be able to create a root container (process running under UID=0), one has to change the ownership of the root filesystem which was just downloaded (if the user is not already root).</p>
+<pre><code>cryptonite@host:~$ sudo su -
+# move the config.json file and the rootfs
+# to the bundle directory
+root@host:~ # mkdir bundle &amp;&amp; mv config.json .&#x2F;bundle &amp;&amp; mv rootfs .&#x2F;bundle;
+# change the ownership to root
+root@host:~ #chown -R $(id -u) bundle
+</code></pre>
+<p>Almost everything is ready. We have one last detail to take care of: since we would like to detach our root container from <em>runc</em> and its file descriptors to interact with it, we have to create a <em>TTY</em> socket and connect to it from both sides (from the container side and from our terminal). We are going to use<a rel="noopener" target="_blank" href="https://github.com/opencontainers/runc/blob/main/contrib/cmd/recvtty/recvtty.go">recvtty</a>which is part of the official <strong>runc</strong> project.</p>
+<pre><code>cryptonite@host:~$ go install github.com&#x2F;opencontainers&#x2F;runc&#x2F;contrib&#x2F;cmd&#x2F;recvtty@latest
+# create the tty socket and wait connection
+# from the pseudo-terminal in the container
+cryptonite@host:~$ recvtty tty.sock
+</code></pre>
+<p>Now we switch to another terminal to create the container via <em>runc</em>.</p>
+<pre><code># in another terminal
+cryptonite@host:~$ sudo runc create -b bundle --console-socket $(pwd)&#x2F;tty.sock container-crypt0n1t3
+cryptonite@host:~$ sudo runc list
+ID                     PID         STATUS      BUNDLE     CREATED                          OWNER
+container-crypt0n1t3   86087       created     ~&#x2F;bundle   2022-03-15T15:46:41.562034388Z   root
+cryptonite@host:~$ ps aux | grep 86087
+root       86087  0.0  0.0 1086508 11640 pts&#x2F;0   Ssl+ 16:46   0:00 runc init
+...
+</code></pre>
+<p>Our baby container is now created but it is not running the defined <em>sh</em>program as configured in the <em>JSON</em> file. That is because the <em>runc init</em> process is still keeping the process which has to load the <em>sh</em>program in a namespaced (isolated) environment. Let’s inspect what is going on inside <em>runc init</em>.</p>
+<pre><code># inspect namespaces of runc init process
+cryptonite@host:~$ sudo ls -al &#x2F;proc&#x2F;86087&#x2F;ns
+total 0
+dr-x--x--x 2 root root 0 mars  15 16:57 .
+dr-xr-xr-x 9 root root 0 mars  15 16:46 ..
+lrwxrwxrwx 1 root root 0 mars  15 16:57 cgroup -&gt; &#x27;cgroup:[4026531835]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 ipc -&gt; &#x27;ipc:[4026532681]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 mnt -&gt; &#x27;mnt:[4026532663]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 net -&gt; &#x27;net:[4026532685]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 pid -&gt; &#x27;pid:[4026532682]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 pid_for_children -&gt; &#x27;pid:[4026532682]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 time -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 time_for_children -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 user -&gt; &#x27;user:[4026531837]&#x27;
+lrwxrwxrwx 1 root root 0 mars  15 16:57 uts -&gt; &#x27;uts:[4026532676]&#x27;
+# inspect current shell namespaces
+cryptonite@host:~$ sudo ls -al &#x2F;proc&#x2F;$$&#x2F;ns
+total 0
+dr-x--x--x 2 cryptonite cryptonite 0 mars  15 16:57 .
+dr-xr-xr-x 9 cryptonite cryptonite 0 mars  15 16:16 ..
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 cgroup -&gt; &#x27;cgroup:[4026531835]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 ipc -&gt; &#x27;ipc:[4026531839]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 mnt -&gt; &#x27;mnt:[4026531840]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 net -&gt; &#x27;net:[4026532008]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 pid -&gt; &#x27;pid:[4026531836]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 pid_for_children -&gt; &#x27;pid:[4026531836]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 time -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 time_for_children -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 user -&gt; &#x27;user:[4026531837]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  15 16:57 uts -&gt; &#x27;uts:[4026531838]
+</code></pre>
+<p>We can confirm that, except for the <em>user</em> and <em>time</em> namespaces, the<em>init runc</em> process is using a different set of namespaces than our regular shell. But why hasn’t it launched our shell process?</p>
+<p>Here is the time to say again that <em>runc</em> is a pretty low-level runtime and does not handle a lot of configurations compared to other more high-level runtimes. For example, it doesn’t configure any networking interface for the isolated process. In order to further configure the container process, <em>runc</em> puts it in a containment facility (runc-init) where additional configurations can be added. To illustrate in a more practical way why this containment can be useful, we are going to refer to a previous<a rel="noopener" target="_blank" href="https://blog.quarkslab.com/digging-into-linux-namespaces-part-2.html">article</a>and configure the network namespace for our baby container.</p>
+<h3 id="configuring-runc-init-with-network-interface">Configuring runc-init with network interface</h3>
+<pre><code># enter the container network namespace
+cryptonite@host:~$ sudo nsenter --target 86087 --net
+root@qb:~ # ifconfig -a
+lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10&lt;host&gt;
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+# no network interface ;(
+</code></pre>
+<p>We see that indeed there are no interfaces in the network namespace of the <em>runc init</em> process, it is cut off from the world. Let’s bring it back!</p>
+<pre><code># create a virtual pair and turn one of the sides on
+cryptonite@host:~$ sudo ip link add veth0 type veth peer name ceth0
+cryptonite@host:~$ sudo ip link set veth0 up
+# assign an IP range
+cryptonite@host:~$ sudo ip addr add 172.12.0.11&#x2F;24 dev veth0
+# and put it in the net namespace of runc init
+cryptonite@host:~$ sudo ip link set ceth0 netns &#x2F;proc&#x2F;86087&#x2F;ns&#x2F;net
+</code></pre>
+<p>We can now inspect once again what is going on in the network namespace.</p>
+<pre><code>cryptonite@host:~$ sudo nsenter --target 86087 --net
+root@host:~ # ifconfig -a
+ceth0: flags=4098&lt;BROADCAST,MULTICAST&gt;  mtu 1500
+        ether 8a:4f:1c:61:74:f4  txqueuelen 1000  (Ethernet)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+
+lo: flags=73&lt;UP,LOOPBACK,RUNNING&gt;  mtu 65536
+        inet 127.0.0.1  netmask 255.0.0.0
+        inet6 ::1  prefixlen 128  scopeid 0x10&lt;host&gt;
+        loop  txqueuelen 1000  (Local Loopback)
+        RX packets 0  bytes 0 (0.0 B)
+        RX errors 0  dropped 0  overruns 0  frame 0
+        TX packets 0  bytes 0 (0.0 B)
+        TX errors 0  dropped 0 overruns 0  carrier 0  collisions 0
+# and there it is !
+# let&#x27;s configure it to be functional
+root@host:~ # ip link set lo up
+root@host:~ # ip link set ceth0 up
+root@host:~ # ip addr add 172.12.0.12&#x2F;24 dev ceth0
+root@host:~ # ping -c 1 172.12.0.11
+PING 172.12.0.11 (172.12.0.11) 56(84) bytes of data.
+64 bytes from 172.12.0.11: icmp_seq=1 ttl=64 time=0.180 ms
+--- 172.12.0.11 ping statistics ---
+1 packets transmitted, 1 received, 0% packet loss, time 0ms
+rtt min&#x2F;avg&#x2F;max&#x2F;mdev = 0.180&#x2F;0.180&#x2F;0.180&#x2F;0.000 ms
+</code></pre>
+<p>Now we have configured a virtual interface and connected the network namespace of the <em>runc init</em> process with the host network namespace. This configuration is not mandatory and the container process executing a <em>sh</em> shell could be started without any connection to the host. However, this configuration can be useful for other processes delivering network functionalities. The <em>sh</em> program is still not running inside the process as desired. After the configuration is done, one can finally spawn the container running the predefined program.</p>
+<h3 id="starting-the-root-container">Starting the root container</h3>
+<pre><code>cryptonite@host:~$ sudo runc start container-crypt0n1t3
+cryptonite@host:~$ ps aux | grep 86087
+root       86087  0.0  0.0   1632   892 pts&#x2F;0    Ss+  16:46   0:00 &#x2F;bin&#x2F;sh
+cryptonite@host:~$ ps aux | grep 86087
+sudo runc list
+ID                     PID         STATUS      BUNDLE     CREATED                          OWNER
+container-crypt0n1t3   86087       running     ~&#x2F;bundle   2022-03-15T15:46:41.562034388Z   root
+</code></pre>
+<p>The container is finally running under the same PID but has changed its executable to  <em>/bin/sh</em>. Meanwhile, in the terminal holding the <em>recvtty</em> a shell pops out - yay! We can interact with our newly spawned container.</p>
+<pre><code>cryptonite@host:~$ recvtty tty.sock
+# the shell drops here
+&#x2F; # ls
+ls
+bin    etc    lib    mnt    proc   run    srv    tmp    var
+dev    home   media  opt    root   sbin   sys    usr
+&#x2F; # ifconfig -a
+ifconfig -a
+ceth0     Link encap:Ethernet  HWaddr 8A:4F:1C:61:74:F4
+          inet addr:172.12.0.12  Bcast:0.0.0.0  Mask:255.255.255.0
+          inet6 addr: fe80::884f:1cff:fe61:74f4&#x2F;64 Scope:Link
+          UP BROADCAST RUNNING MULTICAST  MTU:1500  Metric:1
+          RX packets:43 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:16 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:6259 (6.1 KiB)  TX bytes:1188 (1.1 KiB)
+
+lo        Link encap:Local Loopback
+          inet addr:127.0.0.1  Mask:255.0.0.0
+          inet6 addr: ::1&#x2F;128 Scope:Host
+          UP LOOPBACK RUNNING  MTU:65536  Metric:1
+          RX packets:0 errors:0 dropped:0 overruns:0 frame:0
+          TX packets:0 errors:0 dropped:0 overruns:0 carrier:0
+          collisions:0 txqueuelen:1000
+          RX bytes:0 (0.0 B)  TX bytes:0 (0.0 B)
+&#x2F; # id
+id
+uid=0(root) gid=0(root)
+&#x2F; # ps aux
+ps aux
+PID   USER     TIME  COMMAND
+    1 root      0:00 &#x2F;bin&#x2F;sh
+   19 root      0:00 ps aux
+</code></pre>
+<p>For those familiar with other container technologies, this terminal is familiar ;). Okay <em>runc</em> is really cool but what more can we do with it? Well, pretty much anything concerning the life management of this container.</p>
+<h3 id="writable-storage-inside-a-container">Writable storage inside a container</h3>
+<p>By default when creating a container, <em>runc</em> mounts the root file system as read-only. This is problematic because our process cannot use the file system in which it is “chrooted”.</p>
+<pre><code># in recvtty terminal
+&#x2F; # touch hello
+touch hello
+touch: hello: Read-only file system
+&#x2F; # mount
+mount
+&#x2F;dev&#x2F;mapper&#x2F;vgubuntu-root on &#x2F; type ext4 (ro,relatime,errors=remount-ro)
+...
+# ;((
+</code></pre>
+<p>To change that, one can modify the <em>config.json</em> file.</p>
+<pre><code>&quot;root&quot;: {
+        &quot;path&quot;: &quot;rootfs&quot;,
+        &quot;readonly&quot;: false
+    },
+</code></pre>
+<pre><code>cryptonite@host:~$ sudo runc create -b bundle --console-socket $(pwd)&#x2F;tty.sock wcontainer-crypt0n1t3
+cryptonite@host:~$ sudo runc start wcontainer-crypt0n1t3
+
+# in the recvtty shell
+&#x2F; # touch hello
+touch hello
+&#x2F; # ls
+ls
+bin     etc     home    media   opt     rootfs  sbin    sys     usr
+dev     hello   lib     mnt     proc    run     srv     tmp     var
+</code></pre>
+<p>This solution is rather too general. It is better from here to define more specific rules for the different subdirectories under the root file system.</p>
+<h3 id="pause-and-resume-a-container">Pause and resume a container</h3>
+<pre><code># pause and inspect the process state
+cryptonite@host:~$ sudo runc  pause container-crypt0n1t3
+cryptonite@host:~$ sudo sudo runc list
+ID                     PID         STATUS      BUNDLE     CREATED                         OWNER
+container-crypt0n1t3   86087       paused      ~&#x2F;bundle   2022-03-15T15:46:41.562034388Z   root
+# investigate the system state  of the process
+cryptonite@host:~$ ps aux | grep 86087
+root       86087  0.0  0.0   1632   892 pts&#x2F;0    Ds+  16:46   0:00 &#x2F;bin&#x2F;sh
+</code></pre>
+<p>From the above code snippet, one can see that after pausing a container, the system process is put in a state <em>Ds+</em> . This state translates to<strong>uninterruptible sleep</strong> (state for I/O). In this state the process doesn’t receive almost any of the OS signals and can’t be debugged (ptrace). Let’s resume it and inspect its state again.</p>
+<pre><code>cryptonite@host:~$ sudo sudo runc resume container-crypt0n1t3
+cryptonite@host:~$ ps aux | grep 86087
+root       86087  0.0  0.0   1632   892 pts&#x2F;0    Ss+  16:46   0:00 &#x2F;bin&#x2F;sh
+</code></pre>
+<p>One can see that after resuming, the process has changed its state to<em>Ss+</em>  (<strong>interruptible sleep</strong>). In this state it can again receive signals and be debugged. Let’s investigate deeper how the sleep and resume are done on kernel level.</p>
+<pre><code>cryptonite@host:~$ strace sudo runc  pause container-crypt0n1t3
+...
+rt_sigaction(SIGRTMIN, {sa_handler=0x7f198de71bf0, sa_mask=[], sa_flags=SA_RESTORER|SA_SIGINFO, sa_restorer=0x7f198de7f3c0}, NULL, 8) = 0
+rt_sigaction(SIGRT_1, {sa_handler=0x7f198de71c90, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART|SA_SIGINFO, sa_restorer=0x7f198de7f3c0}, NULL, 8) = 0
+rt_sigprocmask(SIG_UNBLOCK, [RTMIN RT_1], NULL, 8) = 0
+...
+cryptonite@host:~ strace sudo runc resume container-crypt0n1t3
+...
+rt_sigaction(SIGRTMIN, {sa_handler=0x7fcb0f28cbf0, sa_mask=[], sa_flags=SA_RESTORER|SA_SIGINFO, sa_restorer=0x7fcb0f29a3c0}, NULL, 8) = 0
+rt_sigaction(SIGRT_1, {sa_handler=0x7fcb0f28cc90, sa_mask=[], sa_flags=SA_RESTORER|SA_RESTART|SA_SIGINFO, sa_restorer=0x7fcb0f29a3c0}, NULL, 8) = 0
+rt_sigprocmask(SIG_UNBLOCK, [RTMIN RT_1], NULL, 8) = 0
+...
+</code></pre>
+<p>From the above code snippets we can see that the container pause is implemented using Linux signals (SIGRTMIN, SIGRT_1) and predefined handlers.</p>
+<h3 id="inspect-the-current-state-of-a-container">Inspect the current state of a container</h3>
+<p><em>Runc</em> also allows to inspect the state of the running container on the fly. It shows the usage limit of different OS resources (CPU usage per core, RAM pages and page faults, I/O, SWAP, Network card) at the time of execution of the container:</p>
+<pre><code># stopped and deleted old container - started with a new default one
+cryptonite@host:~$ sudo runc events container-crypt0n1t3
+{&quot;type&quot;:&quot;stats&quot;,&quot;id&quot;:&quot;container-crypt0n1t3&quot;,&quot;data&quot;:{&quot;cpu&quot;:{&quot;usage&quot;:{
+&quot;total&quot;:22797516,&quot;percpu&quot;:[1836602,9757585,1855859,494447,2339327,3934238,
+139074,2440384],&quot;percpu_kernel&quot;:[0,0,391015,0,0,0,0,0],
+&quot;percpu_user&quot;:[1836602,9757585,1464844,494447,2339327,3934238,139074,2440384],
+&quot;kernel&quot;:0,&quot;user&quot;:0},&quot;throttling&quot;:{}},&quot;cpuset&quot;:{&quot;cpus&quot;:[0,1,2,3,4,5,6,7],
+&quot;cpu_exclusive&quot;:0,&quot;mems&quot;:[0],&quot;mem_hardwall&quot;:0,&quot;mem_exclusive&quot;:0,
+&quot;memory_migrate&quot;:0,&quot;memory_spread_page&quot;:0,&quot;memory_spread_slab&quot;:0,
+&quot;memory_pressure&quot;:0,&quot;sched_load_balance&quot;:1,&quot;sched_relax_domain_level&quot;:-1},
+&quot;memory&quot;:{&quot;usage&quot;:{&quot;limit&quot;:9223372036854771712,&quot;usage&quot;:348160,&quot;max&quot;:3080192,
+&quot;failcnt&quot;:0},&quot;swap&quot;:{&quot;limit&quot;:9223372036854771712,&quot;usage&quot;:348160,&quot;max&quot;:3080192,
+&quot;failcnt&quot;:0},&quot;kernel&quot;:{&quot;limit&quot;:9223372036854771712,&quot;usage&quot;:208896,&quot;max&quot;:512000,
+&quot;failcnt&quot;:0},&quot;kernelTCP&quot;:{&quot;limit&quot;:9223372036854771712,&quot;failcnt&quot;:0},&quot;raw&quot;:
+{&quot;active_anon&quot;:4096,&quot;active_file&quot;:0,&quot;cache&quot;:0,&quot;dirty&quot;:0,
+&quot;hierarchical_memory_limit&quot;:9223372036854771712,&quot;hierarchical_memsw_limit&quot;:9223372036854771712,
+&quot;inactive_anon&quot;:135168,&quot;inactive_file&quot;:0,&quot;mapped_file&quot;:0,
+&quot;pgfault&quot;:1063,&quot;pgmajfault&quot;:0,&quot;pgpgin&quot;:657,&quot;pgpgout&quot;:623,&quot;rss&quot;:139264,
+&quot;rss_huge&quot;:0,&quot;shmem&quot;:0,&quot;swap&quot;:0,
+&quot;total_active_anon&quot;:4096,&quot;total_active_file&quot;:0,&quot;total_cache&quot;:0,
+&quot;total_dirty&quot;:0,&quot;total_inactive_anon&quot;:135168,&quot;total_inactive_file&quot;:0,
+&quot;total_mapped_file&quot;:0,&quot;total_pgfault&quot;:1063,&quot;total_pgmajfault&quot;:0,&quot;total_pgpgin&quot;:657,
+&quot;total_pgpgout&quot;:623,&quot;total_rss&quot;:139264,&quot;total_rss_huge&quot;:0,&quot;total_shmem&quot;:0,&quot;total_swap&quot;:0,
+&quot;total_unevictable&quot;:0,&quot;total_writeback&quot;:0,&quot;unevictable&quot;:0,&quot;writeback&quot;:0}},
+&quot;pids&quot;:{&quot;current&quot;:1},&quot;blkio&quot;:{},&quot;hugetlb&quot;:{&quot;1GB&quot;:{&quot;failcnt&quot;:0},&quot;2MB&quot;:{&quot;failcnt&quot;:0}},
+&quot;intel_rdt&quot;:{},&quot;network_interfaces&quot;:null}}
+</code></pre>
+<p>Some of the above limits represent the <strong>hard limits</strong> imposed by the cgroups <em>Linux</em> feature.</p>
+<pre><code>cryptonite@host:~$ cat &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;memory&#x2F;user.slice&#x2F;user-1000.slice&#x2F;user@1000.service&#x2F;container-crypt0n1t3&#x2F;memory.limit_in_bytes
+9223372036854771712
+# same memory limit
+cryptonite@host:~$ cat &#x2F;sys&#x2F;fs&#x2F;cgroup&#x2F;cpuset&#x2F;container-crypt0n1t3&#x2F;cpuset.cpus
+0-7
+# same number of cpus used
+</code></pre>
+<p>This feature gives a really precise idea of what is going on with the process in terms of consumed resources in real time. This log can be really useful for forensics investigation.</p>
+<p>By default <em>runc</em> outputs global information about each container upon creation in a file under  <em>/var/run/runc/state.json</em>.</p>
+<h3 id="checkpoint-a-container">Checkpoint a container</h3>
+<p>Checkpointing is another interesting feature of <em>runc</em>. It allows you to snapshot the current state of a container (in RAM) and save it as a set of files. This state includes open file descriptors, memory content (pages in RAM) registers, mount points, etc. The process can be later resumed from this saved state. This can be really useful when one wants to transport a container from one host to another without losing its internal state (live migration). This feature can also be useful to reverse the process to a stable state (debugging). <em>Runc</em> does the checkpointing with the help of the<a rel="noopener" target="_blank" href="https://criu.org/Main_Page">criu</a> software. However, the latter does not come out of the box with <em>runc</em> and has to be installed separately and added to  <em>/usr/local/sbin</em> in order to work properly. To illustrate the checkpointing we are going to stop a printer process and resume it afterwards. The <em>config.json</em> file will contain this:</p>
+<pre><code>&quot;args&quot;: [
+    &quot;&#x2F;bin&#x2F;sh&quot;, &quot;-c&quot;, &quot;i=0; while true; do echo $i;i=$(expr $i + 1); sleep 1; done&quot;
+        ],
+</code></pre>
+<p>Here we will demonstrate another way to run a container skipping the configuration phase (runc init). Let’s run it.</p>
+<pre><code>cryptonite@host:~$ sudo runc run -b bundle -d --console-socket $(pwd)&#x2F;tty.sock container-printer
+
+# in the recvtty shell
+recvtty tty.sock
+0
+1
+2
+3
+4
+</code></pre>
+<p>Now let’s stop it.</p>
+<pre><code>cryptonite@host:~$ sudo runc checkpoint --image-path $(pwd)&#x2F;image-checkpoint \
+ container-printer
+ # inspect what was produced by criu
+cryptonite@host:~$ ls image-checkpoint
+cgroup.img        fs-1.img            pagemap-176.img          tmpfs-dev-73.tar.gz.img
+core-176.img      ids-176.img         pagemap-1.img            tmpfs-dev-74.tar.gz.img
+core-1.img        ids-1.img           pages-1.img              tmpfs-dev-75.tar.gz.img
+descriptors.json  inventory.img       pages-2.img              tmpfs-dev-76.tar.gz.img
+fdinfo-2.img      ipcns-var-10.img    pstree.img               tmpfs-dev-86.tar.gz.img
+fdinfo-3.img      mm-176.img          seccomp.img              tty-info.img
+files.img         mm-1.img            tmpfs-dev-69.tar.gz.img  utsns-11.img
+fs-176.img        mountpoints-12.img  tmpfs-dev-71.tar.gz.img
+</code></pre>
+<p>From the above snippet one can see that the checkpointing represents a set of files of the format <strong>img (CRIU image file v1.1)</strong> . The contents of these files are hardly readable and are a mix of binary and test content. Let’s now resume our printer process which at the time of stopping was at 84.</p>
+<pre><code>cryptonite@host:~$ sudo runc restore --detach --image-path $(pwd)&#x2F;image-checkpoint \
+-b bundle --console-socket $(pwd)&#x2F;tty.sock container-printer-restore
+</code></pre>
+<p>Let’s go back to the <em>recvtty</em> shell.</p>
+<pre><code>recvtty tty.sock
+85
+86
+87
+88
+89
+90
+91
+92
+</code></pre>
+<p>The process resumed at its previous state as if nothing had happened. We have spawned the exact same copy of the container (file descriptors, processes, etc.) but in the previous saved state (the state when the checkpoint was taken).</p>
+<ul>
+<li><strong>Note</strong>: There is an interesting option –leave-running which doesn’t stop the process. Also, once a container is stopped it can't be started again.</li>
+</ul>
+<h3 id="executing-a-new-process-in-an-existing-container">Executing a new process in an existing container</h3>
+<p><em>Runc</em> offers the possibility to execute a new process inside a container. This translates as creating a new process and applying the same set of isolation mechanisms as another process hence putting them in the same “container”.</p>
+<pre><code>cryptonite@host:~$ sudo runc exec container-crypt0n1t3-restore  sleep 120
+
+# in a new terminal
+# by default runc allocates a pseudo tty and connects it with the exec terminal
+cryptonite@host:~$ sudo runc list
+ID                             PID         STATUS      BUNDLE     CREATED                          OWNER
+container-crypt0n1t3           0           stopped     ~&#x2F;bundle   2022-03-16T08:44:37.440444742Z   root
+container-crypt0n1t3-restore   13712       running     ~&#x2F;bundle   2022-03-16T10:24:03.925419212Z   root
+
+cryptonite@host:~$ sudo runc ps container-crypt0n1t3-restore
+UID          PID    PPID  C STIME TTY          TIME CMD
+root       13712    2004  0 11:24 pts&#x2F;0    00:00:00 &#x2F;bin&#x2F;sh
+root       14405   14393  0 11:36 ?        00:00:00 sleep 120
+# the sleep process is part of the crypt0n1t3-container
+</code></pre>
+<p>Let’s see what is going on from the container’s point of view.</p>
+<pre><code>&#x2F; # ps aux
+ps aux
+PID   USER     TIME  COMMAND
+    1 root      0:00 &#x2F;bin&#x2F;sh
+   47 root      0:00 sleep 120
+   53 root      0:00 ps aux
+# the shell process sees the sleep process
+
+# check the new process namespaces
+&#x2F; # ls &#x2F;proc&#x2F;47&#x2F;ns -al
+ls &#x2F;proc&#x2F;47&#x2F;ns -al
+total 0
+dr-x--x--x    2 root     root             0 Mar 16 10:36 .
+dr-xr-xr-x    9 root     root             0 Mar 16 10:36 ..
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 cgroup -&gt; cgroup:[4026531835]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 ipc -&gt; ipc:[4026532667]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 mnt -&gt; mnt:[4026532665]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 net -&gt; net:[4026532670]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 pid -&gt; pid:[4026532668]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 pid_for_children -&gt; pid:[4026532668]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 time -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 time_for_children -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 user -&gt; user:[4026531837]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:36 uts -&gt; uts:[4026532666]
+# check own namespaces
+&#x2F; # ls &#x2F;proc&#x2F;self&#x2F;ns -al
+ls &#x2F;proc&#x2F;self&#x2F;ns -al
+total 0
+dr-x--x--x    2 root     root             0 Mar 16 10:35 .
+dr-xr-xr-x    9 root     root             0 Mar 16 10:35 ..
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 cgroup -&gt; cgroup:[4026531835]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 ipc -&gt; ipc:[4026532667]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 mnt -&gt; mnt:[4026532665]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 net -&gt; net:[4026532670]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 pid -&gt; pid:[4026532668]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 pid_for_children -&gt; pid:[4026532668]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 time -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 time_for_children -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 user -&gt; user:[4026531837]
+lrwxrwxrwx    1 root     root             0 Mar 16 10:35 uts -&gt; uts:[4026532666]
+</code></pre>
+<p>The new container <em>sleep</em> process has indeed inherited the same namespaces as the shell process already inside the container. The same applies for other things such as capabilities, cwd, etc. These can be changed with the help of <em>runc</em>.</p>
+<h3 id="hooks">Hooks</h3>
+<p><em>Runc</em> allows you to execute commands in an order relative to a container lifecycle. This feature was developed to facilitate the setup and cleaning of a container environment. There exists several types of hooks which we’ll discuss separately.</p>
+<h4 id="createruntime">CreateRuntime</h4>
+<p>The <em>CreateRuntime</em> hooks are called after the container environment has been created (<em>namespaces, cgroups, capabilities</em>). <strong>However, the process executing the hook is not enclosed in this environment</strong> hence it has access to all resources in the current context. The process is not <em>chrooted</em> and its current working directory is the <em>bundle</em>directory. The executable path is also resolved in the runtime namespace (<em>runc’s</em> set of namespaces). The <em>CreateRuntime</em> hooks are useful for initial container configuration (eg: configure the network namespace).</p>
+<h4 id="createcontainer">CreateContainer</h4>
+<p>The <em>CreateContainer</em> hooks are called after the <em>CreateRuntime</em> hooks. These hooks are executed in the container namespace (after nsenter) but the executable path is resolved in the runtime namespace. The process has entered the set of namespaces but it is not yet “chrooted”. However, its current working directory is the container rootfs directory.</p>
+<p>This functionality of <em>runc</em> can be useful to report to the user the status of the environment configuration.</p>
+<h4 id="startcontainer">StartContainer</h4>
+<p>The <em>StartContainer</em> hooks are called <strong>before the user-specified program</strong> is executed as part of the start operation. This hook can be used to add additional functionalities relative to the execution context (eg: load an additional library).</p>
+<p>The hook executable path is resolved and it is executed in the container namespace.</p>
+<h4 id="poststart">PostStart</h4>
+<p>The <em>Poststart</em> hooks are called <strong>after the user-specified process</strong> is executed but before the start operation returns. For example, this hook can notify the user that the container process is spawned.</p>
+<p>The executable path resolves and it is executed in the runtime namespace.</p>
+<h4 id="poststop">PostStop</h4>
+<p>The <em>PostStop</em> hooks are called after the container is deleted (or the process exits) but before the delete operation returns. Cleanup or debugging functions are examples of such a hook.</p>
+<p>The executable path resolves and it is executed in the runtime namespace.</p>
+<p>The syntax for defining hooks in the <em>config.json</em> is the following:</p>
+<pre><code>&quot;hooks&quot;:{
+        &quot;createRuntime&quot;: [
+            {
+
+                &quot;path&quot;: &quot;&#x2F;bin&#x2F;bash&quot;,
+                &quot;args&quot;: [&quot;&#x2F;bin&#x2F;bash&quot;, &quot;-c&quot;, &quot;..&#x2F;scripts-hooks&#x2F;runtimeCreate.sh&quot;]
+            }
+        ],
+        &quot;createContainer&quot;: [
+            {
+
+                &quot;path&quot;: &quot;&#x2F;bin&#x2F;bash&quot;,
+                &quot;args&quot;: [&quot;&#x2F;bin&#x2F;bash&quot;, &quot;-c&quot;, &quot;.&#x2F;home&#x2F;tmpfssc&#x2F;containerCreate.sh&quot;]
+
+            }
+        ],
+        &quot;poststart&quot;: [
+               {
+
+                &quot;path&quot;: &quot;&#x2F;bin&#x2F;bash&quot;,
+                &quot;args&quot;: [&quot;&#x2F;bin&#x2F;bash&quot;, &quot;-c&quot;, &quot;..&#x2F;scripts-hooks&#x2F;postStart.sh&quot;]
+
+               }
+        ],
+        &quot;startContainer&quot;: [
+                {
+
+                &quot;path&quot;: &quot;&#x2F;bin&#x2F;sh&quot;,
+                &quot;args&quot;: [&quot;&#x2F;bin&#x2F;sh&quot;, &quot;-c&quot;, &quot;&#x2F;home&#x2F;tmpfssc&#x2F;startContainer.sh&quot;]
+
+                }
+        ],
+        &quot;poststop&quot;: [
+               {
+
+                &quot;path&quot;: &quot;&#x2F;bin&#x2F;bash&quot;,
+                &quot;args&quot;: [&quot;&#x2F;bin&#x2F;bash&quot;, &quot;-c&quot;,  &quot;.&#x2F;scripts-hooks&#x2F;postStop.sh&quot;]
+
+               }
+        ]
+    },
+</code></pre>
+<p>A small <a rel="noopener" target="_blank" href="https://github.com/mihailkirov/runc-article">POC</a> for the purpose of truly understanding this feature was developed. Here are the main elements of it:</p>
+<ul>
+<li><em>runtimeCreate.sh</em> - initializes the network namespace;</li>
+<li><em>containerCreate.sh</em> - tests the above configuration;</li>
+<li><em>postStop.sh</em> - runs an <em>http</em> server on the host after the initialization is completed;</li>
+<li><em>postStop.sh</em> - cleans up the network namespace and stops the <em>http</em> server.</li>
+</ul>
+<p>Each of these scripts output information about their environment.</p>
+<p>Information about the defined hooks of a running container can be found under  <em>/run/runc/state.json</em> (customizable path with --root flag).</p>
+<h3 id="updating-container-resource-limit">Updating container resource limit</h3>
+<p>The runtime also allows to modify on the fly the resource limits in terms of cgroups. This can be really useful for scaling and improving performance but also for <a rel="noopener" target="_blank" href="https://engineering.linkedin.com/blog/2016/08/don_t-let-linux-control-groups-uncontrolled">degradation of performances/denial of service</a>of programs sharing or depending hierarchically on the set of cgroups of a current process. By default <em>runc</em> creates a sub-cgroup of the root one under  <em>/sys/fs/cgroup/user.slice/</em> . For this paragraph we are going to run in the container the following program:</p>
+<pre><code>&quot;args&quot;: [
+    &quot;&#x2F;bin&#x2F;sh&quot;, &quot;-c&quot;, &quot;i=0; while true; do echo $i;i=$(expr $i + 1); sleep 1; done&quot;
+    ],
+</code></pre>
+<pre><code>cryptonite@host:~ $runc update --help
+...
+ --blkio-weight value        Specifies per cgroup weight, range is from 10 to 1000 (default: 0)
+   --cpu-period value          CPU CFS period to be used for hardcapping (in usecs). 0 to use system default
+   --cpu-quota value           CPU CFS hardcap limit (in usecs). Allowed cpu time in a given period
+   --cpu-share value           CPU shares (relative weight vs. other containers)
+   --cpu-rt-period value       CPU realtime period to be used for hardcapping (in usecs). 0 to use system default
+   --cpu-rt-runtime value      CPU realtime hardcap limit (in usecs). Allowed cpu time in a given period
+   --cpuset-cpus value         CPU(s) to use
+   --cpuset-mems value         Memory node(s) to use
+   --memory value              Memory limit (in bytes)
+   --memory-reservation value  Memory reservation or soft_limit (in bytes)
+   --memory-swap value         Total memory usage (memory + swap); set &#x27;-1&#x27; to enable unlimited swap
+   --pids-limit value          Maximum number of pids allowed in the container (default: 0)
+...
+</code></pre>
+<p>Let’s start a container and update its hardware limitations.</p>
+<pre><code>cryptonite@host:~ $sudo runc run -b bundle -d --console-socket $(pwd)&#x2F;tty.sock container-spammer
+
+# on the recvtty side
+cryptonite@host:~ $recvtty tty.sock
+0
+1
+2
+3
+</code></pre>
+<p>Now we will impose a new limit in terms of RAM consumption. This limit is relative to the <em>cgroup</em> memory group.</p>
+<pre><code># after some adjustments to the process current memory usage
+# define an upper bound to the RAM usage to 300kB
+cryptonite@host:~ $sudo runc  update --memory 300000  container-spammer
+</code></pre>
+<p>If we look in our virtual <em>tty</em>, the process suddenly freezes.</p>
+<pre><code>...
+73
+74
+75
+</code></pre>
+<p>Let’s inspect further what happened.</p>
+<pre><code>cryptonite@host:~ $sudo runc list
+ID                  PID         STATUS      BUNDLE     CREATED                    OWNER
+container-spammer   0           stopped     ~&#x2F;bundle   2022-03-17T10:05:16.623692849Z   root
+# stopped?
+cryptonite@host:~ $sudo tail  &#x2F;var&#x2F;log&#x2F;kern.log
+...
+Mar 17 11:06:32 qb kernel: [ 3772.833645] oom-kill:constraint=CONSTRAINT_MEMCG,nodemask=(null),cpuset=container-spammer,mems_allowed=0,oom_memcg=&#x2F;user.slice&#x2F;user-1000.slice&#x2F;user@1000.service&#x2F;container-spammer,task_memcg=&#x2F;user.slice&#x2F;user-1000.slice&#x2F;user@1000.service&#x2F;container-spammer,task=sh,pid=13681,uid=0
+Mar 17 11:06:32 qb kernel: [ 3772.833684] Memory cgroup out of memory: Killed process 13681 (sh) total-vm:1624kB, anon-rss:0kB, file-rss:880kB, shmem-rss:0kB, UID:0 pgtables:36kB oom_score_adj:0
+</code></pre>
+<p>By updating the cgroup memory limit of the container we actually forced the Out Of Memory (OOM) killer of the kernel to intervene and kill the container process. An update of the CPU cgroup can also increase or decrease the performance of the container. <em>Cgroups</em> are a swiss army knife but a careful configuration is required.</p>
+<h2 id="creating-rootless-container">Creating rootless container</h2>
+<p>Until now, all the manipulations we demonstrated were on container processes running as root on the host. But what happens if we want to harden the security and run the container processes with a UID different from zero? Separately, we would also like system users without root privileges to be able to run containers in a safe manner. In this article we refer to the term “rootless container” as a container which uses the user namespace. By default <em>runc</em> instantiates the container with the UID of the user triggering the command. The default OCI configuration is also generated without user namespace hence it relates to UID 0 on the host.</p>
+<pre><code>cryptonite@host:~ $runc create -b bundle --console-socket $(pwd)&#x2F;tty.sock rootless-crypt0n1t3
+ERRO[0000] rootless container requires user namespaces
+</code></pre>
+<p>If you go up to the default JSON configuration file you’ll notice that there is no user namespace. If you are familiar with our previous<a rel="noopener" target="_blank" href="https://blog.quarkslab.com/digging-into-linux-namespaces-part-2.html">article</a>you will understand what is the problem and how to circumvent it. If you are not, here is a nice graphical representation resuming how user namespace works:</p>
+<p><img src="/obsidian/assets/runc-internals/user-namespace-hierarchy.png" alt="Hierarchy of user namespaces" /></p>
+<p><em>Runc</em> comes with a means to generate rootless configuration files.</p>
+<pre><code>cryptonite@host:~$ runc spec --rootless
+# inspect what is different with the previous root config
+cryptonite@host:~$ diff  config.json .&#x2F;bundle&#x2F;config.json
+...
+135,148c135,142
+&lt;       &quot;uidMappings&quot;: [
+&lt;           {
+&lt;               &quot;containerID&quot;: 0,
+&lt;               &quot;hostID&quot;: 1000,
+&lt;               &quot;size&quot;: 1
+&lt;           }
+&lt;       ],
+&lt;       &quot;gidMappings&quot;: [
+&lt;           {
+&lt;               &quot;containerID&quot;: 0,
+&lt;               &quot;hostID&quot;: 1000,
+&lt;               &quot;size&quot;: 1
+&lt;           }
+&lt;       ],
+...
+</code></pre>
+<p>We can see that <em>runc</em> added two fields in the file indicating to whom to remap the user of the process inside the container. By default it maps it to the uid of the user running the command. Let’s now create a new container with the new runtime specification.</p>
+<pre><code># first change the ownership of the bundle files
+cryptonite@host:~$ sudo chown -R $(id -u) bundle
+# overwrite the old specification
+cryptonite@host:~$ mv config.json bundle&#x2F;config.json
+cryptonite@host:~$ runc create -b bundle --console-socket $(pwd)&#x2F;tty.sock rootless-crypt0n1t3
+# no error - yay; let&#x27;s run it
+cryptonite@host:~$ runc start rootless-crypt0n1t3
+</code></pre>
+<p>Now we can move the <em>recvtty</em> terminal and inspect in detail what runc has created.</p>
+<pre><code>&#x2F; # id
+id
+uid=0(root) gid=0(root) groups=65534(nobody),65534(nobody),65534(nobody),65534(nobody),65534(nobody),65534(nobody),65534(nobody),65534(nobody),65534(nobody),0(root)
+&#x2F; # ls -al
+ls -al
+total 64
+drwx------   19 root     root          4096 Jul 11  2019 .
+drwx------   19 root     root          4096 Jul 11  2019 ..
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 bin
+drwxr-xr-x    5 root     root           360 Mar 16 11:54 dev
+drwxr-xr-x   15 root     root          4096 Jul 11  2019 etc
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 home
+drwxr-xr-x    5 root     root          4096 Jul 11  2019 lib
+drwxr-xr-x    5 root     root          4096 Jul 11  2019 media
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 mnt
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 opt
+dr-xr-xr-x  389 nobody   nobody           0 Mar 16 11:54 proc
+drwx------    2 root     root          4096 Mar 16 10:25 root
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 run
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 sbin
+drwxr-xr-x    2 root     root          4096 Jul 11  2019 srv
+dr-xr-xr-x   13 nobody   nobody           0 Mar 16 08:35 sys
+drwxrwxr-x    2 root     root          4096 Jul 11  2019 tmp
+drwxr-xr-x    7 root     root          4096 Jul 11  2019 usr
+drwxr-xr-x   11 root     root          4096 Jul 11  2019 var
+</code></pre>
+<p>This looks really familiar to the user namespace shown in the previous<a rel="noopener" target="_blank" href="https://blog.quarkslab.com/digging-into-linux-namespaces-part-2.html">article</a>, right? Let’s check the namespaces and user ids from both “points of view”.</p>
+<pre><code># check within the container
+&#x2F; # ls -al &#x2F;proc&#x2F;self&#x2F;ns
+ls -al &#x2F;proc&#x2F;self&#x2F;ns
+total 0
+dr-x--x--x    2 root     root             0 Mar 16 11:59 .
+dr-xr-xr-x    9 root     root             0 Mar 16 11:59 ..
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 cgroup -&gt; cgroup:[4026531835]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 ipc -&gt; ipc:[4026532672]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 mnt -&gt; mnt:[4026532669]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 net -&gt; net:[4026532008]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 pid -&gt; pid:[4026532673]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 pid_for_children -&gt; pid:[4026532673]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 time -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 time_for_children -&gt; time:[4026531834]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 user -&gt; user:[4026532663]
+lrwxrwxrwx    1 root     root             0 Mar 16 11:59 uts -&gt; uts:[4026532671]
+
+# check from the root user namespace
+cryptonite@host:~$ ls &#x2F;proc&#x2F;$$&#x2F;ns -al
+total 0
+dr-x--x--x 2 cryptonite cryptonite 0 mars  16 13:02 .
+dr-xr-xr-x 9 cryptonite cryptonite 0 mars  16 11:36 ..
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 cgroup -&gt; &#x27;cgroup:[4026531835]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 ipc -&gt; &#x27;ipc:[4026531839]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 mnt -&gt; &#x27;mnt:[4026531840]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 net -&gt; &#x27;net:[4026532008]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 pid -&gt; &#x27;pid:[4026531836]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 pid_for_children -&gt; &#x27;pid:[4026531836]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 time -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 time_for_children -&gt; &#x27;time:[4026531834]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 user -&gt; &#x27;user:[4026531837]&#x27;
+lrwxrwxrwx 1 cryptonite cryptonite 0 mars  16 13:02 uts -&gt; &#x27;uts:[4026531838]&#x27;
+
+# check uid of the process in the container (owner field)
+cryptonite@host:~$ runc list
+ID                    PID         STATUS      BUNDLE                                                         CREATED                          OWNER
+rootless-crypt0n1t3   19104       running     &#x2F;home&#x2F;cryptonite&#x2F;docker-security&#x2F;internals&#x2F;playground&#x2F;bundle   2022-03-16T11:54:10.930816557Z   cryptonite
+
+# double check
+cryptonite@host:~$ ps aux | grep 19104
+crypton+   19104  0.0  0.0   1632  1124 ?        Ss+  12:54   0:00 sh
+</code></pre>
+<p>We can see that the classical user namespace definitions apply as expected. If you wish to learn about this interesting namespace, please refer to our previous <a rel="noopener" target="_blank" href="https://blog.quarkslab.com/digging-into-linux-namespaces-part-2.html">article</a>. All of the manipulations described in the <a rel="noopener" target="_blank" href="https://blog.quarkslab.com/digging-into-runtimes-runc.html#creating-root-container">root containers</a> part apply to the rootless containers. The main and most important difference is that system-wide operations are performed with a non-privileged UID hence less security risk on the host system.</p>
+<h2 id="a-word-on-security">A word on security</h2>
+<p><em>Runc</em> is a powerful tool usually used by more high-level runtimes. That is because, by itself, <em>runc</em> is a pretty low-level runtime. It doesn’t include a lot of security enhancement features out of the box like seccomp, SELinux and AppArmor. Nevertheless, the tool has native support for the above security enhancements but they are not included in the default configurations. High-level runtimes running on top of <em>runc</em>handle these types of configuration.</p>
+<pre><code># no AppArmor
+cryptonite@host:~$ cat &#x2F;proc&#x2F;19104&#x2F;attr&#x2F;current
+unconfined
+# no Seccomp
+cryptonite@host:~$ cat &#x2F;proc&#x2F;19104&#x2F;status | grep Seccomp            Seccomp:    0
+Seccomp_filters:    0
+</code></pre>
+<h2 id="greetings">Greetings</h2>
+<p>I would like to thank some key members of the team for helping me to structure and write this article (mahé, pappy, sébastien, erynian). I would also like to thank angie and mahé for proofreading, and last but not least, pappy for guiding me and giving me the chance to grow.</p>
+<h2 id="references">References</h2>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://www.youtube.com/watch?v=UfziwYwPSsM">A nice runc introductionary video</a></li>
+<li><a rel="noopener" target="_blank" href="https://iximiuz.com/en/posts/implementing-container-runtime-shim/">Implementing Container Runtime Shim: runc (Ivan Velichko)</a></li>
+<li><a rel="noopener" target="_blank" href="https://iximiuz.com/en/posts/journey-from-containerization-to-orchestration-and-beyond/">Journey From Containerization To Orchestration And Beyond (Ivan Velichko)</a></li>
+<li><a rel="noopener" target="_blank" href="https://mkdev.me/en/posts/the-tool-that-really-runs-your-containers-deep-dive-into-runc-and-oci-specifications">The tool that really runs your containers: deep dive into runc and OCI specifications (KIRILL SHIRINKIN)</a></li>
+<li><a rel="noopener" target="_blank" href="https://www.cncf.io/blog/2019/07/15/demystifying-containers-part-ii-container-runtimes/">Demystifying containers part II: container runtimes (Sascha Grunert)</a></li>
+<li><a rel="noopener" target="_blank" href="https://www.redhat.com/en/blog/container-live-migration-using-runc-and-criu">Container live migration with CRIU and runc (Adrian Reber)</a></li>
+<li><a rel="noopener" target="_blank" href="https://circleci.com/blog/checkpoint-and-restore-docker-container-with-criu/">Checkpointing and restoring Docker containers with CRIU (Hirokuni Kim)</a></li>
+<li><a rel="noopener" target="_blank" href="https://www.linuxjournal.com/content/everything-you-need-know-about-linux-containers-part-i-linux-control-groups-and-process">A nice post on Linux Control Groups and Process Isolation (Petros Koutoupis)</a></li>
+<li><a rel="noopener" target="_blank" href="https://engineering.linkedin.com/blog/2016/08/don_t-let-linux-control-groups-uncontrolled">Don't Let Linux Control Groups Run Uncontrolled (Zhenyun Zhuang)</a></li>
+<li><a rel="noopener" target="_blank" href="https://blog.selectel.com/managing-containers-runc/">Managing Containers in runc (Andrej Yemelianov)</a></li>
+<li><a rel="noopener" target="_blank" href="https://medium.com/@Mark.io/simple-rootless-containers-with-runc-on-centos-redhat-f9230f74b88b">Simple rootless containers with runc on CentOS and RedHat (Murat Kilic)</a></li>
+<li><a rel="noopener" target="_blank" href="https://github.com/opencontainers/runtime-spec/blob/main/config.md">The original OCI runtime configuration specification</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/将ova或qcow2导入到pve虚拟机/">&#8249; 将ova或qcow2导入到PVE虚拟机</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/nginx使用相同tcp端口同时服务http和https/"> NGINX使用相同TCP端口同时服务HTTP和HTTPS &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#digging-into-runtimes-runc">Digging Into Runtimes – runc</a>
+        </div>
+        <div class="hpad">
+          <a href="#brief-container-history-from-a-mess-to-standards-and-proper-architecture"><small>- Brief container history: from a mess to standards and proper architecture</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#runc"><small>- Runc</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#generating-an-oci-configuration"><small>· Generating an OCI configuration</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#creating-root-container"><small>- Creating root container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#configuring-runc-init-with-network-interface"><small>· Configuring runc-init with network interface</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#starting-the-root-container"><small>· Starting the root container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#writable-storage-inside-a-container"><small>· Writable storage inside a container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#pause-and-resume-a-container"><small>· Pause and resume a container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#inspect-the-current-state-of-a-container"><small>· Inspect the current state of a container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#checkpoint-a-container"><small>· Checkpoint a container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#executing-a-new-process-in-an-existing-container"><small>· Executing a new process in an existing container</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#hooks"><small>· Hooks</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#updating-container-resource-limit"><small>· Updating container resource limit</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#creating-rootless-container"><small>- Creating rootless container</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#a-word-on-security"><small>- A word on security</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#greetings"><small>- Greetings</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#references"><small>- References</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

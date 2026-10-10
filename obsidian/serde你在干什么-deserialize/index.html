@@ -1,0 +1,504 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>serde你在干什么:deserialize | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="serde 源码解析 | Deserialization篇 第一部分" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/serde你在干什么-deserialize/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/serde你在干什么-deserialize/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/serde你在干什么-deserialize/" />
+  <meta property="og:description" content="serde 源码解析 | Deserialization篇 第一部分" />
+  <meta name="twitter:description" content="serde 源码解析 | Deserialization篇 第一部分" />
+  <meta property="og:title" content="serde你在干什么:deserialize | 墨雪天琊" />
+  <meta name="twitter:title" content="serde你在干什么:deserialize | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-07-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/serde你在干什么-deserialize/">serde你在干什么:deserialize</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 17, 2024 <span class="rpad"></span>更新: 七月 18, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/rust/">Rust</a>] #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a> </span>
+
+    
+
+
+<h1 id="serdeni-zai-gan-shen-me-deserialize">serde你在干什么:deserialize</h1>
+<p>出处：<a rel="noopener" target="_blank" href="https://aptend.github.io/2020/01/06/serde-what-are-you-doing-de-part1/">https://aptend.github.io/2020/01/06/serde-what-are-you-doing-de-part1/</a></p>
+<p>serde 源码解析 | Deserialization篇 第一部分</p>
+<p>有了serialize的基础，知道了<code>serde data model</code>大概的定位，也知道了访问者模式的应用，接着理解deserialize会更容易一些。</p>
+<p>以<code>serde data model</code>为基础，<code>Serialize</code>是引导者的角色，引导<code>Serde::ser::Serilaizer</code>的实现者<code>serializer</code>去参观内存中的数据，帮助<code>serializer</code>完成序列化。</p>
+<p>现在反序列化，角色关系更加复杂一层。除了<code>Serde::Deserialize</code>，<code>Serde::Deserializer</code>，还多一个<code>Serde::Visitor</code>。<code>Serde::Deserialize</code>依然是最高级引导者，提示<code>Serde::Deserializer</code>去认识已被序列化的数据，并且交给它一个<code>Serde::Visitor</code>，随后<code>Serde::Deserializer</code>则利用得到的<code>Serde::Visitor</code>，为其提供数据，帮助它在内存中构建各种数据结构。</p>
+<p>有了这个大方向，让我们开始瞅瞅反序列化的过程。</p>
+<h2 id="gu-shi-kai-shi">故事开始</h2>
+<p>也从反序列化的源头开始，也就是<code>from_str</code></p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F; de.rs
+pub fn from_str&lt;&#x27;a, T&gt;(s: &amp;&#x27;a str) -&gt; Result&lt;T&gt;
+where
+    T: Deserialize&lt;&#x27;a&gt;,
+{
+    let mut deserializer = Deserializer::from_str(s);
+    let t = T::deserialize(&amp;mut deserializer)?;
+    if deserializer.input.is_empty() {
+        Ok(t)
+    } else {
+        Err(Error::TrailingCharacters)
+    }
+}
+</code></pre>
+<p><code>from_str</code>首先初始化了叫<code>crate::Deserializer</code>的结构，该结构实现了<code>serde::Deserializer</code> trait，初始化方法是<code>from_str</code>。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">pub struct Deserializer&lt;&#x27;de&gt; {
+    input: &amp;&#x27;de str,
+}
+
+impl&lt;&#x27;de&gt; Deserializer&lt;&#x27;de&gt; {
+    pub fn from_str(input: &amp;&#x27;de str) -&gt; Self {
+        Deserializer { input }
+    }
+}
+</code></pre>
+<p>从这里我们能得出两个结论：</p>
+<ol>
+<li><sub>“本直播间允许套娃”</sub></li>
+<li><code>deserializer</code>拥有反序列化的数据(或数据引用)</li>
+</ol>
+<p>然后就将创建的<code>deserializer</code>传给一个<code>Deserialize-thing</code>（<code>-thing</code>的写法表示实现某个trait的实例），也就是T，而T在我们编写下列语句时，就已经被推断为<code>Command</code>。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">let de_cmd: Command = from_str(&amp;ser_cmd).unwrap();
+</code></pre>
+<p>所以魔法发生在语句<code>let t = T::deserialize(&amp;mut deserializer)?;</code>里面。</p>
+<p>至此我们知道，给<code>T::deserialize</code>一个合适的<code>deserializer</code>，它就会返回一个T类型的实例。</p>
+<h2 id="shui-cai-shi-gong-ju-ren">谁才是工具人？</h2>
+<p>一般来讲，被当作参数传入的，很大可能是工具人，就像序列化过程中写作文的<code>serializer</code>。类比一下，<code>deserializer</code>差不多也是个工具人，供<code>serde::Deserialize</code>差遣。不过，<code>deserializer</code>并不是反序列化中最底层的工具人。最终在内存中复现数据结构的，是一个叫做<code>visitor</code>的工具人，被<code>serde::Deserialize</code>构造，然后交给<code>deserializer</code>使用。</p>
+<p>具体一点，<code>T::deserialize</code>要干的事情：</p>
+<ol>
+<li>根据T自身的类型，参照<a rel="noopener" target="_blank" href="https://serde.rs/data-model.html">Serde data model</a>，调用<code>deserializer</code>的某个<code>deserialize_*</code>方法，提示<code>deserializer</code>接下来的数据可能是由哪种<code>serde data model</code>序列化而来，你视情况对input做相关的parsing工作，形成一些基础的数据类型。</li>
+<li>调用时，提供一个<code>Visitor-thing</code>，<code>deserializer</code>则调用该<code>visitor</code>的某个<code>visit_*</code>方法，传入经过提示后解析出来的数据，让<code>visitor</code>完成数据结构在内存中的重现。</li>
+</ol>
+<p>要明白这个过程，不妨先看<a rel="noopener" target="_blank" href="https://docs.serde.rs/serde/de/trait.Visitor.html">Visitor</a> trait的定义，一个<code>visitor</code>，从诞生起，命运就和<code>Value</code>类型绑定在一起，终其一生，都是个不折不扣的工具人，每个方法，都是一条操作规则，比如，如果放一个<code>bool</code>值到<code>visitor</code>眼前，他就如此这般，产生一个<code>Value</code>；如果放一个<code>SeqAccess</code>结构到<code>visitor</code>眼前， 他就这样那样，产生一个<code>Value</code>。<code>Visitor</code> trait的每个规则的默认实现，是抛出Error::invalid_type，表明<code>Value</code>不能由眼前的数据转换而来。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">pub trait Visitor&lt;&#x27;de&gt;: Sized {
+    type Value;
+    fn expecting(&amp;self, formatter: &amp;mut Formatter) -&gt; Result;
+
+    fn visit_bool&lt;E&gt;(self, v: bool) -&gt; Result&lt;Self::Value, E&gt;
+    where
+        E: Error,
+    { ... }
+   	...
+    fn visit_str&lt;E&gt;(self, v: &amp;str) -&gt; Result&lt;Self::Value, E&gt;
+    where
+        E: Error,
+    { ... }
+    ...
+    fn visit_seq&lt;A&gt;(self, seq: A) -&gt; Result&lt;Self::Value, A::Error&gt;
+    where
+        A: SeqAccess&lt;&#x27;de&gt;,
+    { ... }
+    fn visit_map&lt;A&gt;(self, map: A) -&gt; Result&lt;Self::Value, A::Error&gt;
+    where
+        A: MapAccess&lt;&#x27;de&gt;,
+    { ... }
+    fn visit_enum&lt;A&gt;(self, data: A) -&gt; Result&lt;Self::Value, A::Error&gt;
+    where
+        A: EnumAccess&lt;&#x27;de&gt;,
+    { ... }
+}
+</code></pre>
+<p>为了更好理解<code>visitor</code>，来看<code>derive_de.rs</code>文件，一部分代码如下，作用是根据数据生成具体的枚举标志符，表示<code>get, set, rm, quit</code>中的哪一个(这么做是为了避免复制为String，提高效率)。这里训练了一个叫做<code>__FieldVisitor</code>的工具人，专门产生<code>__Field</code>类型。一个<code>__Field</code>可以来自于u64、str、bytes，转换逻辑都很直白，match就完事儿了</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[allow(non_camel_case_types)]
+enum __Field {
+    __field0,
+    __field1,
+    __field2,
+    __field3,
+}
+struct __FieldVisitor;
+impl&lt;&#x27;de&gt; _serde::de::Visitor&lt;&#x27;de&gt; for __FieldVisitor {
+    type Value = __Field;
+    fn expecting(
+        &amp;self,
+        __formatter: &amp;mut _serde::export::Formatter,
+    ) -&gt; _serde::export::fmt::Result {
+        _serde::export::Formatter::write_str(__formatter, &quot;variant identifier&quot;)
+    }
+    fn visit_u64&lt;__E&gt;(self, __value: u64) -&gt; _serde::export::Result&lt;Self::Value, __E&gt;
+    where
+    __E: _serde::de::Error,
+    {
+        match __value {
+            0u64 =&gt; _serde::export::Ok(__Field::__field0),
+            1u64 =&gt; _serde::export::Ok(__Field::__field1),
+            2u64 =&gt; _serde::export::Ok(__Field::__field2),
+            3u64 =&gt; _serde::export::Ok(__Field::__field3),
+            _ =&gt; _serde::export::Err(_serde::de::Error::invalid_value(
+                _serde::de::Unexpected::Unsigned(__value),
+                &amp;&quot;variant index 0 &lt;= i &lt; 4&quot;,
+            )),
+        }
+    }
+    fn visit_str&lt;__E&gt;(self, __value: &amp;str) -&gt; _serde::export::Result&lt;Self::Value, __E&gt;
+    where
+    __E: _serde::de::Error,
+    {
+        match __value {
+            &quot;Set&quot; =&gt; _serde::export::Ok(__Field::__field0),
+            &quot;Get&quot; =&gt; _serde::export::Ok(__Field::__field1),
+            &quot;Rm&quot; =&gt; _serde::export::Ok(__Field::__field2),
+            &quot;Quit&quot; =&gt; _serde::export::Ok(__Field::__field3),
+            _ =&gt; _serde::export::Err(_serde::de::Error::unknown_variant(
+                __value, VARIANTS,
+            )),
+        }
+    }
+    fn visit_bytes&lt;__E&gt;(
+        self,
+        __value: &amp;[u8],
+    ) -&gt; _serde::export::Result&lt;Self::Value, __E&gt;
+    where
+    __E: _serde::de::Error,
+    {
+        match __value {
+            b&quot;Set&quot; =&gt; _serde::export::Ok(__Field::__field0),
+            b&quot;Get&quot; =&gt; _serde::export::Ok(__Field::__field1),
+            b&quot;Rm&quot; =&gt; _serde::export::Ok(__Field::__field2),
+            b&quot;Quit&quot; =&gt; _serde::export::Ok(__Field::__field3),
+            _ =&gt; {
+                let __value = &amp;_serde::export::from_utf8_lossy(__value);
+                _serde::export::Err(_serde::de::Error::unknown_variant(
+                    __value, VARIANTS,
+                ))
+            }
+        }
+    }
+}
+</code></pre>
+<p>余下的未实现的<code>visit_*</code>就保持默认实现，抛出错误，表明无法完成转换。</p>
+<p>现在有了这个工具人，自然就可以为<code>__Field</code>实现<code>Deserialize</code> trait，派出工具人去执行任务，所以上面的代码，紧接着的就是<code>Deserialize</code>  trait的实现：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl&lt;&#x27;de&gt; _serde::Deserialize&lt;&#x27;de&gt; for __Field {
+    #[inline]
+    fn deserialize&lt;__D&gt;(__deserializer: __D) -&gt; _serde::export::Result&lt;Self, __D::Error&gt;
+    where
+    __D: _serde::Deserializer&lt;&#x27;de&gt;,
+    {
+        _serde::Deserializer::deserialize_identifier(__deserializer, __FieldVisitor)
+    }
+}
+</code></pre>
+<p>故事开始时，我们知道，给<code>T::deserialize</code>一个合适的<code>deserializer</code>，它就会返回一个T类型的实例。所以为<code>__Field</code>实现<code>Deserialize</code>  trait的意思就是，给<code>__Field</code>写一个<code>deserialize</code>方法，保证调用<code>__Field::deserialze(&amp;mut deserializer)</code>之后，会返回一个<code>__Field::__field0</code>或者<code>__filed1</code>等等。</p>
+<p>我们发现，具体的实现其实非常简单，就是调用传入的<code>deserializer</code>的 <code>deserialize_identifier</code>方法，并且为其提供刚才构造的<code>__FieldVisitor</code>。</p>
+<p><code>deserialize_identifier</code>在这儿被使用，因为我们知道<code>__Field</code>的实质，是结构体字段、枚举的标识。所以我们<strong>提示</strong><code>deserializer</code>我们需要的是一个标识，具体<code>deserializer</code>怎么处理，不同的数据格式都有自己的说法。比如这里的json知道，哦，标识啊，当初序列化时就直接把它当成字符串对待了，所以接下来的input数据，应该会以字符串开头，所以<code>deserializer</code>直接交给字符串的反序列化去处理。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn deserialize_identifier&lt;V&gt;(self, visitor: V) -&gt; Result&lt;V::Value&gt;
+where
+	V: Visitor&lt;&#x27;de&gt;,
+{
+    self.deserialize_str(visitor)
+}
+</code></pre>
+<p>而<code>deserialize_str</code>的实现中，主要做了两个工作：</p>
+<ol>
+<li>把接下来的input数据解析出一个字符串，也就是期待input以引号开头，<code>"xxx"</code>，解析出<code>xxx</code>，如果顺利，<code>xxx</code>应该是<code>Set、Get、Rm、Quit</code>中的一个。</li>
+<li>既然解析出了&amp;str类型的数据，那么就应该期待，<code>visitor</code>可以拿这个&amp;str去构建一个<code>__Field</code>实例。所以<code>deserializer_str</code>就会使用之前<code>__FieldVisitor</code>的<code>visit_str</code>方法，让工具人自己去处理。这里实际调用的<code>visit_borrowed_str</code>，其<a rel="noopener" target="_blank" href="https://docs.serde.rs/src/serde/de/mod.rs.html#1484-1490">默认实现</a>就是调用<code>visit_str</code>。分得如此细，和生命周期、性能等有关，这里暂不关注。<code>visit_str</code>方法自然会根据<code>xxx</code>返回相应的<code>__Field::__fieldx</code></li>
+</ol>
+<p>到这里其实已经看到了一个局部相对完整的序列化过程，但也只反序列化了一个标识符。下面会再看我们<code>Command</code>到底是怎么构建的，过程的骨架其实也就这样了。</p>
+<p>有个题外话，注意这里从数据中解析出str的函数，<code>parse_string</code>，也由<code>deserializer</code>实现，但是官方有提醒，<strong>Serde框架内，实际上并不包含解析</strong>，更有效率的方式是使用专门的解析库来帮助实现<code>deserializer</code></p>
+<blockquote>
+<p>// SERDE IS NOT A PARSING LIBRARY. This impl block defines a few basic parsing
+// functions from scratch. More complicated formats may wish to use a dedicated
+// parsing library to help implement their Serde deserializer</p>
+</blockquote>
+<h2 id="commandde-fan-xu-lie-hua">Command的反序列化</h2>
+<p>因为我们想要反序列化<code>Command</code>，所以给<code>Command</code>也要整一个visitor，其结构为被命名为<code>__Visitor</code>。看上去这个visitor有两个字段，<code>marker</code>和<code>lifetime</code>，<code>PhantomData</code>类型，看上去就很厉害，但是我没找到使用这个两个字段的代码，应该对我们理解总体逻辑没有太多阻碍，所以这里暂时跳过吧。（实际上我至今还是没有理解这个marker的作用是啥，<a rel="noopener" target="_blank" href="https://docs.rs/crate/serde_derive/1.0.103/source/src/de.rs">源码</a>中也没有相关的注释）</p>
+<p>为<code>__Visitor</code>实现<code>Visitor</code> trait 的这一段代码看上去很长，有点唬人，但其实是一个match+嵌套，所以先撇开嵌套的内容，看主体的match。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">struct __Visitor&lt;&#x27;de&gt; {
+    marker: _serde::export::PhantomData&lt;Command&gt;,
+    lifetime: _serde::export::PhantomData&lt;&amp;&#x27;de ()&gt;,
+}
+impl&lt;&#x27;de&gt; _serde::de::Visitor&lt;&#x27;de&gt; for __Visitor&lt;&#x27;de&gt; {
+    type Value = Command;
+    fn expecting(&amp;self, __formatter: &amp;mut _serde::export::Formatter) -&gt; _serde::export::fmt::Result {
+        _serde::export::Formatter::write_str(__formatter, &quot;enum Command&quot;)
+    }
+    &#x2F;&#x2F; Command由“代表枚举的数据”转换而来
+    fn visit_enum&lt;__A&gt;(self, __data: __A) -&gt; _serde::export::Result&lt;Self::Value, __A::Error&gt;
+    where
+    __A: _serde::de::EnumAccess&lt;&#x27;de&gt;,
+    {
+        &#x2F;&#x2F; 重点步骤，这里解析出数据具体是哪个枚举，后文会再回顾这里的操作
+        match match _serde::de::EnumAccess::variant(__data) {
+            _serde::export::Ok(__val) =&gt; __val,
+            _serde::export::Err(__err) =&gt; {
+                return _serde::export::Err(__err);
+            }
+        } {
+            (__Field::__field0, __variant) =&gt; {
+                &#x2F;&#x2F; 开始嵌套，如果是Set类型，就再利用Field模式，解析Key、Value的identifier
+                &#x2F;&#x2F; 然后再新造一个Set的visitor，利用后续的数据构建Command::Set
+            }
+            (__Field::__field1, __variant) =&gt; { &#x2F;&#x2F; Get基本步骤同Set }
+            (__Field::__field2, __variant) =&gt; {...}
+            (__Field::__field3, __variant) =&gt; {...}
+        }
+    }
+}
+</code></pre>
+<p>所以<code>Command</code>的<code>visitor</code>的透露的大体信息是，<code>deserializer</code>只有给我提供一个<code>EnumAccess&lt;'de&gt;-thing</code>这种数据，我才能构建一个<code>Command</code>，具体的做法，就是利用之前的<code>__Field</code>相关结构，判断是具体哪种<code>Command</code>后，再采用不同的策略构建。这里先不深究细节，我们接着走流程。</p>
+<p><code>Command</code>的<code>visitor</code>整好了，也有相似的入口来使用，<code>Command</code>通过<code>deserialize_enum</code>提示<code>deserializer</code>，接下来的数据应该是为enum准备，你看着办，顺便告诉你，这个enum的名字是<code>"Command”</code>，枚举的项目是<code>Set、Get、Rm、Quit</code>四种。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[automatically_derived]
+impl&lt;&#x27;de&gt; _serde::Deserialize&lt;&#x27;de&gt; for Command {
+    fn deserialize&lt;__D&gt;(__deserializer: __D) -&gt; _serde::export::Result&lt;Self, __D::Error&gt;
+    where
+    	__D: _serde::Deserializer&lt;&#x27;de&gt;,
+    {
+        const VARIANTS: &amp;&#x27;static [&amp;&#x27;static str] = &amp;[&quot;Set&quot;, &quot;Get&quot;, &quot;Rm&quot;, &quot;Quit&quot;];
+        _serde::Deserializer::deserialize_enum(
+            __deserializer,
+            &quot;Command&quot;,
+            VARIANTS,
+            __Visitor {
+                marker: _serde::export::PhantomData::&lt;Command&gt;,
+                lifetime: _serde::export::PhantomData,
+            },
+        )
+    }
+}
+</code></pre>
+<p><code>deserialize_enum</code>是怎么实现的呢？json格式的<code>deserializer</code>被提示接下来的数据是为enum准备的之后，立刻明白，一个enum，经过合法序列化后，只能由<code>"</code>或者<code>{</code>开头，所以分两种情况，围绕自己的input数据，为<code>visitor</code>的创建提供基础材料。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn deserialize_enum&lt;V&gt;(
+        self,
+        _name: &amp;&#x27;static str,
+        _variants: &amp;&#x27;static [&amp;&#x27;static str],
+        visitor: V,
+    ) -&gt; Result&lt;V::Value&gt;
+    where
+        V: Visitor&lt;&#x27;de&gt;,
+    {
+        if self.peek_char()? == &#x27;&quot;&#x27; {
+            &#x2F;&#x2F; Visit a unit variant.
+            visitor.visit_enum(self.parse_string()?.into_deserializer())
+        } else if self.next_char()? == &#x27;{&#x27; {
+            &#x2F;&#x2F; Visit a newtype variant, tuple variant, or struct variant.
+            let value = visitor.visit_enum(Enum::new(self))?;
+            &#x2F;&#x2F; Parse the matching close brace.
+            if self.next_char()? == &#x27;}&#x27; {
+                Ok(value)
+            } else {
+                Err(Error::ExpectedMapEnd)
+            }
+        } else {
+            Err(Error::ExpectedEnum)
+        }
+    }
+</code></pre>
+<p>提供什么样的材料呢？这要看<code>deserializer</code>具体选用<code>visitor</code>的哪个方法。这里使用的<code>visit_enum</code>方法(当然<code>__Visitor</code>也只实现了<code>visit_enum</code>方法)，所以按照其签名，应该为其提供一个实现<code>EnumAccess</code> trait的东西。</p>
+<ul>
+<li><code>self.parse_string()?.into_deserializer()</code>提供的流程是，分析出<code>str</code>，经过<code>into_deserializer()</code>变为<a rel="noopener" target="_blank" href="https://docs.rs/serde/1.0.104/serde/de/value/struct.StrDeserializer.html">StrDeserializer</a>，而一个<code>StrDeserializer</code><a rel="noopener" target="_blank" href="https://docs.rs/serde/1.0.104/src/serde/de/value.rs.html#405-418">默认实现</a>了<code>EnumAccess</code>。</li>
+<li><code>Enum::new(self)</code>提供的流程就很直接，自定义了一个实现<code>EnumAccess</code>的结构叫做<code>Enum</code></li>
+</ul>
+<p>所以到这里，上一节分析的”工具人套工具人”的骨架就分析完了。复习一下， 总体过程是，<code>Command::deserialize</code>通过调用<code>deserialize_enum</code>方法提示<code>deserializer</code>，接下来的序列化数据是为enum准备的，并且为<code>deserializer</code>提供一个实现了<code>visit_enum</code>(接受<code>EnumAccess-thing</code>，返还<code>Command</code>)的<code>visitor</code>。于是<code>deserializer</code>根据json的规则知道，接下的序列化数据应该会是<code>"</code>或者<code>{</code>开头，分为两种情况，制作出一个<code>EnumAccess-thing</code>，然后交给<code>visit_enum</code>去构建<code>Command</code>。</p>
+<p>这时，我们更详细地去看这个过程，<code>visit_enum</code>是怎么做的，<code>EnumAccess-thing</code>又是如何与它配合的。</p>
+<h2 id="visit-enumli">visit_enum里</h2>
+<p>为了方便叙述，把<code>visit_enum</code>再抄到这里</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn visit_enum&lt;__A&gt;(self, __data: __A) -&gt; _serde::export::Result&lt;Self::Value, __A::Error&gt;
+where
+	__A: _serde::de::EnumAccess&lt;&#x27;de&gt;,
+{
+    match match _serde::de::EnumAccess::variant(__data) {
+        _serde::export::Ok(__val) =&gt; __val,
+        _serde::export::Err(__err) =&gt; {
+            return _serde::export::Err(__err);
+        }
+    } {
+        (__Field::__field0, __variant) =&gt; {...},
+        (__Field::__field1, __variant) =&gt; {...},
+        (__Field::__field2, __variant) =&gt; {...},
+        (__Field::__field3, __variant) =&gt; {...},
+    }
+}
+</code></pre>
+<p>同时也附上<code>EnumAccess</code> trait的定义</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F; https:&#x2F;&#x2F;docs.serde.rs&#x2F;serde&#x2F;de&#x2F;trait.EnumAccess.html
+pub trait EnumAccess&lt;&#x27;de&gt;: Sized {
+    type Error: Error;
+    type Variant: VariantAccess&lt;&#x27;de, Error = Self::Error&gt;;
+    fn variant_seed&lt;V&gt;(
+        self,
+        seed: V
+    ) -&gt; Result&lt;(V::Value, Self::Variant), Self::Error&gt;
+    where
+        V: DeserializeSeed&lt;&#x27;de&gt;;
+
+    fn variant&lt;V&gt;(self) -&gt; Result&lt;(V, Self::Variant), Self::Error&gt;
+    where
+        V: Deserialize&lt;&#x27;de&gt;,
+    {
+        &#x2F;&#x2F; 默认实现
+        self.variant_seed(PhantomData)
+    }
+}
+</code></pre>
+<p>一开始，对<code>EnumAccess-thing</code>调用<code>variant</code>方法，它返回一个tuple，从后续match分支可以推断，第一项是之前定义的<code>__Field</code>，第二项，从<code>variant</code>方法的签名可知，是<code>VariantAccess-thing</code>。自然地，通过匹配<code>__Field</code>，就可以知道数据本身是Set、Get、Rm、Quit中的哪一个，然后继续利用产生的<code>VariantAccess-thing</code>做继续的处理……但是，等一等，这是怎么办到的？什么时候利用数据反序列化出了一个<code>__Field</code>？<code>__Field::deserialize</code>在哪儿被偷偷摸摸地调用的了？</p>
+<p>要解决这个疑问，自然要看<code>variant</code>的内部，所以自然要看具体的<code>EnumAccess</code>实现</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F; de.rs
+struct Enum&lt;&#x27;a, &#x27;de: &#x27;a&gt; {
+    de: &amp;&#x27;a mut Deserializer&lt;&#x27;de&gt;,
+}
+
+impl&lt;&#x27;a, &#x27;de&gt; Enum&lt;&#x27;a, &#x27;de&gt; {
+    fn new(de: &amp;&#x27;a mut Deserializer&lt;&#x27;de&gt;) -&gt; Self {
+        Enum { de }
+    }
+}
+
+impl&lt;&#x27;de, &#x27;a&gt; EnumAccess&lt;&#x27;de&gt; for Enum&lt;&#x27;a, &#x27;de&gt; {
+    type Error = Error;
+    type Variant = Self;
+
+    fn variant_seed&lt;V&gt;(self, seed: V) -&gt; Result&lt;(V::Value, Self::Variant)&gt;
+    where
+        V: DeserializeSeed&lt;&#x27;de&gt;,
+    {
+        let val = seed.deserialize(&amp;mut *self.de)?;
+        if self.de.next_char()? == &#x27;:&#x27; {
+            Ok((val, self))
+        } else {
+            Err(Error::ExpectedMapColon)
+        }
+    }
+}
+</code></pre>
+<p>我的第一反应，自然是找<code>__Field::deserialize</code>方法。但是只找到一个<code>seed.deserialize</code>，那么不负责任地一猜，这个seed应该是<code>__Field</code>的一个实例，但是被当场打脸，因为由<code>variant</code>传入的，又是个<code>PhantomData</code>，所以这个东西是铁定绕不过了？还有那个<code>variant_seed</code>方法中要求的<code>DeserializeSeed</code>又是什么东西？这个过程到底怎么回事？</p>
+<p>为了控制一下篇幅，这些疑问下一篇继续解答。</p>
+<p>到这里，我们其实已经收获颇丰，知道了visitor的存在，也大概清楚了三种角色的交互逻辑。后续的问题，实际上是反序列化一些集合类型时的所需要的细节。继续之前，先休息一下。</p>
+<h2 id="commandde-fan-xu-lie-hua-1">Command的反序列化</h2>
+<p>因为我们想要反序列化<code>Command</code>，所以给<code>Command</code>也要整一个visitor，其结构为被命名为<code>__Visitor</code>。看上去这个visitor有两个字段，<code>marker</code>和<code>lifetime</code>，<code>PhantomData</code>类型，看上去就很厉害，但是我没找到使用这个两个字段的代码，应该对我们理解总体逻辑没有太多阻碍，所以这里暂时跳过吧。（实际上我至今还是没有理解这个marker的作用是啥，<a rel="noopener" target="_blank" href="https://docs.rs/crate/serde_derive/1.0.103/source/src/de.rs">源码</a>中也没有相关的注释）</p>
+<p>为<code>__Visitor</code>实现<code>Visitor</code> trait 的这一段代码看上去很长，有点唬人，但其实是一个match+嵌套，所以先撇开嵌套的内容，看主体的match。</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /><code>18</code><br /><code>19</code><br /><code>20</code><br /><code>21</code><br /><code>22</code><br /><code>23</code><br /><code>24</code><br /><code>25</code><br /><code>26</code><br /><code>27</code><br /><code>28</code><br /><code>29</code><br /><code>30</code><br /><code>31</code><br /></th><th><code>struct __Visitor&lt;'de&gt; {</code><br /><code>  marker: _serde::export::PhantomData,</code><br /><code>    lifetime: _serde::export::PhantomData&lt;&amp;'de ()&gt;,</code><br /><code>}</code><br /><code>impl&lt;'de&gt; _serde::Visitor&lt;'de&gt; for __Visitor&lt;'de&gt; {</code><br /><code>    type Value = Command;</code><br /><code>    fn expecting(&amp;self, __formatter: &amp;mut _serde::export::Formatter) -&gt; _serde::export::fmt::Result {</code><br /><code>        _serde::export::Formatter::write_str(__formatter, "enum Command")</code><br /><code>    }</code><br /><code>    // Command由“代表枚举的数据”转换而来</code><br /><code>  fn visit_enum&lt;__A&gt;(self, __data: __A) -&gt; _serde::export::Result</code><br /><code>    where</code><br /><code>    __A: _serde::EnumAccess&lt;'de&gt;,</code><br /><code>    {</code><br /><code>        // 重点步骤，这里解析出数据具体是哪个枚举，后文会再回顾这里的操作</code><br /><code>        match match _serde::EnumAccess::variant(__data) {</code><br /><code>            _serde::export::Ok(__val) =&gt; __val,</code><br /><code>            _serde::export::Err(__err) =&gt; {</code><br /><code>                return _serde::export::Err(__err);</code><br /><code>            }</code><br /><code>        } {</code><br /><code>            (__Field::__field0, __variant) =&gt; {</code><br /><code>                // 开始嵌套，如果是Set类型，就再利用Field模式，解析Key、Value的identifier</code><br /><code>                // 然后再新造一个Set的visitor，利用后续的数据构建Command::Set</code><br /><code>            }</code><br /><code>            (__Field::__field1, __variant) =&gt; { // Get基本步骤同Set }</code><br /><code>         (__Field::__field2, __variant) =&gt; {...}           </code><br /><code>         (__Field::__field3, __variant) =&gt; {...}</code><br /><code>        }</code><br /><code>    }</code><br /><code>}</code><br /></th></tr></thead><tbody>
+</tbody></table>
+<p>所以<code>Command</code>的<code>visitor</code>的透露的大体信息是，<code>deserializer</code>只有给我提供一个<code>EnumAccess&lt;'de&gt;-thing</code>这种数据，我才能构建一个<code>Command</code>，具体的做法，就是利用之前的<code>__Field</code>相关结构，判断是具体哪种<code>Command</code>后，再采用不同的策略构建。这里先不深究细节，我们接着走流程。</p>
+<p><code>Command</code>的<code>visitor</code>整好了，也有相似的入口来使用，<code>Command</code>通过<code>deserialize_enum</code>提示<code>deserializer</code>，接下来的数据应该是为enum准备，你看着办，顺便告诉你，这个enum的名字是<code>"Command”</code>，枚举的项目是<code>Set、Get、Rm、Quit</code>四种。</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /><code>18</code><br /></th><th><code>#[automatically_derived]</code><br /><code>impl&lt;'de&gt; _serde::Deserialize&lt;'de&gt; for Command {</code><br /><code>  fn deserialize&lt;__D&gt;(__deserializer: __D) -&gt; _serde::export::Result</code><br /><code>    where</code><br /><code>    	__D: _serde::Deserializer&lt;'de&gt;,</code><br /><code>    {</code><br /><code>        const VARIANTS: &amp;'static [&amp;'static str] = &amp;["Set", "Get", "Rm", "Quit"];</code><br /><code>        _serde::Deserializer::deserialize_enum(</code><br /><code>            __deserializer,</code><br /><code>            "Command",</code><br /><code>            VARIANTS,</code><br /><code>            __Visitor {</code><br /><code>        marker: _serde::export::PhantomData::,</code><br /><code>                lifetime: _serde::export::PhantomData,</code><br /><code>            },</code><br /><code>        )</code><br /><code>    }</code><br /><code>}</code><br /></th></tr></thead><tbody>
+</tbody></table>
+<p><code>deserialize_enum</code>是怎么实现的呢？json格式的<code>deserializer</code>被提示接下来的数据是为enum准备的之后，立刻明白，一个enum，经过合法序列化后，只能由<code>"</code>或者<code>{</code>开头，所以分两种情况，围绕自己的input数据，为<code>visitor</code>的创建提供基础材料。</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /><code>18</code><br /><code>19</code><br /><code>20</code><br /><code>21</code><br /><code>22</code><br /><code>23</code><br /><code>24</code><br /><code>25</code><br /></th><th><code>fn deserialize_enum&lt;V&gt;(</code><br /><code>        self,</code><br /><code>        _name: &amp;'static str,</code><br /><code>        _variants: &amp;'static [&amp;'static str],</code><br /><code>        visitor: V,</code><br /><code>  ) -&gt; Result</code><br /><code>    where</code><br /><code>        V: Visitor&lt;'de&gt;,</code><br /><code>    {</code><br /><code>        if self.peek_char()? == '"' {</code><br /><code>            // Visit a unit variant.</code><br /><code>            visitor.visit_enum(self.parse_string()?.into_deserializer())</code><br /><code>        } else if self.next_char()? == '{' {</code><br /><code>            // Visit a newtype variant, tuple variant, or struct variant.</code><br /><code>            let value = visitor.visit_enum(Enum::new(self))?;</code><br /><code>            // Parse the matching close brace.</code><br /><code>            if self.next_char()? == '}' {</code><br /><code>                Ok(value)</code><br /><code>            } else {</code><br /><code>                Err(Error::ExpectedMapEnd)</code><br /><code>            }</code><br /><code>        } else {</code><br /><code>            Err(Error::ExpectedEnum)</code><br /><code>        }</code><br /><code>    }</code><br /></th></tr></thead><tbody>
+</tbody></table>
+<p>提供什么样的材料呢？这要看<code>deserializer</code>具体选用<code>visitor</code>的哪个方法。这里使用的<code>visit_enum</code>方法(当然<code>__Visitor</code>也只实现了<code>visit_enum</code>方法)，所以按照其签名，应该为其提供一个实现<code>EnumAccess</code> trait的东西。</p>
+<ul>
+<li><code>self.parse_string()?.into_deserializer()</code>提供的流程是，分析出<code>str</code>，经过<code>into_deserializer()</code>变为<a rel="noopener" target="_blank" href="https://docs.rs/serde/1.0.104/serde/de/value/struct.StrDeserializer.html">StrDeserializer</a>，而一个<code>StrDeserializer</code><a rel="noopener" target="_blank" href="https://docs.rs/serde/1.0.104/src/serde/de/value.rs.html#405-418">默认实现</a>了<code>EnumAccess</code>。</li>
+<li><code>Enum::new(self)</code>提供的流程就很直接，自定义了一个实现<code>EnumAccess</code>的结构叫做<code>Enum</code></li>
+</ul>
+<p>所以到这里，上一节分析的”工具人套工具人”的骨架就分析完了。复习一下， 总体过程是，<code>Command::deserialize</code>通过调用<code>deserialize_enum</code>方法提示<code>deserializer</code>，接下来的序列化数据是为enum准备的，并且为<code>deserializer</code>提供一个实现了<code>visit_enum</code>(接受<code>EnumAccess-thing</code>，返还<code>Command</code>)的<code>visitor</code>。于是<code>deserializer</code>根据json的规则知道，接下的序列化数据应该会是<code>"</code>或者<code>{</code>开头，分为两种情况，制作出一个<code>EnumAccess-thing</code>，然后交给<code>visit_enum</code>去构建<code>Command</code>。</p>
+<p>这时，我们更详细地去看这个过程，<code>visit_enum</code>是怎么做的，<code>EnumAccess-thing</code>又是如何与它配合的。</p>
+<h2 id="visit-enumli-1">visit_enum里</h2>
+<p>为了方便叙述，把<code>visit_enum</code>再抄到这里</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /></th><th><code>fn visit_enum&lt;__A&gt;(self, __data: __A) -&gt; _serde::export::Result&lt;Self::Value, __A::Error&gt;</code><br /><code>where</code><br /><code>	__A: _serde::EnumAccess&lt;'de&gt;,</code><br /><code>{</code><br /><code>    match match _serde::EnumAccess::variant(__data) {</code><br /><code>        _serde::export::Ok(__val) =&gt; __val,</code><br /><code>        _serde::export::Err(__err) =&gt; {</code><br /><code>            return _serde::export::Err(__err);</code><br /><code>        }</code><br /><code>    } {</code><br /><code>        (__Field::__field0, __variant) =&gt; {...},</code><br /><code>        (__Field::__field1, __variant) =&gt; {...},</code><br /><code>        (__Field::__field2, __variant) =&gt; {...},</code><br /><code>        (__Field::__field3, __variant) =&gt; {...},</code><br /><code>    }</code><br /><code>}</code></th></tr></thead><tbody>
+</tbody></table>
+<p>同时也附上<code>EnumAccess</code> trait的定义</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /><code>18</code><br /><code>19</code><br /></th><th><code>// https://docs.serde.rs/serde/de/trait.EnumAccess.html</code><br /><code>pub trait EnumAccess&lt;'de&gt;: Sized {</code><br /><code>    type Error: Error;</code><br /><code>    type Variant: VariantAccess&lt;'de, Error = Self::Error&gt;;</code><br /><code>  fn variant_seed(</code><br /><code>       self,</code><br /><code>        seed: V</code><br /><code>    ) -&gt; Result&lt;(V::Value, Self::Variant), Self::Error&gt;</code><br /><code>    where</code><br /><code>    V: DeserializeSeed&lt;'de&gt;;  fn variant(self) -&gt; Result&lt;(V, Self::Variant), Self::Error&gt;</code><br /><code>    where</code><br /><code>        V: Deserialize&lt;'de&gt;,</code><br /><code>    {</code><br /><code>        // 默认实现</code><br /><code>        self.variant_seed(PhantomData)</code><br /><code>    }</code><br /><code>}</code></th></tr></thead><tbody>
+</tbody></table>
+<p>一开始，对<code>EnumAccess-thing</code>调用<code>variant</code>方法，它返回一个tuple，从后续match分支可以推断，第一项是之前定义的<code>__Field</code>，第二项，从<code>variant</code>方法的签名可知，是<code>VariantAccess-thing</code>。自然地，通过匹配<code>__Field</code>，就可以知道数据本身是Set、Get、Rm、Quit中的哪一个，然后继续利用产生的<code>VariantAccess-thing</code>做继续的处理……但是，等一等，这是怎么办到的？什么时候利用数据反序列化出了一个<code>__Field</code>？<code>__Field::deserialize</code>在哪儿被偷偷摸摸地调用的了？</p>
+<p>要解决这个疑问，自然要看<code>variant</code>的内部，所以自然要看具体的<code>EnumAccess</code>实现</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /><code>5</code><br /><code>6</code><br /><code>7</code><br /><code>8</code><br /><code>9</code><br /><code>10</code><br /><code>11</code><br /><code>12</code><br /><code>13</code><br /><code>14</code><br /><code>15</code><br /><code>16</code><br /><code>17</code><br /><code>18</code><br /><code>19</code><br /><code>20</code><br /><code>21</code><br /><code>22</code><br /><code>23</code><br /><code>24</code><br /><code>25</code><br /><code>26</code><br /><code>27</code><br /></th><th><code>// de.rs</code><br /><code>struct Enum&lt;'a, 'de: 'a&gt; {</code><br /><code>    de: &amp;'a mut Deserializer&lt;'de&gt;,</code><br /><code>}impl&lt;'a, 'de&gt; Enum&lt;'a, 'de&gt; {</code><br /><code>    fn new(de: &amp;'a mut Deserializer&lt;'de&gt;) -&gt; Self {</code><br /><code>        Enum { de }</code><br /><code>    }</code><br /><code>}impl&lt;'de, 'a&gt; EnumAccess&lt;'de&gt; for Enum&lt;'a, 'de&gt; {</code><br /><code>    type Error = Error;</code><br /><code>  type Variant = Self;  fn variant_seed(self, seed: V) -&gt; Result&lt;(V::Value, Self::Variant)&gt;</code><br /><code>    where</code><br /><code>        V: DeserializeSeed&lt;'de&gt;,</code><br /><code>    {</code><br /><code>        let val = seed.deserialize(&amp;mut *self.de)?;</code><br /><code>        if self.de.next_char()? == ':' {</code><br /><code>            Ok((val, self))</code><br /><code>        } else {</code><br /><code>            Err(Error::ExpectedMapColon)</code><br /><code>        }</code><br /><code>    }</code><br /><code>}</code></th></tr></thead><tbody>
+</tbody></table>
+<p>我的第一反应，自然是找<code>__Field::deserialize</code>方法。但是只找到一个<code>seed.deserialize</code>，那么不负责任地一猜，这个seed应该是<code>__Field</code>的一个实例，但是被当场打脸，因为由<code>variant</code>传入的，又是个<code>PhantomData</code>，所以这个东西是铁定绕不过了？还有那个<code>variant_seed</code>方法中要求的<code>DeserializeSeed</code>又是什么东西？这个过程到底怎么回事？</p>
+<p>为了控制一下篇幅，这些疑问下一篇继续解答。</p>
+<p>到这里，我们其实已经收获颇丰，知道了visitor的存在，也大概清楚了三种角色的交互逻辑。后续的问题，实际上是反序列化一些集合类型时的所需要的细节。继续之前，先休息一下。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/linux-ubuntu-dpkg-命令详解/">&#8249; Linux Ubuntu dpkg 命令详解</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/tput-命令行使用说明/"> tput 命令行使用说明 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#serdeni-zai-gan-shen-me-deserialize">serde你在干什么:deserialize</a>
+        </div>
+        <div class="hpad">
+          <a href="#gu-shi-kai-shi"><small>- 故事开始</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shui-cai-shi-gong-ju-ren"><small>- 谁才是工具人？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#commandde-fan-xu-lie-hua"><small>- Command的反序列化</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#visit-enumli"><small>- visit_enum里</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#commandde-fan-xu-lie-hua-1"><small>- Command的反序列化</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#visit-enumli-1"><small>- visit_enum里</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,145 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>rust Reborrow and Borrow | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="考虑函数调用f(x)​，其中f: fn (&amp;mut i32) -&gt; i32​, x: &amp;mut i32​，按照通常的逻辑，x​将会被move到f​的作用域中，最" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/rust-reborrow-and-borrow/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/rust-reborrow-and-borrow/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/rust-reborrow-and-borrow/" />
+  <meta property="og:description" content="考虑函数调用f(x)​，其中f: fn (&amp;mut i32) -&gt; i32​, x: &amp;mut i32​，按照通常的逻辑，x​将会被move到f​的作用域中，最" />
+  <meta name="twitter:description" content="考虑函数调用f(x)​，其中f: fn (&amp;mut i32) -&gt; i32​, x: &amp;mut i32​，按照通常的逻辑，x​将会被move到f​的作用域中，最" />
+  <meta property="og:title" content="rust Reborrow and Borrow | 墨雪天琊" />
+  <meta name="twitter:title" content="rust Reborrow and Borrow | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-05-13" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/rust-reborrow-and-borrow/">rust Reborrow and Borrow</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 五月 13, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c-c/">C&#x2F;C++</a>] #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/bian-yi-lian-jie/">编译链接</a> </span>
+
+    
+
+
+<h1 id="rust-reborrow-and-borrow">rust Reborrow and Borrow</h1>
+<p>考虑函数调用<code>f(x)</code>，其中<code>f: fn (&amp;mut i32) -&gt; i32</code>, <code>x: &amp;mut i32</code>，按照通常的逻辑，<code>x</code>将会被move到<code>f</code>的作用域中，最后在<code>f</code>返回时被丢弃，这样一来将无法第二次调用<code>f(x)</code>。然而实际上，可以无限次调用<code>f(x)</code>，而仍保持<code>x</code>有效。</p>
+<p>这是由于编译器会自动将<code>f(x)</code>转变为<code>f(&amp;mut *x)</code>，而<code>&amp;mut *x</code>是所谓的reborrow操作，将会对mutable reference<code>x</code>再次borrow，获得一个新的mutable reference，而原本的<code>x</code>暂时被shadow，处于inactive状态，直到<code>f</code>返回时，新的mutable reference被销毁，<code>x</code>重新回到active状态。</p>
+<p>对于generic函数，则不一定会进行reborrow操作，设<code>v: &amp;mut i32</code>：</p>
+<ul>
+<li><code>fn f&lt;T&gt;(x: &amp;mut T)</code>: <code>f(v)</code>会自动reborrow，变成<code>f(&amp;mut *v)</code></li>
+<li><code>fn f&lt;T&gt;(x: T)</code>: <code>f(v)</code>不会自动reborrow，<code>v</code>会被move到<code>f</code>中</li>
+<li><code>fn f&lt;T&gt;(x: T, y: T)</code>: 对于<code>f(v1, v2)</code>，只有<code>v1</code>会被move到<code>f</code>中，<code>v2</code>会被自动reborrow，即最后变成<code>f(v1, &amp;mut *v2)</code></li>
+</ul>
+<p>所谓的reborrow实际上本质上仍是borrow，也就是说Rust并没有对<code>&amp;*x</code>或<code>&amp;mut *x</code>引入特殊的语义。试考虑<code>&amp;mut *x</code>，它可以理解为先获得了lvalue<code>*x</code>，然后对这个lvalue进行了borrow。之所以称其为reborrow，是因为该lvalue所在的place实际上已经被<code>x</code>borrow过了，我们又「重新borrow」了一次，reborrow的特殊之处就在于Rust允许我们borrow一个已经被borrow过的lvalue。</p>
+<p>更进一步，形如<code>&amp;(*ref).x</code>的borrow也是允许的，也可以视为一种reborrow，即我们可以单独reborrow一个已经被borrow过的lvalue的一部分。</p>
+<p>实际上reborrow的行为也是有其适用范围的：</p>
+<ul>
+<li>被shared borrow的lvalue，不能被reborrow为mutable reference，只能被reborrow为shared reference</li>
+<li>被unique immutable borrow的lvalue，不能被reborrow为mutable reference，但能被reborrow为shared reference</li>
+<li>被mutable borrow的lvalue，可以被reborrow为shared reference或mutable reference</li>
+</ul>
+<hr />
+<p>需要注意的是，当我们使用<code>&amp;mut *x</code>reborrow了<code>x</code>后，我们就将无法使用<code>x</code>，直到该reborrow expire为止，例如下列代码就是错误的：</p>
+<table><thead><tr><th><code>1</code><br /><code>2</code><br /><code>3</code><br /><code>4</code><br /></th><th><code>let a = &amp;mut 3;</code><br /><code>let b = &amp;mut *a;    // </code>a<code> is reborrowed</code><br /><code>*a = 4;             // </code>a<code> is shadowed, ERROR</code><br /><code>*b = 5;             // reborrow expired</code><br /></th></tr></thead><tbody>
+</tbody></table>
+<p>应该说，引入reborrow后，每个memory location都会有一个borrow stack。将borrow stack定义在memory location上而不是place上，是因为memory location没有进一步的结构，可以简化讨论，而place可以有子place，其不同的子place可以被分别reborrow，于是构不成一个stack。</p>
+<p>borrow stack的规则很简单：</p>
+<ul>
+<li>对最初的变量的borrow，位于栈底</li>
+<li>此后的每次reborrow，都会将该reborrow放入栈顶</li>
+<li>reborrow得到的mutable reference，会将栈中更早的mutable reference屏蔽，使其不能被访问或reborrow</li>
+<li>reborrow得到的shared reference，会使栈中更早的mutable reference退化为shared reference，即只能被读取或被reborrow为shared reference</li>
+<li>栈顶的reborrow一旦expire，其引起的屏蔽效果即会解除</li>
+</ul>
+<p>这里忽略了具有interior mutability的shared reference以及raw pointer，真正用于定义Rust语义的<a rel="noopener" target="_blank" href="https://github.com/rust-lang/unsafe-code-guidelines/blob/master/wip/stacked-borrows.md">borrow stack</a>模型要复杂得多，因为需要考虑unsafe特性与mutable/shared reference的语义的交互。</p>
+<p>注意有时实际上可能发生reborrow产生的新reference尚且存活，旧的reference却已经被销毁的情况：</p>
+<ul>
+<li>例如<code>let new; { let old = &amp;mut x; new = &amp;*old; }; use(new);</code>，即新reference的作用域比旧reference更大</li>
+<li>又如<code>let mut parent = &amp;mut p; let child = &amp;parent.x; let parent = &amp;mut q;</code>，即旧reference被覆盖，从而不可达</li>
+</ul>
+<p>此时我们并不会立即将旧的reference从borrow stack中移除，而是会等待栈顶的reborrow先expire，再将旧的borrow移除。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/rust从入门到精通/">&#8249; Rust从入门到精通</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/"> 线程安全、原子变量、内存顺序 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#rust-reborrow-and-borrow">rust Reborrow and Borrow</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

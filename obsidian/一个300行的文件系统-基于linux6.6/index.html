@@ -1,0 +1,968 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>一个300行的文件系统（基于linux6.6） | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="其实这是一个很久就看过的文章，但是由于是在微信上看到的，下来一直没有机会试一下，久而久之就遗忘了，最近在知乎上又看到这篇（当然是剽窃的，知乎最近这种抄别人劳作的" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/" />
+  <meta property="og:description" content="其实这是一个很久就看过的文章，但是由于是在微信上看到的，下来一直没有机会试一下，久而久之就遗忘了，最近在知乎上又看到这篇（当然是剽窃的，知乎最近这种抄别人劳作的" />
+  <meta name="twitter:description" content="其实这是一个很久就看过的文章，但是由于是在微信上看到的，下来一直没有机会试一下，久而久之就遗忘了，最近在知乎上又看到这篇（当然是剽窃的，知乎最近这种抄别人劳作的" />
+  <meta property="og:title" content="一个300行的文件系统（基于linux6.6） | 墨雪天琊" />
+  <meta name="twitter:title" content="一个300行的文件系统（基于linux6.6） | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2023-12-27" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/">一个300行的文件系统（基于linux6.6）</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十二月 27, 2023 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cun-chu-yu-wen-jian-xi-tong/">存储与文件系统</a> </span>
+
+    
+
+
+<h1 id="yi-ge-300xing-de-wen-jian-xi-tong-ji-yu-linux6-6">一个300行的文件系统（基于linux6.6）</h1>
+<h2 id="yi-bei-jing">一、背景</h2>
+<pre><code>     其实这是一个很久就看过的文章，但是由于是在微信上看到的，下来一直没有机会试一下，久而久之就遗忘了，最近在知乎上又看到这篇（当然是剽窃的，知乎最近这种抄别人劳作的风气越來越重了，本来想举报一下，结果又要侵权本人提供证据，被侵权的文章也不是我写的，我也就没法提供证据举报了）
+</code></pre>
+<p>原文链接（感谢作者提供了一个非常好的例子）：</p>
+<p><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//mp.weixin.qq.com/s%3F__biz%3DMzg2OTc0ODAzMw%3D%3D%26mid%3D2247502337%26idx%3D1%26sn%3D7f6ec62aa4a6edd0ff80f7c7d8dd08a5%26source%3D41%23wechat_redirect">300来行代码带你实现一个能跑的最小Linux文件系统</a></p>
+<p>由于原作者的示例是基于一个比较老的linux 内核版本，在新版本上有较多编译报错，大部分是结构体的变化，比较大一点的是tinyfs_readdir 接口的变化</p>
+<h3 id="ban-ben-yi">版本一：</h3>
+<p>（这一版本只是处理了编译报错相关的问题，主体部分未做修改）</p>
+<p>tinyfs.h</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#define MAXLEN 8
+#define MAX_FILES 32
+#define MAX_BLOCKSIZE 512
+
+&#x2F;&#x2F;define the dir
+struct dir_entry {
+    char filename[MAXLEN];
+    uint8_t idx;
+};
+
+&#x2F;&#x2F;define the file block
+struct file_blk {
+    uint8_t busy;
+    mode_t mode;
+    uint8_t idx;
+
+    union {
+        uint8_t file_size;
+        uint8_t dir_children;
+    };
+    char data[0];
+};
+</code></pre>
+<p>tinyfs.c</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#include &lt;linux&#x2F;init.h&gt;
+#include &lt;linux&#x2F;module.h&gt;
+#include &lt;linux&#x2F;fs.h&gt;
+#include &lt;linux&#x2F;uaccess.h&gt;
+
+#include &quot;tinyfs.h&quot;
+
+struct file_blk block[MAX_FILES+1];
+
+int curr_count = 0;
+
+static int get_block(void)
+{
+    int i;
+    for( i = 2; i &lt; MAX_FILES; i++) {
+        if (!block[i].busy) {
+            block[i].busy = 1;
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static struct inode_operations tinyfs_inode_ops;
+
+static int tinyfs_readdir(struct file *filp, struct dir_context *ctx)
+{
+
+    loff_t pos;
+    struct file_blk  *blk;
+    struct dir_entry *entry;
+	struct dentry *dentry = filp-&gt;f_path.dentry;
+
+    int i;
+
+	if (!dir_emit_dots(filp, ctx))
+		return 0;
+
+    pos = filp-&gt;f_pos;
+
+    if (pos)
+        return 0;
+
+    blk = (struct file_blk*)dentry-&gt;d_inode-&gt;i_private;
+
+    if (!S_ISDIR(blk-&gt;mode)) {
+        return -ENOTDIR;
+    }
+
+    &#x2F;&#x2F;loop get one dir included file name
+    entry = (struct dir_entry *)&amp;blk-&gt;data[0];
+    for (i = 0; i &lt; blk-&gt;dir_children; i++) {
+        if (!dir_emit(ctx, entry[i].filename, strlen(entry[i].filename),
+			      entry[i].idx,
+			      DT_UNKNOWN))
+			break;
+        filp-&gt;f_pos += sizeof(struct dir_entry);
+        pos += sizeof(struct dir_entry);
+
+    }
+
+	return 0;
+}
+
+ssize_t tinyfs_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
+{
+    struct file_blk *blk;
+    char *buffer;
+
+    blk = (struct file_blk*)filp-&gt;f_path.dentry-&gt;d_inode-&gt;i_private;
+
+    if (*ppos &gt;= blk-&gt;file_size)
+        return 0;
+
+    buffer = (char *)&amp;blk-&gt;data[0];
+    len = min((size_t)blk-&gt;file_size, len);
+
+    if (copy_to_user(buf, buffer, len)) {
+        return -EFAULT;
+    }
+    *ppos += len;
+
+    return len;
+}
+
+ssize_t tinyfs_write(struct file *filp, const char __user *buf, size_t len, loff_t *ppos)
+{
+    struct file_blk *blk;
+    char *buffer;
+
+    blk = filp-&gt;f_path.dentry-&gt;d_inode-&gt;i_private;
+
+    buffer = (char *)&amp;blk-&gt;data[0];
+    buffer += *ppos;
+
+    if (copy_from_user(buffer, buf, len)) {
+        return -EFAULT;
+    }
+
+    *ppos += len;
+    blk-&gt;file_size = *ppos;
+
+    return len;
+}
+
+const struct file_operations tinyfs_file_operations = {
+    .read = tinyfs_read,
+    .write = tinyfs_write,
+};
+
+static const struct file_operations tinyfs_dir_operations = {
+    .owner = THIS_MODULE,
+    .read		= generic_read_dir,
+    .iterate_shared	= tinyfs_readdir,
+};
+
+&#x2F;&#x2F;create file
+static int tinyfs_do_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+    struct inode *inode;
+    struct super_block *sb;
+    struct dir_entry *entry;
+    struct file_blk *blk, *pblk;
+    int idx;
+
+    sb = dir-&gt;i_sb;
+
+    if (curr_count &gt;= MAX_FILES) {
+        return -ENOSPC;
+    }
+
+    if (!S_ISDIR(mode) &amp;&amp; !S_ISREG(mode)) {
+        return -EINVAL;
+    }
+
+    inode = new_inode(sb);
+
+    if (!inode) {
+        return -ENOMEM;
+    }
+
+    inode-&gt;i_sb = sb;
+    inode-&gt;i_op = &amp;tinyfs_inode_ops;
+    inode-&gt;i_atime = inode-&gt;i_mtime = inode_set_ctime_current(inode);
+
+    idx = get_block(); &#x2F;&#x2F;get free block save new file
+
+    blk = &amp;block[idx];
+    inode-&gt;i_ino = idx;
+    blk-&gt;mode = mode;
+    curr_count ++;
+
+    if (S_ISDIR(mode)) {
+        blk-&gt;dir_children = 0;
+        inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    } else if (S_ISREG(mode)) {
+        blk-&gt;file_size = 0;
+        inode-&gt;i_fop = &amp;tinyfs_file_operations;
+    }
+
+    inode-&gt;i_private = blk;
+    pblk = (struct file_blk *)dir-&gt;i_private;
+
+    entry = (struct dir_entry *)&amp;pblk-&gt;data[0];
+    entry += pblk-&gt;dir_children;
+    pblk-&gt;dir_children ++;
+
+    entry-&gt;idx = idx;
+    strcpy(entry-&gt;filename, dentry-&gt;d_name.name);
+
+    inode_init_owner(&amp;nop_mnt_idmap, inode, dir, mode);
+    d_add(dentry, inode);
+
+    return 0;
+}
+
+static int tinyfs_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+    return tinyfs_do_create(&amp;nop_mnt_idmap, dir, dentry, S_IFDIR | mode);
+}
+
+static int tinyfs_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl)
+{
+    return tinyfs_do_create(&amp;nop_mnt_idmap, dir, dentry, mode);
+}
+
+static struct inode * tinyfs_iget(struct super_block *sb, int idx)
+{
+    struct inode *inode;
+    struct file_blk *blk;
+
+    inode = new_inode(sb);
+    inode-&gt;i_ino = idx;
+    inode-&gt;i_sb = sb;
+    inode-&gt;i_op = &amp;tinyfs_inode_ops;
+
+    blk = &amp;block[idx];
+
+    if (S_ISDIR(blk-&gt;mode))
+        inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    else if (S_ISREG(blk-&gt;mode))
+        inode-&gt;i_fop = &amp;tinyfs_file_operations;
+
+    inode-&gt;i_atime = inode-&gt;i_mtime  = inode_set_ctime_current(inode);
+    inode-&gt;i_private = blk;
+
+    return inode;
+}
+
+struct dentry *tinyfs_lookup(struct inode *parent_inode, struct dentry *child_dentry, unsigned int flags)
+{
+    struct super_block *sb = parent_inode-&gt;i_sb;
+    struct file_blk *blk;
+    struct dir_entry *entry;
+    int i;
+
+    blk = (struct file_blk *)parent_inode-&gt;i_private;
+    entry = (struct dir_entry *)&amp;blk-&gt;data[0];
+    for (i = 0; i &lt; blk-&gt;dir_children; i++) {
+        if (!strcmp(entry[i].filename, child_dentry-&gt;d_name.name)) {
+            struct inode *inode = tinyfs_iget(sb, entry[i].idx);
+            struct file_blk *inner = (struct file_blk*)inode-&gt;i_private;
+            inode_init_owner(&amp;nop_mnt_idmap, inode, parent_inode, inner-&gt;mode);
+            d_add(child_dentry, inode);
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+int tinyfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+    struct inode *inode = dentry-&gt;d_inode;
+    struct file_blk *blk = (struct file_blk*) inode-&gt;i_private;
+
+    blk-&gt;busy = 0;
+    return simple_rmdir(dir, dentry);
+}
+
+int tinyfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+    int i;
+    struct inode *inode = dentry-&gt;d_inode;
+    struct file_blk *blk = (struct file_blk *)inode-&gt;i_private;
+    struct file_blk *pblk = (struct file_blk *)dir-&gt;i_private;
+    struct dir_entry *entry;
+
+    entry = (struct dir_entry*)&amp;pblk-&gt;data[0];
+    for (i = 0; i &lt; pblk-&gt;dir_children; i++) {
+        if (!strcmp(entry[i].filename, dentry-&gt;d_name.name)) {
+            int j;
+            for (j = i; j &lt; pblk-&gt;dir_children - 1; j++) {
+                memcpy(&amp;entry[j], &amp;entry[j+1], sizeof(struct dir_entry));
+            }
+            pblk-&gt;dir_children --;
+            break;
+        }
+    }
+
+    blk-&gt;busy = 0;
+    return simple_unlink(dir, dentry);
+}
+
+static struct inode_operations tinyfs_inode_ops = {
+    .create = tinyfs_create,
+    .lookup = tinyfs_lookup,
+    .mkdir = tinyfs_mkdir,
+    .rmdir = tinyfs_rmdir,
+    .unlink = tinyfs_unlink,
+};
+
+int tinyfs_fill_super(struct super_block *sb, void *data, int silent)
+{
+    struct inode *root_inode;
+    umode_t mode = S_IFDIR;
+
+    root_inode = new_inode(sb);
+    root_inode-&gt;i_ino = 1;
+    inode_init_owner(&amp;nop_mnt_idmap, root_inode, NULL, mode);
+    root_inode-&gt;i_sb = sb;
+    root_inode-&gt;i_op = &amp;tinyfs_inode_ops;
+    root_inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    root_inode-&gt;i_atime = root_inode-&gt;i_mtime = inode_set_ctime_current(root_inode);
+
+    block[1].mode = mode;
+    block[1].dir_children = 0;
+    block[1].idx = 1;
+    block[1].busy = 1;
+    root_inode-&gt;i_private = &amp;block[1];
+
+    sb-&gt;s_root = d_make_root(root_inode);
+    curr_count ++;
+
+    return 0;
+}
+
+static struct dentry *tinyfs_mount(struct file_system_type *fs_type, int flags, const char* dev_name, void *data)
+{
+    return mount_nodev(fs_type, flags, data, tinyfs_fill_super);
+}
+
+static void tinyfs_kill_superblock(struct super_block *sb)
+{
+    kill_anon_super(sb);
+}
+
+struct file_system_type tinyfs_fs_type = {
+    .owner = THIS_MODULE,
+    .name = &quot;tinyfs&quot;,
+    .mount = tinyfs_mount,
+    .kill_sb = tinyfs_kill_superblock,
+};
+
+static int tinyfs_init(void)
+{
+    int ret;
+
+    memset(block, 0, sizeof(block));
+    ret = register_filesystem(&amp;tinyfs_fs_type);
+
+    if (ret)
+        pr_info(&quot;register tinyfs filesystem failed\n&quot;);
+
+    return ret;
+}
+
+static void tinyfs_exit(void)
+{
+    unregister_filesystem(&amp;tinyfs_fs_type);
+}
+
+module_init(tinyfs_init);
+module_exit(tinyfs_exit);
+
+MODULE_LICENSE(&quot;GPL&quot;);
+</code></pre>
+<h2 id="san-jia-zai-kohou-de-yan-shi-ji-fa-xian-de-wen-ti">三、加载ko后的演示及发现的问题</h2>
+<h3 id="1-jia-zai-ko-gua-zai-wen-jian-xi-tong">1.加载ko，挂载文件系统</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">&#x2F;driver # insmod tinyfs.ko
+&#x2F;driver # mkdir tinydir
+&#x2F;driver # mount -t tinyfs none tinydir&#x2F;
+</code></pre>
+<h3 id="2-fa-xian-de-wen-ti-chuang-jian-duo-ge-wen-jian-shi-ls-lwen-jian-shu-xing-xian-shi-yi-chang">2、发现的问题，创建多个文件时，ls -l文件属性显示异常</h3>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-220e2ec69d48a5cdd20386e3f3635929_b-20231227143706-lcw0yy5.jpg</code>，已移除）</p>
+</blockquote>
+<p><strong>3、创建长名字的文件ls -al  显示怪异，不符合预期</strong></p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">&#x2F;driver&#x2F;tinydir # touch 1.txt
+&#x2F;driver&#x2F;tinydir # ls
+1.txt
+&#x2F;driver&#x2F;tinydir # touch 2.txt
+&#x2F;driver&#x2F;tinydir # ls
+1.txt  2.txt
+&#x2F;driver&#x2F;tinydir # touch 45666.txt
+&#x2F;driver&#x2F;tinydir # ls
+1.txt      2.txt?     45666.txt
+&#x2F;driver&#x2F;tinydir # ls -al
+total 4
+d---------    1 0        0                0 Dec  9 13:12 .
+drwxr-xr-x    3 0        0             4096 Dec  9 12:46 ..
+-rw-r--r--    1 0        0                0 Dec  9 13:12 1.txt
+?r--rwSr--    1 0        0                0 Dec  9 13:12 2.txt?
+-rw-r--r--    1 0        0                0 Dec  9 13:12 45666.txt
+&#x2F;driver&#x2F;tinydir # touch 34455.txt
+&#x2F;driver&#x2F;tinydir # ls
+1.txt               34455.txt
+2.txt?              45666.txt34455.txt
+</code></pre>
+<p>最后创建一个34455.txt,最后显示的部分都和45666.txt连到一起了</p>
+<h3 id="4-wen-ti-fen-xi">4、问题分析</h3>
+<p>还是debug，不清楚怎么debug ko的可以参考我之前的文章：<a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/667585447">无人知晓：qemu 单步调试linux driver</a></p>
+<p>打断点在tinyfs_readdir 函数中，发现问题（idx应该是block的索引，正常按创建文件的顺序一次增加，从2～32, 但是实际上这里看到都已经越界覆盖了）</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-7bc7a12c5ff88d4a40211c03d615fc30_b-20231227143706-5uv0bhy.jpg</code>，已移除）</p>
+</blockquote>
+<p>原因：struct file_blk 结构体中，    字段char data[0] 是当一个指针在使用，但是又没有分配空间，无论在文件内容存储，还是存储dir的filename信息都会向后覆盖block,导致后面存放的文件属性block 被踩坏</p>
+<p>文件名字异常的的bug原因：</p>
+<p>结构体定义：</p>
+<p>struct dir_entry {</p>
+<pre><code>char filename[MAXLEN];  &#x2F;&#x2F;maxlen为8, 创建文件名时不能超过；
+
+uint8\_t idx;
+</code></pre>
+<p>};</p>
+<p>使用的地方在</p>
+<p>tinyfs_do_create</p>
+<p>--&gt;strcpy(entry-&gt;filename, dentry-&gt;d_name.name);//换成strncpy就好了</p>
+<h2 id="si-zui-zhong-xiu-gai-ban-ben">四、最终修改版本</h2>
+<p>针对前面的struct file_blk中data[0]的问题有两种方式，一种是在使用前分配，删除时释放，另外一种就是我现在用的增加一个结构体数组，做了一些长度限制（一个目录下只能存在4个文件或目录项）。</p>
+<p>tinyfs.h</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#define MAXLEN 8
+#define MAX_FILES 32
+#define MAX_BLOCKSIZE 512
+#define MAX_SUBDIR_FILES 4  &#x2F;&#x2F;one dir can include max file size
+
+&#x2F;&#x2F;define the dir node info
+struct dir_entry {
+    char filename[MAXLEN];
+    uint8_t idx;
+};
+
+&#x2F;&#x2F;just same count char as dir node size
+#define FILE_BUF_SIZ  (sizeof(struct dir_entry) * MAX_SUBDIR_FILES)
+
+&#x2F;&#x2F;define the file block
+struct file_blk {
+    uint8_t busy;
+    mode_t mode;
+    uint8_t idx;
+
+    union {
+        uint8_t file_size;
+        uint8_t dir_children;
+    };
+
+    union {&#x2F;&#x2F;用作目录时,最大记录的条目数，不超过4个; 用作文件时，这里就是文件的buffer大小
+        struct dir_entry dir_data[MAX_SUBDIR_FILES]; &#x2F;&#x2F;one dir can exit 4 file
+        char file_data[FILE_BUF_SIZ];
+    };
+};
+</code></pre>
+<p>tinyfs.c</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#include &lt;linux&#x2F;init.h&gt;
+#include &lt;linux&#x2F;module.h&gt;
+#include &lt;linux&#x2F;fs.h&gt;
+#include &lt;linux&#x2F;uaccess.h&gt;
+
+#include &quot;tinyfs.h&quot;
+
+#define tinyfs_dbg pr_debug
+#define tinyfs_err pr_err
+
+struct file_blk block[MAX_FILES+1];
+
+int curr_count = 0;
+
+static int get_block(void)
+{
+    int i;
+    for( i = 2; i &lt; MAX_FILES; i++) {
+        if (!block[i].busy) {
+            block[i].busy = 1;
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static struct inode_operations tinyfs_inode_ops;
+
+&#x2F;*
+ * read the entries from a directory
+ *&#x2F;
+static int tinyfs_readdir(struct file *filp, struct dir_context *ctx)
+{
+
+    loff_t pos;
+    struct file_blk  *blk;
+    struct dir_entry *entry;
+    struct dentry *dentry = filp-&gt;f_path.dentry;
+
+    int i;
+
+    if (!dir_emit_dots(filp, ctx))
+        return 0;
+
+    pos = filp-&gt;f_pos;
+
+    if (pos)
+        return 0;
+
+    blk = (struct file_blk*)dentry-&gt;d_inode-&gt;i_private;
+
+    if (!S_ISDIR(blk-&gt;mode)) {
+        return -ENOTDIR;
+    }
+
+    &#x2F;&#x2F;loop get one dir included file name
+    entry = (struct dir_entry *)blk-&gt;dir_data;
+    for (i = 0; i &lt; blk-&gt;dir_children; i++) {
+        if (!dir_emit(ctx, entry[i].filename, strlen(entry[i].filename),
+                    entry[i].idx,
+                    DT_UNKNOWN))
+            break;
+        filp-&gt;f_pos += sizeof(struct dir_entry);
+        pos += sizeof(struct dir_entry);
+    }
+
+    return 0;
+}
+
+ssize_t tinyfs_read(struct file *filp, char __user *buf, size_t len, loff_t *ppos)
+{
+    struct file_blk *blk;
+    char *buffer;
+
+    blk = (struct file_blk*)filp-&gt;f_path.dentry-&gt;d_inode-&gt;i_private;
+
+    if (*ppos &gt;= blk-&gt;file_size)
+        return 0;
+
+    buffer = (char *)blk-&gt;file_data;
+    len = min((size_t)blk-&gt;file_size, len);
+
+    if (copy_to_user(buf, buffer, len)) {
+        return -EFAULT;
+    }
+    *ppos += len;
+
+    return len;
+}
+
+ssize_t tinyfs_write(struct file *filp, const char __user *buf, size_t len, loff_t *ppos)
+{
+    struct file_blk *blk;
+    char *buffer;
+
+    blk = filp-&gt;f_path.dentry-&gt;d_inode-&gt;i_private;
+
+    buffer = (char *)blk-&gt;file_data;
+    buffer += *ppos;
+
+    if (copy_from_user(buffer, buf, len)) {
+        return -EFAULT;
+    }
+
+    *ppos += len;
+    blk-&gt;file_size = *ppos;
+
+    return len;
+}
+
+const struct file_operations tinyfs_file_operations = {
+    .read = tinyfs_read,
+    .write = tinyfs_write,
+};
+
+static const struct file_operations tinyfs_dir_operations = {
+    .owner = THIS_MODULE,
+    .read = generic_read_dir,
+    .iterate_shared	= tinyfs_readdir,
+};
+
+static int tinyfs_do_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+    struct inode *inode;
+    struct super_block *sb;
+    struct dir_entry *entry;
+    struct file_blk *blk, *pblk;
+    int idx;
+
+    sb = dir-&gt;i_sb;
+
+    if (curr_count &gt;= MAX_FILES) {
+        return -ENOSPC;
+    }
+
+    if (!S_ISDIR(mode) &amp;&amp; !S_ISREG(mode)) {
+        return -EINVAL;
+    }
+
+    pblk = (struct file_blk *)dir-&gt;i_private;
+
+    &#x2F;&#x2F;dir include file|dir count can&#x27;t over MAX_SUBDIR_FILES
+    if (pblk-&gt;dir_children &gt;= MAX_SUBDIR_FILES) {
+        tinyfs_err(&quot;one dir max include file cnt should less than %d\n&quot;, MAX_SUBDIR_FILES);
+        return -ENOSPC;
+    }
+
+    inode = new_inode(sb);
+
+    if (!inode) {
+        return -ENOMEM;
+    }
+
+    inode-&gt;i_sb = sb;
+    inode-&gt;i_op = &amp;tinyfs_inode_ops;
+    inode-&gt;i_atime = inode-&gt;i_mtime = inode_set_ctime_current(inode);
+
+    idx = get_block(); &#x2F;&#x2F;get free block save new file
+
+    blk = &amp;block[idx];
+    inode-&gt;i_ino = idx;
+    blk-&gt;mode = mode;
+    curr_count ++;
+
+    if (S_ISDIR(mode)) {
+        blk-&gt;dir_children = 0;
+        inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    } else if (S_ISREG(mode)) {
+        blk-&gt;file_size = 0;
+        inode-&gt;i_fop = &amp;tinyfs_file_operations;
+    }
+
+    inode-&gt;i_private = blk;
+
+    &#x2F;&#x2F;need check the dir inode is what?
+    tinyfs_dbg(&quot;%s dir inode %llx&quot;, __func__, dir);
+
+    entry = &amp;pblk-&gt;dir_data[pblk-&gt;dir_children];
+    pblk-&gt;dir_children ++;
+
+    entry-&gt;idx = idx;
+    strncpy(entry-&gt;filename, dentry-&gt;d_name.name, MAXLEN-1);
+    entry-&gt;filename[MAXLEN-1] = 0;
+
+    inode_init_owner(&amp;nop_mnt_idmap, inode, dir, mode);
+    d_add(dentry, inode);
+
+    return 0;
+}
+
+static int tinyfs_mkdir(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode)
+{
+    return tinyfs_do_create(&amp;nop_mnt_idmap, dir, dentry, S_IFDIR | mode);
+}
+
+static int tinyfs_create(struct mnt_idmap *idmap, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl)
+{
+    return tinyfs_do_create(&amp;nop_mnt_idmap, dir, dentry, mode);
+}
+
+static struct inode * tinyfs_iget(struct super_block *sb, int idx)
+{
+    struct inode *inode;
+    struct file_blk *blk;
+
+    inode = new_inode(sb);
+    inode-&gt;i_ino = idx;
+    inode-&gt;i_sb = sb;
+    inode-&gt;i_op = &amp;tinyfs_inode_ops;
+
+    blk = &amp;block[idx];
+
+    if (S_ISDIR(blk-&gt;mode))
+        inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    else if (S_ISREG(blk-&gt;mode))
+        inode-&gt;i_fop = &amp;tinyfs_file_operations;
+
+    inode-&gt;i_atime = inode-&gt;i_mtime = inode_set_ctime_current(inode);
+    inode-&gt;i_private = blk;
+
+    return inode;
+}
+
+struct dentry *tinyfs_lookup(struct inode *parent_inode, struct dentry *child_dentry, unsigned int flags)
+{
+    struct super_block *sb = parent_inode-&gt;i_sb;
+    struct file_blk *blk;
+    struct dir_entry *entry;
+    int i;
+
+    blk = (struct file_blk *)parent_inode-&gt;i_private;
+    entry = (struct dir_entry *)blk-&gt;dir_data;
+    for (i = 0; i &lt; blk-&gt;dir_children; i++) {
+        if (!strcmp(entry[i].filename, child_dentry-&gt;d_name.name)) {
+            struct inode *inode = tinyfs_iget(sb, entry[i].idx);
+            struct file_blk *inner = (struct file_blk*)inode-&gt;i_private;
+            inode_init_owner(&amp;nop_mnt_idmap, inode, parent_inode, inner-&gt;mode);
+            d_add(child_dentry, inode);
+            return NULL;
+        }
+    }
+
+    return NULL;
+}
+
+int tinyfs_rmdir(struct inode *dir, struct dentry *dentry)
+{
+    struct inode *inode = dentry-&gt;d_inode;
+    struct file_blk *blk = (struct file_blk*) inode-&gt;i_private;
+
+    blk-&gt;busy = 0;
+    return simple_rmdir(dir, dentry);
+}
+
+int tinyfs_unlink(struct inode *dir, struct dentry *dentry)
+{
+    int i;
+    struct inode *inode = dentry-&gt;d_inode;
+    struct file_blk *blk = (struct file_blk *)inode-&gt;i_private;
+    struct file_blk *pblk = (struct file_blk *)dir-&gt;i_private;
+    struct dir_entry *entry;
+
+    entry = (struct dir_entry*)pblk-&gt;dir_data;
+    for (i = 0; i &lt; pblk-&gt;dir_children; i++) {
+        if (!strcmp(entry[i].filename, dentry-&gt;d_name.name)) {
+            int j;
+            for (j = i; j &lt; pblk-&gt;dir_children - 1; j++) {
+                memcpy(&amp;entry[j], &amp;entry[j+1], sizeof(struct dir_entry));
+            }
+            pblk-&gt;dir_children --;
+            break;
+        }
+    }
+
+    blk-&gt;busy = 0;
+    return simple_unlink(dir, dentry);
+}
+
+static struct inode_operations tinyfs_inode_ops = {
+    .create = tinyfs_create,
+    .lookup = tinyfs_lookup,
+    .mkdir = tinyfs_mkdir,
+    .rmdir = tinyfs_rmdir,
+    .unlink = tinyfs_unlink,
+};
+
+int tinyfs_fill_super(struct super_block *sb, void *data, int silent)
+{
+    struct inode *root_inode;
+    umode_t mode = S_IFDIR;
+
+    root_inode = new_inode(sb);
+    root_inode-&gt;i_ino = 1;
+    inode_init_owner(&amp;nop_mnt_idmap, root_inode, NULL, mode);
+    root_inode-&gt;i_sb = sb;
+    root_inode-&gt;i_op = &amp;tinyfs_inode_ops;
+    root_inode-&gt;i_fop = &amp;tinyfs_dir_operations;
+    root_inode-&gt;i_atime = root_inode-&gt;i_mtime = inode_set_ctime_current(root_inode);
+
+    block[1].mode = mode;
+    block[1].dir_children = 0;
+    block[1].idx = 1;
+    block[1].busy = 1;
+    root_inode-&gt;i_private = &amp;block[1];
+
+    tinyfs_dbg(&quot;%s root inode %llx&quot;, __func__, root_inode);
+    sb-&gt;s_root = d_make_root(root_inode);
+    curr_count ++;
+
+    return 0;
+}
+
+static struct dentry *tinyfs_mount(struct file_system_type *fs_type, int flags, const char* dev_name, void *data)
+{
+    return mount_nodev(fs_type, flags, data, tinyfs_fill_super);
+}
+
+static void tinyfs_kill_superblock(struct super_block *sb)
+{
+    kill_anon_super(sb);
+}
+
+struct file_system_type tinyfs_fs_type = {
+    .owner = THIS_MODULE,
+    .name = &quot;tinyfs&quot;,
+    .mount = tinyfs_mount,
+    .kill_sb = tinyfs_kill_superblock,
+};
+
+static int tinyfs_init(void)
+{
+    int ret;
+
+    memset(block, 0, sizeof(block));
+    ret = register_filesystem(&amp;tinyfs_fs_type);
+
+    if (ret)
+        pr_info(&quot;register tinyfs filesystem failed\n&quot;);
+
+    return ret;
+}
+
+static void tinyfs_exit(void)
+{
+    unregister_filesystem(&amp;tinyfs_fs_type);
+}
+
+module_init(tinyfs_init);
+module_exit(tinyfs_exit);
+
+MODULE_LICENSE(&quot;GPL&quot;);
+</code></pre>
+<p>执行效果</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">&#x2F;driver&#x2F;tinydir # touch 1.txt
+&#x2F;driver&#x2F;tinydir # touch 2.txt
+&#x2F;driver&#x2F;tinydir # mkdir tinysub
+&#x2F;driver&#x2F;tinydir # touch 4.txt
+&#x2F;driver&#x2F;tinydir # ls
+1.txt  2.txt  tinysub  4.txt
+&#x2F;driver&#x2F;tinydir # touch 5.txt  &#x2F;&#x2F;&#x2F;&#x2F;当超出数组长度限制时，提示
+[   76.696988] one dir max include file cnt should less than 4
+touch: 5.txt: No space left on device
+&#x2F;driver&#x2F;tinydir # ls
+1.txt  2.txt  tinysub  4.txt
+&#x2F;driver&#x2F;tinydir # cd tinysub&#x2F;
+&#x2F;driver&#x2F;tinydir&#x2F;tinysub # touch 5.txt
+&#x2F;driver&#x2F;tinydir&#x2F;tinysub # cd ..
+&#x2F;driver&#x2F;tinydir # tree .
+.
+├── 1.txt
+├── 2.txt
+├── 4.txt
+└── tinysub
+    └── 5.txt
+</code></pre>
+<p>上面实验的最小文件系统的结构图，dir和file都是存在block结构体中：</p>
+<blockquote>
+<p>（迁移注：原图片缺失 <code>assets/v2-355a768c54e5904f1715f363eb6d4077_b-20231227143706-idrq7ti.jpg</code>，已移除）</p>
+</blockquote>
+<p>当然这个文件系统还有很多bug，比如文件写入内容的大小控制，删除文件再创建文件的处理（前面tinyfs_do_create下处理entry有点小问题）...  ，这些留给感兴趣的同学自己分析处理（主要是我要溜娃了）。</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/std-packaged_task-源码级详解/">&#8249; std::packaged_task 源码级详解</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/进程通信-信号处理机制二-内核实现/"> 【进程通信】信号处理机制二——内核实现 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-ge-300xing-de-wen-jian-xi-tong-ji-yu-linux6-6">一个300行的文件系统（基于linux6.6）</a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-bei-jing"><small>- 一、背景</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#ban-ben-yi"><small>· 版本一：</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-jia-zai-kohou-de-yan-shi-ji-fa-xian-de-wen-ti"><small>- 三、加载ko后的演示及发现的问题</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#1-jia-zai-ko-gua-zai-wen-jian-xi-tong"><small>· 1.加载ko，挂载文件系统</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-fa-xian-de-wen-ti-chuang-jian-duo-ge-wen-jian-shi-ls-lwen-jian-shu-xing-xian-shi-yi-chang"><small>· 2、发现的问题，创建多个文件时，ls -l文件属性显示异常</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#4-wen-ti-fen-xi"><small>· 4、问题分析</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#si-zui-zhong-xiu-gai-ban-ben"><small>- 四、最终修改版本</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

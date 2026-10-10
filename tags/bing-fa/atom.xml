@@ -1,0 +1,766 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - 并发</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/bing-fa/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2024-05-06T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/bing-fa/atom.xml</id>
+    <entry xml:lang="en">
+        <title>线程安全、原子变量、内存顺序</title>
+        <published>2024-05-06T00:00:00+00:00</published>
+        <updated>2024-05-06T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/"/>
+        <id>https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/">&lt;h1 id=&quot;xian-cheng-an-quan-yuan-zi-bian-liang-nei-cun-shun-xu&quot;&gt;线程安全、原子变量、内存顺序&lt;&#x2F;h1&gt;
+&lt;p&gt;本文是阅读 &lt;em&gt;Rust Atomics and Locks&lt;&#x2F;em&gt; 这本书的笔记。这本书是我看过讲原子变量最浅显易懂的资料了。&lt;&#x2F;p&gt;
+&lt;p&gt;原文：&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;marabos.nl&#x2F;atomics&quot;&gt;Rust Atomics and Locks&lt;&#x2F;a&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;本来想简单写的，但发现写着写着就抄得差不多了，只能说忽略了很多内容和细节。&lt;&#x2F;p&gt;
+&lt;p&gt;如果有什么理解错误，请大家多多包涵并指出~&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;xian-cheng-an-quan&quot;&gt;线程安全&lt;&#x2F;h2&gt;
+&lt;p&gt;为了高性能，我们几乎无法避免编写多线程的程序。而多线程的环境相比于单线程来说，有更多更复杂的限制和要求，其中最重要的便是&lt;strong&gt;线程安全&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;线程安全是一个开放性的概念，&lt;strong&gt;如果一个程序能满足与多线程相关的各种要求，那么这个程序便是线程安全的&lt;&#x2F;strong&gt;，这时候的程序不会出现预期外的行为。而这里有哪些“要求”在不同语言、不同平台、不同接口各有不同，无法用有限的规则来描述。&lt;&#x2F;p&gt;
+&lt;p&gt;Rust将线程安全的要求大致分成了两类&lt;code&gt;Send&lt;&#x2F;code&gt;和&lt;code&gt;Sync&lt;&#x2F;code&gt;，只有满足这两类要求的API，才能在多线程的环境下安全的调用（以外的就只能在&lt;code&gt;unsafe&lt;&#x2F;code&gt;下调用）。Swift则只有&lt;code&gt;Sendable&lt;&#x2F;code&gt;这一选项，不过存在感很低。而cpp没有任何任何静态检查保证线程安全。&lt;&#x2F;p&gt;
+&lt;p&gt;线程安全比较常见的要求有：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;有些系统API要求在同一个线程内调用。比如&lt;code&gt;pthread_mutex_lock&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;pthread_mutex_unlock&lt;&#x2F;code&gt;要求在同一线程内调用，&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;pubs.opengroup.org&#x2F;onlinepubs&#x2F;009695399&#x2F;functions&#x2F;pthread_mutex_lock.html&quot;&gt;https:&#x2F;&#x2F;&lt;&#x2F;a&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;pubs.opengroup.org&#x2F;onlinepubs&#x2F;009695399&#x2F;functions&#x2F;pthread_mutex_lock.html&quot;&gt;pubs.opengroup.org&#x2F;onli&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;pubs.opengroup.org&#x2F;onlinepubs&#x2F;009695399&#x2F;functions&#x2F;pthread_mutex_lock.html&quot;&gt;nepubs&#x2F;009695399&#x2F;functions&#x2F;pthread_mutex_lock.html&lt;&#x2F;a&gt;。&lt;&#x2F;li&gt;
+&lt;li&gt;多线程内存读写，一般要求不能出现&lt;strong&gt;数据竞争&lt;&#x2F;strong&gt;。也就是不允许（非原子操作）对同一内存的并发读和写，或者同时写。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;其中数据竞争，是在多线程编程中最普遍的问题。我们可以通过&lt;strong&gt;线程同步&lt;&#x2F;strong&gt;来避免数据竞争。线程同步就是一些协议或者说是一些措施，来保证多线程下语句之间的顺序关系，&lt;strong&gt;最终可以证明一片内存不会被并发读写&lt;&#x2F;strong&gt;。一般来说，线程同步的方式有这些：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;各种各样的线程同步原语（系统提供或者用户自己实现）：锁、信号量、条件变量、屏障（barrier）等&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;原子变量&lt;&#x2F;strong&gt;操作的内存顺序（memory order）（需要特定硬件和平台支持）&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;其中线程同步原语一般是靠线程的休眠和唤醒，使某些代码会在达成某个条件后才执行。线程的休眠和唤醒会产生一定的开销，在一些高频或高并发但比较轻量的场景下，这些开销会被放大，这时候可以考虑是否可以使用原子变量来实现些非阻塞性(lock-free)的算法，或者自己实现一些更细粒度的并发控制结构以减少线程休眠唤醒的次数。&lt;&#x2F;p&gt;
+&lt;p&gt;原子变量的操作是原子性的，本身允许并发读写，就一些简单的场景（例如原子计数）甚至不需要进行线程同步。同时原子变量还具有非阻塞性，不会产生线程休眠唤醒的开销。在一些可以无锁或者比较“乐观”的并发场景，可以使用原子变量来实现，比如说一些无锁队列，相对于有锁的队列来说可以带来更多的性能提升。&lt;&#x2F;p&gt;
+&lt;p&gt;一般的线程同步原语都比较好理解，而原子变量的内存顺序却相对来说比较生涩难懂，本文打算展开一下后者，帮助大家理解。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;对数据竞争这一概念的补充。
+&lt;strong&gt;数据竞争是一种程序的非法状态&lt;&#x2F;strong&gt;。绝大多数程序语言都不会定义程序并发读写&#x2F;写写同一内存的行为（原子变量例外），也就是所谓未定义行为。
+当（抽象地，利用语言定义的规则像算术那样计算）解释的代码并发读写同一内存时，就会陷入“数据竞争”的状态，接下来的解释将没有任何意义（就好像计算过程中产生了一个1&#x2F;0一样）。当然其编译器也就不会保证程序数据竞争时会有任何预期而当行为（比如引爆核弹）。
+至于为何绝大多数语言都有这条规定，主要还是现代OS和机器机制太复杂了（多核、指令重排、缓存等等），本身就很难描述并发时计算机的状态，而且各家还有各家的玩法，还要考虑到高级程序语言中一句简单的语句就会编译成复杂的汇编指令，复杂度更是暴增。于是大家就索性不规定程序并发读写&#x2F;写写同一内存的行为（除非头铁，规定所有操作必须加锁），由程序员自己去避免。
+那么这里请问大家，这段代码会发生数据竞争吗？&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;static mut A: i32 = 0;
+fn thread_a() {
+      unsafe { A += 1; }
+}
+
+fn thread_b() {
+      sleep(Duration::from_secs(10));
+      println!(&amp;quot;{A}&amp;quot;);
+}
+
+fn main() {
+      thread::spawn(thread_a);
+      thread::spawn(thread_b);
+      thread::park();
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yuan-zi-bian-liang&quot;&gt;&lt;strong&gt;原子变量&lt;&#x2F;strong&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;本文主要想介绍的便是原子变量、原子操作，以及原子操作的几种内存顺序。（本文基于的原子变量模型，是&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=http%3A&#x2F;&#x2F;zh.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&quot;&gt;c++20原子变量&lt;&#x2F;a&gt;模型，而例子使用Rust语言）。&lt;&#x2F;p&gt;
+&lt;p&gt;原子变量，它首先是一类可以提供原子性操作的对象（于是允许并发读写），同时也是&lt;strong&gt;与其他线程同步原语一样也是一种用来描述多线程下操作顺序关系的模型。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;注意&lt;&#x2F;strong&gt;：这只是一种抽象的内存模型，并不直接映射到实际的内存与实际的指令中，也不考虑各种编译优化。是一种最低限度但明确的假设；反过来也可以要求编译器、OS、硬件满足这个假设。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;原子变量的模型，由三部分组成：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;原子类型&lt;&#x2F;strong&gt;：&lt;code&gt;AtomicU8&lt;&#x2F;code&gt;, &lt;code&gt;AtomicBool&lt;&#x2F;code&gt;, &lt;code&gt;AtomicI32&lt;&#x2F;code&gt;, &lt;code&gt;AtomicPtr&lt;&#x2F;code&gt;，等等。不同的平台（硬件+OS）决定着哪些原子类型是可用的，一般来说，最大的原子类型为指针大小的原子类型。
+&lt;strong&gt;原子操作：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;最简单的&lt;strong&gt;加载&lt;&#x2F;strong&gt;和&lt;strong&gt;存储:&lt;&#x2F;strong&gt;&lt;code&gt;load&lt;&#x2F;code&gt;,&lt;code&gt;store&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;稍复杂的&lt;strong&gt;获取修改(fetch-and-modify):&lt;&#x2F;strong&gt;&lt;code&gt;fetch_add&lt;&#x2F;code&gt;, &lt;code&gt;fetch_or&lt;&#x2F;code&gt;等等，&lt;&#x2F;li&gt;
+&lt;li&gt;最灵活和复杂的是&lt;strong&gt;比较交换：&lt;&#x2F;strong&gt;&lt;code&gt;compare_exchange&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;内存顺序：用于建立线程间原子操作的发生顺序&lt;&#x2F;strong&gt;。比如&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;Relaxed&lt;&#x2F;code&gt;几乎没有任何顺序保证，几乎只有原子性。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;SeqCst&lt;&#x2F;code&gt;则有最强的保证。所有&lt;code&gt;SeqCst&lt;&#x2F;code&gt;的原子操作之间有一个全局唯一的&lt;em&gt;全序关系&lt;&#x2F;em&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;每个原子操作都会有至少一个内存顺序的参数。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yuan-zi-cao-zuo&quot;&gt;原子操作&lt;&#x2F;h2&gt;
+&lt;p&gt;这一节介绍几种原子操作，我们先忽略掉内存序这个参数（全部使用最简单的&lt;code&gt;Relaxed&lt;&#x2F;code&gt;内存序），仅看原子操作的行为。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jia-zai-he-cun-chu&quot;&gt;加载和存储&lt;&#x2F;h3&gt;
+&lt;p&gt;加载(&lt;code&gt;load&lt;&#x2F;code&gt;)和存储(&lt;code&gt;store&lt;&#x2F;code&gt;)是最基础的的两个原子操作。&lt;code&gt;load&lt;&#x2F;code&gt;是原子地获取原子变量的变量的值，&lt;code&gt;store&lt;&#x2F;code&gt;是原子地修改原子变量的值。这两个操作的函数签名是：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl AtomicI32 {
+    pub fn load(&amp;amp;self, ordering: Ordering) -&amp;gt; i32;
+    pub fn store(&amp;amp;self, value: i32, ordering: Ordering);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中&lt;code&gt;ordering&lt;&#x2F;code&gt;便是内存顺序的参数，在后文展开。&lt;&#x2F;p&gt;
+&lt;p&gt;例子：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn main() {
+    let atomic = AtomicI32::new(0);
+
+    &amp;#x2F;&amp;#x2F; 并发写入 1或2或3
+    thread::scope(|s| {
+        s.spawn(|| {
+            atomic.store(1, Relaxed);
+        });
+
+        s.spawn(|| {
+            atomic.store(2, Relaxed);
+        });
+
+        s.spawn(|| {
+            atomic.store(3, Relaxed);
+        });
+    });
+
+    &amp;#x2F;&amp;#x2F; 输出最后一个写入的数字，1或2或3
+    println!(&amp;quot;{}&amp;quot;, atomic.load(Relaxed));
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;huo-qu-he-xiu-gai-cao-zuo&quot;&gt;获取和修改操作&lt;&#x2F;h3&gt;
+&lt;p&gt;获取和修改(fetch and modify)，可以看做是&lt;code&gt;a += b&lt;&#x2F;code&gt;这类操作的原子化版本。对于&lt;code&gt;AtomicI32&lt;&#x2F;code&gt;来说，就有这些：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl AtomicI32 {
+    pub fn fetch_add(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_sub(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_or(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_and(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_nand(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_xor(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_max(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    pub fn fetch_min(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+    &amp;#x2F;&amp;#x2F; 返回当前值，并替换为`v`
+    pub fn swap(&amp;amp;self, v: i32, ordering: Ordering) -&amp;gt; i32;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;比如&lt;code&gt;fetch_add&lt;&#x2F;code&gt;就是在原子变量上上加&lt;code&gt;v&lt;&#x2F;code&gt;，并返回原来的值：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;let a = AtomicI32::new(100);
+let b = a.fetch_add(23, Relaxed);
+let c = a.load(Relaxed);
+
+assert_eq!(b, 100);
+assert_eq!(c, 123);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;例子：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn main() {
+    let a = AtomicI32::new(0);
+
+    &amp;#x2F;&amp;#x2F; 并发+1
+    thread::scope(|s| {
+        &amp;#x2F;&amp;#x2F; 100个线程都对a +1
+        for _ in 0..100 {
+            s.spawn(|| {
+                a.fetch_add(1, Relaxed);
+            })
+        }
+    });
+
+    assert_eq!(a.load(Relaxed), 100);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;bi-jiao-jiao-huan&quot;&gt;比较交换&lt;&#x2F;h3&gt;
+&lt;p&gt;最灵活但最灵活的原子操作是比较交换操作(&lt;code&gt;compare_exchange&lt;&#x2F;code&gt;)。它的签名是：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl AtomicI32 {
+    pub fn compare_exchange(
+        &amp;amp;self,
+        expected: i32,
+        new: i32,
+        success_order: Ordering,
+        failure_order: Ordering
+    ) -&amp;gt; Result&amp;lt;i32, i32&amp;gt;;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其行为是：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;如果原子变量的值为&lt;code&gt;expected&lt;&#x2F;code&gt;，那么将原子变量的值替换为&lt;code&gt;new&lt;&#x2F;code&gt;，返回&lt;code&gt;Ok(旧值)&lt;&#x2F;code&gt;。这部分的行为和&lt;code&gt;atomic.swap(new, success_order)&lt;&#x2F;code&gt;一致。&lt;&#x2F;li&gt;
+&lt;li&gt;如果不一致，则返回&lt;code&gt;Err(当前值)&lt;&#x2F;code&gt;。失败的行为和&lt;code&gt;atomic.load(failure_order)&lt;&#x2F;code&gt;一致。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;let a = AtomicI32::new(100);
+&amp;#x2F;&amp;#x2F; 替换成功
+let b = a.compare_exchange(100, 0, Relaxed, Relaxed);
+&amp;#x2F;&amp;#x2F; 替换失败
+let c = a.compare_exchange(100, 1, Relaxed, Relaxed);
+
+assert_eq!(b, 100);
+assert_eq!(c, 0);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;虽然很复杂，但它确实是&lt;em&gt;一个&lt;&#x2F;em&gt;原子操作。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;nei-cun-shun-xu&quot;&gt;内存顺序&lt;&#x2F;h2&gt;
+&lt;p&gt;原子变量中真正用于线程同步的部分是内存顺序，&lt;strong&gt;用于建立线程间原子操作的发生顺序&lt;&#x2F;strong&gt;。这个操作之间的顺序关系称为Happens-Before关系。&lt;&#x2F;p&gt;
+&lt;p&gt;而目前cpp的内存模型里定义了这几个内存顺序，对应着建立不同Happens-Before关系的规则：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;宽松顺序：&lt;code&gt;Relaxed&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;释放获取顺序：&lt;code&gt;Release&lt;&#x2F;code&gt;, &lt;code&gt;Acquire&lt;&#x2F;code&gt;, &lt;code&gt;AcqRel&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;消费顺序（但目前没有编译器能正确实现，rust里则直接忽略了，cpp建议不使用，是一种弱化版的释放获取顺序）&lt;&#x2F;li&gt;
+&lt;li&gt;序列一致顺序（Sequentially consistent ordering）：&lt;code&gt;SeqCst&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;cpp-memory-order-table.jpg&quot; alt=&quot;C++ 六种 memory_order 内存序及定义规则&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;happens-beforeguan-xi&quot;&gt;Happens-Before关系&lt;&#x2F;h3&gt;
+&lt;p&gt;Happens-Before关系，描述的便是操作发生的顺序。我们用 HB(x,y) &lt;strong&gt;\mathit{HB}(x, y)&lt;&#x2F;strong&gt;  记号表示，操作x发生于操作 y之前(happens before)，这个关系满足&lt;em&gt;传递性&lt;&#x2F;em&gt;。两个语句一旦形成Happens-Before关系，则意味着他们不是并发执行的，因为后一个操作可以完整地看到前一个操作做完后的状态。&lt;&#x2F;p&gt;
+&lt;p&gt;但要注意的是，&lt;strong&gt;Happens-Before与时序无关&lt;&#x2F;strong&gt;，比如允许两个操作之间有无限长的时间（比如缓存一直不同步回内存里），也允许一些反直觉的行为出现。&lt;&#x2F;p&gt;
+&lt;p&gt;最基本的Happens-Before关系，便是单个线程中语句的求值顺序：比如&lt;code&gt;{ stmt1; stmt2; stmt3; }&lt;&#x2F;code&gt;，这里就蕴含着三个happens before关系， HB(stmt1,stmt2) &lt;strong&gt;\mathit{HB}(stmt_1, stmt_2)&lt;&#x2F;strong&gt;  ， HB(stmt2,stmt3)&lt;strong&gt;\mathit{HB}(stmt_2, stmt_3)&lt;&#x2F;strong&gt;  ，根据传递性又可以得到 HB(stmt1,stmt3)&lt;strong&gt;\mathit{HB}(stmt_1, stmt_3)&lt;&#x2F;strong&gt;  。&lt;&#x2F;p&gt;
+&lt;p&gt;而在多个线程之间，需要通过线程同步来确立Happens-Before关系，比如互斥锁不同线程的unlock和lock可以形成Happens-Before关系 HB(unlock,lock) &lt;strong&gt;\mathit{HB}(unlock, lock)&lt;&#x2F;strong&gt;  ：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn thread_a(mutex: &amp;amp;Mutex&amp;lt;bool&amp;gt;) {
+    let guard = mutex.lock().unwrap(); &amp;#x2F;&amp;#x2F; lock_a
+    *guard = true; &amp;#x2F;&amp;#x2F; 1
+    drop(guard); &amp;#x2F;&amp;#x2F; unlock_a
+}
+
+fn thread_b(mutex: &amp;amp;Mutex&amp;lt;bool&amp;gt;) {
+    let guard = mutex.lock().unwrap(); &amp;#x2F;&amp;#x2F; lock_b
+    println!(&amp;quot;{}&amp;quot;, *guard); &amp;#x2F;&amp;#x2F; 2
+    drop(guard); &amp;#x2F;&amp;#x2F; unlock_b
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;happens-before-mutex-example.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;在&lt;code&gt;thread_a&lt;&#x2F;code&gt;里有Happens-Before关系： HB(1,unlocka) &lt;strong&gt;\mathit{HB}(1, unlock_a)&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在&lt;code&gt;thread_b&lt;&#x2F;code&gt;里有Happens-Before关系： HB(lockb,2) &lt;strong&gt;\mathit{HB}(lock_b, 2)&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;unlock_a&lt;&#x2F;code&gt;和&lt;code&gt;lock_b&lt;&#x2F;code&gt;可以形成Happens-Before关系： HB(unlocka,lockb) &lt;strong&gt;\mathit{HB}(unlock_a, lock_b)&lt;&#x2F;strong&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;于是根据传递性可以得到： HB(1,2) &lt;strong&gt;\mathit{HB}(1, 2)&lt;&#x2F;strong&gt;  。&lt;&#x2F;li&gt;
+&lt;li&gt;进一步推导，可以获得任何在锁里执行的语句，都能形成Happens-Before关系，那么意味着锁里的代码不会被并发执行。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;不过Happens-Before关系仅仅只是个抽象，并不一定对应实际操作发生的顺序。现实的情况就是，如果编译器发现一些Happens-Before关系也不会影响程序最终的行为，那么编译器就会选择去掉它，并做一些优化，比如&lt;strong&gt;指令重排&lt;&#x2F;strong&gt;（交换指令执行顺序，甚至并发执行）和&lt;strong&gt;缓存&lt;&#x2F;strong&gt;（写内存的语句，可以先写到某个缓存里，之后在某个时刻才同步到内存里）&lt;&#x2F;p&gt;
+&lt;p&gt;比如指令重排的一个例子：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn f(a: &amp;amp;mut i32, b: &amp;amp;mut i32) {
+    *a += 1; &amp;#x2F;&amp;#x2F; 1
+    *b += 1; &amp;#x2F;&amp;#x2F; 2
+    *a += 1; &amp;#x2F;&amp;#x2F; 3
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;编译器发现语句1,2,3的Happens-Before关系不重要，可以去掉，那么意味着语句1,2,3的顺序可以交换（甚至可以并发执行），那么编译器就可以做这样的优化：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn f(a: &amp;amp;mut i32, b: &amp;amp;mut i32) {
+    *a += 2;
+    *b += 1;
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其实现代的CPU同样也会做这样的优化。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;kuan-song-nei-cun-xu&quot;&gt;宽松内存序&lt;&#x2F;h3&gt;
+&lt;p&gt;宽松内存序是最弱的内存序，&lt;code&gt;Relaxed&lt;&#x2F;code&gt;仅仅保证了操作的原子性，不会保证线程间操作发生的顺序，比如：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn main() {
+    let a = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        s.spawn(|| {
+           a.store(100, Relaxed);
+        });
+
+        s.spawn(|| {
+            sleep(Duration::from_secs(100));
+            &amp;#x2F;&amp;#x2F; 这里可能会失败，a也可能永远读不到最新的100。
+            &amp;#x2F;&amp;#x2F; 因为现在没有任何规则能够说明a.load(Relaxed)发生在a.store(100, Relaxed)之后
+            assert_eq!(a.load(Relaxed), 100);
+        })
+    });
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;甚至还会有“无中生有”的情况发生（原子变量的模型中这种情况是没法避免的的&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Relaxed_ordering&quot;&gt;https:&#x2F;&#x2F;&lt;&#x2F;a&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Relaxed_ordering&quot;&gt;en.cppreference.com&#x2F;w&#x2F;c&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Relaxed_ordering&quot;&gt;pp&#x2F;atomic&#x2F;memory_order#Relaxed_ordering&lt;&#x2F;a&gt;，但cpp标准不允许会会有无中生有的实现），&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn main() {
+    let x = AtomicI32::new(0);
+    let y = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        &amp;#x2F;&amp;#x2F; 线程1：读x，把x的值写入y中。
+        s.spawn(|| {
+            let x = x.load(Relaxed);
+            y.store(x, Relaxed);
+        });
+
+        &amp;#x2F;&amp;#x2F; 线程2：读y，把y的值写入x中。
+        s.spawn(|| {
+            let y = y.load(Relaxed);
+            x.store(y, Relaxed);
+        });
+    });
+
+    &amp;#x2F;&amp;#x2F; 此时x和y的值允许是任意值
+    &amp;#x2F;&amp;#x2F; 这个断言允许失败
+    assert_eq!(x.load(Relaxed), 0);
+    &amp;#x2F;&amp;#x2F; 这个断言允许成功
+    assert_eq!(y.load(Relaxed), 42);
+    &amp;#x2F;&amp;#x2F; 这个断言必定成功
+    assert_eq!(x.load(Relaxed), y.load(Relaxed))
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这里只有两个Happens-Before关系&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;relaxed-order-happens-before.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;因为缺乏线程间的Happens-Before关系，这里的两条&lt;code&gt;load&lt;&#x2F;code&gt;语句，我们可以假设读到的是另外一个线程&lt;code&gt;store&lt;&#x2F;code&gt;的结果，这时候我们只能得到方程&lt;code&gt;x == y&lt;&#x2F;code&gt;，而这条方程的解就可以是&lt;code&gt;i32&lt;&#x2F;code&gt;的任意值。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;relaxed-memory-ordering.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;shi-fang-huo-qu-nei-cun-xu&quot;&gt;释放获取内存序&lt;&#x2F;h3&gt;
+&lt;p&gt;释放(&lt;code&gt;Release&lt;&#x2F;code&gt;)和获取(&lt;code&gt;Acquire&lt;&#x2F;code&gt;)是用得最多的内存序，成对使用时就可以在线程之间形成Happens-Before关系。其规则如下&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;Release&lt;&#x2F;code&gt;内存序用于&lt;code&gt;store&lt;&#x2F;code&gt;操作（或者其它原子操作修改的部分）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;Acquire&lt;&#x2F;code&gt;内存序用于&lt;code&gt;load&lt;&#x2F;code&gt;操作（或者其它原子操作中读取的部分）&lt;&#x2F;li&gt;
+&lt;li&gt;当使用&lt;code&gt;Acquire&lt;&#x2F;code&gt;的原子操作读取到&lt;code&gt;Release&lt;&#x2F;code&gt;原子操作写入的结果时，就可以形成一个Happens-Before关系， HB(storeRelease,loadAcquire) &lt;strong&gt;\mathit{HB}(store_{Release}, load_{Acquire})&lt;&#x2F;strong&gt;  .&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;例子，初始化和读取分为两个线程：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;static mut DATA: u64 = 0;
+static INIT_FLAG: AtomicBool = AtomicBool::new(false);
+
+&amp;#x2F;&amp;#x2F; init thread
+fn thread_a(x: u64) {
+    unsafe { DATA = x } &amp;#x2F;&amp;#x2F; init
+    &amp;#x2F;&amp;#x2F; 初始化完毕置`INIT_FLAG`为true
+    INIT_FLAG.store(true, Release);
+}
+
+&amp;#x2F;&amp;#x2F; read thread
+fn thread_b() -&amp;gt; u64 {
+    &amp;#x2F;&amp;#x2F; 等待初始化标志置为true
+    while !INIT_FLAG.load(Acquire) {
+
+    }
+    return DATA; &amp;#x2F;&amp;#x2F; read
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;release-acquire-happens-before.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;不过这里有个现象，如果有两个线程都用&lt;code&gt;Release&lt;&#x2F;code&gt;序给原子变量写入同一个值时，&lt;code&gt;Acquire&lt;&#x2F;code&gt;读到这个值时，究竟是和哪个线程建立了Happens-Before关系呢？答案是，如果没有其它条件加以区分的时候，你只能知道是和&lt;em&gt;其中一个线程&lt;&#x2F;em&gt;的&lt;code&gt;Release&lt;&#x2F;code&gt;写形成了Happens-Before关系，但无法区分是哪一个。&lt;&#x2F;p&gt;
+&lt;p&gt;敏锐的你可能发现，释放获取内存序好像也允许无中生有的情况：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn foo(any: i32) {
+    let x = AtomicI32::new(0);
+    let y = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        s.spawn(|| {
+            &amp;#x2F;&amp;#x2F; 与4发生Happens-Before关系
+            assert_eq!(x.load(Acquire), any); &amp;#x2F;&amp;#x2F; 1
+            y.store(x, Release); &amp;#x2F;&amp;#x2F; 2
+        });
+
+        s.spawn(|| {
+            &amp;#x2F;&amp;#x2F; 与2发生Happens-Before关系
+            assert_eq!(y.load(Acquire), any); &amp;#x2F;&amp;#x2F; 3
+            x.store(y, Release); &amp;#x2F;&amp;#x2F; 4
+        });
+    });
+    assert_eq!(x.load(Relaxed), any);
+    assert_eq!(y.load(Relaxed), any);
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;acquire-release-happens-before.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;但事实上不允许，内存模型其实还有其他的规定&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Modification_order&quot;&gt;https:&#x2F;&#x2F;&lt;&#x2F;a&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Modification_order&quot;&gt;en.cppreference.com&#x2F;w&#x2F;c&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;en.cppreference.com&#x2F;w&#x2F;cpp&#x2F;atomic&#x2F;memory_order%23Modification_order&quot;&gt;pp&#x2F;atomic&#x2F;memory_order#Modification_order&lt;&#x2F;a&gt;，规定了形成Happens-Before关系的原子操作之间的读写一致性……&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;xu-lie-yi-zhi-nei-cun-xu&quot;&gt;序列一致内存序&lt;&#x2F;h3&gt;
+&lt;p&gt;序列一致（Sequentially consistent ordering）的内存序是最强的内存序，严格强于释放获取内存序&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;它用于&lt;code&gt;store&lt;&#x2F;code&gt;时（或者是其它原子操作的写入部分），相当于&lt;code&gt;Release&lt;&#x2F;code&gt;（也可以和&lt;code&gt;Acquire&lt;&#x2F;code&gt;建立关系）；&lt;&#x2F;li&gt;
+&lt;li&gt;而用于&lt;code&gt;load&lt;&#x2F;code&gt;时（或者是其它原子操作的读取部分），则相当于&lt;code&gt;Acquire&lt;&#x2F;code&gt;（也可以和&lt;code&gt;Release&lt;&#x2F;code&gt;建立关系）；&lt;&#x2F;li&gt;
+&lt;li&gt;同时还保证所有使用&lt;code&gt;SeqCst&lt;&#x2F;code&gt;原子操作之间的Happens-Before关系是全序的（数学上的total order），并且这个全序关系全局唯一。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;第三条规则就像它的名字一样，用&lt;code&gt;SeqCst&lt;&#x2F;code&gt;表达的原子操作是一个序列（Sequential），可以将一个个原子操作放在时间轴上，所以也是最符合直觉、最好分析的一个顺序。&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;其实这里也只是简化版的说法&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;code&gt;SeqCst&lt;&#x2F;code&gt;内存序是最好推理的内存序，但对应到底层实现，它也是最“贵”的内存序。不过绝大多数情况我们都不需要这么强的内存顺序，很多时候换成对应的&lt;code&gt;Acquire&lt;&#x2F;code&gt;和&lt;code&gt;Release&lt;&#x2F;code&gt;都成立。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yuan-zi-bian-liang-ying-yong&quot;&gt;原子变量应用&lt;&#x2F;h2&gt;
+&lt;p&gt;本节囿于篇幅还是实现个简单的自旋互斥锁吧。&lt;&#x2F;p&gt;
+&lt;p&gt;一些更强大的并发结构，可以参考&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;docs.rs&#x2F;crossbeam&#x2F;latest&#x2F;crossbeam&#x2F;&quot;&gt;crossbeam库&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;jie-kou&quot;&gt;接口&lt;&#x2F;h3&gt;
+&lt;p&gt;接口参考std的互斥锁，这是一套锁的几乎最简洁的接口了：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;&amp;#x2F;&amp;#x2F;&amp;#x2F; 自旋互斥锁，保护一个`T`的值
+pub struct SpinMutex&amp;lt;T&amp;gt; {
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 是否上锁了
+    locked: AtomicBool,
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 被保护的数据（先忽略UnsafeCell）
+    data: UnsafeCell&amp;lt;T&amp;gt;,
+}
+
+&amp;#x2F;&amp;#x2F;&amp;#x2F; 获得锁后，数据的一个“句柄”，句柄退出作用域后释放锁
+&amp;#x2F;&amp;#x2F;&amp;#x2F; 即cpp中的RAII，swift中的defer
+pub struct SpinMutexGuard&amp;lt;&amp;#x27;a, T&amp;gt;(&amp;amp;&amp;#x27;a SpinMutex&amp;lt;T&amp;gt;);
+
+impl SpinMutex&amp;lt;T&amp;gt; {
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 创建一个带数据的锁
+    pub fn new(data: T) -&amp;gt; Self;
+
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 获取锁的接口
+    pub fn lock(&amp;amp;self) -&amp;gt; SpinMutexGuard&amp;lt;T&amp;gt;;
+
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 一个线程独占锁的时候就可以直接获取内部的数据
+    pub fn into_inner(self) -&amp;gt; T;
+}
+
+impl SpinMutexGuard&amp;lt;&amp;#x27;_, T&amp;gt; {
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 通过guard访问T
+    fn as_ref(&amp;amp;self) -&amp;gt; &amp;amp;T;
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 获得锁之后就可以修改T了
+    fn as_mut(&amp;amp;mut self) -&amp;gt; &amp;amp;mut T;
+}
+
+&amp;#x2F;&amp;#x2F;&amp;#x2F; 当SpinMutexGuard&amp;lt;T&amp;gt;析构之后就会自动释放锁
+impl Drop for SpinMutexGuard&amp;lt;&amp;#x27;_, T&amp;gt; {
+    fn drop(&amp;amp;mut self);
+}
+
+&amp;#x2F;&amp;#x2F; 下面的这些是关于线程安全的一些约束
+unsafe impl&amp;lt;T: Send&amp;gt; Send for SpinMutex&amp;lt;T&amp;gt;;
+unsafe impl&amp;lt;T: Send&amp;gt; Sync for SpinMutex&amp;lt;T&amp;gt;;
+unsafe impl&amp;lt;T&amp;gt; !Send for SpinMutexGuard&amp;lt;&amp;#x27;_, T&amp;gt;;
+unsafe impl&amp;lt;T: Sync&amp;gt; Sync for SpinMutexGuard&amp;lt;&amp;#x27;_, T&amp;gt;;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;yong-li&quot;&gt;用例&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;fn main() {
+    &amp;#x2F;&amp;#x2F; 保护一个String的数据
+    let m = SpinMutex::new(&amp;quot;123&amp;quot;.to_string());
+
+    thread::scope(|s| {
+        &amp;#x2F;&amp;#x2F; 线程1
+        s.spawn(|| {
+            &amp;#x2F;&amp;#x2F; 取锁
+            let guard = m.lock();
+            &amp;#x2F;&amp;#x2F; 获取锁后拼接&amp;quot;abc&amp;quot;
+            *guard.as_mut() += &amp;quot;abc&amp;quot;;
+            &amp;#x2F;&amp;#x2F; 睡眠1s，模拟耗时操作
+            sleep(Duration::from_secs(1));
+        }); &amp;#x2F;&amp;#x2F; 作用域退出后释放锁
+
+        s.spawn(|| {
+            &amp;#x2F;&amp;#x2F; 取锁 获取数据 释放锁
+            let data = *m.lock().as_ref();
+            println!(&amp;quot;{data}&amp;quot;);
+        })
+    });
+
+    &amp;#x2F;&amp;#x2F; 主线程在子线程退出后独占锁，然后可以把里面的数据取出来
+    let s = m.into_inner();
+    &amp;#x2F;&amp;#x2F; ..其它操作
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;shi-xian&quot;&gt;实现&lt;&#x2F;h3&gt;
+&lt;p&gt;其中核心就是锁的获取和释放，其中获取锁的过程是使用一个循环不断地轮询&lt;code&gt;locked&lt;&#x2F;code&gt;字段，这种循环叫做spin loop。当然spin loop会浪费一些cpu cycle，只适用于非常乐观的情况，其它互斥锁的实现会替换为“线程挂起”操作。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl SpinMutex&amp;lt;T&amp;gt; {
+    &amp;#x2F;&amp;#x2F;&amp;#x2F; 获取锁的接口
+    pub fn lock(&amp;amp;self) -&amp;gt; SpinMutexGuard&amp;lt;T&amp;gt; {
+        &amp;#x2F;&amp;#x2F; 尝试加锁，也就是将把locked置为true
+        &amp;#x2F;&amp;#x2F; 如果locked为false，则加锁成功，返回guard
+        &amp;#x2F;&amp;#x2F; 否则一直循环
+        while self.locked.swap(true, Acquire) { &amp;#x2F;&amp;#x2F; 1
+            &amp;#x2F;&amp;#x2F; 告诉编译器这里是一个spin loop，可以优化
+            std::hint::spin_loop();
+        }
+
+        SpinMutexGuard(self)
+    }
+}
+
+impl Drop for SpinLockGuard&amp;lt;&amp;#x27;_, T&amp;gt; {
+    &amp;#x2F;&amp;#x2F; 释放锁
+    fn drop(&amp;amp;mut self) {
+        self.0.locked.store(false, Release); &amp;#x2F;&amp;#x2F; 2
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol&gt;
+&lt;li&gt;这里&lt;code&gt;swap&lt;&#x2F;code&gt;操作用&lt;code&gt;Acquire&lt;&#x2F;code&gt;序，即获取里面的&lt;code&gt;locked&lt;&#x2F;code&gt;值的时候用&lt;code&gt;Acquire&lt;&#x2F;code&gt;，如果读到是false，就可以和2的&lt;code&gt;Release&lt;&#x2F;code&gt;形成一个Happens-Before关系&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;store&lt;&#x2F;code&gt;操作使用&lt;code&gt;Release&lt;&#x2F;code&gt;序写入&lt;code&gt;false&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;spinlock-acquire-release.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;其实这里也隐含了lock&#x2F;unlock必须要在同一个线程里调用的条件。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;那么因为获取锁之后，可以保证别的地方不再访问该数据，所以可以通过guard来访问&lt;code&gt;T&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;rust&quot; class=&quot;language-rust &quot;&gt;&lt;code class=&quot;language-rust&quot; data-lang=&quot;rust&quot;&gt;impl SpinMutexGuard&amp;lt;&amp;#x27;_, T&amp;gt; {
+    fn as_mut(&amp;amp;mut self) -&amp;gt; &amp;amp;mut T {
+        &amp;#x2F;&amp;#x2F; Safety:
+        &amp;#x2F;&amp;#x2F; 上锁了之后可以保证只有当前线程能访问数据，所以可以安全地返回&amp;amp;mut T
+        unsafe { &amp;amp;mut* self.lock.data.get() }
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这算是十分简单的接口了。当接口复杂起来，就不能这么简单地分析了。比如rust标准库里的scoped thread也曾因为没注意一些微小的区别导致data race &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust&#x2F;issues&#x2F;98498&quot;&gt;https:&#x2F;&#x2F;&lt;&#x2F;a&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust&#x2F;issues&#x2F;98498&quot;&gt;github.com&#x2F;rust-lang&#x2F;ru&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;link.zhihu.com&#x2F;?target=https%3A&#x2F;&#x2F;github.com&#x2F;rust-lang&#x2F;rust&#x2F;issues&#x2F;98498&quot;&gt;st&#x2F;issues&#x2F;98498&lt;&#x2F;a&gt;，有意思的是，这个bug是通过rust的MIRI跑出来的（一个基于rust MIR的一个解释器，可以用来发现代码中的未定义行为）&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;其实线程同步原语，背后其实也是由原子变量（以及一些线程的操作）所实现的，是一些线程同步模式的封装。不过同是一类同步原语，系统做的和用户自己实现的效果和开销也各不相同，比如系统提供的锁可能会因为内核态到用户态的切换导致开销 会比 单纯在用户态实现的锁开销更大。
+而大多数没有lock-free算法或者wait-free算法的情况下，用原子变量实现的线程同步效果，不过又是在靠近业务的地方又实现了一把更细粒度的锁，是否真的比系统提供的锁更快，还真的不一定。
+另外单线程也未必比多线程更慢，因为单线程能更好地利用缓存，程序相对来说更好设计；而多线程有几乎不能避免的线程同步开销（这个开销甚至是主要开销），而且多线程的复杂度十分难控制，写出高性能程序的难度也更大。
+但总之，对于性能的优化，一定还是需要通过足够的profile，才能确定哪种优化的更优，尤其在多线程的环境下&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;yuan-zi-bian-liang-de-di-ceng-shi-xian&quot;&gt;原子变量的底层实现&lt;&#x2F;h2&gt;
+&lt;p&gt;直接一图流：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;cpp-memory-order&#x2F;atomic-variable-implementation.jpg&quot; alt=&quot;&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;无数据竞争是线程安全的必要条件&lt;&#x2F;li&gt;
+&lt;li&gt;通过线程同步来保证无数据竞争；&lt;&#x2F;li&gt;
+&lt;li&gt;线程同步本质就是规定线程间语句的顺序关系（Happens-Before关系）&lt;&#x2F;li&gt;
+&lt;li&gt;互斥锁通过unlock&#x2F;lock建立Happens-Before关系；而原子变量的操作通过内存顺序建立线程间Happens-Before关系&lt;&#x2F;li&gt;
+&lt;li&gt;原子变量结合线程操作（挂起、唤醒）实现更多的线程同步原语&lt;&#x2F;li&gt;
+&lt;li&gt;原子变量（及操作）在不同硬件上实现不一样，但一般都比非原子的版本开销大&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>False sharing</title>
+        <published>2024-04-17T00:00:00+00:00</published>
+        <updated>2024-04-17T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/false-sharing/"/>
+        <id>https://moxuetianya.github.io/obsidian/false-sharing/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/false-sharing/">&lt;h1 id=&quot;false-sharing&quot;&gt;False sharing&lt;&#x2F;h1&gt;
+&lt;p&gt;In &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Computer science&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Computer_science&quot;&gt;computer science&lt;&#x2F;a&gt;, &lt;strong&gt;false sharing&lt;&#x2F;strong&gt; is a performance-degrading usage pattern that can arise in systems with distributed, &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Cache coherence&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Cache_coherence&quot;&gt;coherent caches&lt;&#x2F;a&gt; at the size of the smallest resource block managed by the caching mechanism. When a system participant attempts to periodically access data that is not being altered by another party, but that data shares a cache block with data that &lt;em&gt;is&lt;&#x2F;em&gt; being altered, the caching protocol may force the first participant to reload the whole cache block despite a lack of logical necessity.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-Patterson_2012_p._537-1&quot;&gt;[1]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; The caching system is unaware of activity within this block and forces the first participant to bear the caching system overhead required by true shared access of a resource.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;multiprocessor-cpu-caches&quot;&gt;Multiprocessor CPU caches&lt;&#x2F;h2&gt;
+&lt;p&gt;By far the most common usage of this term is in modern &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Multiprocessor&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Multiprocessor&quot;&gt;multiprocessor&lt;&#x2F;a&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;CPU cache&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;CPU_cache&quot;&gt;CPU caches&lt;&#x2F;a&gt;, where &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Random access memory&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Random_access_memory&quot;&gt;memory&lt;&#x2F;a&gt; is cached in &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Cache line&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Cache_line&quot;&gt;lines&lt;&#x2F;a&gt; of some small &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Power of two&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Power_of_two&quot;&gt;power of two&lt;&#x2F;a&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Word_(data_type)&quot;&gt;word&lt;&#x2F;a&gt; &quot;Word (data type)&quot;) size (e.g., 64 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Data structure alignment&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Data_structure_alignment&quot;&gt;aligned&lt;&#x2F;a&gt;, contiguous &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Byte&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Byte&quot;&gt;bytes&lt;&#x2F;a&gt;). If two processors operate on independent data in the same &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Memory address&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Memory_address&quot;&gt;memory address&lt;&#x2F;a&gt; region storable in a single line, the cache coherency mechanisms in the system may force the whole line across the &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Bus_(computing)&quot;&gt;bus&lt;&#x2F;a&gt; &quot;Bus (computing)&quot;) or interconnect with every data write, forcing memory stalls in addition to wasting system &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Bandwidth_(computing)&quot;&gt;bandwidth&lt;&#x2F;a&gt; &quot;Bandwidth (computing)&quot;). In some cases, the elimination of false sharing can result in order-of-magnitude performance improvements.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-Bolosky-2&quot;&gt;[2]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; False sharing is an inherent artifact of automatically synchronized cache protocols and can also exist in environments such as distributed file systems or databases, but current prevalence is limited to RAM caches.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;example&quot;&gt;Example&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;#include &amp;lt;iostream&amp;gt;
+#include &amp;lt;thread&amp;gt;
+#include &amp;lt;new&amp;gt;
+#include &amp;lt;atomic&amp;gt;
+#include &amp;lt;chrono&amp;gt;
+#include &amp;lt;latch&amp;gt;
+#include &amp;lt;vector&amp;gt;
+
+using namespace std;
+using namespace chrono;
+
+#if defined(__cpp_lib_hardware_interference_size)
+&amp;#x2F;&amp;#x2F; default cacheline size from runtime
+constexpr size_t CL_SIZE = hardware_constructive_interference_size;
+#else
+&amp;#x2F;&amp;#x2F; most common cacheline size otherwise
+constexpr size_t CL_SIZE = 64;
+#endif
+
+int main()
+{
+    vector&amp;lt;jthread&amp;gt; threads;
+    int hc = jthread::hardware_concurrency();
+    hc = hc &amp;lt;= CL_SIZE ? hc : CL_SIZE;
+    for( int nThreads = 1; nThreads &amp;lt;= hc; ++nThreads )
+    {
+        &amp;#x2F;&amp;#x2F; synchronize beginning of threads coarse on kernel level
+        latch coarseSync( nThreads );
+        &amp;#x2F;&amp;#x2F; fine synch via atomic in userspace
+        atomic_uint fineSync( nThreads );
+        &amp;#x2F;&amp;#x2F; as much chars as would fit into a cacheline
+        struct alignas(CL_SIZE) { char shareds[CL_SIZE]; } cacheLine;
+        &amp;#x2F;&amp;#x2F; sum of all threads execution times
+        atomic_int64_t nsSum( 0 );
+        for( int t = 0; t != nThreads; ++t )
+            threads.emplace_back(
+                [&amp;amp;]( char volatile &amp;amp;c )
+                {
+                    coarseSync.arrive_and_wait(); &amp;#x2F;&amp;#x2F; synch beginning of thread execution on kernel-level
+                    if( fineSync.fetch_sub( 1, memory_order::relaxed ) != 1 ) &amp;#x2F;&amp;#x2F; fine-synch on user-level
+                        while( fineSync.load( memory_order::relaxed ) );
+                    auto start = high_resolution_clock::now();
+                    for( size_t r = 10&amp;#x27;000&amp;#x27;000; r--; )
+                        c = c + 1;
+                    nsSum += duration_cast&amp;lt;nanoseconds&amp;gt;( high_resolution_clock::now() - start ).count();
+                }, ref( cacheLine.shareds[t] ) );
+        threads.resize( 0 ); &amp;#x2F;&amp;#x2F; join all threads
+        cout &amp;lt;&amp;lt; nThreads &amp;lt;&amp;lt; &amp;quot;: &amp;quot; &amp;lt;&amp;lt; (int)(nsSum &amp;#x2F; (1.0e7 * nThreads) + 0.5) &amp;lt;&amp;lt; endl;
+    }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;This code shows the effect of false sharing. It creates an increasing number of threads from one thread to the number of physical threads in the system. Each thread sequentially increments one byte of a cache line, which as a whole is shared among all threads. The higher the level of contention between threads, the longer each increment takes. This are the results on a Zen4 system with 16 cores and 32 threads:&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;1: 1
+2: 4
+3: 6
+4: 9
+5: 11
+6: 13
+7: 15
+8: 17
+9: 16
+10: 18
+11: 21
+12: 25
+13: 29
+14: 35
+15: 39
+16: 41
+17: 43
+18: 44
+19: 48
+20: 49
+21: 51
+22: 53
+23: 58
+24: 61
+25: 68
+26: 75
+27: 79
+28: 82
+29: 85
+30: 88
+31: 91
+32: 94
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;As you can see, on the system in question it can take up to a 100 nanoseconds to complete an increment operation on the shared cache line, which corresponds to approx. 420 clock cycles on this CPU.&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;mitigation&quot;&gt;Mitigation&lt;&#x2F;h2&gt;
+&lt;p&gt;There are ways of mitigating the effects of false sharing. For instance, false sharing in CPU caches can be prevented by reordering variables or adding &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Data structure alignment&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Data_structure_alignment#Data_structure_padding&quot;&gt;padding&lt;&#x2F;a&gt; (unused bytes) between variables. However, some of these program changes may increase the size of the objects, leading to higher memory use.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-Bolosky-2&quot;&gt;[2]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; Compile-time data transformations can also mitigate false-sharing.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-Jeremiassen_Eggers_1995_pp._179%E2%80%93188-3&quot;&gt;[3]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; However, some of these transformations may not always be allowed. For instance, the C++ programming language standard draft of C++23 mandates that data members must be laid out so that later members have higher addresses.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-4&quot;&gt;[4]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;There are tools for detecting false sharing.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-5&quot;&gt;[5]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-6&quot;&gt;[6]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt; There are also systems that both detect and repair false sharing in executing programs. However, these systems incur some execution overhead.&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-7&quot;&gt;[7]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;&lt;sup&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_note-8&quot;&gt;[8]&lt;&#x2F;a&gt;&lt;&#x2F;sup&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;references&quot;&gt;References&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-Patterson_2012_p._537_1-0&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt; Patterson, David (2012). &lt;em&gt;Computer organization and design: the hardware&#x2F;software interface&lt;&#x2F;em&gt;. Waltham, MA: Morgan Kaufmann. p. 537. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;ISBN_(identifier)&quot;&gt;ISBN&lt;&#x2F;a&gt; &quot;ISBN (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Special:BookSources&#x2F;978-0-12-374750-1&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Special:BookSources&#x2F;978-0-12-374750-1&quot;&gt;978-0-12-374750-1&lt;&#x2F;a&gt;. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;OCLC_(identifier)&quot;&gt;OCLC&lt;&#x2F;a&gt; &quot;OCLC (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.worldcat.org&#x2F;oclc&#x2F;746618653&quot;&gt;746618653&lt;&#x2F;a&gt;.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;^&lt;&#x2F;strong&gt; &lt;strong&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-Bolosky_2-0&quot;&gt;Jump up to:&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt;  &lt;em&gt;&lt;em&gt;&lt;strong&gt;&lt;sup&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;em&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-Bolosky_2-0&quot;&gt;a&lt;&#x2F;a&gt;&lt;&#x2F;em&gt;&lt;em&gt;&lt;strong&gt;&lt;&#x2F;sup&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;em&gt;  ********  &lt;em&gt;&lt;em&gt;&lt;strong&gt;&lt;sup&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;em&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-Bolosky_2-1&quot;&gt;b&lt;&#x2F;a&gt;&lt;&#x2F;em&gt;***&lt;&#x2F;sup&gt;***&lt;strong&gt;&lt;strong&gt;Bolosky, William J.; Scott, Michael L. (1993-09-22).&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt;  &lt;strong&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.usenix.org&#x2F;legacy&#x2F;publications&#x2F;library&#x2F;proceedings&#x2F;sedms4&#x2F;full_papers&#x2F;bolosky.txt&quot;&gt;&quot;False sharing and its effect on shared memory performance&quot;&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt; &lt;strong&gt;&lt;strong&gt;.&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt;  &lt;em&gt;&lt;strong&gt;&lt;strong&gt;Sedms&#x27;93: USENIX Systems on USENIX Experiences with Distributed and Multiprocessor Systems&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt;&lt;&#x2F;em&gt; &lt;strong&gt;&lt;strong&gt;.&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt;  &lt;strong&gt;4. Retrieved&lt;&#x2F;strong&gt; &lt;strong&gt;&lt;strong&gt;11 July&lt;&#x2F;strong&gt;&lt;&#x2F;strong&gt; &lt;strong&gt;2021&lt;&#x2F;strong&gt;.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-Jeremiassen_Eggers_1995_pp._179%E2%80%93188_3-0&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt; Jeremiassen, Tor E.; Eggers, Susan J. (1995). &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doi.org&#x2F;10.1145%2F209937.209955&quot;&gt;&quot;Reducing false sharing on shared memory multiprocessors through compile time data transformations&quot;&lt;&#x2F;a&gt;. &lt;em&gt;ACM SIGPLAN Notices&lt;&#x2F;em&gt;. &lt;strong&gt;30&lt;&#x2F;strong&gt; (8). Association for Computing Machinery (ACM): 179–188. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Doi_(identifier)&quot;&gt;doi&lt;&#x2F;a&gt; &quot;Doi (identifier)&quot;):&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doi.org&#x2F;10.1145%2F209937.209955&quot;&gt;10.1145&#x2F;209937.209955&lt;&#x2F;a&gt;. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;ISSN_(identifier)&quot;&gt;ISSN&lt;&#x2F;a&gt; &quot;ISSN (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.worldcat.org&#x2F;issn&#x2F;0362-1340&quot;&gt;0362-1340&lt;&#x2F;a&gt;.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-4&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;[&quot;Working Draft, Standard for Programming Language C++ &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;eel.is&#x2F;c++draft&#x2F;class&quot;&gt;class]&quot;&lt;&#x2F;a&gt;. &lt;em&gt;eel.is&lt;&#x2F;em&gt;**. Retrieved**2021-07-11.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-5&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;man7.org&#x2F;linux&#x2F;man-pages&#x2F;man1&#x2F;perf-c2c.1.html&quot;&gt;&quot;perf-c2c(1)&quot;&lt;&#x2F;a&gt;. &lt;em&gt;Linux manual page&lt;&#x2F;em&gt;. 2016-09-01**. Retrieved**2021-08-08.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-6&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt; Chabbi, Milind; Wen, Shasha; Liu, Xu (2018-02-10). &quot;Featherlight on-the-fly false-sharing detection&quot;. &lt;em&gt;Proceedings of the 23rd ACM SIGPLAN Symposium on Principles and Practice of Parallel Programming&lt;&#x2F;em&gt;. New York, NY, USA: ACM. pp. 152–167. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Doi_(identifier)&quot;&gt;doi&lt;&#x2F;a&gt; &quot;Doi (identifier)&quot;):&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doi.org&#x2F;10.1145%2F3178487.3178499&quot;&gt;10.1145&#x2F;3178487.3178499&lt;&#x2F;a&gt;. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;ISBN_(identifier)&quot;&gt;ISBN&lt;&#x2F;a&gt; &quot;ISBN (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Special:BookSources&#x2F;9781450349826&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Special:BookSources&#x2F;9781450349826&quot;&gt;9781450349826&lt;&#x2F;a&gt;.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-7&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt; Nanavati, Mihir; Spear, Mark; Taylor, Nathan; Rajagopalan, Shriram; Meyer, Dutch T.; Aiello, William; Warfield, Andrew (2013). &quot;Whose cache line is it anyway?&quot;. &lt;em&gt;Proceedings of the 8th ACM European Conference on Computer Systems&lt;&#x2F;em&gt;. New York, New York, USA: ACM Press. pp. 141–154. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Doi_(identifier)&quot;&gt;doi&lt;&#x2F;a&gt; &quot;Doi (identifier)&quot;):&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doi.org&#x2F;10.1145%2F2465351.2465366&quot;&gt;10.1145&#x2F;2465351.2465366&lt;&#x2F;a&gt;. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;ISBN_(identifier)&quot;&gt;ISBN&lt;&#x2F;a&gt; &quot;ISBN (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Special:BookSources&#x2F;9781450319942&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Special:BookSources&#x2F;9781450319942&quot;&gt;9781450319942&lt;&#x2F;a&gt;.&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; title=&quot;Jump up&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;False_sharing#cite_ref-8&quot;&gt;^&lt;&#x2F;a&gt;&lt;&#x2F;strong&gt; Liu, Tongping; Berger, Emery D. (2011-10-18). &quot;SHERIFF: precise detection and automatic mitigation of false sharing&quot;. &lt;em&gt;ACM SIGPLAN Notices&lt;&#x2F;em&gt;. &lt;strong&gt;46&lt;&#x2F;strong&gt; (10). Association for Computing Machinery (ACM): 3–18. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;Doi_(identifier)&quot;&gt;doi&lt;&#x2F;a&gt; &quot;Doi (identifier)&quot;):&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;doi.org&#x2F;10.1145%2F2076021.2048070&quot;&gt;10.1145&#x2F;2076021.2048070&lt;&#x2F;a&gt;. &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;en.wikipedia.org&#x2F;wiki&#x2F;ISSN_(identifier)&quot;&gt;ISSN&lt;&#x2F;a&gt; &quot;ISSN (identifier)&quot;)&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;www.worldcat.org&#x2F;issn&#x2F;0362-1340&quot;&gt;0362-1340&lt;&#x2F;a&gt;.&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;external-links&quot;&gt;External links&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;parallelcomputing2017.wordpress.com&#x2F;2017&#x2F;03&#x2F;17&#x2F;understanding-false-sharing&#x2F;&quot;&gt;Easy Understanding on False Sharing&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;cpp-today.blogspot.com&#x2F;2008&#x2F;05&#x2F;false-sharing-hits-again.html&quot;&gt;C++ today blog, False Sharing hits again!&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;www.drdobbs.com&#x2F;parallel&#x2F;eliminate-false-sharing&#x2F;217500206&quot;&gt;Dr Dobbs article: Eliminate False Sharing&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;http:&#x2F;&#x2F;psy-lob-saw.blogspot.sg&#x2F;2013&#x2F;05&#x2F;know-thy-java-object-memory-layout.html&quot;&gt;Be careful when trying to eliminate false sharing in Java&lt;&#x2F;a&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>笔记杂项（note 目录图文存档）</title>
+        <published>2024-01-05T00:00:00+00:00</published>
+        <updated>2024-01-05T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/obsidian/note-misc/"/>
+        <id>https://moxuetianya.github.io/obsidian/note-misc/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/obsidian/note-misc/">&lt;h1 id=&quot;bi-ji-za-xiang-note-mu-lu-tu-wen-cun-dang&quot;&gt;笔记杂项（note 目录图文存档）&lt;&#x2F;h1&gt;
+&lt;p&gt;obsidian 笔记库 &lt;code&gt;note&#x2F;&lt;&#x2F;code&gt; 目录遗留的 6 张截图，统一收录在本页并附文字转录。各图在专题文章中另有归属（处理决策见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;migration-log&#x2F;&quot;&gt;迁移说明&lt;&#x2F;a&gt;），本页保证内容自洽、可独立检索。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gem5-chang-jing-xia-ge-lian-jie-qi-lian-jie-hao-shi-dui-bi&quot;&gt;gem5 场景下各链接器链接耗时对比&lt;&#x2F;h2&gt;
+&lt;p&gt;原文结论：在 gem5 场景下推荐使用 &lt;code&gt;mold&lt;&#x2F;code&gt; 链接器；链接器的选择对构建耗时的影响比存储位置（NFS vs 本地 SSD）更显著。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;note-misc&#x2F;gem5-linker-benchmark.png&quot; alt=&quot;gem5 场景下 ld&#x2F;bfd&#x2F;lld&#x2F;gold&#x2F;mold 链接耗时对比（NFS 与本地 SSD）&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;文字转录（时间为 mm:ss 格式）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;链接器&lt;&#x2F;th&gt;&lt;th&gt;NFS + all m5&lt;&#x2F;th&gt;&lt;th&gt;NFS + last few&lt;&#x2F;th&gt;&lt;th&gt;Local SSD + all m5&lt;&#x2F;th&gt;&lt;th&gt;Local SSD + last few&lt;&#x2F;th&gt;&lt;th&gt;Local SSD + -j48 + last few&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;ld&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;3:29.19&lt;&#x2F;td&gt;&lt;td&gt;—&lt;&#x2F;td&gt;&lt;td&gt;3:08.31&lt;&#x2F;td&gt;&lt;td&gt;3:00.15&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;bfd&lt;&#x2F;td&gt;&lt;td&gt;4:15.82&lt;&#x2F;td&gt;&lt;td&gt;3:32.13&lt;&#x2F;td&gt;&lt;td&gt;3:39.70&lt;&#x2F;td&gt;&lt;td&gt;3:02.15&lt;&#x2F;td&gt;&lt;td&gt;3:02.35&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;lld&lt;&#x2F;td&gt;&lt;td&gt;2:16.22&lt;&#x2F;td&gt;&lt;td&gt;1:54.25&lt;&#x2F;td&gt;&lt;td&gt;1:52.94&lt;&#x2F;td&gt;&lt;td&gt;1:13.12&lt;&#x2F;td&gt;&lt;td&gt;1:13.16&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;gold&lt;&#x2F;td&gt;&lt;td&gt;2:30.98&lt;&#x2F;td&gt;&lt;td&gt;1:43.59&lt;&#x2F;td&gt;&lt;td&gt;1:59.41&lt;&#x2F;td&gt;&lt;td&gt;1:19.86&lt;&#x2F;td&gt;&lt;td&gt;1:19.48&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;mold&lt;&#x2F;td&gt;&lt;td&gt;1:48.62&lt;&#x2F;td&gt;&lt;td&gt;1:07.08&lt;&#x2F;td&gt;&lt;td&gt;1:08.18&lt;&#x2F;td&gt;&lt;td&gt;0:28.23&lt;&#x2F;td&gt;&lt;td&gt;0:27.89&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;code&gt;mold&lt;&#x2F;code&gt; 比 &lt;code&gt;ld&lt;&#x2F;code&gt; 快约 6 倍（Local SSD + -j48 场景 3:00 → 0:28）；本地 SSD 相比 NFS 带来约 2 倍提升；并行（-j48）对 &lt;code&gt;mold&lt;&#x2F;code&gt; 收益明显。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gcc-wl-bstatic-bdynamic-hun-he-lian-jie&quot;&gt;gcc &lt;code&gt;-Wl,-Bstatic&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;-Bdynamic&lt;&#x2F;code&gt; 混合链接&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;code&gt;gcc&lt;&#x2F;code&gt; 通过 &lt;code&gt;-Wl&lt;&#x2F;code&gt; 向链接器 &lt;code&gt;ld&lt;&#x2F;code&gt; 传参：&lt;code&gt;-Bstatic&lt;&#x2F;code&gt; 强制其后的库按静态链接，&lt;code&gt;-Bdynamic&lt;&#x2F;code&gt; 强制按动态链接。部分静态、部分动态链接的写法：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 静态链接 libA.a，同时动态链接 libB.so
+gcc ... -Wl,-Bstatic -lA -Wl,-Bdynamic -lB ...
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;规则要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;链接方式标记&lt;strong&gt;影响其后所有的 &lt;code&gt;-l&lt;&#x2F;code&gt; 库&lt;&#x2F;strong&gt;，直到出现下一个标记为止。例如 &lt;code&gt;... -Wl,-Bstatic -lA -Wl,-Bdynamic -lB ... -lC&lt;&#x2F;code&gt; 中，&lt;code&gt;libC&lt;&#x2F;code&gt; 没有跟随标记，将按默认方式（动态）链接；&lt;&#x2F;li&gt;
+&lt;li&gt;前提是 &lt;code&gt;-L&lt;&#x2F;code&gt; 搜索路径中能找到对应版本的库；&lt;&#x2F;li&gt;
+&lt;li&gt;不指定任何标记时，&lt;code&gt;gcc&lt;&#x2F;code&gt; 默认&lt;strong&gt;优先动态链接&lt;&#x2F;strong&gt;：若同时存在 &lt;code&gt;libc.so&lt;&#x2F;code&gt; 与 &lt;code&gt;libc.a&lt;&#x2F;code&gt;，会链接 &lt;code&gt;.so&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;截图与英文原文讨论见 &lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;telling-gcc-directly-to-link-a-library-statically&#x2F;&quot;&gt;Telling gcc directly to link a library statically&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;c-liu-chong-memory-order-nei-cun-xu&quot;&gt;C++ 六种 memory_order 内存序&lt;&#x2F;h2&gt;
+&lt;p&gt;C++11 &lt;code&gt;&amp;lt;atomic&amp;gt;&lt;&#x2F;code&gt; 中 &lt;code&gt;memory_order&lt;&#x2F;code&gt; 枚举的六个值及定义规则：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;枚举值&lt;&#x2F;th&gt;&lt;th&gt;定义规则&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_relaxed&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;不对执行顺序做任何保证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_consume&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;本线程中，所有后续的有关本原子类型的操作，必须在本条原子操作完成之后执行&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_acquire&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;本线程中，所有后续的读操作必须在本条原子操作完成后执行&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_release&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;本线程中，所有之前的写操作完成后才能执行本条原子操作&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_acq_rel&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;同时包含 &lt;code&gt;memory_order_acquire&lt;&#x2F;code&gt; 和 &lt;code&gt;memory_order_release&lt;&#x2F;code&gt; 标记&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;memory_order_seq_cst&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;全部存取都按顺序执行&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;code&gt;acquire&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;release&lt;&#x2F;code&gt; 是最常用、最重要的组合，理解它们后其余内存序才好理解；&lt;code&gt;consume&lt;&#x2F;code&gt; 在实践中普遍被实现为 &lt;code&gt;acquire&lt;&#x2F;code&gt;（C++17 起建议暂时弃用）；需要全局顺序一致时用 &lt;code&gt;seq_cst&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;延伸阅读：&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;%E7%BA%BF%E7%A8%8B%E5%AE%89%E5%85%A8%E3%80%81%E5%8E%9F%E5%AD%90%E5%8F%98%E9%87%8F%E3%80%81%E5%86%85%E5%AD%98%E9%A1%BA%E5%BA%8F&#x2F;&quot;&gt;线程安全、原子变量、内存顺序&lt;&#x2F;a&gt;、&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;2022&#x2F;06&#x2F;%E5%86%85%E5%AD%98%E9%A1%BA%E5%BA%8F-Memory-Order&#x2F;&quot;&gt;内存顺序 Memory Order&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;x86-64-tong-yong-ji-cun-qi-yu-caller-callee-save&quot;&gt;x86-64 通用寄存器与 Caller&#x2F;Callee Save&lt;&#x2F;h2&gt;
+&lt;p&gt;x86-64 共 16 个 64 位通用寄存器，用途与保存责任（System V AMD64 ABI）：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;寄存器&lt;&#x2F;th&gt;&lt;th&gt;Callee Save&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rax&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;返回值寄存器；&lt;code&gt;idiv&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;imul&lt;&#x2F;code&gt; 也使用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rbx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;yes&lt;&#x2F;td&gt;&lt;td&gt;通用寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rcx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 4 参数寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rdx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 3 参数寄存器；&lt;code&gt;idiv&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;imul&lt;&#x2F;code&gt; 也使用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rsp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;yes&lt;&#x2F;td&gt;&lt;td&gt;栈指针&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rbp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;yes&lt;&#x2F;td&gt;&lt;td&gt;帧指针&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rsi&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 2 参数寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%rdi&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 1 参数寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%r8&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 5 参数寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%r9&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;第 6 参数寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%r10&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;通用寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%r11&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;通用寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;%r12&lt;&#x2F;code&gt;~&lt;code&gt;%r15&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;yes&lt;&#x2F;td&gt;&lt;td&gt;通用寄存器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;要点：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;%rax&lt;&#x2F;code&gt; 存函数返回值；&lt;code&gt;imul&lt;&#x2F;code&gt; 两个 64 位相乘最多产生 128 位结果，需要 &lt;code&gt;%rax&lt;&#x2F;code&gt; 与 &lt;code&gt;%rdx&lt;&#x2F;code&gt; 共同存储，&lt;code&gt;idiv&lt;&#x2F;code&gt; 的 128 位被除数同理；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;%rsp&lt;&#x2F;code&gt; 指向栈顶，&lt;code&gt;push&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;pop&lt;&#x2F;code&gt; 通过改变 &lt;code&gt;%rsp&lt;&#x2F;code&gt; 实现进栈出栈；&lt;code&gt;%rbp&lt;&#x2F;code&gt; 标识当前栈帧起始位置；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;%rdi&lt;&#x2F;code&gt;、&lt;code&gt;%rsi&lt;&#x2F;code&gt;、&lt;code&gt;%rdx&lt;&#x2F;code&gt;、&lt;code&gt;%rcx&lt;&#x2F;code&gt;、&lt;code&gt;%r8&lt;&#x2F;code&gt;、&lt;code&gt;%r9&lt;&#x2F;code&gt; 依次传递前 6 个整型参数；&lt;&#x2F;li&gt;
+&lt;li&gt;Caller Save 与 Callee Save 的区别：标记为 Caller Save 的寄存器，调用方在发起调用前负责压栈保存；标记为 Callee Save 的寄存器，被调用方若要覆盖，必须先保存、返回前恢复，调用方可放心跨调用持有其值。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;截图出处与上下文：&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;%E5%AE%9E%E7%8E%B0%E4%B8%80%E4%B8%AA%E7%AE%80%E5%8D%95%E7%9A%84-crt-issue24-%E7%B3%BB%E5%88%97%E5%90%88%E9%9B%86&#x2F;&quot;&gt;实现一个简单的 CRT（issue24 系列合集）&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;san-chong-duo-tai-yu-ad-hoc-duo-tai&quot;&gt;三种多态与 Ad-hoc 多态&lt;&#x2F;h2&gt;
+&lt;p&gt;《Rust 编程之道》提到三种多态形式：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;参数化多态&lt;&#x2F;strong&gt;（Parametric polymorphism）：同一代码作用于任意类型，行为一致，对应 Rust 的泛型；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Ad-hoc 多态&lt;&#x2F;strong&gt;（Ad-hoc polymorphism）：同一函数名针对不同类型有不同实现，按调用时的类型选择，对应 Rust 的 trait（及 C++ 的重载&#x2F;特化）；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;子类型多态&lt;&#x2F;strong&gt;（Subtype polymorphism）：子类型实例可用于任何需要父类型的位置，对应 trait 对象（&lt;code&gt;dyn Trait&lt;&#x2F;code&gt;）&#x2F;继承体系。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&quot;Ad hoc&quot; 是拉丁语常用短语，意为&quot;特设的、特定目的的、即席的、临时的、将就的、专案的&quot;，形容为某个特定问题、任务而专门设定的东西。中文直译&quot;特设多态&quot;很少见，书籍多保留原文，因此这个概念初见时容易困惑。&lt;&#x2F;p&gt;
+&lt;p&gt;相关讨论见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;%E6%B3%9B%E5%9E%8B%E7%89%B9%E5%8C%96-specialization&#x2F;&quot;&gt;泛型特化 Specialization&lt;&#x2F;a&gt;（特化即 Ad-hoc 多态范畴内的按类型定制）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;linux-wang-luo-jian-kong-ming-ling-su-cha-an-osi-fen-ceng&quot;&gt;Linux 网络监控命令速查（按 OSI 分层）&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;img src=&quot;&#x2F;obsidian&#x2F;assets&#x2F;note-misc&#x2F;linux-network-monitoring-commands-osi.jpg&quot; alt=&quot;Linux 网络监控命令速查表（按 OSI 二&#x2F;三&#x2F;四层分类）&quot; &#x2F;&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;文字转录：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;层&lt;&#x2F;th&gt;&lt;th&gt;命令&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;L4 传输层&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ss&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;netstat&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;tcp&#x2F;udp 连接统计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iperf&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;测量瓶颈带宽&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;netperf&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;测量带宽&#x2F;延迟&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;nc&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;读写网络连接&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcptrack&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;排查 TCP 专项问题&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;lsof&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看 tcp&#x2F;udp 的进程占用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ngrep&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;按四层过滤分析载荷&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;L3 网络层&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;traceroute&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;发现到目标主机的路由路径&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ping&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;测试 IP 层连通性&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;mtr&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;traceroute 与 ping 的结合&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iftop&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;测量 IP 层吞吐&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ip addr&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看三层配置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ip -s route&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看路由规则与统计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;nethogs&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;按进程监控带宽占用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;L2 数据链路层&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ip -s link&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;链路状态与 rx&#x2F;tx&#x2F;err 统计&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;arp&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看 arp 表与邻居信息&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;ethtool&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;链路状态、速率与网卡设置&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;brctl&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看 linux 网桥 fdb&#x2F;stp 状态&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;iwconfig&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;iwlist&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;无线链路状态 &#x2F; 扫描可用无线网络&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;抓包与分析&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;tcpdump&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;tshark&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;抓包并分析二&#x2F;三&#x2F;四层头部&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;Wireshark&lt;&#x2F;td&gt;&lt;td&gt;tcpdump&#x2F;tshark 的图形界面版&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;nmap&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;远程主机扫描，发现二&#x2F;三&#x2F;四层信息与服务&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;OpenVAS&lt;&#x2F;td&gt;&lt;td&gt;具备扫描发现能力的漏洞扫描器&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;&#x2F;td&gt;&lt;td&gt;EtherApe&lt;&#x2F;td&gt;&lt;td&gt;图形化网络监控（link&#x2F;IP&#x2F;TCP 模式）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;出处与使用场景见&lt;a href=&quot;https:&#x2F;&#x2F;moxuetianya.github.io&#x2F;obsidian&#x2F;%E7%AC%94%E8%AE%B0-linux-%E6%80%A7%E8%83%BD%E7%9B%91%E8%A7%86%E4%B8%8E%E8%B7%91%E5%88%86%E6%B5%8B%E8%AF%95&#x2F;&quot;&gt;笔记：Linux 性能监视与跑分测试&lt;&#x2F;a&gt;。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>C++ 内存顺序 (Memory Order)</title>
+        <published>2022-06-01T14:17:36+08:00</published>
+        <updated>2022-06-01T14:17:36+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2022/06/cpp-memory-order/"/>
+        <id>https://moxuetianya.github.io/2022/06/cpp-memory-order/</id>
+        
+        <summary type="html">&lt;p&gt;内存顺序问题有两个来源：编译器优化可能改变代码中读写指令的顺序；CPU 在运行时也可能重排指令（如 Tomasulo 算法）。单线程或使用 Mutex&#x2F;Semaphore 时，编译器和 CPU 保证语义一致，开发者无需关心内存顺序；但当使用原子操作进行无锁编程时，内存模型的抽象被打破，开发者必须显式规约。&lt;&#x2F;p&gt;
+</summary>
+        
+    </entry>
+</feed>

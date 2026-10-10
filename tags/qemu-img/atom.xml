@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - qemu-img</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://moxuetianya.github.io/tags/qemu-img/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://moxuetianya.github.io"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-09T00:00:00+00:00</updated>
+    <id>https://moxuetianya.github.io/tags/qemu-img/atom.xml</id>
+    <entry xml:lang="en">
+        <title>qemu-img 管理虚拟机硬盘</title>
+        <published>2025-11-22T11:21:09+08:00</published>
+        <updated>2026-10-09T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/"/>
+        <id>https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/</id>
+        
+        <content type="html" xml:base="https://moxuetianya.github.io/2025/11/qemu-img 管理虚拟机硬盘/">&lt;blockquote&gt;
+&lt;p&gt;说明：本文原有的&quot;快照链 &#x2F; 快照合并 &#x2F; qemu-img 合并&quot;等章节已整理合并进《&lt;a href=&quot;&#x2F;2026&#x2F;10&#x2F;libvirt-external-snapshot-delete&#x2F;&quot;&gt;libvirt 外部快照删除：从 QCOW2 链到 AppArmor 权限陷阱&lt;&#x2F;a&gt;》；现仅保留启动修复与剪切板共享部分供追溯。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h1 id=&quot;qi-dong-shi-bai-hou-xiu-fu&quot;&gt;启动失败后修复&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;zai-su-zhu-ji-shang-gua-zai-xin-jing-xiang-geng-xin-fstab-zhong-jian-initramfs&quot;&gt;在宿主机上挂载新镜像，更新 fstab + 重建 initramfs&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 安装必要工具（如未安装）
+sudo apt install libguestfs-tools   # Debian&amp;#x2F;Ubuntu
+# 或 yum install libguestfs-tools   # RHEL&amp;#x2F;CentOS
+# 使用 guestfish 挂载并检查&amp;#x2F;修复
+sudo guestfish --rw -a &amp;#x2F;var&amp;#x2F;lib&amp;#x2F;libvirt&amp;#x2F;images&amp;#x2F;107&amp;#x2F;vm-107-disk-0-standalone.qcow2
+&amp;gt; run
+&amp;gt; list-filesystems
+&amp;gt; mount &amp;#x2F;dev&amp;#x2F;sda1 &amp;#x2F;        # 假设 &amp;#x2F; 是 sda1（根据你的分区调整！）
+&amp;gt; mount &amp;#x2F;dev&amp;#x2F;sdb1 &amp;#x2F;mnt     # 如果 &amp;#x2F;home 或其他在 sdb1，按需挂
+# 查看当前 UUID（关键！）
+&amp;gt; sh &amp;quot;blkid&amp;quot;
+# ✅ 更新 fstab 中的 UUID 为新值
+&amp;gt; sh &amp;quot;sed -i &amp;#x27;s&amp;#x2F;old-xxxx-yyyy-zzzz&amp;#x2F;new-1111-2222-3333&amp;#x2F;g&amp;#x27; &amp;#x2F;etc&amp;#x2F;fstab&amp;quot;
+# —— 如果是 Debian&amp;#x2F;Ubuntu：
+&amp;gt; sh &amp;quot;chroot &amp;#x2F; update-initramfs -u -k all&amp;quot;
+# 退出
+&amp;gt; exit
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;lin-shi-rao-guo-jin-yong-yu-zhen-duan-huo-jin-ji-hui-fu-zai-grub-qi-dong-jie-mian-e-edit&quot;&gt;临时绕过（仅用于诊断或紧急恢复） 在 GRUB 启动界面： e(edit)&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;添加启动参数  init=&amp;#x2F;bin&amp;#x2F;bash
+
+mount -o remount,rw &amp;#x2F;
+cat &amp;#x2F;etc&amp;#x2F;fstab
+lsblk
+blkid
+mount -a
+
+exec &amp;#x2F;sbin&amp;#x2F;init
+systemctl set-default graphical
+update-grub
+reboot
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;qi-dong-xu-ni-ji-de-jian-qie-ban-gong-xiang&quot;&gt;启动虚拟机的剪切板共享&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install spice-vdagent
+sudo virsh dumpxml debian12 | grep graphics
+sudo virsh domdisplay debian12
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

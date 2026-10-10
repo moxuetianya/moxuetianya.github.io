@@ -1,0 +1,624 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>线程安全、原子变量、内存顺序 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="本文是阅读 Rust Atomics and Locks 这本书的笔记。这本书是我看过讲原子变量最浅显易懂的资料了。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/" />
+  <meta property="og:description" content="本文是阅读 Rust Atomics and Locks 这本书的笔记。这本书是我看过讲原子变量最浅显易懂的资料了。" />
+  <meta name="twitter:description" content="本文是阅读 Rust Atomics and Locks 这本书的笔记。这本书是我看过讲原子变量最浅显易懂的资料了。" />
+  <meta property="og:title" content="线程安全、原子变量、内存顺序 | 墨雪天琊" />
+  <meta name="twitter:title" content="线程安全、原子变量、内存顺序 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-05-06" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/线程安全、原子变量、内存顺序/">线程安全、原子变量、内存顺序</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 五月 06, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/c-c/">C&#x2F;C++</a>] #<a href="https://moxuetianya.github.io/tags/c/">C++</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/an-quan/">安全</a>  #<a href="https://moxuetianya.github.io/tags/bing-fa/">并发</a>  #<a href="https://moxuetianya.github.io/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a> </span>
+
+    
+
+
+<h1 id="xian-cheng-an-quan-yuan-zi-bian-liang-nei-cun-shun-xu">线程安全、原子变量、内存顺序</h1>
+<p>本文是阅读 <em>Rust Atomics and Locks</em> 这本书的笔记。这本书是我看过讲原子变量最浅显易懂的资料了。</p>
+<p>原文：<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//marabos.nl/atomics">Rust Atomics and Locks</a></p>
+<p>本来想简单写的，但发现写着写着就抄得差不多了，只能说忽略了很多内容和细节。</p>
+<p>如果有什么理解错误，请大家多多包涵并指出~</p>
+<h2 id="xian-cheng-an-quan">线程安全</h2>
+<p>为了高性能，我们几乎无法避免编写多线程的程序。而多线程的环境相比于单线程来说，有更多更复杂的限制和要求，其中最重要的便是<strong>线程安全</strong>。</p>
+<p>线程安全是一个开放性的概念，<strong>如果一个程序能满足与多线程相关的各种要求，那么这个程序便是线程安全的</strong>，这时候的程序不会出现预期外的行为。而这里有哪些“要求”在不同语言、不同平台、不同接口各有不同，无法用有限的规则来描述。</p>
+<p>Rust将线程安全的要求大致分成了两类<code>Send</code>和<code>Sync</code>，只有满足这两类要求的API，才能在多线程的环境下安全的调用（以外的就只能在<code>unsafe</code>下调用）。Swift则只有<code>Sendable</code>这一选项，不过存在感很低。而cpp没有任何任何静态检查保证线程安全。</p>
+<p>线程安全比较常见的要求有：</p>
+<ul>
+<li>有些系统API要求在同一个线程内调用。比如<code>pthread_mutex_lock</code>/<code>pthread_mutex_unlock</code>要求在同一线程内调用，<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//pubs.opengroup.org/onlinepubs/009695399/functions/pthread_mutex_lock.html">https://</a><strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//pubs.opengroup.org/onlinepubs/009695399/functions/pthread_mutex_lock.html">pubs.opengroup.org/onli</a></strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//pubs.opengroup.org/onlinepubs/009695399/functions/pthread_mutex_lock.html">nepubs/009695399/functions/pthread_mutex_lock.html</a>。</li>
+<li>多线程内存读写，一般要求不能出现<strong>数据竞争</strong>。也就是不允许（非原子操作）对同一内存的并发读和写，或者同时写。</li>
+</ul>
+<p>其中数据竞争，是在多线程编程中最普遍的问题。我们可以通过<strong>线程同步</strong>来避免数据竞争。线程同步就是一些协议或者说是一些措施，来保证多线程下语句之间的顺序关系，<strong>最终可以证明一片内存不会被并发读写</strong>。一般来说，线程同步的方式有这些：</p>
+<ul>
+<li>各种各样的线程同步原语（系统提供或者用户自己实现）：锁、信号量、条件变量、屏障（barrier）等</li>
+<li><strong>原子变量</strong>操作的内存顺序（memory order）（需要特定硬件和平台支持）</li>
+</ul>
+<p>其中线程同步原语一般是靠线程的休眠和唤醒，使某些代码会在达成某个条件后才执行。线程的休眠和唤醒会产生一定的开销，在一些高频或高并发但比较轻量的场景下，这些开销会被放大，这时候可以考虑是否可以使用原子变量来实现些非阻塞性(lock-free)的算法，或者自己实现一些更细粒度的并发控制结构以减少线程休眠唤醒的次数。</p>
+<p>原子变量的操作是原子性的，本身允许并发读写，就一些简单的场景（例如原子计数）甚至不需要进行线程同步。同时原子变量还具有非阻塞性，不会产生线程休眠唤醒的开销。在一些可以无锁或者比较“乐观”的并发场景，可以使用原子变量来实现，比如说一些无锁队列，相对于有锁的队列来说可以带来更多的性能提升。</p>
+<p>一般的线程同步原语都比较好理解，而原子变量的内存顺序却相对来说比较生涩难懂，本文打算展开一下后者，帮助大家理解。</p>
+<blockquote>
+<p>对数据竞争这一概念的补充。
+<strong>数据竞争是一种程序的非法状态</strong>。绝大多数程序语言都不会定义程序并发读写/写写同一内存的行为（原子变量例外），也就是所谓未定义行为。
+当（抽象地，利用语言定义的规则像算术那样计算）解释的代码并发读写同一内存时，就会陷入“数据竞争”的状态，接下来的解释将没有任何意义（就好像计算过程中产生了一个1/0一样）。当然其编译器也就不会保证程序数据竞争时会有任何预期而当行为（比如引爆核弹）。
+至于为何绝大多数语言都有这条规定，主要还是现代OS和机器机制太复杂了（多核、指令重排、缓存等等），本身就很难描述并发时计算机的状态，而且各家还有各家的玩法，还要考虑到高级程序语言中一句简单的语句就会编译成复杂的汇编指令，复杂度更是暴增。于是大家就索性不规定程序并发读写/写写同一内存的行为（除非头铁，规定所有操作必须加锁），由程序员自己去避免。
+那么这里请问大家，这段代码会发生数据竞争吗？</p>
+</blockquote>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">static mut A: i32 = 0;
+fn thread_a() {
+      unsafe { A += 1; }
+}
+
+fn thread_b() {
+      sleep(Duration::from_secs(10));
+      println!(&quot;{A}&quot;);
+}
+
+fn main() {
+      thread::spawn(thread_a);
+      thread::spawn(thread_b);
+      thread::park();
+}
+</code></pre>
+<h2 id="yuan-zi-bian-liang"><strong>原子变量</strong></h2>
+<p>本文主要想介绍的便是原子变量、原子操作，以及原子操作的几种内存顺序。（本文基于的原子变量模型，是<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=http%3A//zh.cppreference.com/w/cpp/atomic">c++20原子变量</a>模型，而例子使用Rust语言）。</p>
+<p>原子变量，它首先是一类可以提供原子性操作的对象（于是允许并发读写），同时也是<strong>与其他线程同步原语一样也是一种用来描述多线程下操作顺序关系的模型。</strong></p>
+<blockquote>
+<p><strong>注意</strong>：这只是一种抽象的内存模型，并不直接映射到实际的内存与实际的指令中，也不考虑各种编译优化。是一种最低限度但明确的假设；反过来也可以要求编译器、OS、硬件满足这个假设。</p>
+</blockquote>
+<p>原子变量的模型，由三部分组成：</p>
+<p><strong>原子类型</strong>：<code>AtomicU8</code>, <code>AtomicBool</code>, <code>AtomicI32</code>, <code>AtomicPtr</code>，等等。不同的平台（硬件+OS）决定着哪些原子类型是可用的，一般来说，最大的原子类型为指针大小的原子类型。
+<strong>原子操作：</strong></p>
+<ol>
+<li>最简单的<strong>加载</strong>和<strong>存储:</strong><code>load</code>,<code>store</code></li>
+<li>稍复杂的<strong>获取修改(fetch-and-modify):</strong><code>fetch_add</code>, <code>fetch_or</code>等等，</li>
+<li>最灵活和复杂的是<strong>比较交换：</strong><code>compare_exchange</code></li>
+</ol>
+<p><strong>内存顺序：用于建立线程间原子操作的发生顺序</strong>。比如</p>
+<ol>
+<li><code>Relaxed</code>几乎没有任何顺序保证，几乎只有原子性。</li>
+<li><code>SeqCst</code>则有最强的保证。所有<code>SeqCst</code>的原子操作之间有一个全局唯一的<em>全序关系</em>。</li>
+</ol>
+<p>每个原子操作都会有至少一个内存顺序的参数。</p>
+<h2 id="yuan-zi-cao-zuo">原子操作</h2>
+<p>这一节介绍几种原子操作，我们先忽略掉内存序这个参数（全部使用最简单的<code>Relaxed</code>内存序），仅看原子操作的行为。</p>
+<h3 id="jia-zai-he-cun-chu">加载和存储</h3>
+<p>加载(<code>load</code>)和存储(<code>store</code>)是最基础的的两个原子操作。<code>load</code>是原子地获取原子变量的变量的值，<code>store</code>是原子地修改原子变量的值。这两个操作的函数签名是：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl AtomicI32 {
+    pub fn load(&amp;self, ordering: Ordering) -&gt; i32;
+    pub fn store(&amp;self, value: i32, ordering: Ordering);
+}
+</code></pre>
+<p>其中<code>ordering</code>便是内存顺序的参数，在后文展开。</p>
+<p>例子：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    let atomic = AtomicI32::new(0);
+
+    &#x2F;&#x2F; 并发写入 1或2或3
+    thread::scope(|s| {
+        s.spawn(|| {
+            atomic.store(1, Relaxed);
+        });
+
+        s.spawn(|| {
+            atomic.store(2, Relaxed);
+        });
+
+        s.spawn(|| {
+            atomic.store(3, Relaxed);
+        });
+    });
+
+    &#x2F;&#x2F; 输出最后一个写入的数字，1或2或3
+    println!(&quot;{}&quot;, atomic.load(Relaxed));
+}
+</code></pre>
+<h3 id="huo-qu-he-xiu-gai-cao-zuo">获取和修改操作</h3>
+<p>获取和修改(fetch and modify)，可以看做是<code>a += b</code>这类操作的原子化版本。对于<code>AtomicI32</code>来说，就有这些：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl AtomicI32 {
+    pub fn fetch_add(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_sub(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_or(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_and(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_nand(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_xor(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_max(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    pub fn fetch_min(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+    &#x2F;&#x2F; 返回当前值，并替换为`v`
+    pub fn swap(&amp;self, v: i32, ordering: Ordering) -&gt; i32;
+}
+</code></pre>
+<p>比如<code>fetch_add</code>就是在原子变量上上加<code>v</code>，并返回原来的值：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">let a = AtomicI32::new(100);
+let b = a.fetch_add(23, Relaxed);
+let c = a.load(Relaxed);
+
+assert_eq!(b, 100);
+assert_eq!(c, 123);
+</code></pre>
+<p>例子：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    let a = AtomicI32::new(0);
+
+    &#x2F;&#x2F; 并发+1
+    thread::scope(|s| {
+        &#x2F;&#x2F; 100个线程都对a +1
+        for _ in 0..100 {
+            s.spawn(|| {
+                a.fetch_add(1, Relaxed);
+            })
+        }
+    });
+
+    assert_eq!(a.load(Relaxed), 100);
+}
+</code></pre>
+<h3 id="bi-jiao-jiao-huan">比较交换</h3>
+<p>最灵活但最灵活的原子操作是比较交换操作(<code>compare_exchange</code>)。它的签名是：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl AtomicI32 {
+    pub fn compare_exchange(
+        &amp;self,
+        expected: i32,
+        new: i32,
+        success_order: Ordering,
+        failure_order: Ordering
+    ) -&gt; Result&lt;i32, i32&gt;;
+}
+</code></pre>
+<p>其行为是：</p>
+<ol>
+<li>如果原子变量的值为<code>expected</code>，那么将原子变量的值替换为<code>new</code>，返回<code>Ok(旧值)</code>。这部分的行为和<code>atomic.swap(new, success_order)</code>一致。</li>
+<li>如果不一致，则返回<code>Err(当前值)</code>。失败的行为和<code>atomic.load(failure_order)</code>一致。</li>
+</ol>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">let a = AtomicI32::new(100);
+&#x2F;&#x2F; 替换成功
+let b = a.compare_exchange(100, 0, Relaxed, Relaxed);
+&#x2F;&#x2F; 替换失败
+let c = a.compare_exchange(100, 1, Relaxed, Relaxed);
+
+assert_eq!(b, 100);
+assert_eq!(c, 0);
+</code></pre>
+<p>虽然很复杂，但它确实是<em>一个</em>原子操作。</p>
+<h2 id="nei-cun-shun-xu">内存顺序</h2>
+<p>原子变量中真正用于线程同步的部分是内存顺序，<strong>用于建立线程间原子操作的发生顺序</strong>。这个操作之间的顺序关系称为Happens-Before关系。</p>
+<p>而目前cpp的内存模型里定义了这几个内存顺序，对应着建立不同Happens-Before关系的规则：</p>
+<ol>
+<li>宽松顺序：<code>Relaxed</code></li>
+<li>释放获取顺序：<code>Release</code>, <code>Acquire</code>, <code>AcqRel</code></li>
+<li>消费顺序（但目前没有编译器能正确实现，rust里则直接忽略了，cpp建议不使用，是一种弱化版的释放获取顺序）</li>
+<li>序列一致顺序（Sequentially consistent ordering）：<code>SeqCst</code></li>
+</ol>
+<p><img src="/obsidian/assets/cpp-memory-order/cpp-memory-order-table.jpg" alt="C++ 六种 memory_order 内存序及定义规则" /></p>
+<h3 id="happens-beforeguan-xi">Happens-Before关系</h3>
+<p>Happens-Before关系，描述的便是操作发生的顺序。我们用 HB(x,y) <strong>\mathit{HB}(x, y)</strong>  记号表示，操作x发生于操作 y之前(happens before)，这个关系满足<em>传递性</em>。两个语句一旦形成Happens-Before关系，则意味着他们不是并发执行的，因为后一个操作可以完整地看到前一个操作做完后的状态。</p>
+<p>但要注意的是，<strong>Happens-Before与时序无关</strong>，比如允许两个操作之间有无限长的时间（比如缓存一直不同步回内存里），也允许一些反直觉的行为出现。</p>
+<p>最基本的Happens-Before关系，便是单个线程中语句的求值顺序：比如<code>{ stmt1; stmt2; stmt3; }</code>，这里就蕴含着三个happens before关系， HB(stmt1,stmt2) <strong>\mathit{HB}(stmt_1, stmt_2)</strong>  ， HB(stmt2,stmt3)<strong>\mathit{HB}(stmt_2, stmt_3)</strong>  ，根据传递性又可以得到 HB(stmt1,stmt3)<strong>\mathit{HB}(stmt_1, stmt_3)</strong>  。</p>
+<p>而在多个线程之间，需要通过线程同步来确立Happens-Before关系，比如互斥锁不同线程的unlock和lock可以形成Happens-Before关系 HB(unlock,lock) <strong>\mathit{HB}(unlock, lock)</strong>  ：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn thread_a(mutex: &amp;Mutex&lt;bool&gt;) {
+    let guard = mutex.lock().unwrap(); &#x2F;&#x2F; lock_a
+    *guard = true; &#x2F;&#x2F; 1
+    drop(guard); &#x2F;&#x2F; unlock_a
+}
+
+fn thread_b(mutex: &amp;Mutex&lt;bool&gt;) {
+    let guard = mutex.lock().unwrap(); &#x2F;&#x2F; lock_b
+    println!(&quot;{}&quot;, *guard); &#x2F;&#x2F; 2
+    drop(guard); &#x2F;&#x2F; unlock_b
+}
+</code></pre>
+<p><img src="/obsidian/assets/cpp-memory-order/happens-before-mutex-example.jpg" alt="" /></p>
+<ul>
+<li>在<code>thread_a</code>里有Happens-Before关系： HB(1,unlocka) <strong>\mathit{HB}(1, unlock_a)</strong></li>
+<li>在<code>thread_b</code>里有Happens-Before关系： HB(lockb,2) <strong>\mathit{HB}(lock_b, 2)</strong></li>
+<li><code>unlock_a</code>和<code>lock_b</code>可以形成Happens-Before关系： HB(unlocka,lockb) <strong>\mathit{HB}(unlock_a, lock_b)</strong></li>
+<li>于是根据传递性可以得到： HB(1,2) <strong>\mathit{HB}(1, 2)</strong>  。</li>
+<li>进一步推导，可以获得任何在锁里执行的语句，都能形成Happens-Before关系，那么意味着锁里的代码不会被并发执行。</li>
+</ul>
+<p>不过Happens-Before关系仅仅只是个抽象，并不一定对应实际操作发生的顺序。现实的情况就是，如果编译器发现一些Happens-Before关系也不会影响程序最终的行为，那么编译器就会选择去掉它，并做一些优化，比如<strong>指令重排</strong>（交换指令执行顺序，甚至并发执行）和<strong>缓存</strong>（写内存的语句，可以先写到某个缓存里，之后在某个时刻才同步到内存里）</p>
+<p>比如指令重排的一个例子：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn f(a: &amp;mut i32, b: &amp;mut i32) {
+    *a += 1; &#x2F;&#x2F; 1
+    *b += 1; &#x2F;&#x2F; 2
+    *a += 1; &#x2F;&#x2F; 3
+}
+</code></pre>
+<p>编译器发现语句1,2,3的Happens-Before关系不重要，可以去掉，那么意味着语句1,2,3的顺序可以交换（甚至可以并发执行），那么编译器就可以做这样的优化：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn f(a: &amp;mut i32, b: &amp;mut i32) {
+    *a += 2;
+    *b += 1;
+}
+</code></pre>
+<p>其实现代的CPU同样也会做这样的优化。</p>
+<h3 id="kuan-song-nei-cun-xu">宽松内存序</h3>
+<p>宽松内存序是最弱的内存序，<code>Relaxed</code>仅仅保证了操作的原子性，不会保证线程间操作发生的顺序，比如：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    let a = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        s.spawn(|| {
+           a.store(100, Relaxed);
+        });
+
+        s.spawn(|| {
+            sleep(Duration::from_secs(100));
+            &#x2F;&#x2F; 这里可能会失败，a也可能永远读不到最新的100。
+            &#x2F;&#x2F; 因为现在没有任何规则能够说明a.load(Relaxed)发生在a.store(100, Relaxed)之后
+            assert_eq!(a.load(Relaxed), 100);
+        })
+    });
+}
+</code></pre>
+<p>甚至还会有“无中生有”的情况发生（原子变量的模型中这种情况是没法避免的的<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Relaxed_ordering">https://</a><strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Relaxed_ordering">en.cppreference.com/w/c</a></strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Relaxed_ordering">pp/atomic/memory_order#Relaxed_ordering</a>，但cpp标准不允许会会有无中生有的实现），</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    let x = AtomicI32::new(0);
+    let y = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        &#x2F;&#x2F; 线程1：读x，把x的值写入y中。
+        s.spawn(|| {
+            let x = x.load(Relaxed);
+            y.store(x, Relaxed);
+        });
+
+        &#x2F;&#x2F; 线程2：读y，把y的值写入x中。
+        s.spawn(|| {
+            let y = y.load(Relaxed);
+            x.store(y, Relaxed);
+        });
+    });
+
+    &#x2F;&#x2F; 此时x和y的值允许是任意值
+    &#x2F;&#x2F; 这个断言允许失败
+    assert_eq!(x.load(Relaxed), 0);
+    &#x2F;&#x2F; 这个断言允许成功
+    assert_eq!(y.load(Relaxed), 42);
+    &#x2F;&#x2F; 这个断言必定成功
+    assert_eq!(x.load(Relaxed), y.load(Relaxed))
+}
+</code></pre>
+<p>这里只有两个Happens-Before关系</p>
+<p><img src="/obsidian/assets/cpp-memory-order/relaxed-order-happens-before.jpg" alt="" /></p>
+<p>因为缺乏线程间的Happens-Before关系，这里的两条<code>load</code>语句，我们可以假设读到的是另外一个线程<code>store</code>的结果，这时候我们只能得到方程<code>x == y</code>，而这条方程的解就可以是<code>i32</code>的任意值。</p>
+<p><img src="/obsidian/assets/cpp-memory-order/relaxed-memory-ordering.jpg" alt="" /></p>
+<h3 id="shi-fang-huo-qu-nei-cun-xu">释放获取内存序</h3>
+<p>释放(<code>Release</code>)和获取(<code>Acquire</code>)是用得最多的内存序，成对使用时就可以在线程之间形成Happens-Before关系。其规则如下</p>
+<ol>
+<li><code>Release</code>内存序用于<code>store</code>操作（或者其它原子操作修改的部分）</li>
+<li><code>Acquire</code>内存序用于<code>load</code>操作（或者其它原子操作中读取的部分）</li>
+<li>当使用<code>Acquire</code>的原子操作读取到<code>Release</code>原子操作写入的结果时，就可以形成一个Happens-Before关系， HB(storeRelease,loadAcquire) <strong>\mathit{HB}(store_{Release}, load_{Acquire})</strong>  .</li>
+</ol>
+<p>例子，初始化和读取分为两个线程：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">static mut DATA: u64 = 0;
+static INIT_FLAG: AtomicBool = AtomicBool::new(false);
+
+&#x2F;&#x2F; init thread
+fn thread_a(x: u64) {
+    unsafe { DATA = x } &#x2F;&#x2F; init
+    &#x2F;&#x2F; 初始化完毕置`INIT_FLAG`为true
+    INIT_FLAG.store(true, Release);
+}
+
+&#x2F;&#x2F; read thread
+fn thread_b() -&gt; u64 {
+    &#x2F;&#x2F; 等待初始化标志置为true
+    while !INIT_FLAG.load(Acquire) {
+
+    }
+    return DATA; &#x2F;&#x2F; read
+}
+</code></pre>
+<p><img src="/obsidian/assets/cpp-memory-order/release-acquire-happens-before.jpg" alt="" /></p>
+<p>不过这里有个现象，如果有两个线程都用<code>Release</code>序给原子变量写入同一个值时，<code>Acquire</code>读到这个值时，究竟是和哪个线程建立了Happens-Before关系呢？答案是，如果没有其它条件加以区分的时候，你只能知道是和<em>其中一个线程</em>的<code>Release</code>写形成了Happens-Before关系，但无法区分是哪一个。</p>
+<p>敏锐的你可能发现，释放获取内存序好像也允许无中生有的情况：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn foo(any: i32) {
+    let x = AtomicI32::new(0);
+    let y = AtomicI32::new(0);
+
+    thread::scope(|s| {
+        s.spawn(|| {
+            &#x2F;&#x2F; 与4发生Happens-Before关系
+            assert_eq!(x.load(Acquire), any); &#x2F;&#x2F; 1
+            y.store(x, Release); &#x2F;&#x2F; 2
+        });
+
+        s.spawn(|| {
+            &#x2F;&#x2F; 与2发生Happens-Before关系
+            assert_eq!(y.load(Acquire), any); &#x2F;&#x2F; 3
+            x.store(y, Release); &#x2F;&#x2F; 4
+        });
+    });
+    assert_eq!(x.load(Relaxed), any);
+    assert_eq!(y.load(Relaxed), any);
+}
+</code></pre>
+<p><img src="/obsidian/assets/cpp-memory-order/acquire-release-happens-before.jpg" alt="" /></p>
+<p>但事实上不允许，内存模型其实还有其他的规定<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Modification_order">https://</a><strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Modification_order">en.cppreference.com/w/c</a></strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//en.cppreference.com/w/cpp/atomic/memory_order%23Modification_order">pp/atomic/memory_order#Modification_order</a>，规定了形成Happens-Before关系的原子操作之间的读写一致性……</p>
+<h3 id="xu-lie-yi-zhi-nei-cun-xu">序列一致内存序</h3>
+<p>序列一致（Sequentially consistent ordering）的内存序是最强的内存序，严格强于释放获取内存序</p>
+<ul>
+<li>它用于<code>store</code>时（或者是其它原子操作的写入部分），相当于<code>Release</code>（也可以和<code>Acquire</code>建立关系）；</li>
+<li>而用于<code>load</code>时（或者是其它原子操作的读取部分），则相当于<code>Acquire</code>（也可以和<code>Release</code>建立关系）；</li>
+<li>同时还保证所有使用<code>SeqCst</code>原子操作之间的Happens-Before关系是全序的（数学上的total order），并且这个全序关系全局唯一。</li>
+</ul>
+<p>第三条规则就像它的名字一样，用<code>SeqCst</code>表达的原子操作是一个序列（Sequential），可以将一个个原子操作放在时间轴上，所以也是最符合直觉、最好分析的一个顺序。</p>
+<blockquote>
+<p>其实这里也只是简化版的说法</p>
+</blockquote>
+<p><code>SeqCst</code>内存序是最好推理的内存序，但对应到底层实现，它也是最“贵”的内存序。不过绝大多数情况我们都不需要这么强的内存顺序，很多时候换成对应的<code>Acquire</code>和<code>Release</code>都成立。</p>
+<h2 id="yuan-zi-bian-liang-ying-yong">原子变量应用</h2>
+<p>本节囿于篇幅还是实现个简单的自旋互斥锁吧。</p>
+<p>一些更强大的并发结构，可以参考<a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//docs.rs/crossbeam/latest/crossbeam/">crossbeam库</a>。</p>
+<h3 id="jie-kou">接口</h3>
+<p>接口参考std的互斥锁，这是一套锁的几乎最简洁的接口了：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">&#x2F;&#x2F;&#x2F; 自旋互斥锁，保护一个`T`的值
+pub struct SpinMutex&lt;T&gt; {
+    &#x2F;&#x2F;&#x2F; 是否上锁了
+    locked: AtomicBool,
+    &#x2F;&#x2F;&#x2F; 被保护的数据（先忽略UnsafeCell）
+    data: UnsafeCell&lt;T&gt;,
+}
+
+&#x2F;&#x2F;&#x2F; 获得锁后，数据的一个“句柄”，句柄退出作用域后释放锁
+&#x2F;&#x2F;&#x2F; 即cpp中的RAII，swift中的defer
+pub struct SpinMutexGuard&lt;&#x27;a, T&gt;(&amp;&#x27;a SpinMutex&lt;T&gt;);
+
+impl SpinMutex&lt;T&gt; {
+    &#x2F;&#x2F;&#x2F; 创建一个带数据的锁
+    pub fn new(data: T) -&gt; Self;
+
+    &#x2F;&#x2F;&#x2F; 获取锁的接口
+    pub fn lock(&amp;self) -&gt; SpinMutexGuard&lt;T&gt;;
+
+    &#x2F;&#x2F;&#x2F; 一个线程独占锁的时候就可以直接获取内部的数据
+    pub fn into_inner(self) -&gt; T;
+}
+
+impl SpinMutexGuard&lt;&#x27;_, T&gt; {
+    &#x2F;&#x2F;&#x2F; 通过guard访问T
+    fn as_ref(&amp;self) -&gt; &amp;T;
+    &#x2F;&#x2F;&#x2F; 获得锁之后就可以修改T了
+    fn as_mut(&amp;mut self) -&gt; &amp;mut T;
+}
+
+&#x2F;&#x2F;&#x2F; 当SpinMutexGuard&lt;T&gt;析构之后就会自动释放锁
+impl Drop for SpinMutexGuard&lt;&#x27;_, T&gt; {
+    fn drop(&amp;mut self);
+}
+
+&#x2F;&#x2F; 下面的这些是关于线程安全的一些约束
+unsafe impl&lt;T: Send&gt; Send for SpinMutex&lt;T&gt;;
+unsafe impl&lt;T: Send&gt; Sync for SpinMutex&lt;T&gt;;
+unsafe impl&lt;T&gt; !Send for SpinMutexGuard&lt;&#x27;_, T&gt;;
+unsafe impl&lt;T: Sync&gt; Sync for SpinMutexGuard&lt;&#x27;_, T&gt;;
+</code></pre>
+<h3 id="yong-li">用例</h3>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn main() {
+    &#x2F;&#x2F; 保护一个String的数据
+    let m = SpinMutex::new(&quot;123&quot;.to_string());
+
+    thread::scope(|s| {
+        &#x2F;&#x2F; 线程1
+        s.spawn(|| {
+            &#x2F;&#x2F; 取锁
+            let guard = m.lock();
+            &#x2F;&#x2F; 获取锁后拼接&quot;abc&quot;
+            *guard.as_mut() += &quot;abc&quot;;
+            &#x2F;&#x2F; 睡眠1s，模拟耗时操作
+            sleep(Duration::from_secs(1));
+        }); &#x2F;&#x2F; 作用域退出后释放锁
+
+        s.spawn(|| {
+            &#x2F;&#x2F; 取锁 获取数据 释放锁
+            let data = *m.lock().as_ref();
+            println!(&quot;{data}&quot;);
+        })
+    });
+
+    &#x2F;&#x2F; 主线程在子线程退出后独占锁，然后可以把里面的数据取出来
+    let s = m.into_inner();
+    &#x2F;&#x2F; ..其它操作
+}
+</code></pre>
+<h3 id="shi-xian">实现</h3>
+<p>其中核心就是锁的获取和释放，其中获取锁的过程是使用一个循环不断地轮询<code>locked</code>字段，这种循环叫做spin loop。当然spin loop会浪费一些cpu cycle，只适用于非常乐观的情况，其它互斥锁的实现会替换为“线程挂起”操作。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl SpinMutex&lt;T&gt; {
+    &#x2F;&#x2F;&#x2F; 获取锁的接口
+    pub fn lock(&amp;self) -&gt; SpinMutexGuard&lt;T&gt; {
+        &#x2F;&#x2F; 尝试加锁，也就是将把locked置为true
+        &#x2F;&#x2F; 如果locked为false，则加锁成功，返回guard
+        &#x2F;&#x2F; 否则一直循环
+        while self.locked.swap(true, Acquire) { &#x2F;&#x2F; 1
+            &#x2F;&#x2F; 告诉编译器这里是一个spin loop，可以优化
+            std::hint::spin_loop();
+        }
+
+        SpinMutexGuard(self)
+    }
+}
+
+impl Drop for SpinLockGuard&lt;&#x27;_, T&gt; {
+    &#x2F;&#x2F; 释放锁
+    fn drop(&amp;mut self) {
+        self.0.locked.store(false, Release); &#x2F;&#x2F; 2
+    }
+}
+</code></pre>
+<ol>
+<li>这里<code>swap</code>操作用<code>Acquire</code>序，即获取里面的<code>locked</code>值的时候用<code>Acquire</code>，如果读到是false，就可以和2的<code>Release</code>形成一个Happens-Before关系</li>
+<li><code>store</code>操作使用<code>Release</code>序写入<code>false</code>。</li>
+</ol>
+<p><img src="/obsidian/assets/cpp-memory-order/spinlock-acquire-release.jpg" alt="" /></p>
+<blockquote>
+<p>其实这里也隐含了lock/unlock必须要在同一个线程里调用的条件。</p>
+</blockquote>
+<p>那么因为获取锁之后，可以保证别的地方不再访问该数据，所以可以通过guard来访问<code>T</code></p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">impl SpinMutexGuard&lt;&#x27;_, T&gt; {
+    fn as_mut(&amp;mut self) -&gt; &amp;mut T {
+        &#x2F;&#x2F; Safety:
+        &#x2F;&#x2F; 上锁了之后可以保证只有当前线程能访问数据，所以可以安全地返回&amp;mut T
+        unsafe { &amp;mut* self.lock.data.get() }
+    }
+}
+</code></pre>
+<p>这算是十分简单的接口了。当接口复杂起来，就不能这么简单地分析了。比如rust标准库里的scoped thread也曾因为没注意一些微小的区别导致data race <a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//github.com/rust-lang/rust/issues/98498">https://</a><strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//github.com/rust-lang/rust/issues/98498">github.com/rust-lang/ru</a></strong><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//github.com/rust-lang/rust/issues/98498">st/issues/98498</a>，有意思的是，这个bug是通过rust的MIRI跑出来的（一个基于rust MIR的一个解释器，可以用来发现代码中的未定义行为）</p>
+<blockquote>
+<p>其实线程同步原语，背后其实也是由原子变量（以及一些线程的操作）所实现的，是一些线程同步模式的封装。不过同是一类同步原语，系统做的和用户自己实现的效果和开销也各不相同，比如系统提供的锁可能会因为内核态到用户态的切换导致开销 会比 单纯在用户态实现的锁开销更大。
+而大多数没有lock-free算法或者wait-free算法的情况下，用原子变量实现的线程同步效果，不过又是在靠近业务的地方又实现了一把更细粒度的锁，是否真的比系统提供的锁更快，还真的不一定。
+另外单线程也未必比多线程更慢，因为单线程能更好地利用缓存，程序相对来说更好设计；而多线程有几乎不能避免的线程同步开销（这个开销甚至是主要开销），而且多线程的复杂度十分难控制，写出高性能程序的难度也更大。
+但总之，对于性能的优化，一定还是需要通过足够的profile，才能确定哪种优化的更优，尤其在多线程的环境下</p>
+</blockquote>
+<h2 id="yuan-zi-bian-liang-de-di-ceng-shi-xian">原子变量的底层实现</h2>
+<p>直接一图流：</p>
+<p><img src="/obsidian/assets/cpp-memory-order/atomic-variable-implementation.jpg" alt="" /></p>
+<h3 id="zong-jie">总结</h3>
+<ol>
+<li>无数据竞争是线程安全的必要条件</li>
+<li>通过线程同步来保证无数据竞争；</li>
+<li>线程同步本质就是规定线程间语句的顺序关系（Happens-Before关系）</li>
+<li>互斥锁通过unlock/lock建立Happens-Before关系；而原子变量的操作通过内存顺序建立线程间Happens-Before关系</li>
+<li>原子变量结合线程操作（挂起、唤醒）实现更多的线程同步原语</li>
+<li>原子变量（及操作）在不同硬件上实现不一样，但一般都比非原子的版本开销大</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/rust-reborrow-and-borrow/">&#8249; rust Reborrow and Borrow</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/深入-rust-1.63-新特性-scoped-thread/"> 深入 Rust 1.63 新特性 Scoped Thread &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-cheng-an-quan-yuan-zi-bian-liang-nei-cun-shun-xu">线程安全、原子变量、内存顺序</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-cheng-an-quan"><small>- 线程安全</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-zi-bian-liang"><small>- 原子变量</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-zi-cao-zuo"><small>- 原子操作</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#jia-zai-he-cun-chu"><small>· 加载和存储</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#huo-qu-he-xiu-gai-cao-zuo"><small>· 获取和修改操作</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#bi-jiao-jiao-huan"><small>· 比较交换</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#nei-cun-shun-xu"><small>- 内存顺序</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#happens-beforeguan-xi"><small>· Happens-Before关系</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#kuan-song-nei-cun-xu"><small>· 宽松内存序</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-fang-huo-qu-nei-cun-xu"><small>· 释放获取内存序</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#xu-lie-yi-zhi-nei-cun-xu"><small>· 序列一致内存序</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-zi-bian-liang-ying-yong"><small>- 原子变量应用</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#jie-kou"><small>· 接口</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yong-li"><small>· 用例</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#shi-xian"><small>· 实现</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yuan-zi-bian-liang-de-di-ceng-shi-xian"><small>- 原子变量的底层实现</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zong-jie"><small>· 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

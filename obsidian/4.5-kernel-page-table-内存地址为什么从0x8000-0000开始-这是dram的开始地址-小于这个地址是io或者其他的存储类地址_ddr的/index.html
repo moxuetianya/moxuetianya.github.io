@@ -1,0 +1,299 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="接下来，我们看一下在XV6中，page table是如何工作的？首先我们来看一下kernel" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/4.5-kernel-page-table-内存地址为什么从0x8000-0000开始-这是dram的开始地址-小于这个地址是io或者其他的存储类地址_ddr的/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/4.5-kernel-page-table-内存地址为什么从0x8000-0000开始-这是dram的开始地址-小于这个地址是io或者其他的存储类地址_ddr的/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/4.5-kernel-page-table-内存地址为什么从0x8000-0000开始-这是dram的开始地址-小于这个地址是io或者其他的存储类地址_ddr的/" />
+  <meta property="og:description" content="接下来，我们看一下在XV6中，page table是如何工作的？首先我们来看一下kernel" />
+  <meta name="twitter:description" content="接下来，我们看一下在XV6中，page table是如何工作的？首先我们来看一下kernel" />
+  <meta property="og:title" content="4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始 | 墨雪天琊" />
+  <meta name="twitter:title" content="4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2025-02-25" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/4.5-kernel-page-table-内存地址为什么从0x8000-0000开始-这是dram的开始地址-小于这个地址是io或者其他的存储类地址_ddr的/">4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 一月 11, 2025 <span class="rpad"></span>更新: 二月 25, 2025 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cun-chu-yu-wen-jian-xi-tong/">存储与文件系统</a>  #<a href="https://moxuetianya.github.io/tags/qian-ru-shi/">嵌入式</a>  #<a href="https://moxuetianya.github.io/tags/ying-jian/">硬件</a> </span>
+
+    
+
+
+<h1 id="4-5-kernel-page-table-nei-cun-di-zhi-wei-shen-me-cong-0x8000-0000kai-shi-zhe-shi-dramde-kai-shi-di-zhi-xiao-yu-zhe-ge-di-zhi-shi-iohuo-zhe-qi-ta-de-cun-chu-lei-di-zhi-ddrde-di-zhi-fan-wei-wei-shen-me-bu-shi-cong-0kai-shi">4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始</h1>
+<p>接下来，我们看一下在<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=XV6&amp;spm=1001.2101.3001.7020">XV6</a>中，page table是如何工作的？首先我们来看一下kernel
+page的分布。下图就是内核中地址的对应关系，左边是内核的<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=%E8%99%9A%E6%8B%9F%E5%9C%B0%E5%9D%80&amp;spm=1001.2101.3001.7020">虚拟地址</a>空间，右边上半部分是物理内存或者说是DRAM，右边下半部分是I/O设备。接下来我会首先介绍右半部分，然后再介绍左半部分。</p>
+<p><img src="/obsidian/assets/kernel-page-table/kernel-address-space-layout.png" alt="" /></p>
+<p>图中的右半部分的结构完全由硬件
+设计者决定。如你们上节课看到的一样，当操作系统启动时，会从地址0x80000000开始运行，这个地址其实也是由硬件设计者决定的。具体的来说，如果你们看一个主板，</p>
+<blockquote>
+<p>📄 [图片文字版] SiFive HiFive Unleashed（Rev A00）RISC-V 开发板照片，圆圈标出板中央带 SiFive 标志的 FU540 SoC 芯片，板上另可见 8 颗内存颗粒、GigE 网口、microSD 卡槽、调试接口等。</p>
+</blockquote>
+<p>中间是RISC-V处理器，我们现在知道了处理器中有4个核，每个核都有自己的MMU和TLB。处理器旁边就是<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=DRAM&amp;spm=1001.2101.3001.7020">DRAM</a>芯片。</p>
+<blockquote>
+<p>📄 [图片文字版] 同一张 HiFive Unleashed 开发板照片，圆圈标出两处：中央 FU540 SoC 与其下方一排 8 颗 DDR 内存颗粒，用于说明程序地址空间中 DRAM 物理芯片的位置（地址从 0x8000 0000 开始）。</p>
+</blockquote>
+<p>主板的设计人员决定了，在完成了虚拟到物理地址的翻译之后，如果得到的物理地址大于0x80000000会走向DRAM芯片，如果得到的物理地址低于0x80000000会走向不同的I/O设备。这是由这个主板的设计人员决定的物理结构。如果你想要查看这里的物理结构，你可以阅读主板的手册，手册中会一一介绍物理地址对应关系
+。</p>
+<blockquote>
+<p>📄 [图片文字版] SiFive FU540-C000 手册 Table 6 内存映射前半：0x0 起为 Debug 区、Mode Select、Mask ROM(32KiB)、E51 DTIM(8KiB)、各 Hart ITIM(28KiB)、CLINT(0x0200_0000)、DMA、L2 LIM(32MiB，0x0800_0000 起)、PLIC(0x0C00_0000 起)、PRCI、UART、PWM 等；属性 R/W/X/C/A=读/写/执行/可缓存/原子。</p>
+</blockquote>
+<blockquote>
+<p>📄 [图片文字版] 同一 Table 6 后半段：I2C、QSPI0-2、GPIO、OTP、Ethernet MAC、DDR Control(0x100B_0000) 等外设；QSPI0/1 Flash 各 256MiB（0x2000_0000、0x3000_0000 起）；ChipLink 两段各 512MiB；关键行 DDR Memory 126GiB，范围 0x8000_0000–0x1F_FFFF_FFFF，即 DRAM 从 0x8000_0000 开始映射。</p>
+</blockquote>
+<p>首先，地址0是保留的，地址0x10090000对应以太网，地址0x80000000对应DDR内存，也就是处理器外的易失存储（Off-Chip Volatile Memory），也就是主板上的DRAM芯片
+。所以，在你们的脑海里应该要记住这张主板的图片，即使我们接下来会基于你们都知道的C语言程序---QEMU来做介绍，但是最终所有的事情都是由主板硬件决定的。</p>
+<blockquote>
+<p>学生提问：当你说这里是由硬件决定的，硬件是特指CPU还是说CPU所在的主板？
+Frans教授：CPU所在的主板。CPU只是主板的一小部分，DRAM芯片位于处理器之外。是主板设计者将处理器，DRAM和许多I/O设备汇总在一起。对于一个操作系统来说，CPU只是一个部分，I/O设备同样也很重要。所以当你在写一个操作系统时，你需要同时处理CPU和I/O设备，比如你需要向互联网发送一个报文，操作系统需要调用网卡驱动和网卡来实际完成这个工作。</p>
+</blockquote>
+<p>回到最初那张图的右侧：物理地址的分布。可以看到最下面是未被使用的地址，这与主板文档内容是一致的（地址为0）。地址0x1000是boot ROM的物理地址，当你对主板上电，主板做的第一件事情就是运行存储在boot ROM中的代码，当boot完成之后，会跳转到地址0x80000000，操作系统需要确保那个地址有一些数据能够接着启动操作系统。</p>
+<p><img src="/obsidian/assets/kernel-page-table/riscv-virt-memory-map.png" alt="" /></p>
+<p>这里还有一些其他的I/O设备：</p>
+<ul>
+<li>PLIC是中断控制器（Platform-Level Interrupt Controller）我们下周的课会讲。</li>
+<li>CLINT（Core Local Interruptor）也是中断的一部分。所以多个设备都能产生中断，需要中断控制器来将这些中断路由到合适的处理函数。</li>
+<li>UART0（Universal Asynchronous Receiver/Transmitter）负责与Console和显示器交互。</li>
+<li>VIRTIO disk，与磁盘进行交互。</li>
+</ul>
+<p>地址0x02000000对应CLINT，当你向这个地址执行读写指令，你是向实现了CLINT的芯片执行读写。这里你可以认为你直接在与设备交互，而不是读写物理内存。</p>
+<blockquote>
+<p>学生提问：确认一下，低于0x80000000的物理地址，不存在于DRAM中，当我们在使用这些地址的时候，指令会直接走向其他的硬件，对吗？
+Frans教授：是的。高于0x80000000的物理地址对应DRAM芯片，但是对于例如以太网接口，也有一个特定的低于0x80000000的物理地址，我们可以对这个叫做内存映射I/O（Memory-mapped I/O）的地址执行读写指令，来完成设备的操作。
+学生提问：为什么物理地址最上面一大块标为未被使用？
+Frans教授：物理地址总共有2^56那么多，但是你不用在主板上接入那么多的内存。所以不论主板上有多少DRAM芯片，总是会有一部分物理地址没有被用到。实际上在XV6中，我们限制了内存的大小是128MB。
+学生提问：当读指令从CPU发出后，它是怎么路由到正确的I/O设备的？比如说，当CPU要发出指令时，它可以发现现在地址是低于0x80000000，但是它怎么将指令送到正确的I/O设备？
+Frans教授：你可以认为在RISC-V中有一个多路输出选择器（demultiplexer）。</p>
+</blockquote>
+<p>接下来我会切换到第一张图的左边，这就是XV6的虚拟内存地址空间。当机器刚刚启动时，还没有可用的page，XV6操作系统会设置好内核使用的虚拟地址空间，也就是这张图左边的地址分布。</p>
+<p>因为我们想让XV6尽可能的简单易懂，所以这里的虚拟地址到物理地址的映射，大部分是相等的关系。比如说内核会按照这种方式设置page table，虚拟地址0x02000000对应物理地址0x02000000。这意味着左侧低于PHYSTOP的虚拟地址，与右侧使用的物理地址是一样的。</p>
+<p><img src="/obsidian/assets/kernel-page-table/xv6-kernel-address-space-map.png" alt="" /></p>
+<p>所以，这里的箭头都是水平的，因为这里是完全相等的映射。</p>
+<p>除此之外，这里还有两件重要的事情：</p>
+<p>第一件事情是，有一些page在虚拟内存中的地址很靠后，比如kernel stack在虚拟内存中的地址就很靠后。这是因为在它之下有一个未被映射的Guard page，这个Guard page对应的PTE的Valid 标志位没有设置，这样，如果kernel stack耗尽了，它会溢出到Guard page，但是因为Guard page的PTE中Valid标志位未设置，会导致立即触发page fault，这样的结果好过内存越界之后造成的数据混乱。立即触发一个panic（也就是page fault），你就知道kernel stack出错了。同时我们也又不想浪费物理内存给Guard page，所以Guard page不会映射到任何物理内存，它只是占据了虚拟地址空间的一段靠后的地址。</p>
+<p>同时，kernel stack被映射了两次，在靠后的虚拟地址映射了一次，在PHYSTOP下的Kernel data中又映射了一次，但是实际使用的时候用的是上面的部分，因为有Guard page会更加安全。</p>
+<p><img src="/obsidian/assets/kernel-page-table/xv6-kernel-stack-guard-page.png" alt="" /></p>
+<p>这是众多你可以通过page table实现的有意思的事情之一。你可以向同一个物理地址映射两个虚拟地址，你可以不将一个虚拟地址映射到物理地址。可以是一对一的映射，一对多映射，多对一映射。XV6至少在1-2个地方用到类似的技巧。这的kernel stack和Guard page就是XV6基于page table使用的有趣技巧的一个例子。</p>
+<p>第二件事情是权限。例如Kernel text page被标位R-X，意味着你可以读它，也可以在这个地址段执行指令，但是你不能向Kernel text写数据。通过设置权限我们可以尽早的发现Bug从而避免Bug。对于Kernel data需要能被写入，所以它的标志位是RW-，但是你不能在这个地址段运行指令，所以它的X标志位未被设置。（注，所以，kernel text用来存代码，代码可以读，可以运行，但是不能篡改，kernel data用来存数据，数据可以读写，但是不能通过数据伪装代码在kernel中运行）</p>
+<p><img src="/obsidian/assets/kernel-page-table/kernel-page-table-layout.jpg" alt="" /></p>
+<blockquote>
+<p>学生提问：对于不同的进程会有不同的kernel stack吗？
+Frans：答案是的。每一个用户进程都有一个对应的kernel stack
+学生提问：用户程序的虚拟内存会映射到未使用的物理地址空间吗？
+Frans教授：在kernel page table中，有一段Free Memory，它对应了物理内存中的一段地址。</p>
+</blockquote>
+<p><img src="/obsidian/assets/kernel-page-table/xv6-kernel-page-table-free-memory.jpg" alt="" /></p>
+<blockquote>
+<p>XV6使用这段free memory来存放用户进程的page table，text和data。如果我们运行了非常多的用户进程，某个时间点我们会耗尽这段内存，这个时候fork或者exec会返回错误。
+同一个学生提问：这就意味着，用户进程的虚拟地址空间会比内核的虚拟地址空间小的多，是吗？
+Frans教授：本质上来说，两边的虚拟地址空间大小是一样的。但是用户进程的虚拟地址空间使用率会更低。
+学生提问：如果多个进程都将内存映射到了同一个物理位置，这里会优化合并到同一个地址吗？
+Frans教授：XV6不会做这样的事情，但是page table实验中有一部分就是做这个事情。真正的操作系统会做这样的工作。当你们完成了page table实验，你们就会对这些内容更加了解。</p>
+</blockquote>
+<p>（以下问答来自课程结束部分，以为内容相关就移过来了）</p>
+<blockquote>
+<p>学生提问：每个进程都会有自己的3级树状page table，通过这个page table将虚拟地址翻译成物理地址。所以看起来当我们将内核虚拟地址翻译成物理地址时，我们并不需要kernel的page table，因为进程会使用自己的树状page table并完成地址翻译（注，不太理解这个问题点在哪）。
+Frans教授：当kernel创建了一个进程，针对这个进程的page table也会从Free memory中分配出来。内核会为用户进程的page table分配几个page，并填入PTE。在某个时间点，当内核运行了这个进程，内核会将进程的根page table的地址加载到SATP中。从那个时间点开始，处理器会使用内核为那个进程构建的虚拟地址空间。
+同一个学生提问：所以内核为进程放弃了一些自己的内存，但是进程的虚拟地址空间理论上与内核的虚拟地址空间一样大，虽然实际中肯定不会这么大。
+Frans教授：是的，下图是用户进程的虚拟地址空间分布，与内核地址空间一样，它也是从0到MAXVA。</p>
+</blockquote>
+<p><img src="/obsidian/assets/kernel-page-table/user-process-virtual-address-space.png" alt="" /></p>
+<blockquote>
+<p>它有由内核设置好的，专属于进程的page table来完成地址翻译。
+学生提问：但是我们不能将所有的MAXVA地址都使用吧？
+Frans教授：是的我们不能，这样我们会耗尽内存。大多数的进程使用的内存都远远小于虚拟地址空间。</p>
+</blockquote>
+<p><a rel="noopener" target="_blank" title="4.5 Kernel Page Table - 知乎" href="https://zhuanlan.zhihu.com/p/270578959">4.5 Kernel Page Table - 知乎</a></p>
+<p>一、芯片的基础知识说起
+为啥一般的芯片的开始地址是0x80000000，那是因为芯片制造商的想法。
+一、地址空间
+（1）i.MX6ULL系列芯片
+i.MX6ULL 应用处理器内存地址映射表
+二、正点原子Linux
+开发板
+一、芯片的基础知识说起
+ MCU、MPU、CPU这些主控芯片，有8位、16位和32位、64位，</p>
+<p>为啥一般的芯片的开始地址是0x80000000，那是因为芯片制造商的想法。
+一、地址空间
+一个颗32位架构的芯片它的寻址空间为:0 ~ 0xFFFFFFFF</p>
+<p>大小                                字节              尺寸                        地址范围
+2^32（4294967296）    4GB    0x1 0000 0000    0 ~ 0xFFFFFFFF
+（1）i.MX6ULL系列芯片
+i.MX6ULL 应用处理器内存地址映射表
+来源：《IMX6ULL参考手册》
+ARM Platform Memory Map</p>
+<p>Start address
+End address    Size    Description
+8000_0000    FFFF_FFFF    2048 MB    MMDC—x16 DDR Controller.
+7000_0000    7FFF_FFFF    256 MB    Reserved
+6000_0000    6FFF_FFFF    256 MB    QSPI1 Memory
+5800_0000    5FFF_FFFF    128 MB    EIM Aliased
+5000_0000    57FF_FFFF    128 MB    EIM (NOR/SRAM)
+1000_0000    4FFF_FFFF    1024 MB    Reserved
+0E00_0000    0FFF_FFFF    32 MB    Reserved
+0C00_0000    0DFF_FFFF    32 MB    QSPI1 Rx Buffer
+0900_0000    0BFF_FFFF    48 MB    Reserved
+0800_0000    08FF_FFFF    16 MB    Reserved
+02C0_0000    07FF_FFFF    84 MB    Reserved
+0230_0000    02BF_FFFF    9 MB    Reserved
+0220_0000    022F_FFFF    1 MB    Table 2-4 AIPS-3. See IP listing on the separate map.
+0210_0000    021F_FFFF    1 MB    Table 2-3 AIPS-2. See the IP listing on the separate map.
+0200_0000    020F_FFFF    1 MB    Table 2-2 AIPS-1. See the IP listing on the separate map.
+0181_0000    01FF_FFFF    8128 KB    Reserved
+0180_C000    0180_FFFF    16 KB    Reserved
+0180_8000    0180_BFFF    16 KB    BCH
+0180_6000    0180_7FFF    8 KB    GPMI
+0180_4000    0180_5FFF    32 KB    APBH DMA
+0180_0000    0180_3FFF    16 KB    Reserved
+0120_0000    017F_FFFF    6 MB    Reserved
+0110_0000    011F_FFFF    1 MB    Reserved
+0100_0000    010F_FFFF    1 MB    Reserved
+00F0_0000    00FF_FFFF    1 MB    Reserved
+00E0_0000    00EF_FFFF    1 MB    (per_m) configuration port
+00D0_0000    00DF_FFFF    1 MB    (cpu) configuration port
+00C0_0000    00CF_FFFF    1 MB    GPV_1 PL301
+00B0_0000    00BF_FFFF    1 MB    GPV_0 PL301 configuration port
+00A0_8000    00AF_FFFF    992 KB    Reserved
+00A0_0000    00A0_7FFF    32 KB    ARM Peripherals: GIC400 Only visible to ARM core(s)
+009C_0000    009F_FFFF    256 KB    Reserved
+0098_0000    009B_FFFF    256 KB    Reserved
+0092_0000    0097_FFFF    384 KB    OCRAM aliased
+0090_0000    0091_FFFF    128 KB    OCRAM 128 KB
+008F_8000    008F_FFFF    32 KB    Reserved
+007F_8000    008F_7FFF    1 MB    Reserved
+0010_0000    0010_7FFF    32 KB    Reserved
+0001_8000    000F_FFFF    928 KB    Reserved
+0001_7000    0001_7FFF    4 KB    Boot ROM—Protected 4 KB area
+0000_0000    0001_6FFF    92 KB    Boot ROM (ROMCP)
+ 从上表可以看出，在整个4GB的地址空间内，前2GB的地址空间有其他用处，后2GB的地址空间分配给了内存控制器，所以在操作内存地址的时候都是从0x80000000地址开始的，这其实就限制了该类型（32位架构）的芯片最大支持内存为4GB，而i.MX6ULL芯片所支持的最大的内存为2GB。</p>
+<p>二、正点原子Linux开发板
+512MB DDR3L
+8GB EMMC
+大小                  字节                尺寸          地址范围
+536870912    512MB    0x2000 0000    0 ~ 0x1FFF FFFF</p>
+<p><img src="/obsidian/assets/kernel-page-table/imx6ull-ddr-address-map.png" alt="" />
+对应i.MX6ULL地址映射空间：</p>
+<p>字节                  尺寸                 地址范围                    对应
+512MB    0x2000 0000    0 ~ 0x1FFF FFFF    0x8000 0000 ~ 0xA000 0000</p>
+<p><img src="/obsidian/assets/kernel-page-table/imx6ull-memory-address-map.png" alt="" />
+我在这里的操作：
+嵌入式Linux–U-Boot（九）通过TFT/NFS网络更新U-Boot、Kernel、DTB文件
+可以看到：</p>
+<p>=&gt; tftp 80800000 zImage
+Using FEC1 device
+TFTP from server
+192.168.0.120; our IP address is 192.168.0.121
+Filename 'zImage'.
+Load address: 0x80800000
+Loading: #################################################################
+#################################################################
+#################################################################
+#################################################################
+#################################################################
+#################################################################
+#################################################################
+########
+2.4 MiB/s
+done
+Bytes transferred = 6786368 (678d40 hex)
+=&gt; tftp 83000000 imx6ull_liefyuan_emmc.dtb
+Using FEC1 device
+TFTP from server 192.168.0.120; our IP address is 192.168.0.121
+Filename 'imx6ull_liefyuan_emmc.dtb'.
+Load address: 0x83000000
+Loading: ###
+2.1 MiB/s
+done
+Bytes transferred = 38823 (97a7 hex)</p>
+<p>下图中 最高的0x1FFF FFFF笔误，应该是0xFFFF FFFF,很明显地址从下到上，按有小到大排列2022.11.29</p>
+<p> 从上面可以看到：<img src="/obsidian/assets/kernel-page-table/imx6ull-dram-memory-map.png" alt="" /></p>
+<p>地址0x80800000是从8MB的地方开始的一个内存区域，那前面8MB区域放了些啥玩意？
+地址0x83000000是从48MB的地方开始的一个内存区域</p>
+<p>地址一：0x83000000
+地址二：0x80800000</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/原创-linux-pci驱动框架分析-一/">&#8249; 【原创】Linux PCI驱动框架分析（一）</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/硬盘第1个分区前的1m空间/"> 硬盘第1个分区前的1M空间 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#4-5-kernel-page-table-nei-cun-di-zhi-wei-shen-me-cong-0x8000-0000kai-shi-zhe-shi-dramde-kai-shi-di-zhi-xiao-yu-zhe-ge-di-zhi-shi-iohuo-zhe-qi-ta-de-cun-chu-lei-di-zhi-ddrde-di-zhi-fan-wei-wei-shen-me-bu-shi-cong-0kai-shi">4.5 Kernel Page Table，内存地址为什么从0x8000 0000开始，这是DRAM的开始地址，小于这个地址是IO或者其他的存储类地址_ddr的地址范围为什么不是从0开始</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

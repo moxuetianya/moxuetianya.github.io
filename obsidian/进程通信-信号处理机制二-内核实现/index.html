@@ -1,0 +1,566 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>【进程通信】信号处理机制二——内核实现 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="1. 用户输入命令，在Shell下启动一个前台进程。" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/进程通信-信号处理机制二-内核实现/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/进程通信-信号处理机制二-内核实现/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/进程通信-信号处理机制二-内核实现/" />
+  <meta property="og:description" content="1. 用户输入命令，在Shell下启动一个前台进程。" />
+  <meta name="twitter:description" content="1. 用户输入命令，在Shell下启动一个前台进程。" />
+  <meta property="og:title" content="【进程通信】信号处理机制二——内核实现 | 墨雪天琊" />
+  <meta name="twitter:title" content="【进程通信】信号处理机制二——内核实现 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2023-12-27" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/进程通信-信号处理机制二-内核实现/">【进程通信】信号处理机制二——内核实现</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十二月 27, 2023 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/shell-yu-ming-ling-xing/">Shell 与命令行</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a> </span>
+
+    
+
+
+<h2 id="1-xin-hao-chu-li-de-wan-zheng-liu-cheng">1 信号处理的完整流程</h2>
+<ol>
+<li>用户输入命令，在Shell下启动一个前台进程。</li>
+<li>用户按下Ctrl-C，这个键盘输入产生一个硬件中断。</li>
+<li>如果CPU当前正在执行这个进程的代码，则该进程的用户空间代码暂停执行，CPU从用户态切换到内核态处理硬件中断。</li>
+<li>终端驱动程序将Ctrl-C解释成一个SIGINT信号，记在该进程的PCB中（也可以说发送了一个SIGINT信号给该进程）。</li>
+<li>当某个时刻要从内核返回到该进程的用户空间代码继续执行之前，首先处理PCB中记录的信号，发现有一个SIGINT信号待处理，而这个信号的默认处理动作是终止进程，所以直接终止进程而不再返回它的用户空间代码执行。</li>
+</ol>
+<h2 id="2-xin-hao-xiang-guan-shu-ju-jie-gou">2 信号相关数据结构</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">struct task_struct {
+	&#x2F;* Signal handlers: *&#x2F;
+	struct signal_struct		*signal;
+	struct sighand_struct		*sighand;
+	sigset_t			blocked;
+	sigset_t			real_blocked;
+	&#x2F;* Restored if set_restore_sigmask() was used: *&#x2F;
+	sigset_t			saved_sigmask;
+	struct sigpending		pending;
+}
+</code></pre>
+<p>其中成员 pending 表示进程是否有信号需要处理（1表示有，0表示没有）。成员 <code>blocked</code> 表示被屏蔽的信息，每个位代表一个被屏蔽的信号。成员 sighand 表示信号相应的处理方法。</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">struct sighand_struct {
+	atomic_t		count;
+	struct k_sigaction	action[_NSIG];
+	spinlock_t		siglock;
+	wait_queue_head_t	signalfd_wqh;
+};
+</code></pre>
+<p><strong>sigaction</strong></p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">typedef void __signalfn_t(int);
+typedef __signalfn_t __user *__sighandler_t;
+
+struct sigaction {
+#ifndef __ARCH_HAS_IRIX_SIGACTION
+	__sighandler_t	sa_handler;
+	unsigned long	sa_flags;
+#else
+	unsigned int	sa_flags;
+	__sighandler_t	sa_handler;
+#endif
+#ifdef __ARCH_HAS_SA_RESTORER
+	__sigrestore_t sa_restorer;
+#endif
+	sigset_t	sa_mask;	&#x2F;* mask last for extensibility *&#x2F;
+};
+
+struct k_sigaction {
+	struct sigaction sa;
+#ifdef __ARCH_HAS_KA_RESTORER
+	__sigrestore_t ka_restorer;
+#endif
+};
+</code></pre>
+<h3 id="3-1-killxi-tong-diao-yong">3.1 kill系统调用</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">&#x2F;**
+ *  sys_kill - send a signal to a process
+ *  @pid: the PID of the process
+ *  @sig: signal to be sent
+ *&#x2F;
+SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
+{
+	struct siginfo info;
+
+	info.si_signo = sig;
+	info.si_errno = 0;
+	info.si_code = SI_USER;
+	info.si_pid = task_tgid_vnr(current);
+	info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
+
+	return kill_something_info(sig, &amp;info, pid);
+}
+</code></pre>
+<h3 id="3-2-kill-something-info">3.2 kill_something_info</h3>
+<p><code>kill_something_info()</code> 函数根据传入<code>pid</code> 的不同来进行不同的操作，有如下4种可能：</p>
+<ul>
+<li><code>pid</code> 等于0时，向当前进程组发送信号。</li>
+<li><code>pid</code> 大于零时，那么调用函数kill_pid_info来向线程pid所属的线程组发送信号。</li>
+<li><code>pid</code> 等于-1时，向除了进程1(init)和自己以外的所有进程发送信号。</li>
+<li><code>pid</code> 小于-1时，信号将送往以-pid为组标识的进程。</li>
+</ul>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">static int kill_something_info(int sig, struct siginfo *info, pid_t pid)
+{
+	int ret;
+
+	if (pid &gt; 0) {
+		rcu_read_lock();
+		ret = kill_pid_info(sig, info, find_vpid(pid));
+		rcu_read_unlock();
+		return ret;
+	}
+
+	read_lock(&amp;tasklist_lock);
+	if (pid != -1) {
+		ret = __kill_pgrp_info(sig, info, pid ? find_vpid(-pid) : task_pgrp(current));
+	} else {
+		int retval = 0, count = 0;
+		struct task_struct * p;
+
+		for_each_process(p) {
+			if (task_pid_vnr(p) &gt; 1 &amp;&amp;!same_thread_group(p, current)) {
+				int err = group_send_sig_info(sig, info, p);
+				++count;
+			}
+		}
+		ret = count ? retval : -ESRCH;
+	}
+	read_unlock(&amp;tasklist_lock);
+
+	return ret;
+}
+</code></pre>
+<h3 id="3-2-1-kill-pid-info">3.2.1 kill_pid_info</h3>
+<p>向某个进程发送信号</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">int kill_pid_info(int sig, struct siginfo *info, struct pid *pid)
+{
+	int error = -ESRCH;
+	struct task_struct *p;
+
+	for (;;) {
+		rcu_read_lock();
+		p = pid_task(pid, PIDTYPE_PID);
+		if (p)
+			error = group_send_sig_info(sig, info, p);
+		rcu_read_unlock();
+		if (likely(!p || error != -ESRCH))
+			return error;
+
+		&#x2F;*
+		 * The task was unhashed in between, try again.  If it
+		 * is dead, pid_task() will return NULL, if we race with
+		 * de_thread() it will find the new leader.
+		 *&#x2F;
+	}
+}
+</code></pre>
+<h3 id="3-2-2-kill-pgrp-info">3.2.2 __kill_pgrp_info</h3>
+<p>向某个进程组发送信号，遍历进程组里的所有进程都发送信号。</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">int __kill_pgrp_info(int sig, struct siginfo *info, struct pid *pgrp)
+{
+	struct task_struct *p = NULL;
+	int retval, success;
+
+	success = 0;
+	retval = -ESRCH;
+	do_each_pid_task(pgrp, PIDTYPE_PGID, p) {
+		int err = group_send_sig_info(sig, info, p);
+		success |= !err;
+		retval = err;
+	} while_each_pid_task(pgrp, PIDTYPE_PGID, p);
+	return success ? 0 : retval;
+}
+</code></pre>
+<h2 id="3-3-send-signal">3.3 __send_signal</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">group_send_sig_info
+-&gt;do_send_sig_info
+	-&gt;send_signal
+		-&gt;__send_signal
+
+static int __send_signal(int sig, struct siginfo *info, struct task_struct *t, int group, int from_ancestor_ns)
+{
+	&#x2F;&#x2F;如果目标线程忽略信号，那么没必要发送信号。
+	if (!prepare_signal(sig, t, from_ancestor_ns || (info == SEND_SIG_FORCED)))
+		goto ret;
+
+	&#x2F;&#x2F;确定把信号添加到哪个信号队列和集合。线程组有一个共享的信号队列和集合，
+	&#x2F;&#x2F;每个线程有一个私有的信号队列和集合。如果向线程组发送信号，
+	&#x2F;&#x2F;那么应该把信号添加到线程组共享的信号队列和集合中；
+	&#x2F;&#x2F;如果向线程发送信号，那么应该把信号添加到线程私有的信号队列和集合中。
+	pending = group ? &amp;t-&gt;signal-&gt;shared_pending : &amp;t-&gt;pending;
+
+	&#x2F;&#x2F;如果是传统信号，并且信号集合已经包含同一个信号，那么没必要重复发送信号
+	result = TRACE_SIGNAL_ALREADY_PENDING;
+	if (legacy_queue(pending, sig))
+		goto ret;
+
+	&#x2F;&#x2F;判断分配信号队列节点时是否可以忽略信号队列长度的限制：
+	&#x2F;&#x2F;对于传统信号，如果是特殊的信号信息，或者信号的编码大于0，那么允许忽略；
+	&#x2F;&#x2F;如果是实时信号，那么不允许忽略。
+	if (sig &lt; SIGRTMIN)
+		override_rlimit = (is_si_special(info) || info-&gt;si_code &gt;= 0);
+	else
+		override_rlimit = 0;
+	&#x2F;&#x2F;分配一个信号队列节点。
+	q = __sigqueue_alloc(sig, t, GFP_ATOMIC, override_rlimit);
+	&#x2F;&#x2F;如果分配信号队列节点成功，那么把它添加到信号队列中。
+	list_add_tail(&amp;q-&gt;list, &amp;pending-&gt;list);
+
+	&#x2F;&#x2F;如果某个进程正在通过信号文件描述符（signalfd）监听信号，那么通知进程。
+	&#x2F;&#x2F;signalfd是进程创建用来接收信号的文件描述符，进程可以使用select或poll监听信号文件描述符。
+	signalfd_notify(t, sig);
+
+	&#x2F;&#x2F;把信号添加到信号集合中
+	sigaddset(&amp;pending-&gt;signal, sig);
+
+	&#x2F;&#x2F;如果向线程组发送信号，那么需要在线程组中查找一个没有屏蔽信号的线程，
+	&#x2F;&#x2F;唤醒它，让它处理信号。
+	complete_signal(sig, t, group);
+}
+
+sigqueue_cachep = KMEM_CACHE(sigqueue, SLAB_PANIC);
+struct sigqueue *__sigqueue_alloc(int sig, struct task_struct *t, gfp_t flags, int override_rlimit)
+{
+	struct user_struct *user = get_uid(__task_cred(t)-&gt;user);
+	atomic_inc(&amp;user-&gt;sigpending);;
+
+	struct sigqueue *q = kmem_cache_alloc(sigqueue_cachep, flags);
+	INIT_LIST_HEAD(&amp;q-&gt;list);
+	q-&gt;flags = 0;
+	q-&gt;user = user;
+
+	return q;
+}
+</code></pre>
+<h3 id="3-4-complete-signal">3.4 complete_signal</h3>
+<p>如果向线程组发送信号，那么需要在线程组中查找一个没有屏蔽信号的线程， 唤醒它，让它处理信号。</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">static void complete_signal(int sig, struct task_struct *p, int group)
+{
+	struct signal_struct *signal = p-&gt;signal;
+	struct task_struct *t;
+
+	&#x2F;* Now find a thread we can wake up to take the signal off the queue.*&#x2F;
+	t = find_wants_signal_task((sig, p));
+
+	&#x2F;* Found a killable thread.  If the signal will be fatal,
+	 * then start taking the whole group down immediately. *&#x2F;
+	if (sig_killable(p, sig)) {
+		task_clear_jobctl_pending(t, JOBCTL_PENDING_MASK);
+		&#x2F;&#x2F;加入到pending signal
+		sigaddset(&amp;t-&gt;pending.signal, SIGKILL);
+		&#x2F;&#x2F;唤醒task
+		signal_wake_up(t, 1);
+		return;
+	}
+
+	&#x2F;*
+	 * The signal is already in the shared-pending queue.
+	 * Tell the chosen thread to wake up and dequeue it.
+	 *&#x2F;
+	signal_wake_up(t, sig == SIGKILL);
+	return;
+}
+</code></pre>
+<h2 id="4-nei-he-hong-fa-xin-hao-chu-li-han-shu">4 内核触发信号处理函数</h2>
+<p>为了尽快让信号得到处理，Linux把信号处理过程放置在进程从内核态返回到用户态前，也就是在 ret_to_user 处：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">ret_to_user:
+	&#x2F;* Make sure need_resched and sigpending don&#x27;t change between
+		sampling and the rti.  *&#x2F;
+	lda	$16, 7
+	call_pal PAL_swpipl
+	ldl	$17, TI_FLAGS($8)
+	and	$17, _TIF_WORK_MASK, $2
+	bne	$2, work_pending
+</code></pre>
+<p>work_pending</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">work_pending:
+	mov	x0, sp				&#x2F;&#x2F; &#x27;regs&#x27;
+	bl	do_notify_resume
+#ifdef CONFIG_TRACE_IRQFLAGS
+	bl	trace_hardirqs_on		&#x2F;&#x2F; enabled while in userspace
+#endif
+	ldr	x1, [tsk, #TSK_TI_FLAGS]	&#x2F;&#x2F; re-check for single-step
+	b	finish_ret_to_user
+</code></pre>
+<h3 id="4-1-do-notify-resume">4. 1 do_notify_resume</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">void do_notify_resume(struct pt_regs *regs, unsigned int thread_flags)
+{
+	do {
+		if (thread_flags &amp; _TIF_NEED_RESCHED) {
+			&#x2F;* Unmask Debug and SError for the next task *&#x2F;
+			local_daif_restore(DAIF_PROCCTX_NOIRQ);
+
+			schedule();
+		} else {
+			local_daif_restore(DAIF_PROCCTX);
+
+			if (thread_flags &amp; _TIF_UPROBE)
+				uprobe_notify_resume(regs);
+
+			if (thread_flags &amp; _TIF_SIGPENDING)
+				do_signal(regs);
+
+			if (thread_flags &amp; _TIF_NOTIFY_RESUME) {
+				clear_thread_flag(TIF_NOTIFY_RESUME);
+				tracehook_notify_resume(regs);
+			}
+
+			if (thread_flags &amp; _TIF_FOREIGN_FPSTATE)
+				fpsimd_restore_current_state();
+		}
+
+		local_daif_mask();
+		thread_flags = READ_ONCE(current_thread_info()-&gt;flags);
+	} while (thread_flags &amp; _TIF_WORK_MASK);
+}
+</code></pre>
+<h3 id="4-2-do-signal">4.2 do_signal</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">static void do_signal(struct pt_regs *regs)
+{
+	if (get_signal(&amp;ksig)) {
+		&#x2F;*
+		 * Depending on the signal settings, we may need to revert the
+		 * decision to restart the system call, but skip this if a
+		 * debugger has chosen to restart at a different PC.
+		 *&#x2F;
+		if (regs-&gt;pc == restart_addr &amp;&amp;
+		    (retval == -ERESTARTNOHAND ||
+		     retval == -ERESTART_RESTARTBLOCK ||
+		     (retval == -ERESTARTSYS &amp;&amp;
+		      !(ksig.ka.sa.sa_flags &amp; SA_RESTART)))) {
+			regs-&gt;regs[0] = -EINTR;
+			regs-&gt;pc = continue_addr;
+		}
+
+		handle_signal(&amp;ksig, regs);
+		return;
+	}
+}
+</code></pre>
+<h3 id="4-3-get-signal">4.3 get_signal</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">int get_signal(struct ksignal *ksig)
+{
+	struct sighand_struct *sighand = current-&gt;sighand;
+	struct signal_struct *signal = current-&gt;signal;
+	int signr;
+
+	for (;;) {
+		struct k_sigaction *ka;
+		&#x2F;&#x2F;获取到进程接收队列中的一个信号，如果没有信号，那么就跳出循环
+		signr = dequeue_signal(current, &amp;current-&gt;blocked, &amp;ksig-&gt;info);
+		ka = &amp;sighand-&gt;action[signr-1];
+		if (ka-&gt;sa.sa_handler == SIG_IGN) &#x2F;* Do nothing.  *&#x2F;
+			continue;
+		if (ka-&gt;sa.sa_handler != SIG_DFL) {
+			&#x2F;* Run the handler.  *&#x2F;
+			ksig-&gt;ka = *ka;
+			break; &#x2F;* will return non-zero &quot;signr&quot; value *&#x2F;
+		}
+		&#x2F;* Now we are doing the default action for this signal.*&#x2F;
+		if (sig_kernel_ignore(signr)) &#x2F;* Default is nothing. *&#x2F;
+			continue;
+
+		if (sig_kernel_stop(signr)) {
+			continue;
+		}
+
+		&#x2F;*Anything else is fatal, maybe with a core dump.*&#x2F;
+		current-&gt;flags |= PF_SIGNALED;
+		if (sig_kernel_coredump(signr))
+			do_coredump(&amp;ksig-&gt;info);
+
+		&#x2F;* Death signals, no core dump.*&#x2F;
+		do_group_exit(ksig-&gt;info.si_signo);
+		&#x2F;* NOTREACHED *&#x2F;
+	}
+	ksig-&gt;sig = signr;
+	return ksig-&gt;sig &gt; 0;
+}
+</code></pre>
+<h3 id="4-4-handle-signal">4.4 handle_signal</h3>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">&#x2F;* OK, we&#x27;re invoking a handler *&#x2F;
+static void handle_signal(struct ksignal *ksig, struct pt_regs *regs)
+{
+	struct task_struct *tsk = current;
+	sigset_t *oldset = sigmask_to_save();
+	int usig = ksig-&gt;sig;
+	int ret;
+
+	&#x2F;* Set up the stack frame *&#x2F;
+	ret = setup_rt_frame(usig, ksig, oldset, regs);
+
+	&#x2F;* Check that the resulting registers are actually sane. *&#x2F;
+	ret |= !valid_user_regs(&amp;regs-&gt;user_regs, current);
+
+	&#x2F;* Fast forward the stepping logic so we step into the signal handler. *&#x2F;
+	if (!ret)
+		user_fastforward_single_step(tsk);
+
+	signal_setup_done(ret, ksig, 0);
+}
+
+void signal_setup_done(int failed, struct ksignal *ksig, int stepping)
+{
+	if (failed)
+		force_sigsegv(ksig-&gt;sig, current);
+	else
+		signal_delivered(ksig, stepping);
+}
+</code></pre>
+<p>setup_frame() 函数来构建这个过程的运行环境（其实就是修改内核栈和用户栈相应的数据来完成）</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">static int setup_rt_frame(int usig, struct ksignal *ksig, sigset_t *set,
+			  struct pt_regs *regs)
+{
+	struct rt_sigframe_user_layout user;
+	struct rt_sigframe __user *frame;
+	int err = 0;
+
+	fpsimd_signal_preserve_current_state();
+
+	frame = user.sigframe;
+
+	__put_user_error(0, &amp;frame-&gt;uc.uc_flags, err);
+	__put_user_error(NULL, &amp;frame-&gt;uc.uc_link, err);
+
+	err |= __save_altstack(&amp;frame-&gt;uc.uc_stack, regs-&gt;sp);
+	err |= setup_sigframe(&amp;user, regs, set);
+	if (err == 0) {
+		setup_return(regs, &amp;ksig-&gt;ka, &amp;user, usig);
+		if (ksig-&gt;ka.sa.sa_flags &amp; SA_SIGINFO) {
+			err |= copy_siginfo_to_user(&amp;frame-&gt;info, &amp;ksig-&gt;info);
+			regs-&gt;regs[1] = (unsigned long)&amp;frame-&gt;info;
+			regs-&gt;regs[2] = (unsigned long)&amp;frame-&gt;uc;
+		}
+	}
+
+	return err;
+}
+</code></pre>
+<p>现在可以在内核态返回到用户态时自动执行信号处理程序了，但是当信号处理程序执行完怎么返回到内核态呢？Linux的做法就是在用户态栈空间构建一个 Frame（帧）（我也不知道为什么要这样叫），构建这个帧的目的就是为了执行完信号处理程序后返回到内核态，并恢复原来内核栈的内容。</p>
+<p>返回到内核态的方式是调用一个名为 sigreturn() 系统调用，然后再 sigreturn() 中恢复原来内核栈的内容。</p>
+<p>ref:</p>
+<p><a rel="noopener" target="_blank" href="https://zhuanlan.zhihu.com/p/674728372">Tiffany的世界：【进程通信】信号处理机制一</a></p>
+<p><a rel="noopener" target="_blank" href="https://link.zhihu.com/?target=https%3A//mp.weixin.qq.com/s%3F__biz%3DMzI3NzA5MzUxNA%3D%3D%26mid%3D2664610301%26idx%3D1%26sn%3D4f989c36a99e29af4e811b30d5bf7a19%26chksm%3Df04d9418c73a1d0e965bdb58a09a1927b5356938257cf717eeec6f95b81b696f07817bf59c42%26scene%3D126%26sessionid%3D1627865727%26key%3D756768bae9c758c2f556b43f9cebe0d3f634a09e6caac46d29ac0192bec7c2446c1527b7bf9dce0eb1794100fedca5fe2ea6c1a4f762b0b457cf96f713f8da842c251f1e4bcb47333138303b39ccb1c148c217c34ccca9a5834654528d147bb39fc770be1aada712231965556386be8c54aa2e554b329ed2346111f4aeecda58%26ascene%3D1%26uin%3DODQzNTg3ODY0%26devicetype%3DWindows%2B10%2Bx64%26version%3D63030073%26lang%3Den%26exportkey%3DAYSy878zbJjPjx0y%252FsXBEiE%253D%26pass_ticket%3DyjnW9f9rgTAJ7R1wut3ERzXHFpUlb4hvaXa62zPRq3oKFscUykm6u7rbfCZQ076C%26wx_header%3D0%26fontgear%3D2">一文完全看懂 | Linux 信号处理原理与实现</a></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/一个300行的文件系统-基于linux6.6/">&#8249; 一个300行的文件系统（基于linux6.6）</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/通过tcpdump对unix-domain-socket-进行抓包解析/"> 通过tcpdump对Unix Domain Socket 进行抓包解析 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#1-xin-hao-chu-li-de-wan-zheng-liu-cheng">1 信号处理的完整流程</a>
+        </div>
+        <div>
+          <a href="#2-xin-hao-xiang-guan-shu-ju-jie-gou">2 信号相关数据结构</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-killxi-tong-diao-yong"><small>- 3.1 kill系统调用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-kill-something-info"><small>- 3.2 kill_something_info</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-1-kill-pid-info"><small>- 3.2.1 kill_pid_info</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-2-kill-pgrp-info"><small>- 3.2.2 __kill_pgrp_info</small></a>
+        </div>
+        <div>
+          <a href="#3-3-send-signal">3.3 __send_signal</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-4-complete-signal"><small>- 3.4 complete_signal</small></a>
+        </div>
+        <div>
+          <a href="#4-nei-he-hong-fa-xin-hao-chu-li-han-shu">4 内核触发信号处理函数</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-do-notify-resume"><small>- 4. 1 do_notify_resume</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-do-signal"><small>- 4.2 do_signal</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-get-signal"><small>- 4.3 get_signal</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-4-handle-signal"><small>- 4.4 handle_signal</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

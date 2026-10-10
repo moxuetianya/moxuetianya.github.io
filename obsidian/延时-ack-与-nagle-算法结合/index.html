@@ -1,0 +1,381 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>延时 ACK 与 Nagle 算法结合 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="案例一： 同事随手写个压力测试程序，其实现逻辑为：每秒钟先连续发N个132字节的包，然后连续收N个由后台服务回显回来的132字节包。其代码简化如下：" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/延时-ack-与-nagle-算法结合/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/延时-ack-与-nagle-算法结合/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/延时-ack-与-nagle-算法结合/" />
+  <meta property="og:description" content="案例一： 同事随手写个压力测试程序，其实现逻辑为：每秒钟先连续发N个132字节的包，然后连续收N个由后台服务回显回来的132字节包。其代码简化如下：" />
+  <meta name="twitter:description" content="案例一： 同事随手写个压力测试程序，其实现逻辑为：每秒钟先连续发N个132字节的包，然后连续收N个由后台服务回显回来的132字节包。其代码简化如下：" />
+  <meta property="og:title" content="延时 ACK 与 Nagle 算法结合 | 墨雪天琊" />
+  <meta name="twitter:title" content="延时 ACK 与 Nagle 算法结合 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-08-19" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/延时-ack-与-nagle-算法结合/">延时 ACK 与 Nagle 算法结合</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 八月 19, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://moxuetianya.github.io/tags/linux/">Linux</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a>  #<a href="https://moxuetianya.github.io/tags/he-ji/">合集</a>  #<a href="https://moxuetianya.github.io/tags/wang-luo/">网络</a> </span>
+
+    
+
+
+<h2 id="linuxxia-tcpyan-chi-que-ren-delayed-ack-ji-zhi-dao-zhi-de-shi-yan-wen-ti-fen-xi-teng-xun-yun-kai-fa-zhe-she-qu-teng-xun-yun">Linux下TCP延迟确认(Delayed Ack)机制导致的时延问题分析-腾讯云开发者社区-腾讯云</h2>
+<p><strong>案例一：</strong> 同事随手写个压力测试程序，其实现逻辑为：每秒钟先连续发N个132字节的包，然后连续收N个由后台服务回显回来的132字节包。其代码简化如下：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">char sndBuf[132];
+char rcvBuf[132];
+
+while (1) {
+    for (int i = 0; i &lt; N; i++){
+        send(fd, sndBuf, sizeof(sndBuf), 0);
+        ...
+    }
+
+    for (int i = 0; i &lt; N; i++) {
+        recv(fd, rcvBuf, sizeof(rcvBuf), 0);
+        ...
+    }
+    sleep(1);
+}
+</code></pre>
+<p>在实际测试中发现，当N大于等于3的情况，第2秒之后，每次第三个recv调用，总会阻塞40毫秒左右，但在分析Server端日志时，发现所有请求在Server端处理时耗均在2ms以下。</p>
+<p>当时的具体定位过程如下：先试图用strace跟踪客户端进程，但奇怪的是：一旦<code>strace attach</code>上进程，所有收发又都正常，不会有阻塞现象，一旦退出strace，问题重现。经同事提醒，很可能是strace改变了程序或系统的某些东西(这个问题现在也还没搞清楚)，于是再用tcpdump抓包分析，发现Server后端在回现应答包后，Client端并没有立即对该数据进行ACK确认，而是等待了近40毫秒后才确认。经过Google，并查阅《TCP/IP详解卷一:协议》得知，此即TCP的延迟确认(Delayed Ack)机制。</p>
+<p>其解决办法如下：在recv系统调用后，调用一次<code>setsockopt</code>函数，设置<code>TCP_QUICKACK</code>。最终代码如下：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">char sndBuf[132];
+char rcvBuf[132];
+
+while (1) {
+    for (int i = 0; i &lt; N; i++) {
+        send(fd, sndBuf, 132, 0);
+        ...
+    }
+
+    for (int i = 0; i &lt; N; i++) {
+        recv(fd, rcvBuf, 132, 0);
+        setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, (int[]){1}, sizeof(int));
+    }
+    sleep(1);
+}
+</code></pre>
+<p><strong>案例二：</strong> 在营销平台内存化CDKEY版本做性能测试时，发现请求时耗分布异常：90%的请求均在2ms以内，而10%左右时耗始终在38-42ms之间，这是一个很有规律的数字：40ms。因为之前经历过案例一，所以猜测同样是因为延迟确认机制引起的时耗问题，经过简单的抓包验证后，通过设置<code>TCP_QUICKACK</code>选项，得以解决时延问题。</p>
+<h5 id="yan-chi-que-ren-ji-zhi">延迟确认机制</h5>
+<p>在《TCP/IP详解卷一：协议》第19章对其进行原理进行了详细描述：TCP在处理交互数据流(即<code>Interactive Data Flow</code>，区别于<code>Bulk Data Flow</code>，即成块数据流，典型的交互数据流如telnet、rlogin等)时，采用了Delayed Ack机制以及Nagle算法来减少小分组数目。</p>
+<p>书上已经对这两种机制的原理讲的很清晰，这里不再做复述。本文后续部分将通过分析TCP/IP在Linux下的实现，来解释一下TCP的延迟确认机制。</p>
+<h5 id="1-wei-shen-me-tcpyan-chi-que-ren-hui-dao-zhi-yan-chi">1.为什么TCP延迟确认会导致延迟？</h5>
+<p>其实仅有延迟确认机制，是不会导致请求延迟的(初以为是必须等到ACK包发出去，recv系统调用才会返回)。一般来说，只有当该机制与Nagle算法或拥塞控制(慢启动或拥塞避免)混合作用时，才可能会导致时耗增长。我们下面来详细看看是如何相互作用的：</p>
+<h5 id="yan-chi-que-ren-yu-naglesuan-fa">延迟确认与Nagle算法</h5>
+<p>我们先看看Nagle算法的规则(可参考tcp_output.c文件里tcp_nagle_check函数注释)：</p>
+<p>1)如果包长度达到MSS，则允许发送；</p>
+<p>2)如果该包含有FIN，则允许发送；</p>
+<p>3)设置了TCP_NODELAY选项，则允许发送；</p>
+<p>4)未设置TCP_CORK选项时，若所有发出去的包均被确认，或所有发出去的小数据包(包长度小于MSS)均被确认，则允许发送。</p>
+<p>对于规则4)，就是说要求一个TCP连接上最多只能有一个未被确认的小数据包，在该分组的确认到达之前，不能发送其他的小数据包。如果某个小分组的确认被延迟了(案例中的40ms)，那么后续小分组的发送就会相应的延迟。也就是说延迟确认影响的并不是被延迟确认的那个数据包，而是后续的应答包。</p>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">1 00:44:37.878027 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: S 3512052379:3512052379(0) win 5840 &lt;mss 1448,wscale 7&gt;
+2 00:44:37.878045 IP 175.24.11.18.9877 &gt; 171.24.38.136.44792: S 3581620571:3581620571(0) ack 3512052380 win 5792 &lt;mss 1460,wscale 2&gt;
+3 00:44:37.879080 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: . ack 1 win 46
+......
+4 00:44:38.885325 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: P 1321:1453(132) ack 1321 win 86
+5 00:44:38.886037 IP 175.24.11.18.9877 &gt; 171.24.38.136.44792: P 1321:1453(132) ack 1453 win 2310
+6 00:44:38.887174 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: P 1453:2641(1188) ack 1453 win 102
+7 00:44:38.887888 IP 175.24.11.18.9877 &gt; 171.24.38.136.44792: P 1453:2476(1023) ack 2641 win 2904
+8 00:44:38.925270 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: . ack 2476 win 118
+9 00:44:38.925276 IP 175.24.11.18.9877 &gt; 171.24.38.136.44792: P 2476:2641(165) ack 2641 win 2904
+10 00:44:38.926328 IP 171.24.38.136.44792 &gt; 175.24.11.18.9877: . ack 2641 win 134
+</code></pre>
+<p>从上面的tcpdump抓包分析看，第8个包是延迟确认的，而第9个包的数据，在Server端(175.24.11.18)虽然早就已放到TCP发送缓冲区里面(应用层调用的send已经返回)了，但按照Nagle算法，第9个包需要等到第个7包(小于MSS)的ACK到达后才能发出。</p>
+<h5 id="yan-chi-que-ren-yu-yong-sai-kong-zhi">延迟确认与拥塞控制</h5>
+<p>我们先利用TCP_NODELAY选项关闭Nagle算法，再来分析延迟确认与TCP拥塞控制是如何互相作用的。</p>
+<p>慢启动：TCP的发送方维护一个拥塞窗口，记为cwnd。TCP连接建立是，该值初始化为1个报文段，每收到一个ACK，该值就增加1个报文段。发送方取拥塞窗口与通告窗口(与滑动窗口机制对应)中的最小值作为发送上限(拥塞窗口是发送方使用的流控，而通告窗口则是接收方使用的流控)。发送方开始发送1个报文段，收到ACK后，cwnd从1增加到2，即可以发送2个报文段，当收到这两个报文段的ACK后，cwnd就增加为4，即指数增长：例如第一个RTT内，发送一个包，并收到其ACK，cwnd增加1，而第二个RTT内，可以发送两个包，并收到对应的两个ACK，则cwnd每收到一个ACK就增加1，最终变为4，实现了指数增长。</p>
+<p>在Linux实现里，并不是每收到一个ACK包，cwnd就增加1，如果在收到ACK时，并没有其他数据包在等待被ACK，则不增加。</p>
+<p>本人使用案例1的测试代码，在实际测试中，cwnd从初始值2开始，最终保持3个报文段的值，tcpdump结果如下：</p>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">1 16:46:14.288604 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: S 1324697951:1324697951(0) win 5840 &lt;mss 1460,wscale 2&gt;
+2 16:46:14.289549 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: S 2866427156:2866427156(0) ack 1324697952 win 5792 &lt;mss 1460,wscale 2&gt;
+3 16:46:14.288690 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: . ack 1 win 1460
+......
+4 16:46:15.327493 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: P 1321:1453(132) ack 1321 win 4140
+5 16:46:15.329749 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: P 1321:1453(132) ack 1453 win 2904
+6 16:46:15.330001 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: P 1453:2641(1188) ack 1453 win 4140
+7 16:46:15.333629 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: P 1453:1585(132) ack 2641 win 3498
+8 16:46:15.337629 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: P 1585:1717(132) ack 2641 win 3498
+9 16:46:15.340035 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: P 1717:1849(132) ack 2641 win 3498
+10 16:46:15.371416 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: . ack 1849 win 4140
+11 16:46:15.371461 IP 178.14.5.4.20001 &gt; 178.14.5.3.1913: P 1849:2641(792) ack 2641 win 3498
+12 16:46:15.371581 IP 178.14.5.3.1913 &gt; 178.14.5.4.20001: . ack 2641 win 4536
+</code></pre>
+<p>上表中的包，是在设置TCP_NODELAY，且cwnd已经增长到3的情况，第7、8、9发出后，受限于拥塞窗口大小，即使此时TCP缓冲区有数据可以发送亦不能继续发送，即第11个包必须等到第10个包到达后，才能发出，而第10个包明显有一个40ms的延迟。</p>
+<p>注：通过getsockopt的TCP_INFO选项(man 7 tcp)可以查看TCP连接的详细信息，例如当前拥塞窗口大小，MSS等。</p>
+<h5 id="2-wei-shen-me-shi-40ms-zhe-ge-shi-jian-neng-bu-neng-diao-zheng-ni">2.为什么是40ms？这个时间能不能调整呢？</h5>
+<p>首先在redhat的官方文档中，有如下说明：</p>
+<p>一些应用在发送小的报文时，可能会因为TCP的Delayed Ack机制，导致一定的延迟。其值默认为40ms。可以通过修改tcp_delack_min，调整系统级别的最小延迟确认时间。例如：</p>
+<p><code># echo 1 &gt; /proc/sys/net/ipv4/tcpdelackmin</code></p>
+<p>即是期望设置最小的延迟确认超时时间为1ms。</p>
+<p>不过在slackware和suse系统下，均未找到这个选项，也就是说40ms这个最小值，在这两个系统下，是无法通过配置调整的。</p>
+<p><code>linux-2.6.39.1/net/tcp.h</code>下有如下一个宏定义：</p>
+<p><code>#define TCP_DELACK_MIN    ((unsigned)(HZ/25))    /* minimal time to delay before sending an ACK */</code></p>
+<p>注：Linux内核每隔固定周期会发出<code>timer interrupt(IRQ 0)</code>，HZ是用来定义每秒有几次<code>timer interrupts</code>的。举例来说，HZ为1000，代表每秒有1000次<code>timer interrupts</code>。HZ可在编译内核时设置。在我们现有<a rel="noopener" target="_blank" href="https://cloud.tencent.com/act/pro/promotion-cvm?from_column=20065&amp;from=20065">服务器</a>上跑的系统，HZ值均为250。</p>
+<p>以此可知，最小的延迟确认时间为40ms。</p>
+<p>TCP连接的延迟确认时间一般初始化为最小值40ms，随后根据连接的重传超时时间(RTO)、上次收到数据包与本次接收数据包的时间间隔等参数进行不断调整。具体调整算法，可以参考<code>linux-2.6.39.1/net/ipv4/tcp_input.c, Line 564</code>的<code>tcp_event_data_recv</code>函数。</p>
+<h5 id="3-wei-shen-me-tcp-quickackxu-yao-zai-mei-ci-diao-yong-recvhou-zhong-xin-she-zhi">3.为什么TCP_QUICKACK需要在每次调用recv后重新设置？</h5>
+<p>在man 7 tcp中，有如下说明：</p>
+<pre data-lang="txt" class="language-txt "><code class="language-txt" data-lang="txt">TCP_QUICKACK
+`Enable quickack mode if set or disable quickack mode if cleared. In quickack mode, acks are         sent immediately, rather than delayed if needed in accordance to normal TCP operation.   This flag is not permanent, it only enables a switch to or from quickack mode. Subsequent         operation of the TCP protocol will once again enter&#x2F;leave quickack mode depending on      internal protocol processing and factors such as delayed ack timeouts occurring and data         transfer. This option should not be used in code intended to be portable.`
+</code></pre>
+<p>手册中明确描述<code>TCP_QUICKACK</code>不是永久的。那么其具体实现是如何的呢？参考<code>setsockopt</code>函数关于<code>TCP_QUICKACK</code>选项的实现：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">case TCP_QUICKACK:
+    if (!val) {
+        icsk-&gt;icsk_ack.pingpong = 1;
+    } else {
+        icsk-&gt;icsk_ack.pingpong = 0;
+        if ((1 &lt;&lt; sk-&gt;sk_state) &amp;
+        (TCPF_ESTABLISHED | TCPF_CLOSE_WAIT) &amp;&amp;
+        inet_csk_ack_scheduled(sk)) {
+            icsk-&gt;icsk_ack.pending |= ICSK_ACK_PUSHED;
+            tcp_cleanup_rbuf(sk, 1);
+            if (!(val &amp; 1))
+            icsk-&gt;icsk_ack.pingpong = 1;
+        }
+    }
+    break;
+</code></pre>
+<p>其实linux下socket有一个pingpong属性来表明当前链接是否为交互数据流，如其值为1，则表明为交互数据流，会使用延迟确认机制。但是pingpong这个值是会动态变化的。例如TCP链接在要发送一个数据包时，会执行如下函数(<code>linux-2.6.39.1/net/ipv4/tcp_output.c</code>, Line 156)：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">&#x2F;* Congestion state accounting after a packet has been sent. *&#x2F;
+static void tcp_event_data_sent(struct tcp_sock *tp,struct sk_buff *skb, struct sock *sk)
+{
+         ......
+         tp-&gt;lsndtime = now;
+         &#x2F;* If it is a reply for ato after last received
+          * packet, enter pingpong mode.
+          *&#x2F;
+         if ((u32)(now - icsk-&gt;icsk_ack.lrcvtime) &lt; icsk-&gt;icsk_ack.ato)
+                   icsk-&gt;icsk_ack.pingpong = 1;
+}
+</code></pre>
+<p>最后两行代码说明：如果当前时间与最近一次接受数据包的时间间隔小于计算的延迟确认超时时间，则重新进入交互数据流模式。也可以这么理解：延迟确认机制被确认有效时，会自动进入交互式。</p>
+<p>通过以上分析可知，<strong>TCP_QUICKACK选项是需要在每次调用recv后重新设置的</strong>。</p>
+<h5 id="4-wei-shen-me-bu-shi-suo-you-bao-du-yan-chi-que-ren">4.为什么不是所有包都延迟确认？</h5>
+<p>TCP实现里，用<code>tcp_in_quickack_mode(linux-2.6.39.1/net/ipv4/tcp_input.c, Line 197)</code>这个函数来判断是否需要立即发送ACK。其函数实现如下：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">&#x2F;* Send ACKs quickly, if &quot;quick&quot; count is not exhausted
+ * and the session is not interactive.
+ *&#x2F;
+static inline int tcp_in_quickack_mode(const struct sock *sk)
+{
+    const struct inet_connection_sock *icsk = inet_csk(sk);
+    return icsk-&gt;icsk_ack.quick &amp;&amp; !icsk-&gt;icsk_ack.pingpong;
+}
+</code></pre>
+<p>要求满足两个条件才能算是quickack模式：</p>
+<ol>
+<li>pingpong被设置为0。</li>
+<li>快速确认数(quick)必须为非0。</li>
+</ol>
+<p>关于pingpong这个值，在前面有描述。而quick这个属性其代码中的注释为：scheduled number of quick acks，即快速确认的包数量，每次进入quickack模式，quick被初始化为接收窗口除以2倍MSS值(linux-2.6.39.1/net/ipv4/tcp_input.c, Line 174)，每次发送一个ACK包，quick即被减1。</p>
+<h5 id="5-guan-yu-tcp-corkxuan-xiang">5.关于TCP_CORK选项</h5>
+<p><code>TCP_CORK</code>选项与<code>TCP_NODELAY</code>一样，是控制Nagle化的。</p>
+<ol>
+<li>打开<code>TCP_NODELAY</code>选项，则意味着无论数据包是多么的小，都立即发送(不考虑拥塞窗口)。</li>
+<li>如果将TCP连接比喻为一个管道，那<code>TCP_CORK</code>选项的作用就像一个塞子。设置<code>TCP_CORK</code>选项，就是用塞子塞住管道，而取消<code>TCP_CORK</code>选项，就是将塞子拔掉。例如下面这段代码：</li>
+</ol>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">int on = 1;
+setsockopt(sockfd, SOL_TCP, TCP_CORK, &amp;on, sizeof(on)); &#x2F;&#x2F;set TCP_CORK
+write(sockfd, ...);    &#x2F;&#x2F;e.g., http header
+sendfile(sockfd, ...); &#x2F;&#x2F;e.g., http body
+on = 0;
+setsockopt(sockfd, SOL_TCP, TCP_CORK, &amp;on, sizeof(on)); &#x2F;&#x2F;unset TCP_CORK
+</code></pre>
+<p>当<code>TCP_CORK</code>选项被设置时，TCP链接不会发送任何的小包，即只有当数据量达到MSS时，才会被发送。当数据传输完成时，通常需要取消该选项，以便被塞住，但是又不够MSS大小的包能及时发出去。如果应用程序确定能一起发送多个数据集合(例如HTTP响应的头和正文)，建议设置<code>TCP_CORK</code>选项，这样在这些数据之间不存在延迟。为提升性能及吞吐量，Web Server、文件服务器这一类一般会使用该选项。</p>
+<p>著名的高性能Web服务器Nginx，在使用sendfile模式的情况下，可以设置打开TCP_CORK选项：将nginx.conf配置文件里的<code>tcp_nopush</code>配置为on。(<code>TCP_NOPUSH</code>与<code>TCP_CORK</code>两个选项实现功能类似，只不过NOPUSH是BSD下的实现，而CORK是Linux下的实现)。另外Nginx为了减少系统调用，追求性能极致，针对短连接(一般传送完数据后，立即主动关闭连接，对于Keep-Alive的HTTP持久连接除外)，程序并不通过<code>setsockopt</code>调用取消TCP_CORK选项，因为关闭连接会自动取消TCP_CORK选项，将剩余数据发出。</p>
+<h2 id="tcp-nodelay-nagle-s-algorithm">TCP_NODELAY &amp; Nagle's Algorithm</h2>
+<p>How to use TCP performance and Nagle's algorithm to get better user experience and performance out of your network.</p>
+<p>October 24, 2016</p>
+<p>If you want to really understand <a rel="noopener" target="_blank" href="https://www.extrahop.com/resources/protocols/tcp/">TCP</a> optimization techniques, how to decide which to use, and how to implement them, you have come to the right place. This post was so long and rich we decided to split it into sections and give it a table of contents. Enjoy!</p>
+<h4 id="1-tcp-background-information-why-nagle-s-algorithm-and-delayed-ack-were-implemented-and-how-they-interact">1. TCP Background Information: Why Nagle's Algorithm and Delayed ACK Were Implemented, and How They Interact</h4>
+<p>Today's internet is a large and global TCP/IP network that sends web pages and huge files of all types across great distances. A lot has changed since the internet was initially built, when small academic and government networks largely used the <a rel="noopener" target="_blank" href="https://www.extrahop.com/resources/protocols/telnet/">Telnet</a> and Network Control Program (NCP) protocols. The internet has grown exponentially since its inception, and as more types of traffic, devices, and protocols have come online, the importance of managing this traffic efficiently has grown as well.</p>
+<p>When the TCP/IP stack took over as the dominant protocol in the early 1980s, leaving Telnet to more specialized purposes, there were finally settings available to optimize traffic flow and avoid congestion and data loss. Even now, though, it can be difficult to know when and how to use these settings. This article will make clear some of the best use cases for common TCP optimization settings and techniques, specifically Nagle's Algorithm, TCP_NODELAY, Delayed ACK and TCP_QUICKACK.</p>
+<p>Nagle's algorithm, named after its creator John Nagle, is one mechanism for improving TCP efficiency by reducing the number of small packets sent over the network. The goal was to prevent a node from transmitting many small packets if the application delivers data to the socket rather slowly. If a process is causing many small packets to be transmitted, it may be creating undue network congestion. This is especially true if the payload of a packet is smaller than the TCP header data.</p>
+<p><img src="/obsidian/%E5%BB%B6%E6%97%B6-ack-%E4%B8%8E-nagle-%E7%AE%97%E6%B3%95%E7%BB%93%E5%90%88/assets/network-asset-inefficient-tcp-packet-20240819190424-3pxjlof-7204d2.png" alt="TCP_NODELAY cartoon illustration" /></p>
+<p><em>You wouldn't rent a whole moving truck to move one dresser. Why send a 1-byte Telnet instruction in a 40-byte TCP packet?</em></p>
+<p>This is analogous to loading one dresser into a huge moving truck and then driving across town. Unless the dresser needs to get there immediately, you might as well wait and fill the truck up. That's what Nagle's algorithm does. Nagle's algorithm is used to optimize the data transfer by consolidating multiple small request bytes into a single TCP segment so that the ratio of header data to payload is more efficient. TCP headers take up 40 bytes, and there are plenty of applications that can emit a single byte of payload. If your environment is configured to send data immediately, you could end up sending a 41 byte packet with only one byte of actual payload.</p>
+<p>TCP delayed acknowledgment or Delayed ACK is another technique used by some implementations of the TCP in an effort to improve network performance and reduce congestion. Delayed ACK was invented to reduce the number of ACKs required to acknowledge the segments and reduce the protocol overhead. Delayed ACK is the destination retaining the ACK segment for the value of the delayed ACK timer, about 200 - 500 ms. Delayed ACK means TCP doesn't immediately acknowledge every single received TCP segment. Several ACK responses may be combined together into a single response, reducing protocol overhead. Delayed ACK is basically a bet taken by the destination betting 200 - 500 ms, that a new packet will arrive before the delayed ACK timer expires. Though in some circumstances, the technique can cause a reduction in the application performance.</p>
+<p>It is important to understand the performance impact on your applications when you're deciding which TCP optimization methods to implement.</p>
+<p>Nagle's Algorithm and Delayed ACK were created around the same time, but due to lack of collaboration between the creators, they provided an incomplete and sometimes conflicting solution. John Nagle himself expressed frustration about the situation in a <a rel="noopener" target="_blank" href="https://news.ycombinator.com/item?id=10608356">Hacker News</a> thread on the topic, saying:</p>
+<p>“That still irks me. The real problem is not tinygram prevention. It's ACK delays, and that stupid fixed timer. They both went into TCP around the same time, but independently. I did tinygram prevention (the Nagle algorithm) and Berkeley did delayed ACKs, both in the early 1980s. The combination of the two is awful.”</p>
+<h4 id="2-nagle-s-algorithm-and-delayed-ack-do-not-play-well-together-in-a-tcp-ip-network">2. Nagle's Algorithm and Delayed ACK Do Not Play Well Together in a TCP/IP Network</h4>
+<p>By default, Nagle's algorithm and Delayed ACK are broadly implemented across networks, including the internet. Nagle's algorithm effectively only allows one packet to be actively transporting on the network at any given time, this tends to hold back traffic due to the interactions between the Nagle's algorithm and delayed ACKs. Hence Nagle's algorithm is undesirable in highly interactive environments.</p>
+<p>For example: Delayed ACK tries to send more data per segment if it can. But part of Nagle's algorithm depends on an ACK to send data. Nagle's algorithm and Delayed ACKs together create a problem because Delayed ACKs are waiting around to send the ACK while Nagle's is waiting around to receive the ACK! This creates random stalls of 200-500ms on segments that could otherwise be sent immediately and delivered to the receive-side stack and apps above it.</p>
+<p>In situations where you need your data to be transmitted immediately and one-way latency matters, such as when transmitting user interactions like keypresses or mouse movements from a client to a central server using Telnet, turning off the Nagle algorithm can make for a better user experience. But for almost everything else where only round trip time matters, not one-way, then turning off the Nagle algorithm may not help.</p>
+<p>Delayed ACKs can help in certain circumstances, such as when using the character echo option in Telnet. If the ACKs are tiny and don't use much bandwidth then Delayed ACK is not of much help. These intricacies make it tough to tell when to use Nagle's algorithm, Delayed ACK, and other TCP optimization options.</p>
+<p>There's nothing in TCP to automatically turn Nagle's algorithm or Delayed ACKs off, so you have to understand your network well enough to choose the options that will provide the best performance.</p>
+<h4 id="3-what-are-tcp-nodelay-and-tcp-quickack-and-what-do-they-do">3. What Are TCP_NODELAY and TCP_QUICKACK, And What Do They Do?</h4>
+<p>It is very important to understand the interactions between Nagle's algorithm and Delayed ACKs. The TCP_NODELAY socket option allows your network to bypass Nagle Delays by disabling Nagle's algorithm, and sending the data as soon as it's available. Enabling TCP_NODELAY forces a socket to send the data in its buffer, whatever the packet size. To disable Nagle's buffering algorithm, use the TCP_NODELAY socket option. To disable Delayed ACKs, use the TCP_QUICKACK socket option.</p>
+<p>Enabling the TCP_NODELAY option turns Nagle's algorithm off. In the case of interactive applications or chatty protocols with a lot of handshakes such as SSL, Citrix and Telnet, Nagle's algorithm can cause a drop in performance, whereas enabling TCP_NODELAY can improve the performance.</p>
+<p>In any request-response application protocols where request data can be larger than a packet, this can artificially impose a few hundred milliseconds latency between the requester and the responder, even if the requester has properly buffered the request data. Nagle's algorithm should be disabled by enabling TCP_NODELAY by the requester in this case. If the response data can be larger than a packet, the responder should also disable Nagle's algorithm by enabling TCP_NODELAY so the requester can promptly receive the whole response.</p>
+<h4 id="4-more-resources-on-nagle-delays-delayed-ack-tinygrams-and-silly-window-syndrome">4. More Resources on Nagle Delays, Delayed ACK, Tinygrams, and Silly Window Syndrome</h4>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://www.extrahop.com/blog/to-nagle-or-not-to-nagle-that-is-the-question/">To Nagle or Not to Nagle, That is the Question</a></li>
+<li><a rel="noopener" target="_blank" href="https://forums.extrahop.com/t/nagle-delays-explained/249">Nagle delays explained</a></li>
+<li><a rel="noopener" target="_blank" href="https://www.extrahop.com/blog/what-is-a-tinygram/">What Is a Tinygram?</a></li>
+<li><a rel="noopener" target="_blank" href="https://forums.extrahop.com/t/tinygrams-explained/277">Tinygrams explained</a></li>
+<li><a rel="noopener" target="_blank" href="https://forums.extrahop.com/t/what-is-silly-window-syndrome-extrahop/1563">What is Silly Window Syndrome</a></li>
+<li><a rel="noopener" target="_blank" href="https://forums.extrahop.com/t/what-is-silly-window-syndrome-extrahop/1563">TCP profile setting for the BIG-IP</a></li>
+</ul>
+<h4 id="5-should-i-enable-tcp-nodelay">5. Should I Enable TCP_NODELAY?</h4>
+<p>It really depends on what is your specific workload and dominant traffic patterns on a service. Typically Local Area Networks (LANs) have less issues with traffic congestion as compared to the Wide Area Networks (WANs).</p>
+<p>If you are dealing with non-interactive type traffic or bulk transfers such as SOAP, XMLRPC, HTTP/web traffic then enabling TCP_NODELAY to disable Nagle's algorithm is unnecessary.</p>
+<p>Some contexts where Nagle's algorithm won't help and TCP_NODELAY should be enabled are:</p>
+<ul>
+<li>Highly interactive applications that communicate with a central server (Citrix, networked video games, etc)</li>
+<li>Telnet-connected devices Applications using chatty protocols (Telnet, SSL)</li>
+</ul>
+<h4 id="6-how-do-i-figure-out-if-i-should-enable-tcp-nodelay">6. How Do I Figure Out if I Should Enable TCP_NODELAY?</h4>
+<p>There is no simple rule of thumb as this is very dependent on your traffic patterns and application mix, but here's a good test you can do if you have ExtraHop. Leave the ExtraHop Discover appliance running to get some baseline data, then look at the TCP stat under your key switches. Are you seeing a high number of "tinygrams" (packets that contain a relatively small payload compared to the overhead associated with the headers required to transfer the data.)</p>
+<p>If you see lots of tinygrams or a high number of Nagle Delays as a percentage of overall traffic, then disable TCP_NODELAY that will allow Nagle's algorithm to reduce the tinygrams. Again leave the EDA running for some time and then look at the tinygram number, if this number is still very high then enable TCP_NODELAY, indicating Nagle's algorithm is not reducing the tinygrams.</p>
+<p>Tuning tends to be an iterative process. It takes a some experimentation to know if you should or should not enable TCP_NODELAY, and your needs will change over time as your networking stack and applications grow and change.</p>
+<h4 id="7-how-do-i-know-if-tcp-nodelay-is-helping">7. How do I know if TCP_NODELAY is helping?</h4>
+<p>After enabling TCP_NODELAY to disable Nagle's algorithm and going through the process of tuning, if you see a very low number of Nagle Delays as a percentage of overall traffic and a very low number of tinygrams then you know enabling TCP_NODELAY is helping.</p>
+<p>Conversely if you see a high number of Nagle Delays as a percentage of overall traffic and a very high number of tinygrams then enabling TCP_NODELAY probably is not the best fit for your use case.</p>
+<h4 id="8-how-can-i-resolve-the-issues-caused-by-nagle-s-algorithm-and-delayed-acks">8. How can I resolve the issues caused by Nagle's algorithm and Delayed ACKs?</h4>
+<p>If you have been through the tuning process and are still seeing network congestion issues, you may have problems that can't be solved by tweaking your socket settings. However, there are a few more things to try before giving up:</p>
+<ol>
+<li>Enable TCP_NODELAY to disable Nagle's algorithm via global socket options on the servers</li>
+<li>Make profile tweaks on proxy servers and Load Balancers: This is especially relevant if you're running applications or environments that only sometimes have highly interactive traffic and chatty protocols. By dynamically switching Nagle's Algorithm and TCP_NODELAY on and off at the load balancer level, you can keep even highly heterogeneous traffic mixes running optimally.</li>
+<li>Reduce the Delayed ACK timer on your servers and load balancers. Sometimes, this kind of optimization is handled in software, at the application level, but when that's not the case, you may still be able to dynamically manage the ACK timer at the server or load balancer level.</li>
+</ol>
+<p>As you're making these changes, keep careful watch on your network traffic and see how each tweak impacts congestion.</p>
+<p>At ExtraHop, we get to take a detailed look at plenty of enormous corporate networks, and you'd be surprised how often a major company has purchased hundreds of thousands of dollars in additional network gear unnecessarily because their core protocols, the TCP/IP stack, weren't optimized for their application traffic mix. It really pays to try optimizing your current environment before throwing more hardware at the problem.</p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/延时-ack-与-nagle-算法结合-2/">&#8249; 延时 ACK 与 Nagle 算法结合</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/build-your-text-editor-with-rust/"> Build Your Text Editor With Rust! &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#linuxxia-tcpyan-chi-que-ren-delayed-ack-ji-zhi-dao-zhi-de-shi-yan-wen-ti-fen-xi-teng-xun-yun-kai-fa-zhe-she-qu-teng-xun-yun">Linux下TCP延迟确认(Delayed Ack)机制导致的时延问题分析-腾讯云开发者社区-腾讯云</a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-chi-que-ren-ji-zhi"><small>- 延迟确认机制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-wei-shen-me-tcpyan-chi-que-ren-hui-dao-zhi-yan-chi"><small>- 1.为什么TCP延迟确认会导致延迟？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-chi-que-ren-yu-naglesuan-fa"><small>- 延迟确认与Nagle算法</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yan-chi-que-ren-yu-yong-sai-kong-zhi"><small>- 延迟确认与拥塞控制</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-wei-shen-me-shi-40ms-zhe-ge-shi-jian-neng-bu-neng-diao-zheng-ni"><small>- 2.为什么是40ms？这个时间能不能调整呢？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-wei-shen-me-tcp-quickackxu-yao-zai-mei-ci-diao-yong-recvhou-zhong-xin-she-zhi"><small>- 3.为什么TCP_QUICKACK需要在每次调用recv后重新设置？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-wei-shen-me-bu-shi-suo-you-bao-du-yan-chi-que-ren"><small>- 4.为什么不是所有包都延迟确认？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-guan-yu-tcp-corkxuan-xiang"><small>- 5.关于TCP_CORK选项</small></a>
+        </div>
+        <div>
+          <a href="#tcp-nodelay-nagle-s-algorithm">TCP_NODELAY &amp; Nagle&#x27;s Algorithm</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-tcp-background-information-why-nagle-s-algorithm-and-delayed-ack-were-implemented-and-how-they-interact"><small>- 1. TCP Background Information: Why Nagle&#x27;s Algorithm and Delayed ACK Were Implemented, and How They Interact</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-nagle-s-algorithm-and-delayed-ack-do-not-play-well-together-in-a-tcp-ip-network"><small>- 2. Nagle&#x27;s Algorithm and Delayed ACK Do Not Play Well Together in a TCP&#x2F;IP Network</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-what-are-tcp-nodelay-and-tcp-quickack-and-what-do-they-do"><small>- 3. What Are TCP_NODELAY and TCP_QUICKACK, And What Do They Do?</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-more-resources-on-nagle-delays-delayed-ack-tinygrams-and-silly-window-syndrome"><small>- 4. More Resources on Nagle Delays, Delayed ACK, Tinygrams, and Silly Window Syndrome</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#5-should-i-enable-tcp-nodelay"><small>- 5. Should I Enable TCP_NODELAY?</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-how-do-i-figure-out-if-i-should-enable-tcp-nodelay"><small>- 6. How Do I Figure Out if I Should Enable TCP_NODELAY?</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-how-do-i-know-if-tcp-nodelay-is-helping"><small>- 7. How do I know if TCP_NODELAY is helping?</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#8-how-can-i-resolve-the-issues-caused-by-nagle-s-algorithm-and-delayed-acks"><small>- 8. How can I resolve the issues caused by Nagle&#x27;s algorithm and Delayed ACKs?</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

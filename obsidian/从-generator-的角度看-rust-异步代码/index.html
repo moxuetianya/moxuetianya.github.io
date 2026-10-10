@@ -1,0 +1,281 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://moxuetianya.github.io/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://moxuetianya.github.io/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://moxuetianya.github.io/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://moxuetianya.github.io" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://moxuetianya.github.io/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>从 generator 的角度看 Rust 异步代码 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="作为 2018 edition 一个比较重要的特性 Rust 的异步编程现在已经得到了广泛的使用。使用的时候难免会好奇它是如何运作的，这篇文章尝试从 gener" />
+  <link rel="canonical" href="https://moxuetianya.github.io/obsidian/从-generator-的角度看-rust-异步代码/" />
+  <meta property="og:url" content="https://moxuetianya.github.io/obsidian/从-generator-的角度看-rust-异步代码/" />
+  <meta name="twitter:url" content="https://moxuetianya.github.io/obsidian/从-generator-的角度看-rust-异步代码/" />
+  <meta property="og:description" content="作为 2018 edition 一个比较重要的特性 Rust 的异步编程现在已经得到了广泛的使用。使用的时候难免会好奇它是如何运作的，这篇文章尝试从 gener" />
+  <meta name="twitter:description" content="作为 2018 edition 一个比较重要的特性 Rust 的异步编程现在已经得到了广泛的使用。使用的时候难免会好奇它是如何运作的，这篇文章尝试从 gener" />
+  <meta property="og:title" content="从 generator 的角度看 Rust 异步代码 | 墨雪天琊" />
+  <meta name="twitter:title" content="从 generator 的角度看 Rust 异步代码 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-07-31" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://moxuetianya.github.io/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://moxuetianya.github.io/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://moxuetianya.github.io/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://moxuetianya.github.io/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://moxuetianya.github.io/search_index.en.js?h=ba1f960deb09191afaf3"></script>
+  <script defer src="https://moxuetianya.github.io/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://moxuetianya.github.io/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://moxuetianya.github.io" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://moxuetianya.github.io/"> 首页 </a></li><li><a class="s110" href="https://moxuetianya.github.io/archive/"> 归档 </a></li><li><a class="s110" href="https://moxuetianya.github.io/updated/"> 最近更新 </a></li><li><a class="s110" href="https://moxuetianya.github.io/tags/"> 标签 </a></li><li><a class="s110" href="https://moxuetianya.github.io/search/"> 搜索 </a></li><li><a class="s110" href="https://moxuetianya.github.io/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://moxuetianya.github.io/obsidian/从-generator-的角度看-rust-异步代码/">从 generator 的角度看 Rust 异步代码</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 七月 31, 2024 <span class="rpad"></span> [<a href="https://moxuetianya.github.io/categories/rust/">Rust</a>] #<a href="https://moxuetianya.github.io/tags/rust/">Rust</a>  #<a href="https://moxuetianya.github.io/tags/obsidian/">obsidian</a> </span>
+
+    
+
+
+<h1 id="cong-generator-de-jiao-du-kan-rust-yi-bu-dai-ma">从 generator 的角度看 Rust 异步代码</h1>
+<h2 id="qian-yan">前 言</h2>
+<p>作为 2018 edition 一个比较重要的特性 Rust 的异步编程现在已经得到了广泛的使用。使用的时候难免会好奇它是如何运作的，这篇文章尝试从 generator 以及变量捕获的方面进行探索，而后介绍了在嵌入式时序存储引擎 ceresdb-helix 的研发过程中遇到的一个场景。</p>
+<p>囿于作者水平内容难免存在一些错漏之处，还烦请留言告知。</p>
+<h2 id="part-1-async-await-coroutine-and-generator">PART. 1 async/.await, coroutine and generator</h2>
+<p>async/.await 语法在 1.39 版本[1]进入 stable channel，它能够很方便地编写异步代码：</p>
+<pre data-lang="json" class="language-json "><code class="language-json" data-lang="json">async fn foo() { let x: usize = 233; asynchronous().await; println!(&quot;{}&quot;, x);
+</code></pre>
+<p>在上面的示例中，局部变量 x 能够直接在一次异步过程（fn asynchoronous）之后使用，和写同步代码一样。而在这之前，异步代码一般是通过类似 futures 0.1[2] 形式的组合子来使用，想要给接下来 (如 and_then()) 的异步过程的使用的局部变量需要被显式手动地以闭包出入参的方式链式处理，体验不是特别好。</p>
+<p>async/.await 所做的实际上就是将代码变换一下，变成 generator/coroutine[3] 的形式去执行。一个 coroutine 过程可以被挂起，去做一些别的事情然后再继续恢复执行，目前用起来就是 .await 的样子。以上面的代码为例，在异步过程 foo()中调用了另一个异步过程 asynchronous() ，在第七行的 .await 时当前过程的执行被挂起，等到可以继续执行的时候再被恢复。</p>
+<p>而恢复执行可能需要之前的一些信息，如在 foo()中我们在第八行用到了之前的信息 x。也就是说 async 过程要有能力保存一些内部局部状态，使得它们能够在 .await 之后被继续使用。换句话说要在 generator state 里面保存可能在 yield 之后被使用的局部变量。这里需要引入 pin[4] 机制解决可能出现的自引用问题，这部分不再赘述。</p>
+<h2 id="part-2-visualize-generator-via-mir">PART. 2 visualize generator via MIR</h2>
+<p>我们可以透过 MIR[5]来看一下前面提到的 generator 是什么样子的。MIR 是 Rust 的一个中间表示，基于控制流图 CFG[6]表示。CFG 能够比较直观地展示程序执行起来大概是什么样子，MIR 在有时不清楚你的 Rust 代码到底变成了什么样子的时候能够起到一些帮助。</p>
+<p>想要得到代码的 MIR 表示有几种方法，假如现在手边有一个可用的 Rust toolchain，可以像这样传递一个环境变量给 rustc ，再使用 cargo 进行构建来产生 MIR：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">RUSTFLAGS=&quot;--emit mir&quot; cargo build
+</code></pre>
+<p>构建成功的话会在 target/debug/deps/ 目录下生成一个 .mir 的文件。或者也能通过 <a rel="noopener" target="_blank" title="https://play.rust-lang.org/" href="https://link.juejin.cn/?target=https%3A%2F%2Fplay.rust-lang.org%2F">play.rust-lang.org/</a> 来获取 MIR，在 Run 旁边的溢出菜单上选择 MIR 就可以。</p>
+<p>由 2021-08 nightly 的 toolchain 所产生的 MIR 大概是这个样子的，有许多不认识的东西可以不用管，大概知道一下。</p>
+<ul>
+<li>_0, _1 这些是变量</li>
+<li>有许多语法和 Rust 差不多，如类型注解，函数定义及调用和注释等就行了。</li>
+</ul>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">fn future_1() -&gt; impl Future {
+    let mut _0: impl std::future::Future; &#x2F;&#x2F; return place in scope 0 at src&#x2F;anchored.rs:27:21: 27:21
+    let mut _1: [static generator@src&#x2F;anchored.rs:27:21: 27:23]; &#x2F;&#x2F; in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+
+    bb0: {
+        discriminant(_1) = 0; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+        _0 = from_generator::&lt;[static generator@src&#x2F;anchored.rs:27:21: 27:23]&gt;(move _1) -&gt; bb1; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+                                         &#x2F;&#x2F; mir::Constant
+                                         &#x2F;&#x2F; + span: src&#x2F;anchored.rs:27:21: 27:23
+                                         &#x2F;&#x2F; + literal: Const { ty: fn([static generator@src&#x2F;anchored.rs:27:21: 27:23]) -&gt; impl std::future::Future {std::future::from_generator::&lt;[static generator@src&#x2F;anchored.rs:27:21: 27:23]&gt;}, val: Value(Scalar(&lt;ZST&gt;)) }
+    }
+
+    bb1: {
+        return; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:23: 27:23
+    }
+}
+
+fn future_1::{closure#0}(_1: Pin&lt;&amp;mut [static generator@src&#x2F;anchored.rs:27:21: 27:23]&gt;, _2: ResumeTy) -&gt; GeneratorState&lt;(), ()&gt; {
+    debug _task_context =&gt; _4; &#x2F;&#x2F; in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    let mut _0: std::ops::GeneratorState&lt;(), ()&gt;; &#x2F;&#x2F; return place in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    let mut _3: (); &#x2F;&#x2F; in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    let mut _4: std::future::ResumeTy; &#x2F;&#x2F; in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    let mut _5: u32; &#x2F;&#x2F; in scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+
+    bb0: {
+        _5 = discriminant((*(_1.0: &amp;mut [static generator@src&#x2F;anchored.rs:27:21: 27:23]))); &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+        switchInt(move _5) -&gt; [0_u32: bb1, 1_u32: bb2, otherwise: bb3]; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    }
+
+    bb1: {
+        _4 = move _2; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+        _3 = const (); &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+        ((_0 as Complete).0: ()) = move _3; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:23: 27:23
+        discriminant(_0) = 1; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:23: 27:23
+        discriminant((*(_1.0: &amp;mut [static generator@src&#x2F;anchored.rs:27:21: 27:23]))) = 1; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:23: 27:23
+        return; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:23: 27:23
+    }
+
+    bb2: {
+        assert(const false, &quot;`async fn` resumed after completion&quot;) -&gt; bb2; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    }
+
+    bb3: {
+        unreachable; &#x2F;&#x2F; scope 0 at src&#x2F;anchored.rs:27:21: 27:23
+    }
+}
+</code></pre>
+<p>这个 demo crate 中还有一些别的代码，不过对应上面的 MIR 的源码比较简单：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">async fn future_1() {}
+</code></pre>
+<p>只是一个简单的空的异步函数，可以看到生成的 MIR 会膨胀很多，如果内容稍微多一点的话通过文本形式不太好看。我们可以指定一下生成的 MIR 的格式，然后将它可视化。</p>
+<p>步骤大概如下：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">RUSTFLAGS=&quot;--emit mir -Z dump-mir=F -Z dump-mir-dataflow -Z unpretty=mir-cfg&quot; cargo build &gt; mir.dot
+dot -T svg -o mir.svg mir.dot
+</code></pre>
+<p>能够在当前目录下找到 mir.svg，打开之后可以看到一个像流程图的东西（另一幅差不多的图省略掉了，有兴趣的可以尝试通过上面的方法自己生成一份）。</p>
+<blockquote>
+<p><img src="/obsidian/assets/rust-async-generator/rust-generator-mir-cfg.webp" alt="" /></p>
+</blockquote>
+<p>这里将 MIR 按照基本单位 basic block (bb) 组织，原本的信息都在，并且将各个 basic block 之间的跳转关系画了出来。从上面的图中我们可以看到四个 basic blocks，其中一个是起点，另外三个是终点。首先起点的 bb0 switch（match in rust）了一个变量 _5，按照不同的值分支到不同的 blocks。能大概想象一下这样的代码：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">match _5 {
+  0: jump(bb1),
+    1: jump(bb2),
+    _ =&gt; unreachable()
+}
+</code></pre>
+<p>而 generator 的 state 可以当成就是那个 _5，不同的值就是这个 generator 的各个状态。future_1 的状态写出来大概是这样</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">enum Future1State {
+    Start,
+    Finished,
+}
+</code></pre>
+<p>如果是 §1 中的 async fn foo()，可能还会多一个枚举值来表示那一次 yield。此时再想之前的问题，就能够很自然地想到要跨越 generator 不同阶段的变量需要如何保存了。</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">enum FooState {
+    Start,
+    Yield(usize),
+    Finished,
+}
+</code></pre>
+<h2 id="part-3-generator-captured">PART. 3 generator captured</h2>
+<p>让我们把保存在 generator state 中，能够跨越 .await/yield 被后续阶段使用的变量称为被捕获的变量。那么能不能知道到底哪些变量实际上被捕获了呢？让我们试一试，首先写一个稍微复杂一点的异步函数：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">async fn complex() {
+    let x = 0;
+    future_1().await;
+    let y = 1;
+    future_1().await;
+    println!(&quot;{}, {}&quot;, x, y);
+}
+</code></pre>
+<p>生成的 MIR 及 svg 比较复杂，截取了一段放在了附录中，可以尝试自己生成一份完整的内容。</p>
+<p>稍微浏览一下生成的内容，我们可以看到一个很长的类型总是出现，像是这样子的东西：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">[static generator@src&#x2F;anchored.rs:27:20: 33:2]
+&#x2F;&#x2F; or
+(((*(_1.0: &amp;mut [static generator@src&#x2F;anchored.rs:27:20: 33:2])) as variant#3).0: i32)
+</code></pre>
+<p>对照我们代码的位置可以发现这个类型中所带的两个文件位置就是我们异步函数 complex()的首尾两个大括号，这个类型是一个跟我们这整个异步函数相关的类型。</p>
+<p>通过更进一步的探索我们大概能猜一下，上面代码片段中第一行的是一个实现了 Generator trait[7] 的匿名类型（struct），而 "as variant#3" 是 MIR 中的一个操作，Projection 的 Projection::Downcast，大概在这里[8]生成。在这个 downcast 之后所做的 projection 的到的类型是我们认识的 i32。综合其他类似的片段我们能够推测这个匿名类型和前面描述的 generator state 是差不多的东西，而各个 variant 是不同的状态元组，投影这个 N 元组能够拿到被捕获的局部变量。</p>
+<h2 id="part-4-anchored">PART. 4 anchored</h2>
+<p>知道哪些变量会被捕获能够帮助我们理解自己的代码，也能够基于这些信息进行一些应用。</p>
+<p>先提一下 Rust 类型系统中特殊的一种东西 auto trait[9] 。最常见的就是 Send 和 Sync，这种 auto trait 会自动为所有的类型实现，除非显式地用 negative impl opt-out，并且 negative impl 会传递，如包含了 !Send 的 Rc 结构也是 !Send 的。通过 auto trait 和 negative impl 我们控制一些结构的类型，并让编译器帮忙检查。</p>
+<p>比如 anchored[10] crate 就是提供了通过 auto trait 和 generator 捕获机制所实现的一个小工具，它能够阻止异步函数中指定的变量穿过 .await 点。比较有用的一个场景就是异步过程中关于变量内部可变性的获取。</p>
+<p>通常来说，我们会通过异步锁如 tokio::sync::Mutex 来提供变量的内部可变性；如果这个变量不会穿过 .await point 即被 generator state 捕获，那么 std::sync::Mutex 这种同步锁或者 RefCell 也能使用；如果想要更高的性能，避免这两者运行时的开销，那也能够考虑 UnsafeCell 或其他 unsafe 手段，但是就有一点危险了。而通过 anchored 我们可以在这种场景下控制不安全因素，实现一个安全的方法来提供内部可变性，只要将变量通过 anchored::Anchored 这个 ZST 进行标记，再给整个 async fn 带上一个 attribute 就能够让编译器帮我们确认没有东西错误地被捕获并穿越了 .await、然后导致灾难性的数据竞争。</p>
+<p>就像这样：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[unanchored]
+async fn foo(){
+    {
+        let bar = Anchored::new(Bar {});
+    }
+    async_fn().await;
+}
+</code></pre>
+<p>而这种就会导致编译错误：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">#[unanchored]
+async fn foo(){
+    let bar = Anchored::new(Bar {});
+    async_fn().await;
+    drop(bar);
+}
+</code></pre>
+<p>对于 std 的 Mutex, Ref 和 RefMut 等常见类型，clippy 提供了两个 lints[11] ，它们也是通过分析 generator 的类型来实现的。并且与 anchored 一样都有一个缺点，在除了像上面那样明确使用单独的 block 放置变量外，都会出现 false positive 的情况[12]。因为局部变量在其他的形式下都会被记录下来[13]，导致信息被污染。</p>
+<p>anchored 目前还缺少一些 ergonomic 的接口，attribute macro 和 ecosystem 的其他工具交互的时候也存在一点问题，欢迎感兴趣的小伙伴来了解一下 <a rel="noopener" target="_blank" title="https://github.com/waynexia/anchored" href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2Fwaynexia%2Fanchored">github.com/waynexia/an…</a></p>
+<p>文档：<a rel="noopener" target="_blank" title="https://docs.rs/anchored/0.1.0/anchored/" href="https://link.juejin.cn/?target=https%3A%2F%2Fdocs.rs%2Fanchored%2F0.1.0%2Fanchored%2F">docs.rs/anchored/0.…</a></p>
+<p>「参 考」</p>
+<p>[1]<a rel="noopener" target="_blank" title="https://blog.rust-lang.org/2019/11/07/Async-await-stable.html" href="https://link.juejin.cn/?target=https%3A%2F%2Fblog.rust-lang.org%2F2019%2F11%2F07%2FAsync-await-stable.html">blog.rust-lang.org/2019/11/07/…</a></p>
+<p>[2]<a rel="noopener" target="_blank" title="https://docs.rs/futures/0.1.21/futures/" href="https://link.juejin.cn/?target=https%3A%2F%2Fdocs.rs%2Ffutures%2F0.1.21%2Ffutures%2F">docs.rs/futures/0.1…</a></p>
+<p>[3]<a rel="noopener" target="_blank" title="https://github.com/rust-lang/rfcs/blob/master/text/2033-experimental-coroutines.md" href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2Frust-lang%2Frfcs%2Fblob%2Fmaster%2Ftext%2F2033-experimental-coroutines.md">github.com/rust-lang/r…</a></p>
+<p>[4]<a rel="noopener" target="_blank" title="https://doc.rust-lang.org/std/pin/index.html" href="https://link.juejin.cn/?target=https%3A%2F%2Fdoc.rust-lang.org%2Fstd%2Fpin%2Findex.html">doc.rust-lang.org/std/pin/ind…</a></p>
+<p>[5]<a rel="noopener" target="_blank" title="https://blog.rust-lang.org/2016/04/19/MIR.html" href="https://link.juejin.cn/?target=https%3A%2F%2Fblog.rust-lang.org%2F2016%2F04%2F19%2FMIR.html">blog.rust-lang.org/2016/04/19/…</a></p>
+<p>[6]<a rel="noopener" target="_blank" title="https://en.wikipedia.org/wiki/Control-flow_graph" href="https://link.juejin.cn/?target=https%3A%2F%2Fen.wikipedia.org%2Fwiki%2FControl-flow_graph">en.wikipedia.org/wiki/Contro…</a></p>
+<p>[7]<a rel="noopener" target="_blank" title="https://doc.rust-lang.org/std/ops/trait.Generator.html" href="https://link.juejin.cn/?target=https%3A%2F%2Fdoc.rust-lang.org%2Fstd%2Fops%2Ftrait.Generator.html">doc.rust-lang.org/std/ops/tra…</a></p>
+<p>[8]<a rel="noopener" target="_blank" title="https://github.com/rust-lang/rust/blob/b834c4c1bad7521af47f38f44a4048be0a1fe2ee/compiler/rustc_middle/src/mir/mod.rs#L1915" href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2Frust-lang%2Frust%2Fblob%2Fb834c4c1bad7521af47f38f44a4048be0a1fe2ee%2Fcompiler%2Frustc_middle%2Fsrc%2Fmir%2Fmod.rs%23L1915">github.com/rust-lang/r…</a></p>
+<p>[9]<a rel="noopener" target="_blank" title="https://doc.rust-lang.org/beta/unstable-book/language-features/auto-traits.html" href="https://link.juejin.cn/?target=https%3A%2F%2Fdoc.rust-lang.org%2Fbeta%2Funstable-book%2Flanguage-features%2Fauto-traits.html">doc.rust-lang.org/beta/unstab…</a></p>
+<p>[10]<a rel="noopener" target="_blank" title="https://crates.io/crates/anchored" href="https://link.juejin.cn/?target=https%3A%2F%2Fcrates.io%2Fcrates%2Fanchored">crates.io/crates/anch…</a></p>
+<p>[11]<a rel="noopener" target="_blank" title="https://rust-lang.github.io/rust-clippy/master/#await_holding" href="https://link.juejin.cn/?target=https%3A%2F%2Frust-lang.github.io%2Frust-clippy%2Fmaster%2F%23await_holding">rust-lang.github.io/rust-clippy…</a></p>
+<p>[12]<a rel="noopener" target="_blank" title="https://github.com/rust-lang/rust-clippy/issues/6353" href="https://link.juejin.cn/?target=https%3A%2F%2Fgithub.com%2Frust-lang%2Frust-clippy%2Fissues%2F6353">github.com/rust-lang/r…</a></p>
+<p>[13]<a rel="noopener" target="_blank" title="https://doc.rust-lang.org/stable/nightly-rustc/src/rustc_typeck/check/generator_interior.rs.html#325-334" href="https://link.juejin.cn/?target=https%3A%2F%2Fdoc.rust-lang.org%2Fstable%2Fnightly-rustc%2Fsrc%2Frustc_typeck%2Fcheck%2Fgenerator_interior.rs.html%23325-334">doc.rust-lang.org/stable/nigh…</a></p>
+
+      <nav>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/nginx-only-deal-with-https-and-ignore-http/">&#8249; nginx only deal with https and ignore http</a>
+        </div>
+        <div>
+          <a href="https://moxuetianya.github.io/obsidian/图说c-对象模型-对象内存布局详解/"> 图说C++对象模型：对象内存布局详解 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#cong-generator-de-jiao-du-kan-rust-yi-bu-dai-ma">从 generator 的角度看 Rust 异步代码</a>
+        </div>
+        <div class="hpad">
+          <a href="#qian-yan"><small>- 前 言</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#part-1-async-await-coroutine-and-generator"><small>- PART. 1 async&#x2F;.await, coroutine and generator</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#part-2-visualize-generator-via-mir"><small>- PART. 2 visualize generator via MIR</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#part-3-generator-captured"><small>- PART. 3 generator captured</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#part-4-anchored"><small>- PART. 4 anchored</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
