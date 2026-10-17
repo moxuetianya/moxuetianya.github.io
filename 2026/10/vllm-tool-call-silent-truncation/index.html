@@ -1,0 +1,335 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>客户端卡死在 tool-use 上——vLLM 工具调用静默截断排查记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="opencode 卡死在工具调用上而 vLLM 日志一片干净：截断的 tool call 被重建为合法 JSON、finish_reason 谎报成功，客户端陷入热循环。附源码定位与排查工具箱。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/vllm-tool-call-silent-truncation/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/vllm-tool-call-silent-truncation/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/vllm-tool-call-silent-truncation/" />
+  <meta property="og:description" content="opencode 卡死在工具调用上而 vLLM 日志一片干净：截断的 tool call 被重建为合法 JSON、finish_reason 谎报成功，客户端陷入热循环。附源码定位与排查工具箱。" />
+  <meta name="twitter:description" content="opencode 卡死在工具调用上而 vLLM 日志一片干净：截断的 tool call 被重建为合法 JSON、finish_reason 谎报成功，客户端陷入热循环。附源码定位与排查工具箱。" />
+  <meta property="og:title" content="客户端卡死在 tool-use 上——vLLM 工具调用静默截断排查记 | 墨雪天琊" />
+  <meta name="twitter:title" content="客户端卡死在 tool-use 上——vLLM 工具调用静默截断排查记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-14" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=c223d892f332597b499e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/vllm-tool-call-silent-truncation/">客户端卡死在 tool-use 上——vLLM 工具调用静默截断排查记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 14, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/ai/">AI</a>] #<a href="https://blog.juzhong.asia/tags/llm/">llm</a>  #<a href="https://blog.juzhong.asia/tags/opencode/">opencode</a>  #<a href="https://blog.juzhong.asia/tags/diao-shi/">调试</a> </span>
+
+    
+
+
+<h2 id="xian-xiang-yi-fang-shuo-qia-si-san-fang-du-shuo-mei-cuo">现象：一方说卡死，三方都说没错</h2>
+<p>线上的组合是 gpu 服务器上的 vLLM（dev 版 <code>0.26.1rc1.dev1045</code>）跑 <code>Qwen3.8-27B-FP8</code>（TP=2 + DFlash2 投机解码），agent 参数：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">--enable-auto-tool-choice --tool-call-parser qwen3_coder --reasoning-parser qwen3
+</code></pre>
+<p>客户端是 opencode。现象只有一句话：<strong>客户端 hang 在 tool-use 的返回上</strong>。</p>
+<p>先看服务端，一片干净：</p>
+<ul>
+<li>两天、1190 次 <code>POST /v1/chat/completions</code>，<strong>全部 200 OK</strong></li>
+<li>日志里没有任何 ERROR，唯一能 grep 到的 "error" 都是启动期的无害 warning</li>
+<li><code>Running: N reqs</code> 的 token 数一直在涨，说明引擎在正常干活</li>
+</ul>
+<p>客户端也不报错：界面转圈，一串重复的工具调用，永远不出结果。</p>
+<p>这类"三方都不报错"的故障最麻烦——vLLM 认为自己给了 tool_calls，opencode 认为自己在让模型重试，模型认为自己马上就要写完了。本文记录完整的排查链路、源码级根因，以及一套可复用的排查工具箱。</p>
+<h2 id="di-yi-bu-xian-gao-qing-chu-fu-wu-duan-dao-di-cun-liao-shen-me">第一步：先搞清楚服务端到底存了什么</h2>
+<p>vLLM 是 <code>nohup</code> 裸进程（无 systemd/journald），日志就是启动脚本重定向的那个文件：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># gpu 机上（注意启动用户，日志在它的 $HOME 下）
+ls -lt &#x2F;home&#x2F;smyl&#x2F;logs&#x2F;vllm-8000-*.log
+
+# 关键检索：默认日志里有没有请求&#x2F;响应？
+grep -c &#x27;&quot;messages&quot;&#x27;        vllm-8000-*.log   # 0
+grep -c &#x27;&quot;max_tokens&quot;&#x27;      vllm-8000-*.log   # 0
+grep -c &#x27;&quot;tools&quot;&#x27;           vllm-8000-*.log   # 0
+</code></pre>
+<p>结论：<strong>默认配置下，vLLM 日志只有 access log + 引擎统计，不含任何请求体和生成内容</strong>。想让它存，得重启并加：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">VLLM_LOGGING_LEVEL=DEBUG      # --enable-log-requests 依赖它，默认 INFO
+--enable-log-requests         # 记录请求
+--enable-log-outputs          # 默认 False，记录生成文本
+--max-log-len &lt;n&gt;             # 控制日志里 prompt 截断长度
+</code></pre>
+<p>生产实例不方便重启，所以这次全程用<strong>抓包</strong>代替（后文有命令）。这是个重要前提：<strong>这类问题不要指望从 vLLM 日志里找到答案</strong>。</p>
+<h2 id="di-er-bu-ke-hu-duan-neng-kan-shen-me">第二步：客户端能看什么</h2>
+<p>opencode 的日志（<code>~/.local/share/opencode/log/opencode.log</code>）在 DEBUG 级别也不含请求体，连 <code>max_tokens</code>、<code>finish_reason</code> 都没有；故障发生时一条 WARN/ERROR 都不会有。</p>
+<p>真正有用的客户端记录是<strong>会话数据</strong>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">opencode session list
+opencode session export &lt;sessionID&gt; &gt; s.json
+
+# 或者直接查 DB（快得多）
+db=~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;opencode.db
+sqlite3 -header -column &quot;$db&quot; &quot;
+  select id, type,
+         json_extract(data,&#x27;\$.finish&#x27;)           as finish,
+         json_extract(data,&#x27;\$.tokens.output&#x27;)    as out_tok,
+         json_extract(data,&#x27;\$.tokens.reasoning&#x27;) as rea_tok,
+         json_extract(data,&#x27;\$.outcome&#x27;)          as outcome
+  from session_message where session_id=&#x27;ses_xxx&#x27; order by seq;&quot;
+</code></pre>
+<p>一眼就能看到异常形态：<strong><code>finish=tool-calls</code> 反复出现、每轮 output token 极少、工具的 <code>state.status=error</code></strong>。这就是"热循环"的指纹。</p>
+<h2 id="di-san-bu-wen-ding-fu-xian">第三步：稳定复现</h2>
+<p>不猜，直接造条件。opencode 侧用<strong>项目级配置</strong>（不污染全局）把输出预算压小，并关掉思考让 tool call 立刻开始：</p>
+<pre data-lang="jsonc" class="language-jsonc "><code class="language-jsonc" data-lang="jsonc">&#x2F;&#x2F; &lt;scratch&gt;&#x2F;opencode.jsonc
+{
+  &quot;$schema&quot;: &quot;https:&#x2F;&#x2F;opencode.ai&#x2F;config.json&quot;,
+  &quot;model&quot;: &quot;vllmcut&#x2F;qwen3.8-27b-fp8&quot;,
+  &quot;providers&quot;: {
+    &quot;vllmcut&quot;: {
+      &quot;package&quot;: &quot;aisdk:@ai-sdk&#x2F;openai-compatible&quot;,
+      &quot;settings&quot;: { &quot;baseURL&quot;: &quot;http:&#x2F;&#x2F;&lt;gpu&gt;:8000&#x2F;v1&quot; },
+      &quot;models&quot;: {
+        &quot;qwen3.8-27b-fp8&quot;: {
+          &quot;limit&quot;: { &quot;context&quot;: 200000, &quot;output&quot;: 64 },
+          &quot;body&quot;: { &quot;chat_template_kwargs&quot;: { &quot;enable_thinking&quot;: false } }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<p>然后让它"用 write 工具创建一个 20 行的文件"（长参数，必截断）。实测（每档跑 40 秒左右）：</p>
+<table><thead><tr><th><code>limit.output</code></th><th>assistant 轮数</th><th><code>finish</code> 分布</th><th>错误类型</th></tr></thead><tbody>
+<tr><td>16</td><td>125</td><td>125× tool-calls</td><td>全部 <code>input={}</code></td></tr>
+<tr><td>64</td><td>9（后自停）</td><td>8× tool-calls + 1× length</td><td><code>tool.input-json</code> ×6、<code>tool.execution</code> ×2</td></tr>
+<tr><td>128</td><td>23</td><td>22× tool-calls</td><td><code>tool.execution</code> ×19、<code>tool.input-json</code> ×3</td></tr>
+<tr><td>192</td><td>16</td><td>15× tool-calls</td><td><code>tool.execution</code> ×11、<code>tool.input-json</code> ×4</td></tr>
+</tbody></table>
+<p>交互式 TUI 里跑同一场景（跑约三分半后手动打断）的最终账：</p>
+<pre><code>assistant 轮数: 73      finish: {tool-calls: 72, error: 1}
+错误类型:        tool.execution ×67（缺键）、tool.input-json ×5（未闭合）
+工具执行次数:    0      （executed=False ×72）
+demo.txt:        始终未创建
+累计 token:      input 714,754 &#x2F; output 1,267
+</code></pre>
+<p><strong>73 次工具调用、0 次执行、71 万输入 token、零产出</strong> —— 界面上就是"卡死"。</p>
+<p>这里要先澄清一个容易写错（我就写错过）的表述：<strong>工具不执行，但 opencode 会重试</strong>。参数校验没过，opencode 不会真正调用工具（<code>executed=false</code>、文件不落盘），但它会把校验错误当 tool result 回灌给模型，让模型重新生成参数——于是循环。</p>
+<h2 id="di-si-bu-gen-yin-yi-ceng-yi-ceng-bo">第四步：根因，一层一层剥</h2>
+<h3 id="4-1-mo-xing-shu-chu-de-gen-ben-bu-shi-json">4.1 模型输出的根本不是 JSON</h3>
+<p>用 <code>/v1/completions</code>（它不打 chat template、不跑 tool parser）+ 本地 <code>apply_chat_template</code> 渲染出与 chat 接口完全一致的 prompt，直接拿模型裸输出：</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">&#x27;&lt;tool_call&gt;\n&lt;function=write&gt;\n&lt;parameter=path&gt;\ndemo.txt\n&lt;&#x2F;parameter&gt;\n&lt;parameter=content&gt;\n1. Lorem ipsum&#x27;
+# finish_reason=length（真实！）
+</code></pre>
+<p>两个关键事实：</p>
+<ol>
+<li>模型吐的是 <strong>XML <code>&lt;parameter=…&gt;</code> 块</strong>（Qwen3.8 风格），不是 JSON；</li>
+<li>截断发生在 <code>&lt;parameter=content&gt;</code> 内部——<strong><code>content</code> 这个块从未闭合</strong>，裸生成层的 <code>finish_reason</code> 如实报 <code>length</code>。</li>
+</ol>
+<h3 id="4-2-vllm-ba-ta-zhong-jian-cheng-he-fa-json">4.2 vLLM 把它重建成"合法 JSON"</h3>
+<p><code>qwen3_coder</code> 在这个版本里指向 <code>Qwen3EngineToolParser</code>，真正的转换在 <code>vllm/parser/qwen3.py</code>：</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">def _qwen3_arg_converter(raw_args: str, partial: bool) -&gt; str:
+    params: dict[str, object] = {}
+
+    for match in _PARAM_RE.finditer(raw_args):        # 已闭合的 &lt;parameter=x&gt;v&lt;&#x2F;parameter&gt;
+        params[name] = _trim_wrapping_newlines(value)
+
+    if partial:
+        remaining = _PARAM_RE.sub(&quot;&quot;, raw_args)
+        m = _PARTIAL_PARAM_RE.search(remaining)       # 最后那个没闭合的块
+        if m and m.group(1):
+            params[m.group(1)] = _trim_wrapping_newlines(m.group(2))
+
+    return json.dumps(params, ensure_ascii=False)     # ← 重新序列化，括号必然配平
+</code></pre>
+<p>所以客户端拿到的 <code>arguments</code> 是 <strong>vLLM 用 <code>json.dumps(params)</code> 现造的</strong>：</p>
+<ul>
+<li>括号一定闭合、语法一定合法——因为它是服务端自己序列化的</li>
+<li>缺的键 = 模型还没写到 / 没写完的参数</li>
+<li>解析器永远不会"解析失败"，只会"能收多少收多少"</li>
+</ul>
+<p><code>partial</code> 开关决定两条路的差别（实测，同一 prompt、<code>temperature=0</code>）：</p>
+<table><thead><tr><th>路径</th><th><code>partial</code></th><th>未闭合的 <code>&lt;parameter=content&gt;</code></th><th>客户端收到</th></tr></thead><tbody>
+<tr><td>非流式</td><td><code>False</code></td><td><strong>整个丢掉</strong></td><td><code>{"path": "demo.txt"}</code>（合法但缺键）</td></tr>
+<tr><td>流式</td><td><code>True</code></td><td>收进来</td><td>原始片断流式下发，收尾补 <code>"}</code>；截断点不巧时<strong>真的未闭合</strong></td></tr>
+</tbody></table>
+<pre><code>[非流式] mt=20&#x2F;24&#x2F;30&#x2F;40  finish=tool_calls  args=&#x27;{&quot;path&quot;: &quot;demo.txt&quot;}&#x27;   ← 半截 content 被静默丢弃
+[流式]   mt=24           finish=tool_calls  拼接=&#x27;{&quot;path&quot;: &quot;demo.txt&quot;}&#x27;
+         最后 3 个 delta = [&#x27;{&quot;path&quot;: &quot;&#x27;, &#x27;demo.txt&#x27;, &#x27;&quot;}&#x27;]               ← 闭合是最后一片补的
+[流式]   mt=40           finish=tool_calls  拼接=&#x27;{&quot;path&quot;: &quot;demo.txt&quot;, &quot;content&quot;: &quot;1. Lorem ... \n2&#x27;   ← 真没闭合
+</code></pre>
+<p>一个值写半截时（一个 <code>&lt;parameter&gt;</code> 块都没闭合）就得到 <code>{}</code>。</p>
+<h3 id="4-3-finish-reason-bei-gai-xie">4.3 finish_reason 被改写</h3>
+<p>对照实验：<strong>没有</strong> <code>&lt;tool_call&gt;</code> 标签的截断如实报 <code>length</code>；一旦输出里出现了 <code>&lt;tool_call&gt;</code>，截断就被吞掉、统一报 <code>tool_calls</code>。</p>
+<pre><code>max_tokens=64  finish=length      tool_calls=0     ← 无 tool_call：截断如实上报
+max_tokens=24  finish=tool_calls  args=&#x27;{&quot;path&quot;...}&#x27;  ← 有 tool_call：截断信息丢失
+</code></pre>
+<p>这是整条链里最坑的一环：<strong><code>finish_reason=tool_calls</code> 在这条通道上不再意味着"成功产出工具调用"</strong>。</p>
+<h3 id="4-4-ke-hu-duan-liang-chong-cuo-wu-tong-yi-ge-xun-huan">4.4 客户端两种错误，同一个循环</h3>
+<p>opencode 对工具失败有两种处理，都<strong>不执行</strong>工具、都<strong>回灌重试</strong>：</p>
+<table><thead><tr><th>服务端给的 arguments</th><th><code>error.type</code></th><th>界面表现</th></tr></thead><tbody>
+<tr><td>未闭合 JSON</td><td><code>tool.input-json</code>："Tool call arguments were malformed JSON and were not executed. Retry with valid JSON."</td><td><strong>连错误文字都不显示</strong>，纯转圈</td></tr>
+<tr><td>合法 JSON 但缺必填键</td><td><code>tool.execution</code>："Invalid arguments for tool …: Missing key"</td><td>TUI 可展开显示错误</td></tr>
+</tbody></table>
+<p>再叠加上一节的服务端行为，闭环形成：</p>
+<pre><code>输出预算被截断
+   ↓  裸生成层 finish_reason=length（真实）
+vLLM 转换器收「已闭合的参数块」→ json.dumps() → 语法合法的 JSON
+   ↓  finish_reason 改报 tool_calls（信息丢失）
+opencode 参数校验失败 → 不执行工具 → 错误回灌 → &quot;请重试&quot;
+   ↓
+模型再写 → 再截断 → 死循环（只有 transport error &#x2F; 模型吐出非工具内容 &#x2F; 人工打断能停）
+</code></pre>
+<p>值得注意的是它<strong>不是必然死循环</strong>：<code>limit.output=64</code> 那轮 8 次失败后模型吐出一段纯文本（<code>length</code>），opencode 就停了。这解释了线上"有时卡一会儿、有时卡到天荒地老"的随机感——取决于模型第 N 次是否产出非工具内容。</p>
+<h2 id="pai-cha-gong-ju-xiang-zhe-ci-shi-zhan-yan-zheng-guo-de">排查工具箱（这次实战验证过的）</h2>
+<p><strong>① 抓包看客户端到底发了什么、服务端到底回了什么</strong>（HTTP 明文，最可靠）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># gpu 机上（需要免密 sudo 的用户）
+sudo tcpdump -i any -s0 -A &quot;tcp port 8000 and host &lt;client-ip&gt;&quot; &gt; &#x2F;tmp&#x2F;cap.txt
+
+# 分析。注意 opencode 新版发的是 max_completion_tokens，两个都要抓
+grep -oE &#x27;&quot;max_(completion_)?tokens&quot;:[0-9]+&#x27; &#x2F;tmp&#x2F;cap.txt | sort | uniq -c
+grep -oE &#x27;&quot;finish_reason&quot;: ?&quot;[a-z_]+&quot;&#x27; &#x2F;tmp&#x2F;cap.txt | sort | uniq -c
+# 拿完整 arguments 片段（要允许转义，否则会被 \&quot; 截断——我踩过）
+grep -oE &#x27;&quot;arguments&quot;:&quot;([^&quot;\\]|\\.)*&quot;&#x27; &#x2F;tmp&#x2F;cap.txt | sort | uniq -c
+</code></pre>
+<p>坑：别在 ssh 里 <code>&amp;</code> 后台跑 tcpdump，sshd 会随会话把它收掉；要 tmux 或前台。</p>
+<p><strong>② <code>/v1/completions</code> 拿模型裸输出</strong>（唯一不经过 tool parser 的推理入口）：</p>
+<pre data-lang="python" class="language-python "><code class="language-python" data-lang="python">from transformers import AutoTokenizer
+tok = AutoTokenizer.from_pretrained(MODEL_DIR, trust_remote_code=True)
+prompt = tok.apply_chat_template(msgs, tools=tools, add_generation_prompt=True,
+                                 tokenize=False, enable_thinking=False)
+# POST &#x2F;v1&#x2F;completions, prompt=上面字符串, max_tokens=...
+</code></pre>
+<p>顺带说明接口定位：<code>/v1/completions</code> 是 OpenAI 第一代补全接口（2020，GPT-3 时代），<strong>不是调试接口</strong>，在 vLLM 里是一等公民；<code>/v1/chat/completions</code> 是 2023 年，<code>/v1/responses</code> 是 2025 年。用它不是因为它旧，而是因为只有它"不打模板、不跑 parser"。</p>
+<p><strong>③ <code>/v1/chat/completions/render</code> + <code>/detokenize</code> 拿模型实际输入</strong>（vLLM 专有，只渲染不推理）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">TIDS=$(curl -s localhost:8000&#x2F;v1&#x2F;chat&#x2F;completions&#x2F;render -H &#x27;Content-Type: application&#x2F;json&#x27; \
+  -d &#x27;{&quot;model&quot;:&quot;...&quot;,&quot;messages&quot;:[...],&quot;chat_template_kwargs&quot;:{&quot;enable_thinking&quot;:false}}&#x27; \
+  | python3 -c &#x27;import json,sys;print(json.dumps(json.load(sys.stdin)[&quot;token_ids&quot;]))&#x27;)
+curl -s localhost:8000&#x2F;detokenize -H &#x27;Content-Type: application&#x2F;json&#x27; \
+  -d &quot;{\&quot;model\&quot;:\&quot;...\&quot;,\&quot;tokens\&quot;:$TIDS}&quot;
+# → &#x27;&lt;|im_start|&gt;user\nhi&lt;|im_end|&gt;\n&lt;|im_start|&gt;assistant\n&lt;think&gt;\n\n&lt;&#x2F;think&gt;\n\n&#x27;
+</code></pre>
+<p>带不带 <code>tools</code>、<code>chat_template_kwargs</code> 渲染结果完全不同——排查"客户端模板渲染对不对"的正路。正常请求加 <code>"return_token_ids": true</code> 也能拿到 <code>prompt_token_ids</code>。</p>
+<p><strong>④ 会话数据判定</strong>（见第二步的 SQL），命中下面三条就是本类故障：</p>
+<ul>
+<li><code>finish=tool-calls</code> 反复出现（几十次）</li>
+<li>工具 <code>state.status=error</code>、<code>executed=false</code></li>
+<li>每轮 output token 极少（贴着输出上限）</li>
+</ul>
+<h2 id="xiu-fu-yu-jian-yi">修复与建议</h2>
+<ul>
+<li><strong>客户端把输出预算给足</strong>：<code>limit.output</code> 不只cover正文，<strong>reasoning 也吃同一份 <code>max_tokens</code></strong>。思考把预算吃干时是同一种截断，只是连 <code>&lt;tool_call&gt;</code> 都没开始。</li>
+<li><strong>别信 chat+tools 通道的 <code>finish_reason</code></strong>：<code>tool_calls</code> 只说明"输出里出现过 tool_call 标签"，截断信息已被吞掉。要真相就走 <code>/v1/completions</code> 或抓包。</li>
+<li><strong>schema 校验是最后一道防线</strong>：服务端不会报错（转换器永远"成功"），日志不会记（默认不存请求/响应），只有客户端的必填键校验能发现 <code>"content": Missing key</code>。判定逻辑应放在校验之后，而不是 finish_reason 之后。</li>
+<li><strong>给重试加上限</strong>：opencode 这类"错误回灌 + 要求重试"的策略，在预算不足时会退化成 ~1 req/s 的热循环（实测 71 万 input token 零产出）。给"同类工具错误连续 N 次"设熔断，比依赖模型自己吐出非工具内容可靠得多。</li>
+</ul>
+<h2 id="zong-jie">总结</h2>
+<p>这次排查最有价值的不是结论，而是那个反直觉的事实：<strong>"卡死"的每一方都在按设计工作</strong>。vLLM 的转换器确实尽力了（能收的参数都收了、JSON 还给补闭合了），opencode 的校验确实尽责了（不合法就不执行、还告诉模型哪里错），模型也确实在一次次重写。设计上的缝隙叠在一起：转换器不报"不完整"、finish_reason 丢了 <code>length</code>、客户端错误回灌没有熔断——就成了只有用户能看见的"hang"。</p>
+<p>排查这类"无错误现场"的问题，思路是把三方的话都对齐：抓包看服务端实际发了什么、会话数据看客户端实际收到了什么、<code>/v1/completions</code> 看模型实际说了什么。三个"实际"对上的那一刻，根因就出来了。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/">&#8249; Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/opencode-credential-active-key-mismatch/"> 网页显示还有额度，opencode 却报限额：一个 provider 挂两个账号 key 的坑 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang-yi-fang-shuo-qia-si-san-fang-du-shuo-mei-cuo">现象：一方说卡死，三方都说没错</a>
+        </div>
+        <div>
+          <a href="#di-yi-bu-xian-gao-qing-chu-fu-wu-duan-dao-di-cun-liao-shen-me">第一步：先搞清楚服务端到底存了什么</a>
+        </div>
+        <div>
+          <a href="#di-er-bu-ke-hu-duan-neng-kan-shen-me">第二步：客户端能看什么</a>
+        </div>
+        <div>
+          <a href="#di-san-bu-wen-ding-fu-xian">第三步：稳定复现</a>
+        </div>
+        <div>
+          <a href="#di-si-bu-gen-yin-yi-ceng-yi-ceng-bo">第四步：根因，一层一层剥</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-mo-xing-shu-chu-de-gen-ben-bu-shi-json"><small>- 4.1 模型输出的根本不是 JSON</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-vllm-ba-ta-zhong-jian-cheng-he-fa-json"><small>- 4.2 vLLM 把它重建成&quot;合法 JSON&quot;</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-3-finish-reason-bei-gai-xie"><small>- 4.3 finish_reason 被改写</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-4-ke-hu-duan-liang-chong-cuo-wu-tong-yi-ge-xun-huan"><small>- 4.4 客户端两种错误，同一个循环</small></a>
+        </div>
+        <div>
+          <a href="#pai-cha-gong-ju-xiang-zhe-ci-shi-zhan-yan-zheng-guo-de">排查工具箱（这次实战验证过的）</a>
+        </div>
+        <div>
+          <a href="#xiu-fu-yu-jian-yi">修复与建议</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
