@@ -1,0 +1,310 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="objcopy -I binary 把 400MB 资源嵌入单文件可执行程序：blob 链入 .data、编译期索引表、运行时物化，对比 --add-section 与 bin2c。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/" />
+  <meta property="og:description" content="objcopy -I binary 把 400MB 资源嵌入单文件可执行程序：blob 链入 .data、编译期索引表、运行时物化，对比 --add-section 与 bin2c。" />
+  <meta name="twitter:description" content="objcopy -I binary 把 400MB 资源嵌入单文件可执行程序：blob 链入 .data、编译期索引表、运行时物化，对比 --add-section 与 bin2c。" />
+  <meta property="og:title" content="把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析 | 墨雪天琊" />
+  <meta name="twitter:title" content="把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-16" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=fb07ae569fffc547b67f"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/">把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 16, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/c-c/">C&#x2F;C++</a>] #<a href="https://blog.juzhong.asia/tags/elf/">elf</a>  #<a href="https://blog.juzhong.asia/tags/bian-yi-lian-jie/">编译链接</a>  #<a href="https://blog.juzhong.asia/tags/gcc/">gcc</a> </span>
+
+    
+
+
+<h1 id="ba-400-duo-mb-zi-yuan-qian-jin-dan-ge-ke-zhi-xing-wen-jian-objcopy-i-binary-shou-fa-fen-xi">把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析</h1>
+<blockquote>
+<p><strong>一句话结论</strong>：用 <code>objcopy -I binary</code> 把裸字节包装成合法的 ELF 目标文件（<code>.o</code>），和普通 C 代码一起链接进可执行文件的 <code>.data</code> 段——数据真正进入 <code>PT_LOAD</code> 映射，运行时通过链接期符号直接取地址，零解析、strip 安全；目录树等结构化资产则由生成器拼成"纯字节 blob + 编译期 C 索引表"两部分，等价于一个<strong>把解析逻辑在编译期消化掉的 tar</strong>。</p>
+</blockquote>
+<h2 id="bei-jing-yu-xu-qiu">背景与需求</h2>
+<p>BugHunterAgent（Python 写的漏洞猎手框架）需要交付一个"单文件、只依赖 libc"的可执行程序 <code>build/bughunter</code>，里面要背三块东西：</p>
+<ol>
+<li><strong>bughunter 框架本体</strong> —— Nuitka 编译出的 standalone 目录树 <code>cli.dist/</code>（含插件资产 <code>opencode-project/</code>、用户级依赖 <code>opencode-user/</code>），几百 MB、上千个文件、带 symlink 和可执行权限位；</li>
+<li><strong>opencode</strong> —— bun 现场编译出的单文件 TUI 宿主；</li>
+<li><strong>ripgrep</strong> —— musl 静态链接的 <code>rg</code>。</li>
+</ol>
+<p>运行时（一个几百行的 C bootstrap）首次启动把三块解到 <code>$XDG_CACHE_HOME/bughunter/{bughunter,opencode,ripgrep}-&lt;版本&gt;/</code>，然后 exec 内嵌的 opencode 并注入环境变量。</p>
+<p>本文整理这套"把任意目录树/二进制嵌进 ELF"的手法：基础用法 → 三个容易踩坑的替代方案 → 实际实现 → 最终产物上的实测验证。</p>
+<h2 id="ji-chu-shou-fa-objcopy-i-binary-wu-fen-zhong-ru-men">基础手法：<code>objcopy -I binary</code> 五分钟入门</h2>
+<p>先看一个最小实验，5 个字节就够：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ printf &#x27;ABCDE&#x27; &gt; demo.blob
+$ objcopy -I binary -O elf64-x86-64 -B i386:x86-64 demo.blob demo.o
+$ nm demo.o
+0000000000000005 D _binary_demo_blob_end
+0000000000000005 A _binary_demo_blob_size
+0000000000000000 D _binary_demo_blob_start
+$ objdump -h demo.o
+
+demo.o：     文件格式 elf64-x86-64
+
+节：
+Idx Name          Size      VMA               LMA               File off  Algn
+  0 .data         00000005  0000000000000000  0000000000000000  00000040  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+</code></pre>
+<p>内容一个字节不动地进了 <code>.data</code> 段：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ objdump -s -j .data demo.o
+
+Contents of section .data:
+ 0000 41424344 45                          ABCDE
+</code></pre>
+<p>三个参数的含义：</p>
+<table><thead><tr><th>参数</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>-I binary</code></td><td>输入是<strong>没有任何格式的裸字节</strong>，整个文件就是数据，不解析任何结构</td></tr>
+<tr><td><code>-O elf64-x86-64</code></td><td>输出为 x86-64 的 ELF relocatable（<code>.o</code>），<code>cc</code>/<code>ld</code> 的标准链接输入</td></tr>
+<tr><td><code>-B i386:x86-64</code></td><td>打上架构标记，否则链接器报"体系结构不匹配"拒绝混合链接</td></tr>
+</tbody></table>
+<p><strong>符号名由输入文件名推导</strong>：加 <code>_binary_</code> 前缀、非字母数字字符替换为下划线、加 <code>_start/_end/_size</code> 后缀。<code>demo.blob</code> → <code>_binary_demo_blob_start</code>。注意它是<strong>链接期符号</strong>，不是运行时的查找键——C 侧一个 <code>extern</code> 声明就能用：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">extern const unsigned char _binary_demo_blob_start[];
+</code></pre>
+<p>这手法历史悠久了，等价写法还有 <code>ld -r -b binary -o blob.o blob</code>（<a href="https://blog.juzhong.asia/2023/12/%E4%BD%A0%E6%89%80%E4%B8%8D%E7%9F%A5%E9%81%93%E7%9A%84c/">《你所不知道的 C》</a>里演示过）和汇编的 <code>.incbin</code> 指令。objcopy 版本的好处是目标平台显式写在参数里，跨机器构建行为一致。</p>
+<h2 id="san-ge-xiang-dang-ran-fang-an-de-keng">三个"想当然"方案的坑</h2>
+<h3 id="fang-an-a-lian-jie-wan-zai-add-section-jia-duan">方案 A：链接完再 <code>--add-section</code> 加段？</h3>
+<p>"对最终 ELF 跑 <code>objcopy --add-section .rg=rg.bin</code> 不就行了？"——不行，有个致命问题：</p>
+<p><strong>section 不在运行时内存里。</strong> ELF 加载器（内核 + ld.so）只映射 <code>PT_LOAD</code> 程序头描述的段；section header table 是链接期元数据，<strong>不会被映射</strong>。<code>--add-section</code> 追加的数据只登记在 section header 里，运行中的进程根本看不到它。要读就必须 <code>open("/proc/self/exe")</code> → 解析 ELF header → 遍历 section table → 按名查找 → <code>pread</code>，等于在程序里内置一个小型 ELF 解析器；而且 <strong>strip 一下 section header 就没了</strong>（strip 保留 <code>PT_LOAD</code> 但删 section 表）。</p>
+<p><code>-I binary</code> 转 <code>.o</code> 则相反：数据落进普通 <code>.data</code> 段、被链接器放进 <code>PT_LOAD</code>，<code>extern</code> 符号在链接期解析完毕——运行时零查找、strip 安全、PIE 无关。</p>
+<table><thead><tr><th></th><th><code>--add-section</code>（链接后处理）</th><th><code>-I binary</code> → <code>.o</code>（参与链接）</th></tr></thead><tbody>
+<tr><td>运行时可用</td><td>❌ 不在内存，需解析自身 ELF</td><td>✅ 普通符号直接取地址</td></tr>
+<tr><td>strip 后</td><td>❌ section header 被删</td><td>✅ 不受影响</td></tr>
+<tr><td>树形元数据（路径/权限/symlink）</td><td>❌ 仍需另配 manifest</td><td>✅ 配合索引表解决</td></tr>
+<tr><td>构建流程</td><td>链接后追加步骤</td><td>单次 <code>cc</code> 完成</td></tr>
+</tbody></table>
+<h3 id="fang-an-b-xxd-bin2c-sheng-cheng-c-shu-zu">方案 B：<code>xxd</code>/bin2c 生成 C 数组？</h3>
+<p>小文件没问题，几百 MB 会把编译器打爆：巨型字符串/数组字面量让 gcc/clang 的内存和时间失控。所以大 payload 的正确分工是<strong>字节走 objcopy（O(n) 拷贝，开销极小），C 代码里只放小索引</strong>。</p>
+<h3 id="fang-an-c-nei-qian-tar-gz-yun-xing-shi-zi-jie-ya">方案 C：内嵌 tar.gz，运行时自解压？</h3>
+<p>单文件自解压安装器的经典做法（makeself 一类），但和"只依赖 libc 的 bootstrap"目标冲突：</p>
+<ul>
+<li>tar 解析（512 字节头、八进制字段、长文件名、typeflag）得手写；gzip/zstd 解压得再引依赖</li>
+<li>解析逻辑在运行时执行，代码量和测试面都落在运行时</li>
+</ul>
+<p>它反而点破了本方案的核心思想：<strong>归档格式没问题，问题是"解析"不该发生在运行时</strong>。</p>
+<h2 id="shi-ji-fang-an-blob-bian-yi-qi-suo-yin-biao">实际方案：blob + 编译期索引表</h2>
+<p>一句话概括：<strong>自制一个 tar，但把解析逻辑在编译期消化掉——tar 的 512 字节头变成 C 结构体数组的字段，运行时只剩一个 for 循环。</strong></p>
+<p>构建数据流：</p>
+<pre><code>cli.dist&#x2F; 目录树 ──generate_payload.py──► bughunter.blob（纯字节拼接）+ payload.c（C 索引表）
+opencode 单文件 ──┐                        opencode.blob + 表
+ripgrep  单文件 ──┘                        ripgrep.blob + 表
+
+三个 blob ──objcopy -I binary──► 三个 .o（各带 _binary_*_blob_start 符号）
+
+cc main.c payload.c bughunter-payload.o opencode-payload.o ripgrep-payload.o -o bughunter
+</code></pre>
+<p>生成器 <code>generate_payload.py</code> 做两件事：</p>
+<ol>
+<li><strong><code>collect()</code></strong>：遍历目录树，每个条目记录 <code>(相对路径, 类型 file/dir/symlink, 字节, 权限位)</code>，symlink 存的是链接目标字符串；</li>
+<li><strong><code>emit_table()</code></strong>：所有非目录条目的字节顺序拼进 <code>.blob</code>；同时在 <code>payload.c</code> 里生成 C 数组，<code>data</code> 字段直接写 <code>_binary_&lt;name&gt;_blob_start + &lt;offset&gt;</code>——<strong>偏移在编译期就算好，链接后指针就是最终内存地址</strong>。</li>
+</ol>
+<p>生成的 <code>payload.c</code> 长这样（节选示意）：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">#include &quot;payload.h&quot;
+
+extern const unsigned char _binary_bughunter_blob_start[];
+extern const unsigned char _binary_opencode_blob_start[];
+extern const unsigned char _binary_ripgrep_blob_start[];
+const char bughunter_version[] = &quot;1.2.3&quot;;
+
+const struct payload_entry bughunter_payload[] = {
+    { &quot;bughunter.bin&quot;,                      _binary_bughunter_blob_start + 0,       1234567, 0755, PAYLOAD_FILE },
+    { &quot;opencode-project&quot;,                   NULL,                                  0,       0755, PAYLOAD_DIRECTORY },
+    { &quot;opencode-project&#x2F;opencode.json&quot;,     _binary_bughunter_blob_start + 1234567, 812,     0644, PAYLOAD_FILE },
+    &#x2F;* ... *&#x2F;
+};
+const size_t bughunter_payload_count = sizeof(bughunter_payload) &#x2F; sizeof(bughunter_payload[0]);
+</code></pre>
+<p>索引表结构（<code>payload.h</code>）：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">enum payload_kind { PAYLOAD_DIRECTORY = 1, PAYLOAD_FILE = 2, PAYLOAD_SYMLINK = 3 };
+
+struct payload_entry {
+    const char *path;              &#x2F;* 相对路径 *&#x2F;
+    const unsigned char *data;     &#x2F;* 指向 blob 内偏移，目录为 NULL *&#x2F;
+    size_t size;
+    mode_t mode;                   &#x2F;* 权限位随表保留 *&#x2F;
+    enum payload_kind kind;
+};
+</code></pre>
+<p><strong>为什么拆三个 blob 而不是合并成一个大 blob</strong>：三块资产版本独立（bughunter/opencode/ripgrep 各有版本号），运行时分别装到 <code>&lt;name&gt;-&lt;版本&gt;</code> 三个缓存目录，失效粒度细——只升 ripgrep 时，另两个缓存目录不用重解几百 MB。</p>
+<p>一个容易忽略的耦合：objcopy 的符号名由 <strong>blob 文件名</strong>推导，所以 build.sh 里 blob 文件不能随便改名，否则 <code>payload.c</code> 里的 <code>extern</code> 声明就对不上了（链接报 undefined reference）。</p>
+<h2 id="yun-xing-shi-install-payload">运行时：<code>install_payload</code></h2>
+<p>bootstrap（<code>main.c</code>）的消费逻辑很朴素：</p>
+<ol>
+<li>目标目录 <code>&lt;cache&gt;/&lt;name&gt;-&lt;version&gt;</code> 已存在 → 直接返回（<strong>快速路径</strong>，二次启动零开销）；</li>
+<li>否则解到同级临时目录 <code>.&lt;name&gt;-&lt;version&gt;.tmp-&lt;pid&gt;</code>：for 循环遍历索引表，按 <code>kind</code> 建目录 / <code>symlink()</code> / <code>open+write+fsync</code>，<code>mode</code> 按表恢复；</li>
+<li><code>rename()</code> 原子生效；并发启动撞车时容忍 <code>EEXIST</code>；</li>
+<li>每个条目先做路径安全检查——拒绝绝对路径和 <code>../</code> 穿越（嵌入的路径本身是自己生成的，这是纵深防御）。</li>
+</ol>
+<h2 id="zai-zhen-shi-chan-wu-shang-yan-zheng">在真实产物上验证</h2>
+<p>最终 <code>build/bughunter</code> 435MB，用 nm/objdump 直接看到三块 payload 的真实布局：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ls -lh build&#x2F;bughunter
+-rwxrwxr-x 1 peter peter 435M 10月16日 16:57 build&#x2F;bughunter
+
+$ nm build&#x2F;bughunter | grep _binary_
+000000000fabf423 D _binary_bughunter_blob_end
+000000000f90429b A _binary_bughunter_blob_size
+00000000001bb188 D _binary_bughunter_blob_start
+000000001ad0bca3 D _binary_opencode_blob_end
+000000000b24c880 A _binary_opencode_blob_size
+000000000fabf423 D _binary_opencode_blob_start
+000000001b23452b D _binary_ripgrep_blob_end
+0000000000528888 A _binary_ripgrep_blob_size
+000000001ad0bca3 D _binary_ripgrep_blob_start
+
+$ objdump -h build&#x2F;bughunter | grep -E &#x27;\.data &#x27;
+ 25 .data         1b0793b3  00000000001bb178  00000000001bb178  001ba178  2**3
+</code></pre>
+<p>内存布局一目了然：</p>
+<pre><code>.data 段（VMA 0x1bb178，总大小 0x1b0793b3 ≈ 453MB，占整个文件的 99%）
+0x01bb188  ┌─ bughunter blob   0x0f90429b ≈ 261MB
+0x0fabf423 ├─ opencode blob    0x0b24c880 ≈ 187MB   ← 恰好等于上一个的 end
+0x1ad0bca3 ├─ ripgrep blob     0x0528888  ≈ 5.4MB   ← 恰好等于上一个的 end
+0x1b23452b └─ .data 结束
+</code></pre>
+<p><strong>验算</strong>：261,112,475 + 186,960,000 + 5,408,904 + 16（开头少量普通全局变量）= 453,481,395 = <code>0x1b0793b3</code>，与 <code>.data</code> 段大小严格一致——三个 blob 首尾相接、零填充（objcopy 生成的 <code>.o</code> 对齐是 2⁰，所以 <code>end</code> 严格等于下一个 <code>start</code>）。</p>
+<p>"区分"确实全靠符号，但不是运行时查找：每张索引表在生成期就写死了引用哪个 <code>_binary_*_blob_start</code>，链接器把符号解析成最终地址，运行时拿到的 <code>entries[i].data</code> 已经是指向正确位置的指针——<strong>不存在"这段数据属于哪个 payload"的运行时判定</strong>。objcopy 顺带生成的 <code>_end/_size</code> 符号在这里是冗余的，因为每张表自带 <code>size</code>。</p>
+<p>顺带一提 <code>.data</code> 段的 file-backed 特性：字节在文件里有真实内容，内核按需分页（demand paging），没访问过的页不占物理内存。对比"启动时解压进 tmpfs"的自解压方案，内存友好得多。</p>
+<h2 id="ju-xian-yu-gua-yong-chang-jing">局限与适用场景</h2>
+<p><strong>适合</strong>：</p>
+<ul>
+<li>分发单二进制、离线/受控环境部署——<code>scp</code> 一个文件就完成安装；</li>
+<li>资产与代码强绑定、随版本整体发布的场景（运行时、工具链自带）；</li>
+<li>想要 file-backed 按需分页，而非启动即全量解压。</li>
+</ul>
+<p><strong>不适合</strong>：</p>
+<ul>
+<li>资产频繁热更新——任何 payload 变更都要重发整个 ELF（几百 MB 全量传输）；</li>
+<li>极度在意二进制体积的场景；</li>
+<li>需要对嵌入资产随机修改的场景（它是只读快照，改动要重新构建）。</li>
+</ul>
+<h2 id="zong-jie">总结</h2>
+<p>这套手法把三件事各归其位：</p>
+<ol>
+<li><strong>objcopy 只负责"格式转换"</strong>：裸字节 → 合法 ELF 目标文件，链接后数据进入 <code>PT_LOAD</code>，运行时取址零成本；</li>
+<li><strong>生成器负责"结构"</strong>：目录树压平成 blob + 编译期 C 索引表，归档解析在编译期消化完毕；</li>
+<li><strong>bootstrap 只负责"物化"</strong>：for 循环 + 原子 rename + 版本化缓存目录，二次启动走零开销快速路径。</li>
+</ol>
+<p>想自己上手验证，五行命令就够：<code>printf</code> 造 blob → <code>objcopy -I binary</code> 转 <code>.o</code> → <code>nm</code> 看符号 → <code>objdump -s</code> 看字节 → 写个 <code>extern</code> 的 C 程序链接进去。从 5 字节的 "ABCDE" 到 435MB 的完整框架，是同一个机制。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/udp-bind-connect-quic-datagram/">&#8249; 彻底搞懂：UDP Bind/Connect 底层语义与 QUIC 如何解决 UDP 代理痛点</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/"> Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#ba-400-duo-mb-zi-yuan-qian-jin-dan-ge-ke-zhi-xing-wen-jian-objcopy-i-binary-shou-fa-fen-xi">把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析</a>
+        </div>
+        <div class="hpad">
+          <a href="#bei-jing-yu-xu-qiu"><small>- 背景与需求</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ji-chu-shou-fa-objcopy-i-binary-wu-fen-zhong-ru-men"><small>- 基础手法：objcopy -I binary 五分钟入门</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-ge-xiang-dang-ran-fang-an-de-keng"><small>- 三个&quot;想当然&quot;方案的坑</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-an-a-lian-jie-wan-zai-add-section-jia-duan"><small>· 方案 A：链接完再 --add-section 加段？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-an-b-xxd-bin2c-sheng-cheng-c-shu-zu"><small>· 方案 B：xxd&#x2F;bin2c 生成 C 数组？</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fang-an-c-nei-qian-tar-gz-yun-xing-shi-zi-jie-ya"><small>· 方案 C：内嵌 tar.gz，运行时自解压？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-ji-fang-an-blob-bian-yi-qi-suo-yin-biao"><small>- 实际方案：blob + 编译期索引表</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#yun-xing-shi-install-payload"><small>- 运行时：install_payload</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zai-zhen-shi-chan-wu-shang-yan-zheng"><small>- 在真实产物上验证</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ju-xian-yu-gua-yong-chang-jing"><small>- 局限与适用场景</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

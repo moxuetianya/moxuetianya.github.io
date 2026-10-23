@@ -1,0 +1,181 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>tmux 里的 opencode 一夜变白：tmux 对 OSC 11 背景色查询的代答 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="重新登录后新开的 opencode TUI 全变成白色背景主题，老窗口仍是暗色，同一个二进制、同一份配置。逐一排除版本、环境变量、allow-passthrough 之后，用 script 双向日志抓到字节级证据：tmux 3.5 会替外层终端代答 pane 的 OSC 10&#x2F;11 颜色查询，代答的背景色在 kitty client attach 后变成了 rgb:ffff&#x2F;ffff&#x2F;ffff，opencode 默认 theme.mode=system 据此选中 light 主题。一行 theme.mode=dark 固定住即可。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/opencode-theme-white-tmux-osc11-reply/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/opencode-theme-white-tmux-osc11-reply/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/opencode-theme-white-tmux-osc11-reply/" />
+  <meta property="og:description" content="重新登录后新开的 opencode TUI 全变成白色背景主题，老窗口仍是暗色，同一个二进制、同一份配置。逐一排除版本、环境变量、allow-passthrough 之后，用 script 双向日志抓到字节级证据：tmux 3.5 会替外层终端代答 pane 的 OSC 10&#x2F;11 颜色查询，代答的背景色在 kitty client attach 后变成了 rgb:ffff&#x2F;ffff&#x2F;ffff，opencode 默认 theme.mode=system 据此选中 light 主题。一行 theme.mode=dark 固定住即可。" />
+  <meta name="twitter:description" content="重新登录后新开的 opencode TUI 全变成白色背景主题，老窗口仍是暗色，同一个二进制、同一份配置。逐一排除版本、环境变量、allow-passthrough 之后，用 script 双向日志抓到字节级证据：tmux 3.5 会替外层终端代答 pane 的 OSC 10&#x2F;11 颜色查询，代答的背景色在 kitty client attach 后变成了 rgb:ffff&#x2F;ffff&#x2F;ffff，opencode 默认 theme.mode=system 据此选中 light 主题。一行 theme.mode=dark 固定住即可。" />
+  <meta property="og:title" content="tmux 里的 opencode 一夜变白：tmux 对 OSC 11 背景色查询的代答 | 墨雪天琊" />
+  <meta name="twitter:title" content="tmux 里的 opencode 一夜变白：tmux 对 OSC 11 背景色查询的代答 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-22" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=fb07ae569fffc547b67f"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/opencode-theme-white-tmux-osc11-reply/">tmux 里的 opencode 一夜变白：tmux 对 OSC 11 背景色查询的代答</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 22, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/ai/">AI</a>] #<a href="https://blog.juzhong.asia/tags/opencode/">opencode</a>  #<a href="https://blog.juzhong.asia/tags/tmux/">tmux</a>  #<a href="https://blog.juzhong.asia/tags/terminal/">Terminal</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>SSH + tmux 环境下（上一篇 <a href="https://blog.juzhong.asia/2026/10/opencode-osc52-clipboard-diagnosis/">OSC52 剪贴板排查</a> 的同款环境），按博客的修法处理完、重新登录之后：</p>
+<ul>
+<li><strong>新开的所有 opencode TUI 都是白色背景主题</strong>；</li>
+<li>之前就在跑的老窗口（同一个 tmux session 的 window 4-7）仍然是暗色；</li>
+<li>同一台机器、同一个 <code>~/.opencode/bin/opencode</code>、同一份 <code>cli.json</code>。</li>
+</ul>
+<p>很容易怀疑是博客那三处修改（<code>allow-passthrough on</code>、<code>DISPLAY</code> 改写、tmux <code>extended-keys</code>）干的。最后证明全都无关——根因在 tmux 的一个少有人知的行为：<strong>替外层终端代答 pane 的 OSC 10/11 颜色查询</strong>。</p>
+<h2 id="pai-cha-xian-pai-chu-xian-ran-de-jia-she">排查：先排除显然的假设</h2>
+<p>排查思路是「每个假设配一个可证伪的实验」，全部在同一台机器上完成。</p>
+<p><strong>版本假设</strong>：二进制在 10-20 升级过（老进程的 <code>/proc/PID/exe</code> 指向 deleted inode）。但用带转义序列的截屏对比各窗口实际渲染的主题：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tmux capture-pane -e -p -t 0:$w | grep -ao &#x27;48;2;[0-9;]*&#x27; | sort | uniq -c | sort -rn | head -3
+</code></pre>
+<p>window 5/7 与变白的 window 1 跑的是<strong>同一个 v2.0.32</strong>（窗口背景 <code>10;10;10</code> 暗 vs <code>255;255;255</code> 白），一暗一白——版本排除。</p>
+<p><strong>环境变量假设</strong>：老窗口进程的 <code>DISPLAY=localhost:xx</code> + 已死的 waypipe socket，新窗口是 <code>127.0.0.1</code> + 活 socket。在 tmux 里开新窗口跑全新 opencode 做环境矩阵：完整环境、只 X11、只 Wayland、全剥掉（<code>env -u DISPLAY -u WAYLAND_DISPLAY</code>）——<strong>四种全是白主题</strong>。环境排除。</p>
+<p><strong>tmux 配置假设</strong>：<code>allow-passthrough</code> 开/关各跑一次——都是白。且 <code>~/.tmux.conf</code> 的 mtime 是 10-15，早于翻转点。<code>COLORFGBG</code>、<code>cli.json</code>（mtime 未变）、状态库 kv 表也都没有主题相关的值。全部排除。</p>
+<h2 id="jue-ding-xing-shi-yan-zhua-opencode-stdin-shang-dao-di-shou-dao-liao-shen-me">决定性实验：抓 opencode stdin 上到底收到了什么</h2>
+<p>用 <code>script</code> 的双向日志（<code>-O</code> 记输出、<code>-I</code> 记输入），在 tmux pane 里给 opencode 套一层 pty：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">script -q -f -O &#x2F;tmp&#x2F;oc-out.log -I &#x2F;tmp&#x2F;oc-in.log -c opencode
+</code></pre>
+<p>启动几秒后分析，<strong>INPUT（到达 opencode stdin 的字节）</strong>：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">\x1b]10;rgb:0000&#x2F;0000&#x2F;0000     ← 前景色：黑
+\x1b]11;rgb:ffff&#x2F;ffff&#x2F;ffff     ← 背景色：白 ★
+\x1b[?1;2;4c                   ← DA1 应答
+</code></pre>
+<p>**OUTPUT（opencode 发出的）**里有 <code>\x1b]10;?</code> / <code>\x1b]11;?</code> 两条查询。也就是说：opencode 启动时问终端「你的默认前景/背景色是什么」，<strong>tmux 3.5 直接替外层终端应答了，而且答的是白背景</strong>。opencode 拿到 <code>rgb:ffff/ffff/ffff</code>，按亮度判定 light 主题——白色背景就是这么来的。</p>
+<p>用一个最小 python 探针（raw 模式发 <code>ESC]11;?ST</code>、select 读 stdin）可随时复现：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">raw模式 OSC11 应答: ^[]11;rgb:ffff&#x2F;ffff&#x2F;ffff^[\    ← tmux 的代答
+</code></pre>
+<blockquote>
+<p>探针的坑：最初两轮探测都「无应答」，一度以为 tmux 不代答。其实是 pane shell 的 tty 处于<strong>规范模式（ICANON）</strong>——OSC 应答里没有换行符，规范模式永远不会把它交付给 <code>read()</code>，<code>select()</code> 也不报可读。必须先用 <code>termios</code> 把 stdin 设成 raw（至少清掉 <code>ICANON</code>）才能收到。opencode 自己就是 raw 模式，所以它一直收得到。</p>
+</blockquote>
+<h2 id="yin-guo-lian-yu-shi-jian-xian">因果链与时间线</h2>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">opencode 默认 theme.mode = &quot;system&quot;
+  └─ 启动时发 OSC 10&#x2F;11 颜色查询
+      └─ tmux 3.5 替外层终端代答（attach 时用 ccolour 机制问真实终端并缓存）
+          └─ 当前缓存&#x2F;回落的背景色 = rgb:ffff&#x2F;ffff&#x2F;ffff（白）
+              └─ opencode 判定 light → 白色主题
+</code></pre>
+<p>tmux 的代答值什么时候变的？对齐进程启动时间：</p>
+<ul>
+<li>14:51:04 从 kitty 重新登录 attach（<code>tmux a</code>，pts/0，<code>TERM=xterm-kitty</code>）；</li>
+<li>14:51:18 启动的 opencode → <strong>白</strong>（attach 后 14 秒）；</li>
+<li>14:37:27 启动的 opencode（此时 kitty 尚未 attach）→ 暗色；</li>
+<li>更早的窗口 4-7 → 暗色，且主题在启动时定死、不随后续变化。</li>
+</ul>
+<p>即代答变白与「kitty client attach」精确同步。至于是本地 kitty 上报了浅色背景、还是 kitty 没有应答 tmux 的颜色查询导致回落到 xterm 经典默认（白底黑字），取决于本地终端配置，没有再深究——因为修法与它无关。另外当时还有第二个 client（昨晚 attach 的 <code>TERM=xterm-256color</code> 终端）挂在同一个 session 上，多 client 时 tmux 用哪个 client 的颜色也不确定；同一场里 Shift+Enter 失效也是这个「双登录并存」引起的（extkeys 特性只授予了 <code>xterm-kitty</code> 的 client），一并退出旧登录即可。</p>
+<h2 id="xiu-fu">修复</h2>
+<p>主题固定为暗色，与 tmux 代答什么彻底脱钩。<code>~/.config/opencode/cli.json</code>：</p>
+<pre data-lang="jsonc" class="language-jsonc "><code class="language-jsonc" data-lang="jsonc">{
+  &quot;theme&quot;: { &quot;name&quot;: &quot;opencode&quot;, &quot;mode&quot;: &quot;dark&quot; }
+}
+</code></pre>
+<p>或者在 TUI 里 <code>/settings</code> → Appearance → Color mode → dark mode。改完重开 opencode 生效。</p>
+<h2 id="zong-jie">总结</h2>
+<ul>
+<li>「system」主题的 TUI 本质上是<strong>问终端要背景色</strong>；在 tmux 里，回答问题的不是你的真实终端，而是 <strong>tmux 的代答</strong>（ccolour 缓存，可能过期、可能回落到白底黑字的经典默认、多 client 时还可能换人）——颜色查询和 OSC52 一样是「跨终端边界会被中间人改写」的链路。</li>
+<li>排查这类问题的两个趁手工具：<code>script -O/-I</code> 双向日志（看程序真实收到/发出的转义序列），和 raw 模式 + <code>select</code> 的最小探针（随时复问 tmux）。注意 pane 里的 tty 默认是规范模式，探针必须先关 <code>ICANON</code>，否则无换行的应答永远读不到——这个坑本身比结论更值得记住。</li>
+</ul>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/spice-gl-dmabuf-black-screen/"> virt-viewer 黑屏：spice-gtk 0.42 与 QEMU 10 的 GL dmabuf 不兼容排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha-xian-pai-chu-xian-ran-de-jia-she">排查：先排除显然的假设</a>
+        </div>
+        <div>
+          <a href="#jue-ding-xing-shi-yan-zhua-opencode-stdin-shang-dao-di-shou-dao-liao-shen-me">决定性实验：抓 opencode stdin 上到底收到了什么</a>
+        </div>
+        <div>
+          <a href="#yin-guo-lian-yu-shi-jian-xian">因果链与时间线</a>
+        </div>
+        <div>
+          <a href="#xiu-fu">修复</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

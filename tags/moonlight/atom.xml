@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - moonlight</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://blog.juzhong.asia/tags/moonlight/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://blog.juzhong.asia"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2025-11-11T00:00:00+00:00</updated>
+    <id>https://blog.juzhong.asia/tags/moonlight/atom.xml</id>
+    <entry xml:lang="en">
+        <title>sunshine moonlight 配置linux第二屏幕</title>
+        <published>2025-11-10T21:14:35+08:00</published>
+        <updated>2025-11-11T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2025/11/sunshine moonlight 配置linux第二屏幕/"/>
+        <id>https://blog.juzhong.asia/2025/11/sunshine moonlight 配置linux第二屏幕/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2025/11/sunshine moonlight 配置linux第二屏幕/">&lt;p&gt;安装sunshine和moonlight&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 服务端安装sunshine(需要扩展屏幕主机)
+# https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;LizardByte&amp;#x2F;Sunshine&amp;#x2F;releases&amp;#x2F;tag&amp;#x2F;v2025.924.154138
+sudo apt install .&amp;#x2F;sunshine-ubuntu-24.04-amd64.deb
+
+# 客户端安装moonlight(作为第二屏幕的主机)
+sudo flatpak install com.moonlight_stream.Moonlight
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;xu-ni-xian-shi-qi&quot;&gt;虚拟显示器？&lt;&#x2F;h1&gt;
+&lt;p&gt;使用 Wayland + vkms + Weston headless&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;modinfo vkms | grep filename
+sudo modprobe vkms
+ls &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;drm | grep card
+
+# &amp;#x2F;etc&amp;#x2F;modprobe.d&amp;#x2F;vkms.conf
+# 示例：创建两个 vkms 虚拟显示器
+options vkms nodes=2
+
+sudo apt install libdrm-tests
+modetest -M vkms | grep -i connect
+sudo apt install wlroots-utils
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;vainfo --display drm --device &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;renderD128
+pactl info
+sudo apt install -y x11-xserver-utils weston
+# 主要是 modetest 检查 DRM 输出，Wayland 原生可以使用 wlr-randr 或 Weston 的虚拟输出测试
+weston --backend=headless-backend.so --socket=wayland-headless-0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo apt install edid-decode read-edid
+sudo get-edid &amp;gt; &amp;#x2F;lib&amp;#x2F;firmware&amp;#x2F;edid&amp;#x2F;1080p.bin
+
+sudo tee &amp;#x2F;etc&amp;#x2F;modprobe.d&amp;#x2F;vkms.conf &amp;lt;&amp;lt;&amp;#x27;EOF&amp;#x27;
+options vkms enable_cursor=1 enable_overlay=1 edid_firmware=edid&amp;#x2F;1080p.bin
+EOF
+
+sudo modprobe -r vkms
+sudo modprobe vkms
+
+cat &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;drm&amp;#x2F;card0-Virtual-1&amp;#x2F;edid | edid-decode
+
+sudo cat &amp;#x2F;sys&amp;#x2F;kernel&amp;#x2F;debug&amp;#x2F;dri&amp;#x2F;0&amp;#x2F;state
+modetest -M vkms -s 63@38:1920x1080
+
+sudo udevadm trigger --subsystem-match=drm --action=change
+sudo apt install drm-info
+drm_info &amp;#x2F;dev&amp;#x2F;dri&amp;#x2F;card0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;debian13-zhong-mei-you-vkms&quot;&gt;debian13 中没有vkms?&lt;&#x2F;h1&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;特性&lt;&#x2F;th&gt;&lt;th&gt;vkms&lt;&#x2F;th&gt;&lt;th&gt;virtio-gpu&lt;&#x2F;th&gt;&lt;th&gt;qxl&lt;&#x2F;th&gt;&lt;th&gt;dummy X11&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;驱动位置&lt;&#x2F;td&gt;&lt;td&gt;内核 DRM&lt;&#x2F;td&gt;&lt;td&gt;内核 DRM&lt;&#x2F;td&gt;&lt;td&gt;内核 DRM&lt;&#x2F;td&gt;&lt;td&gt;用户态 X11&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;显示输出&lt;&#x2F;td&gt;&lt;td&gt;✅ DRM 原生&lt;&#x2F;td&gt;&lt;td&gt;✅ DRM 原生&lt;&#x2F;td&gt;&lt;td&gt;✅ DRM 原生&lt;&#x2F;td&gt;&lt;td&gt;❌ 无 DRM 节点&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;硬件依赖&lt;&#x2F;td&gt;&lt;td&gt;无（纯虚拟）&lt;&#x2F;td&gt;&lt;td&gt;需虚拟化环境&lt;&#x2F;td&gt;&lt;td&gt;需 QEMU&#x2F;SPICE&lt;&#x2F;td&gt;&lt;td&gt;无&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;性能&lt;&#x2F;td&gt;&lt;td&gt;软件模拟，较慢&lt;&#x2F;td&gt;&lt;td&gt;中等&lt;&#x2F;td&gt;&lt;td&gt;中等&lt;&#x2F;td&gt;&lt;td&gt;慢&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;Sunshine 兼容&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;⚠️ 需 Xwayland&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;GNOME 可识别&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;td&gt;✅&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;pei-zhi-kms&quot;&gt;配置KMS&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;在电脑上安装 Sunshine，平板上安装 Moonlight，确保能搜索到并能正常控制电脑；&lt;&#x2F;li&gt;
+&lt;li&gt;用下面的命令枚举所有设备接口的连接情况，选择一个未连接（disconnected）的 HDMI 接口（如 HDMI-A-1），记下它：&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;for p in &amp;#x2F;sys&amp;#x2F;class&amp;#x2F;drm&amp;#x2F;*&amp;#x2F;status; do con=${p%&amp;#x2F;status}; echo -n &amp;quot;${con#*&amp;#x2F;card?-}: &amp;quot;; cat $p; done 
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;在 &#x2F;usr&#x2F;lib&#x2F;firmware&#x2F; 下创建一个新的 edid 目录（如果没有），并将你的 edid 文件放在那里。例如 &#x2F;usr&#x2F;lib&#x2F;firmware&#x2F;edid&#x2F;samsung-q800t-hdmi2.1；&lt;&#x2F;li&gt;
+&lt;li&gt;编辑内核参数，添加以下内容。其中 HDMI-A-1 是你选择的接口，edid&#x2F;samsung-q800t-hdmi2.1 是你的 EDID 文件。注意不要漏了最后的 :e：&lt;&#x2F;li&gt;
+&lt;li&gt;drm.edid_firmware=HDMI-A-1:edid&#x2F;samsung-q800t-hdmi2.1 video=HDMI-A-1:e&lt;&#x2F;li&gt;
+&lt;li&gt;重启电脑。如果一切正常，你的电脑会认为有一个新的 HDMI 显示器连接上了，而实际上它是一个虚拟显示器；&lt;&#x2F;li&gt;
+&lt;li&gt;在命令行中运行 sunshine，查看其输出的 KMS Monitor List，找到你的 HDMI 接口对应的编号，停止 Sunshine；&lt;&#x2F;li&gt;
+&lt;li&gt;在正常启动的 Sunshine 的设置中填入上一步的编号，应用设置，确定其投屏的来源是你的虚拟显示器。&lt;&#x2F;li&gt;
+&lt;li&gt;这样就完成了，你可以在 KDE 设置中像普通显示器那样配置该虚拟显示器的分辨率和空间位置，甚至可以在不用时禁用该显示器。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;pre&gt;&lt;code&gt;&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

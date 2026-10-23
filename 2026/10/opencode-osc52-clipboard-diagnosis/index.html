@@ -1,0 +1,785 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>SSH + tmux 下 opencode v2 复制静默失效：OSC52 与 wl-copy 双路径多方验证记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="SSH + X11 转发 + waypipe + tmux 3.5a 环境下 opencode v2.0.24 按复制毫无反应。从二进制考古、pipe-pane 字节捕获、伪终端假客户端对照实验到 wl-copy 三态测试，多方验证两条剪贴板路径的每一环，最终定位：opentui 对 tmux&lt;3.6 强制 DCS 透传信封，而 tmux 默认 allow-passthrough off 将其静默丢弃。2026-10-21&#x2F;22 补记读取侧：waypipe socket 缺 data-control、X11 转发 `localhost` 的 `::1` 10 秒连接，以及 tmux 扩展按键对 Shift+Enter 的影响。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/opencode-osc52-clipboard-diagnosis/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/opencode-osc52-clipboard-diagnosis/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/opencode-osc52-clipboard-diagnosis/" />
+  <meta property="og:description" content="SSH + X11 转发 + waypipe + tmux 3.5a 环境下 opencode v2.0.24 按复制毫无反应。从二进制考古、pipe-pane 字节捕获、伪终端假客户端对照实验到 wl-copy 三态测试，多方验证两条剪贴板路径的每一环，最终定位：opentui 对 tmux&lt;3.6 强制 DCS 透传信封，而 tmux 默认 allow-passthrough off 将其静默丢弃。2026-10-21&#x2F;22 补记读取侧：waypipe socket 缺 data-control、X11 转发 `localhost` 的 `::1` 10 秒连接，以及 tmux 扩展按键对 Shift+Enter 的影响。" />
+  <meta name="twitter:description" content="SSH + X11 转发 + waypipe + tmux 3.5a 环境下 opencode v2.0.24 按复制毫无反应。从二进制考古、pipe-pane 字节捕获、伪终端假客户端对照实验到 wl-copy 三态测试，多方验证两条剪贴板路径的每一环，最终定位：opentui 对 tmux&lt;3.6 强制 DCS 透传信封，而 tmux 默认 allow-passthrough off 将其静默丢弃。2026-10-21&#x2F;22 补记读取侧：waypipe socket 缺 data-control、X11 转发 `localhost` 的 `::1` 10 秒连接，以及 tmux 扩展按键对 Shift+Enter 的影响。" />
+  <meta property="og:title" content="SSH + tmux 下 opencode v2 复制静默失效：OSC52 与 wl-copy 双路径多方验证记 | 墨雪天琊" />
+  <meta name="twitter:title" content="SSH + tmux 下 opencode v2 复制静默失效：OSC52 与 wl-copy 双路径多方验证记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-22" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=fb07ae569fffc547b67f"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/opencode-osc52-clipboard-diagnosis/">SSH + tmux 下 opencode v2 复制静默失效：OSC52 与 wl-copy 双路径多方验证记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 08, 2026 <span class="rpad"></span>更新: 十月 22, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/ai/">AI</a>] #<a href="https://blog.juzhong.asia/tags/ssh/">SSH</a>  #<a href="https://blog.juzhong.asia/tags/tmux/">tmux</a>  #<a href="https://blog.juzhong.asia/tags/opencode/">opencode</a>  #<a href="https://blog.juzhong.asia/tags/clipboard/">clipboard</a>  #<a href="https://blog.juzhong.asia/tags/wayland/">Wayland</a>  #<a href="https://blog.juzhong.asia/tags/waypipe/">waypipe</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>SSH 到远程 Linux 机器上开发，环境是"全家桶"：X11 转发（<code>DISPLAY=localhost:11.0</code>）+
+waypipe 转发 Wayland（<code>WAYLAND_DISPLAY=wayland-HdnS4jlM</code>）+ tmux 3.5a。
+本地终端 kitty。在 opencode v2.0.24 TUI 里按复制（<code>ctrl+x</code> 然后 <code>y</code>）：
+toast 提示 "Copied to clipboard"，但<strong>本地剪贴板是空的</strong>。</p>
+<p>环境变量看起来都"正确"，<code>wl-copy</code>/<code>xclip</code>/<code>xsel</code> 都装着，tmux <code>set-clipboard</code> 也是 <code>on</code>。
+为什么复制就是不通？</p>
+<p>先给结论，再给多方验证过程。</p>
+<h2 id="tl-dr-duan-lian-de-wan-zheng-yin-guo">TL;DR：断链的完整因果</h2>
+<pre><code>opencode v2.0.24 按复制
+  └─ 跨终端边界的只有 OSC52 转义序列(二进制里没有 wl-copy&#x2F;xclip&#x2F;clipboardy,0 命中,
+  │   也不会 spawn 任何外部剪贴板工具——见第二层与验证矩阵)
+      └─ opentui 检测到 tmux 3.5a &lt; 3.6 → 判定 &quot;legacy tmux&quot;
+          └─ OSC52 被强制包进 DCS 透传信封 \ePtmux;...(不再发送原生序列)
+              └─ tmux 默认 allow-passthrough off
+                  └─ 信封被【静默丢弃】→ 复制无声失败,但 toast 照样弹
+</code></pre>
+<blockquote>
+<p><strong>2026-10-09 勘误</strong>:初版写"复制只有一条路"。不准确——写入策略是
+<code>destination: "all-available"</code> 双腿并行(host 原生剪贴板 + terminal OSC52),
+但 host 腿在终端被判为 <code>remote</code>(SSH/能力未知时<strong>默认 true</strong>)时直接
+<code>not-attempted</code>,所以在 SSH+tmux 场景<strong>实际出门的只有 OSC52</strong>,因果链不变。
+详见第二层。</p>
+</blockquote>
+<p>修复只需一行（tmux 会话内立即生效 + 写入 <code>~/.tmux.conf</code> 持久化）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tmux set-option -g allow-passthrough on
+echo &#x27;set -g allow-passthrough on&#x27; &gt;&gt; ~&#x2F;.tmux.conf
+</code></pre>
+<p>而"网上资料说不需要开透传"的说法，只对<strong>发送原生 OSC52</strong> 的程序（如 Neovim）成立；
+tmux 原生转发的可靠性问题是 opentui 弃用这条路径的原因，下文有实验数据。</p>
+<h2 id="di-yi-ceng-fu-zhi-dao-di-zai-na-ge-jin-cheng-zhi-xing">第一层：复制到底在哪个进程执行</h2>
+<p>opencode v2 是客户端-服务端架构，但<strong>剪贴板完全在 TUI 客户端进程内执行</strong>：</p>
+<ul>
+<li><code>packages/tui/src/clipboard.ts</code> 只被 TUI 组件导入；server 包全文 grep <code>wl-copy|xclip|writeOsc52</code> 零命中；</li>
+<li>TUI 通过 <code>createOpencodeClient</code> 以 HTTP/SSE 连接后台服务，是纯客户端；</li>
+<li>你在 shell 里敲 <code>opencode</code> 启动的那个进程本身就是 TUI，OSC52 写到它自己的 stdout。
+剪贴板还有一条 host 腿，但它是<strong>进程内</strong>的 Zig 原生客户端（Wayland 走
+<code>zwlr_data_control</code> 协议、X11 走选区协议），<strong>不 spawn 任何外部工具</strong>。
+（2026-10-09 复测：成功复制后 <code>pgrep xclip / wl-copy / wl-paste</code> 零残留。）</li>
+</ul>
+<p>所以"复制在 server 端、要重启 server 才能更新 <code>WAYLAND_DISPLAY</code>"是常见误解——
+重启 TUI 客户端就够，server 的环境变量与复制无关。
+（但注意：常驻进程持有的是<strong>启动时</strong>的环境。SSH 会话换了 waypipe socket，
+老进程里的 <code>WAYLAND_DISPLAY</code> 就指向死 socket。）</p>
+<h2 id="di-er-ceng-v2-0-24-de-jian-tie-ban-xie-ru-jie-gou-2026-10-09-xiu-zheng">第二层：v2.0.24 的剪贴板写入结构（2026-10-09 修正）</h2>
+<p>对官方二进制做字符串统计（这一步今天依然成立）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ for s in wl-copy xclip clipboardy Ptmux; do echo -n &quot;$s: &quot;; grep -ac &quot;$s&quot; ~&#x2F;.opencode&#x2F;bin&#x2F;opencode; done
+wl-copy: 0
+xclip: 0
+clipboardy: 0
+Ptmux: 3
+</code></pre>
+<p>补充一个更严格的整词级检查（裸二进制的 <code>grep -ac</code> 是子串匹配，<code>xclip</code>
+这种纯 base64 字母组合理论上存在误报可能；按 strings 整词匹配更硬）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ strings -n 5 ~&#x2F;.opencode&#x2F;bin&#x2F;opencode | grep -xE &#x27;wl-copy|wl-paste|xclip|xsel|pbcopy|clip.exe&#x27;
+# 无输出 —— 整词 0 命中（同法只捞出 WAYLAND_DISPLAY 一个环境变量名）
+</code></pre>
+<p><strong>勘误</strong>：初版据此得出"复制只有一条路"，并把二进制里提取的这段 <code>writeText</code>
+当成了写入全貌：</p>
+<pre data-lang="js" class="language-js "><code class="language-js" data-lang="js">writeText(r, i) {
+  let s = u()  &#x2F;&#x2F; osc52_support 能力
+  if (s === &quot;unsupported&quot;) return {status: &quot;not-attempted&quot;, capability: s}
+  return {status: e.copyToClipboardOSC52(r, t(i)) ? &quot;attempted&quot; : &quot;local-failure&quot;, ...}
+}
+</code></pre>
+<p>这段代码是真的，但它只是 <strong>terminal 腿</strong>的适配器
+（<code>createRendererClipboardAdapter</code>），不是剪贴板写入的全部。2026-10-09 用
+release 二进制字符串 + <code>@opentui/core@0.5.16</code>（TUI 依赖的版本）源码双重确认，
+完整结构是：</p>
+<pre><code>TUI clipboard.write → clipboard.writeText({ destination: &quot;all-available&quot; })
+  ├─ terminal 腿: 上面的 OSC52 适配器（osc52 能力门控, tmux&lt;3.6 时包 DCS 信封）
+  └─ host 腿: createHostClipboard → NativeClipboardBackend（Zig 原生）
+       = 进程内 Wayland zwlr_data_control &#x2F; X11 选区客户端（与 wl-copy 同协议！）
+         默认 timeoutMs = 1000ms
+         二进制里可见 zwlr_data_control_manager_v1 &#x2F; wl_data_device_manager 等接口字符串
+</code></pre>
+<blockquote>
+<p><strong>2026-10-21 补充</strong>：host 腿支持的 Wayland 协议其实有<strong>两套</strong> data-control——
+<code>ext_data_control_manager_v1</code>（wayland-protocols 标准版）和
+<code>zwlr_data_control_manager_v1</code>（wlroots 版），二进制里两套接口字符串都在。
+本文 2026-10-08 版只写了后者，属于不完整；这个区别在下面的"读取方向"一节很关键。</p>
+</blockquote>
+<p><code>"all-available"</code> 会把两条腿都跑一遍（并行），<strong>但</strong> core 里有远端保护：</p>
+<pre data-lang="js" class="language-js "><code class="language-js" data-lang="js">canUseRemoteHost = !terminal.remote || options.allowRemoteHost === true
+&#x2F;&#x2F; terminal.remote = capabilities.remote ?? true   ← 能力未知时默认 true
+&#x2F;&#x2F; 不满足时该腿: { status: &quot;not-attempted&quot; }
+</code></pre>
+<p>opencode 没传 <code>allowRemoteHost</code>，而 <code>remote</code> 能力未知时<strong>默认 true</strong>——
+所以在 SSH + tmux 这类"远端"场景，host 腿直接 <code>not-attempted</code>，
+<strong>实际出门的只有 OSC52</strong>。这就是初版"只有一条路"的结论歪打正着的原因：
+机制上双路，效果上单路。</p>
+<p>写入返回的是状态对象、不抛异常，TUI 适配器的成功判定是
+<code>host.status === "written" || terminal.status === "attempted"</code>——
+所以 OSC52 被下游丢弃时 toast 照样弹。这就是"提示成功但剪贴板为空"的直接原因。</p>
+<p><strong>勘误</strong>：初版括号里写"dev 分支的 <code>clipboard.ts</code> 是另一套：OSC52 +
+<code>wl-copy</code>/<code>xclip</code>/<code>xsel</code> 双保险"——<strong>归因错误</strong>。<code>@opentui/core@0.5.16</code>
+的 <code>createHostClipboard</code> 同样是原生 backend（整个包里 <code>wl-copy</code>/<code>xclip</code>/
+<code>xsel</code>/<code>pbcopy</code> 出现 0 次），dev 源码与 release 二进制在这部分一致
+（二进制里同时有该适配器的错误文案和 <code>zwlr_data_control</code> 协议字符串可证）。</p>
+<p><strong>运行时备注</strong>（顺带回答"二进制里怎么又有 Bun 又有 Zig"）：v2 核心代码是
+运行时无关设计——运行时相关位被隔离成 <code>.bun.ts</code>/<code>.node.ts</code>/<code>.workerd.ts</code>
+三套成对适配器（sqlite、pty、filesystem、image、persistent-pty）；npm 分发
+声明 <code>engines: node &gt;= 22</code>，入口是 <code>#!/usr/bin/env node</code> 的 <code>opencode.cjs</code> +
+<code>./server-process</code> 导出；桌面 standalone 则是 <code>bun build --compile</code> 单文件
+（内嵌 Bun v1.4.2，本文抓字节用的就是它——本机 4 个 opencode 进程全是它，
+RSS 各约 0.4GB，没有任何 node 进程）。而 OpenTUI 的 Zig 原生层与上层 JS
+运行时无关：<code>index.bun.js</code>/<code>index.node.js</code> 双入口，Bun 走 <code>bun:ffi</code>、Node
+走 <code>process.dlopen</code>，加载的是同一个 Zig 库。剪贴板 host 腿（OSC52 写出、
+tmux 信封、<code>zwlr_data_control</code> 客户端）就住在这层——上层运行时怎么换，
+本文的字节级结论一字不改。</p>
+<h2 id="di-san-ceng-tmux-3-6-shi-qiang-zhi-dcs-xin-feng-ben-ci-wen-ti-de-gen-yuan">第三层：tmux &lt; 3.6 时强制 DCS 信封（本次问题的根源）</h2>
+<p>从二进制提取的 opentui 逻辑：</p>
+<pre data-lang="js" class="language-js "><code class="language-js" data-lang="js">isLegacyTmux = terminal.name.toLowerCase().includes(&quot;tmux&quot;)
+            &amp;&amp; terminal.version.localeCompare(&quot;3.6&quot;) &lt; 0
+
+writeOsc(seq, force = false) {
+  return this.writeFn(force &amp;&amp; this.inLegacyTmux ? 包DCS信封(seq) : seq)  &#x2F;&#x2F; 二选一！
+}
+</code></pre>
+<p>关键在那个 <code>?:</code>——<strong>二选一</strong>，不是"两个都发"。tmux 通过 XTVERSION 自报 <code>tmux 3.5a</code>，
+<code>3.5a &lt; 3.6</code> → 被判为 legacy → 剪贴板 OSC52 <strong>只以</strong> <code>\ePtmux;</code> 信封形式发出。</p>
+<p>顺带一提：<code>localeCompare</code> 比较版本字符串，字典序下 <code>"3.10" &lt; "3.6"</code>，
+未来 tmux 3.10 也会被误判 legacy——这个启发式挺粗糙。</p>
+<h2 id="yan-zheng-bu-huo-zhen-shi-tui-fa-chu-de-zi-jie-zui-ying-de-zheng-ju">验证：捕获真实 TUI 发出的字节（最硬的证据）</h2>
+<p>静态分析可能过时，直接抓真实 TUI 的输出。在独立 tmux 会话里跑 opencode，
+用 <code>pipe-pane</code> 捕获 pane 原始字节（挂在 tmux 解析<strong>之前</strong>的 pty 输出流上），
+然后模拟键盘触发复制。</p>
+<p><strong>勘误</strong>：初版这段只贴了 6 行梗概，照抄是复现不出来的。两个坑：</p>
+<ol>
+<li><strong>致命坑：会话状态前置条件。</strong> <code>messages.copy</code> 复制的是"最后一条 assistant
+消息的纯文本部分"。<code>-c</code> 续接的会话若以纯工具调用结尾（做实验时几乎必然），
+命令直接走 <code>No text parts found in last assistant message</code> 分支 early
+return——<strong>一个字节都不会写</strong>，屏幕上只有一个 toast。2026-10-09 复现时
+第一次捕获 0 命中就是这个原因，全程 <code>capture-pane</code> 截屏才定位到。
+解法：用 <code>-s &lt;sessionID&gt;</code> 指定一个以纯文本结尾的会话。</li>
+<li><strong>工程坑</strong>：盲等 <code>sleep 9</code> 赌时序（应轮询 <code>capture-pane</code> 直到屏幕稳定）、
+不停 pipe-pane（文件持续增长，"恰好 1 次"无从统计）、解码脚本写成省略号、
+在 shell 里 <code>grep '\e]52;c;'</code> 的转义根本不成立。这类嵌套转义实验必须
+落成脚本文件，不能内联敲。</li>
+</ol>
+<p>完整可复现脚本（两个文件 + 一条命令）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># ============ verify-osc52.sh ============
+#!&#x2F;usr&#x2F;bin&#x2F;env bash
+# 用法: verify-osc52.sh &lt;wrapped|plain|wrapped-headless|plain-headless&gt;
+set -euo pipefail
+MODE=${1:?usage: verify-osc52.sh &lt;wrapped|plain|wrapped-headless|plain-headless&gt;}
+BIN=${OPENCODE_BIN:-$HOME&#x2F;.opencode&#x2F;bin&#x2F;opencode}
+BASE=&#x2F;home&#x2F;peter&#x2F;.tmp&#x2F;opencode
+SESSION=ocverify
+CAP=$BASE&#x2F;oc-tui-capture-$MODE.bin
+
+tmux kill-session -t &quot;$SESSION&quot; 2&gt;&#x2F;dev&#x2F;null || true
+rm -f &quot;$CAP&quot;
+
+# TMUX 可见性决定是否走信封分支; DISPLAY&#x2F;WAYLAND 决定宿主图形环境是否可用
+ENVPFX=(env)
+[[ &quot;$MODE&quot; == plain*          ]] &amp;&amp; ENVPFX+=(-u TMUX)
+[[ &quot;$MODE&quot; == *-headless      ]] &amp;&amp; ENVPFX+=(-u DISPLAY -u WAYLAND_DISPLAY)
+ENVPFX+=(TERM=xterm-256color)   # env 的 -u 必须在变量赋值之前
+
+# -s 指定&quot;最后一条 assistant 消息是纯文本&quot;的会话 =&gt; 复制必有内容
+SESSION_ARG=&quot;-c&quot;
+[[ -n &quot;${OPENCODE_SESSION:-}&quot; ]] &amp;&amp; SESSION_ARG=&quot;-s $OPENCODE_SESSION&quot;
+
+tmux new-session -d -s &quot;$SESSION&quot; -x 120 -y 35 &quot;${ENVPFX[*]} &#x27;$BIN&#x27; $SESSION_ARG&quot;
+tmux pipe-pane -o -t &quot;$SESSION&quot; &quot;cat &gt;&gt; $CAP&quot;   # 水龙头: tmux 解析前的原始字节
+
+# 就绪检测: 轮询到两次连续截屏一致且非空(代替盲等)
+prev=&quot;&quot;; for i in $(seq 1 60); do
+  cur=$(tmux capture-pane -p -t &quot;$SESSION&quot; 2&gt;&#x2F;dev&#x2F;null || true)
+  [[ -n &quot;$cur&quot; &amp;&amp; &quot;$cur&quot; == &quot;$prev&quot; ]] &amp;&amp; break
+  prev=$cur; sleep 0.5
+done
+
+# 驱动按键: leader=ctrl+x, messages.copy=&lt;leader&gt;y (leader 超时默认 2000ms)
+tmux send-keys -t &quot;$SESSION&quot; C-x; sleep 0.6
+tmux capture-pane -p -t &quot;$SESSION&quot; &gt; &quot;$BASE&#x2F;oc-tui-screen-$MODE-2-leader.txt&quot;
+tmux send-keys -t &quot;$SESSION&quot; y;   sleep 2
+
+tmux pipe-pane -t &quot;$SESSION&quot; 2&gt;&#x2F;dev&#x2F;null || true   # 关水龙头
+sleep 0.3; tmux kill-session -t &quot;$SESSION&quot; 2&gt;&#x2F;dev&#x2F;null || true
+python3 &quot;$BASE&#x2F;analyze-capture.py&quot; &quot;$CAP&quot;
+
+# ============ analyze-capture.py ============
+import base64, re, sys
+data = open(sys.argv[1], &quot;rb&quot;).read()
+marker = b&quot;\x1b]52;c;&quot;
+print(f&quot;capture: {sys.argv[1]}  ({len(data)} bytes)&quot;)
+print(f&quot;OSC52 marker 出现次数: {data.count(marker)}&quot;)
+for text, label in [(b&quot;copied to clipboard&quot;, &quot;成功 toast&quot;),
+                    (b&quot;No assistant messages&quot;, &quot;错误:无消息&quot;),
+                    (b&quot;No text parts&quot;, &quot;错误:无文本部分&quot;)]:
+    print(f&quot;{label}: {data.count(text)} 次&quot;)
+# tmux DCS 信封: ESC P tmux; ESC ESC ]52;c;&lt;b64&gt; ESC ESC \ ESC \
+envelope = re.search(rb&quot;\x1bPtmux;\x1b\x1b\]52;c;([A-Za-z0-9+&#x2F;=]+?)\x1b\x1b\\\x1b\\&quot;, data)
+bare = re.search(rb&quot;\x1b\]52;c;([A-Za-z0-9+&#x2F;=]+?)(?:\x07|\x1b\\)&quot;, data)
+match = envelope or bare
+if not match:
+    print(&quot;无完整 OSC52 —— 复制没触发或被会话状态拦截(查屏幕截屏)&quot;)
+    sys.exit(1)
+payload = base64.b64decode(match.group(1))
+print(&quot;形式:&quot;, &quot;tmux DCS 信封(内层 ESC 双写)&quot; if envelope else &quot;裸 OSC52&quot;)
+print(f&quot;payload: {len(payload)} 字节&quot;)
+print(payload.decode(&quot;utf-8&quot;, &quot;replace&quot;)[:200])
+s = data.find(marker)
+print(repr(data[max(0, s-36):s+56]))   # marker 前后原始字节
+</code></pre>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">OPENCODE_SESSION=ses_xxx ~&#x2F;.tmp&#x2F;opencode&#x2F;verify-osc52.sh wrapped
+</code></pre>
+<p>实测输出（v2.0.24，"Greeting" 测试会话）：</p>
+<pre><code>capture: &#x2F;home&#x2F;peter&#x2F;.tmp&#x2F;opencode&#x2F;oc-tui-capture-wrapped.bin  (774461 bytes)
+OSC52 marker 出现次数: 1
+成功 toast: 1 次
+形式: tmux DCS 信封(内层 ESC 双写)
+payload: 38 字节
+Hello! What can I help you with today?
+b&#x27;...\x1b[1;95H\x1b[0m\x1b[0m\x1b[?2026l\x1bPtmux;\x1b\x1b]52;c;SGVsbG8h...&#x27;
+</code></pre>
+<p>77 万字节捕获中恰好 1 次。信封内 ESC 双写（<code>\e\e]52</code>）与二进制中的
+<code>e.replace(/\x1b/g,"\x1B\x1B")</code> 完全吻合——静态分析与动态捕获互相印证。</p>
+<p>追加的三组环境对照（同会话、只动环境变量）：</p>
+<table><thead><tr><th>环境</th><th>OSC52</th><th>形式</th></tr></thead><tbody>
+<tr><td>tmux 内（默认）</td><td>1 次</td><td>DCS 信封</td></tr>
+<tr><td>tmux 内 + 剥掉 DISPLAY/WAYLAND</td><td>1 次</td><td>DCS 信封（host 图形环境缺失不影响 OSC52）</td></tr>
+<tr><td><code>env -u TMUX</code> + 剥掉 DISPLAY/WAYLAND</td><td>1 次</td><td><strong>仍是 DCS 信封</strong></td></tr>
+</tbody></table>
+<p>第三行说明 tmux 判定<strong>不看环境变量</strong>（剪贴板 OSC52 的包装在 Zig 原生层，
+靠终端能力协商识别 tmux），strip <code>$TMUX</code> 骗不过它。</p>
+<h2 id="di-si-ceng-allow-passthrough-de-kai-guan-dui-zhao-shi-yan">第四层：allow-passthrough 的开关对照实验</h2>
+<p>信封被 tmux 放行还是丢弃，取决于 <code>allow-passthrough</code>（默认 <strong>off</strong>）。
+用"伪终端假客户端"做字节级对照——用 Python <code>pty</code> 伪装成一个终端，
+attach 到 tmux 会话，捕获 tmux 客户端输出的全部字节（即"终端将会收到什么"），
+并模拟 kitty 的 DA1/DA2/XTVERSION 应答让 tmux 认可剪贴板能力：</p>
+<table><thead><tr><th>实验</th><th>allow-passthrough</th><th>信封内容到达假终端</th></tr></thead><tbody>
+<tr><td>对照 A</td><td>off</td><td><strong>0 次（静默丢弃实锤）</strong></td></tr>
+<tr><td>对照 B</td><td>on</td><td><strong>1 次（完整放行）</strong></td></tr>
+</tbody></table>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tmux set-option -g allow-passthrough off
+# pane 内发射信封: printf &#x27;\033Ptmux;\033\033]52;c;%s\007\033\\&#x27; &quot;$b64&quot;
+# → 假终端捕获 0 次命中
+tmux set-option -g allow-passthrough on
+# 同样发射 → 1 次命中
+</code></pre>
+<h2 id="fan-xiang-yan-zheng-tmux-yuan-sheng-zhuan-fa-wei-shen-me-bu-kao-pu">反向验证：tmux 原生转发为什么不靠谱</h2>
+<p>"set-clipboard on 时 tmux 会转发原生 OSC52"是文档说法（且要求客户端 TERM 的
+terminfo 有 <code>Ms</code> 扩展能力）。实测（伪终端客户端 + 自制 <code>xterm-clip</code> terminfo 带 Ms）：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ infocmp -x -1 xterm-256color | grep Ms=   # 检查常见 TERM
+# 本机所有 stock terminfo（含 xterm-kitty）都没有 Ms！
+</code></pre>
+<p>10 次原生 OSC52 发射实验中只有 2 次到达假终端——<strong>间歇性成功，未能定位稳定触发条件</strong>
+（attach 后首次发射必丢是唯一稳定规律）。存储侧同样不稳定：<code>set-clipboard on</code>
+时 pane 的原生 OSC52 有时进 <code>tmux show-buffer</code> 有时不进。</p>
+<p>这就是 opentui 对 tmux &lt; 3.6 弃用原生路径、强制信封的经验依据——
+对终端模拟器直连场景，信封透传是唯一 100% 可靠的通道（本实验中 N/N 全部到达）。</p>
+<h2 id="ling-yi-tiao-lu-wl-copy-de-san-tai-waypipe-chang-jing">另一条路：wl-copy 的三态（waypipe 场景）</h2>
+<p><strong>勘误</strong>：初版把这一节表述为"开发分支的 wl-copy 路径"——归因错误。
+2026-10-09 确认：opencode 无论 release 还是 dev，都<strong>从不 spawn <code>wl-copy</code></strong>
+（<code>@opentui/core@0.5.16</code> 全包 0 次出现；host 腿是进程内 Zig 原生
+<code>zwlr_data_control</code> 客户端）。这组三态数据是<strong>对 <code>wl-copy</code> 工具本身</strong>在
+waypipe 场景的实测——但它依然有价值：原生 host 腿走的是<strong>同一个协议</strong>
+（zwlr-data-control）、<strong>同一条 waypipe socket</strong>，所以它刻画的正是
+"opencode 若走 Wayland 剪贴板通道，这条链路的三种健康状况"：</p>
+<table><thead><tr><th>状态</th><th>表现</th><th>实测</th></tr></thead><tbody>
+<tr><td>waypipe 健康</td><td>可用但慢</td><td>2.8s 完成，<code>wl-paste</code> 回读内容一致</td></tr>
+<tr><td>socket 文件已死</td><td>立即失败</td><td><code>exit=1</code>，耗时 0.002s</td></tr>
+<tr><td><strong>僵尸 socket</strong>（文件在、连接 ESTAB、对端已死）</td><td><strong>无限挂起</strong></td><td>30s 超时未完成</td></tr>
+</tbody></table>
+<blockquote>
+<p><strong>2026-10-21 追加</strong>：本机上 <code>printf xxx | wl-copy</code> 会卡住——它在写入前会先
+<code>xdg-mime query filetype</code> 探测类型，而该命令在当前环境里会阻塞。加
+<code>-t text/plain</code> 跳过探测即恢复正常。排查剪贴板时若把 <code>wl-copy</code> 当写入探针，
+记得带 <code>-t</code>，否则会把 MIME 探测的锅错记到 waypipe 头上。</p>
+</blockquote>
+<p>僵尸态最坑：<code>ss -x</code> 显示连接 ESTAB、socket 文件都在，看起来一切正常，
+<code>wl-copy</code> 却永远阻塞。不过"无限挂起"不会原样映射到 opencode：原生 host 腿
+默认 <code>timeoutMs = 1000ms</code>，超时返回 <code>timed-out</code> 状态。</p>
+<p>关于"吞错误"也要修正：实际是<strong>逐腿状态对象</strong>，单腿失败被设计性吞掉；
+只有两腿都失败（host <code>failed</code> 且 terminal 未 <code>attempted</code>）TUI 适配器才
+throw、命令层才弹失败 toast。本文的场景里 OSC52 腿恒为 <code>attempted</code>，
+所以永远只见成功 toast——与初版结论一致，但机制表述如上。</p>
+<p>顺带用自制脚本复现过一个 spawn 方案的坑（opencode 不在此列，但对任何想
+自己 spawn 剪贴板工具的人有效）：<code>xclip -selection clipboard</code> 会 fork 后台
+进程伺服选区，子进程继承 stdout 管道导致 Node 的 <code>close</code> 事件永不触发——
+<code>stdio: ["pipe","pipe","ignore"]</code> 下永久挂死，改成 <code>stdout: "ignore"</code> 立即退出。</p>
+<h2 id="2026-10-21-bu-ji-du-qu-fang-xiang-ctrl-v-dan-clipboard-read-timed-out">2026-10-21 补记：读取方向——Ctrl+V 弹 "Clipboard read timed out"</h2>
+<p>上文讨论的都是<strong>写</strong>（复制）。同一个月里在同一个 SSH + waypipe + tmux 环境又撞上
+<strong>读</strong>（粘贴）失败：opencode TUI 里按 <code>ctrl+v</code>，toast 报
+<code>Clipboard read timed out</code>。而同一时刻 <code>wl-paste</code>、<code>yad</code>、<code>weston-dnd</code> 都正常，
+很容易误判成 <code>WAYLAND_DISPLAY</code> 坏了。实际不是——读和写在这里是不对称的。</p>
+<h3 id="xian-gei-jie-lun">先给结论</h3>
+<pre><code>opencode 读剪贴板（只有 host 腿）
+  └─ 原生 Zig 客户端只认 data-control：
+       ext_data_control_manager_v1 &#x2F; zwlr_data_control_manager_v1
+       └─ 本会话的 Wayland socket（waypipe → Mutter）两个都没有
+            └─ 不会退回普通 wl_data_device，只能干等
+                 └─ timeoutMs=1000 到点 → status=timed-out → &quot;Clipboard read timed out&quot;
+</code></pre>
+<p>读方向没有 terminal/OSC52 腿可退：OSC52 只能写（终端接收后放进本地剪贴板），
+不存在标准化的"向终端查询剪贴板"能力。写方向那套"SSH 下 host 腿
+<code>not-attempted</code>、OSC52 兜底"的结构在读方向不成立——host 腿失败就是整个失败。</p>
+<blockquote>
+<p><strong>2026-10-22 精度补记</strong>：二进制里其实<strong>存在</strong> <code>wl_data_device</code> 兜底代码——能捞到
+helper 窗口标题 <code>OpenTUI Clipboard</code> 和 <code>wl_shell_surface</code> 接口字符串，源码
+<code>wayland.zig::createCoreHelper()</code> 干的正是「建 1×1 顶层窗口拿键盘焦点」那套
+（和 wl-clipboard 思路相同）。但它在本机等于不存在，两道门都过不去：</p>
+<ol>
+<li><code>host.zig</code>：<code>wayland.allow_core_data_device = libraries.is_wsl</code> —— <strong>只在 WSL 启用</strong>；</li>
+<li>helper 用的是 <strong>legacy <code>wl_shell</code></strong>，<code>wayland.zig</code> 要求 registry 里有 <code>wl_shell</code>
+全局（<code>... and self.shell_global != null</code>）；本机 <code>wayland-info | grep -c wl_shell</code>
+是 <strong>0</strong>（Mutter 只保留 xdg-shell/gtk_shell1）。</li>
+</ol>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ for b in ~&#x2F;.opencode&#x2F;bin&#x2F;opencode ~&#x2F;.cache&#x2F;bughunter&#x2F;opencode-2.0.18&#x2F;opencode; do
+    strings -n 6 &quot;$b&quot; | grep -xE &#x27;OpenTUI Clipboard|wl_shell_surface|ext_data_control_manager_v1|zwlr_data_control_manager_v1&#x27;
+  done
+OpenTUI Clipboard
+wl_shell_surface
+ext_data_control_manager_v1
+zwlr_data_control_manager_v1        # 2.0.18 &#x2F; 2.0.32 都能捞到，说明代码在、只是被门控
+</code></pre>
+<p>所以「不会回退 <code>wl_data_device</code>」这个结论仍然成立，准确原因是
+<strong>WSL-only + 依赖 <code>wl_shell</code></strong>，而不是「代码里根本没有这个分支」。</p>
+</blockquote>
+<h3 id="zheng-ju-yi-zhe-ge-socket-shang-mei-you-data-control">证据一：这个 socket 上没有 data-control</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ wayland-info | grep -E &#x27;data_control|data_device&#x27;
+interface: &#x27;wl_data_device_manager&#x27;,                  version:  3, name:  6
+interface: &#x27;zwp_primary_selection_device_manager_v1&#x27;, version:  1, name:  7
+# 没有 zwlr_data_control_manager_v1，也没有 ext_data_control_manager_v1
+</code></pre>
+<p><code>WAYLAND_DISPLAY=wayland-A7XkOftD</code> 指向的是 waypipe 的服务端 socket
+（<code>waypipe ... --display wayland-A7XkOftD server</code>）。全局对象列表里的
+<code>gtk_shell1</code> / <code>zxdg_exporter_v2</code> / <code>zwp_text_input_manager_v3</code> 是
+Mutter/GNOME 的特征，而 <strong>Mutter 这两个 data-control 协议都不实现</strong>
+（KWin 实现 ext-data-control，Sway/wlroots 实现 zwlr + ext）。</p>
+<p>opencode v2.0.18 / v2.0.32 的二进制里两套接口字符串都能找到：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ strings -n 6 ~&#x2F;.opencode&#x2F;bin&#x2F;opencode | grep -xE &#x27;ext_data_control_manager_v1|zwlr_data_control_manager_v1&#x27;
+ext_data_control_manager_v1
+zwlr_data_control_manager_v1
+</code></pre>
+<p>用 pty 驱动同版本二进制、只按一次 <code>ctrl+v</code>，复现到一模一样的 toast。
+从二进制提取的读取路径（<code>preferredTypes</code> 同时要图片和文本）：</p>
+<pre data-lang="js" class="language-js "><code class="language-js" data-lang="js">read({ preferredTypes: [&quot;image&#x2F;png&quot;, &quot;text&#x2F;plain&quot;], selection: &quot;clipboard&quot; })
+if (e.status === &quot;timed-out&quot;) throw Error(&quot;Clipboard read timed out&quot;)
+</code></pre>
+<h3 id="zheng-ju-er-wl-paste-wei-shen-me-neng-yong-ta-zou-de-bu-shi-data-control">证据二：wl-paste 为什么能用——它走的不是 data-control</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ WAYLAND_DEBUG=1 wl-paste -t text&#x2F;plain 2&gt;&amp;1 | grep -E &#x27;get_data_device|create_surface|set_title&#x27;
+-&gt; wl_data_device_manager#6.get_data_device(wl_data_device#3, wl_seat#10)
+-&gt; wl_compositor#4.create_surface(wl_surface#13)
+-&gt; xdg_wm_base#8.get_xdg_surface(xdg_surface#14, wl_surface#13)
+-&gt; xdg_toplevel#15.set_title(&quot;wl-clipboard&quot;)
+</code></pre>
+<p><code>wl-clipboard</code> 发现没有 data-control 后会回退到普通客户端的 <code>wl_data_device</code>：
+临时创建一个 1×1 的 Wayland 顶层窗口拿键盘焦点（Mutter 只给有焦点的客户端发
+selection、允许数据传输），读完再销毁。<code>wl-clipboard(1)</code> 原话就是
+"briefly pop up a tiny transparent surface"。opencode 的原生后端没有这套兜底。</p>
+<p>顺带纠正一个常见误解：<strong><code>wl_data_device</code> 不是 X11</strong>。<code>wl_compositor</code> /
+<code>xdg_wm_base</code> / <code>wl_data_device_manager</code> 全是 Wayland 核心接口，那个 1×1 窗口也是
+Wayland 的 xdg_toplevel，跟 <code>DISPLAY</code> / <code>xclip</code> 无关。X11 是另一条独立选区路径
+（CLIPBOARD/TARGETS/TIMESTAMP 那套），桌面本地由 Xwayland 与合成器互相桥接。</p>
+<h3 id="wei-shen-me-yad-weston-dnd-zheng-chang-bu-dai-biao-jian-tie-ban-zheng-chang">为什么 <code>yad</code> / <code>weston-dnd</code> 正常不代表剪贴板正常</h3>
+<table><thead><tr><th>现象</th><th>能证明</th><th>不能证明</th></tr></thead><tbody>
+<tr><td><code>yad</code> / <code>weston-dnd</code> 正常</td><td>Wayland 连接、<code>xdg_wm_base</code> 正常</td><td>剪贴板协议可用</td></tr>
+<tr><td><code>wl-paste</code> 正常</td><td><code>wl_data_device</code> + 临时 surface 兜底可用</td><td>data-control 可用</td></tr>
+<tr><td>opencode 读超时</td><td>原生后端拿不到 data-control</td><td>Wayland/waypipe 坏了</td></tr>
+</tbody></table>
+<h3 id="lin-shi-rao-guo-yu-shang-you-xiu-fu-fang-xiang">临时绕过与上游修复方向</h3>
+<ol>
+<li><strong>用终端自己的粘贴键</strong>（<code>ctrl+shift+v</code> / <code>cmd+v</code> / 鼠标中键）。文本由终端直接
+写进 pty，不经过 opencode 的 clipboard read，当前环境最可靠。</li>
+<li><strong>换合成器</strong>：KDE/KWin 或 Sway/wlroots。GNOME/Mutter 上即使本机原生图形会话
+也一样读不到（两个 data-control 都不实现），<code>opencode</code> 本机跑并不能绕过。</li>
+<li><strong>上游修复方向</strong>：像 wl-clipboard 一样，在 data-control 缺失时回退
+<code>wl_data_device</code> + 临时 surface。</li>
+<li><strong>X11 回退可行，但 <code>DISPLAY</code> 的 host 不能写 <code>localhost</code></strong>：unset
+<code>WAYLAND_DISPLAY</code>、只留 <code>DISPLAY=localhost:11.0</code>（SSH X11 转发）后，v2.0.18
+实测仍是同一个超时——不是 X11 不通，而是原生 xcb 客户端先连 <code>::1:6011</code>
+被黑洞 ~10s，超过 1s 超时；改成 <code>DISPLAY=127.0.0.1:11.0</code> 后首次读取只要
+60ms。详见下一节（2026-10-22 补记）。</li>
+<li><strong>图片粘贴没有终端捷径</strong>：终端粘贴只能带文本，图片过不去。可行路径是把图落到
+远端后用 <code>@/path/x.png</code>，或把远端存在的绝对路径粘进 prompt（TUI 的
+<code>resolvePastedAttachments</code> 会把 png/jpg/gif/webp/svg/pdf 路径转成图片附件；
+<code>file://</code> 形式只接受空主机名或 <code>localhost</code>）。想要真正的「Ctrl+V 粘图片」，
+用 web 客户端：远端 <code>opencode serve</code> + 本机 <code>ssh -L</code> 转发，浏览器跑在本机，
+粘贴、拖拽、选文件都可用。</li>
+</ol>
+<h3 id="shu-yu-cheng-qing-bracketed-paste-yu-osc-52-shi-liang-tao-bu-tong-de-zhuan-yi-xu-lie">术语澄清：Bracketed Paste 与 OSC 52 是两套不同的转义序列</h3>
+<p>这两个名字经常被混着用，但它们是<strong>方向相反、互不替代</strong>的两套机制：</p>
+<table><thead><tr><th>维度</th><th>Bracketed Paste（括号粘贴）</th><th>OSC 52</th></tr></thead><tbody>
+<tr><td>序列</td><td><code>CSI 200~</code> / <code>CSI 201~</code>（即 <code>ESC[200~</code> … <code>ESC[201~</code>）</td><td><code>OSC 52;c;&lt;base64&gt;</code>（即 <code>ESC]52;c;…</code>，BEL 或 <code>ESC \</code> 结束）</td></tr>
+<tr><td>发起方</td><td><strong>终端模拟器</strong>（用户粘贴时）</td><td><strong>终端里的程序</strong>（vim / tmux / opencode）</td></tr>
+<tr><td>方向</td><td>终端 → 程序（<strong>粘进来</strong>）</td><td>程序 → 终端（<strong>复制出去</strong>）</td></tr>
+<tr><td>前提</td><td>程序先发 <code>CSI ?2004h</code> 开启括号粘贴模式（TUI 启动时会协商）</td><td>终端支持 OSC 52（kitty / wezterm / VTE 等）</td></tr>
+<tr><td>载荷</td><td>纯文本</td><td>纯文本的 base64</td></tr>
+<tr><td>能否带图片</td><td>不能</td><td>不能（协议本身是文本，大图还会撞终端长度限制）</td></tr>
+<tr><td>本机角色</td><td><code>ctrl+shift+v</code> / 鼠标中键 → pty 字节流 → TUI 的 <code>onPaste</code></td><td>TUI 复制时发出的 <code>\e]52;c;…</code>（tmux 场景再包 DCS 信封）</td></tr>
+</tbody></table>
+<blockquote>
+<p>有些非官方文档/库会把 Bracketed Paste 的包裹序列标成 OSC 52，那是错的：
+xterm 定义里括号粘贴始终是 <code>CSI 200~</code> / <code>CSI 201~</code>，与 OSC 52 无关。</p>
+<p>分清这一点，才能理解为什么「终端粘贴键能粘文本」推不出「能粘图片」：
+前者走的是 bracketed paste，管道里只有文本；图片要走 opencode 自己的
+host 剪贴板读取（当前环境拿不到 data-control），或者干脆走文件路径。</p>
+</blockquote>
+<h2 id="2026-10-22-bu-ji-x11-zhuan-fa-xia-di-yi-ci-ctrl-v-shi-bai-localhost-de-10-miao-ipv6-lian-jie">2026-10-22 补记：X11 转发下第一次 Ctrl+V 失败——<code>localhost</code> 的 10 秒 IPv6 连接</h2>
+<p>这次是另一个 SSH 会话：没有 waypipe（<code>WAYLAND_DISPLAY</code> 为空），只有 <code>ssh -Y</code>，
+剪贴板读取走 X11 后端。现象很怪：</p>
+<ul>
+<li>第一次 <code>ctrl+v</code>：没反应（toast 一闪而过 <code>Clipboard read timed out</code>）；</li>
+<li>按一下 <code>ctrl+shift+v</code>（终端粘贴），再按 <code>ctrl+v</code>：图片正常进 prompt。</li>
+</ul>
+<p>看起来像"终端粘贴把剪贴板激活了"，实际不是。</p>
+<h3 id="gen-yin">根因</h3>
+<pre><code>DISPLAY=localhost:13.0
+  └─ sshd 的 X11 转发监听只绑 IPv4: 127.0.0.1:6013
+       └─ opentui 原生 xcb 客户端解析 localhost → 先连 ::1:6013
+            └─ 该连接被黑洞, ~10s 后内部超时才回落到 127.0.0.1:6013
+                 └─ 但 host clipboard 默认 timeoutMs=1000
+                      └─ 第一次读 status=timed-out, 什么也不粘
+</code></pre>
+<p>第一次读虽然 1s 就放弃，底层 10s 的连接尝试仍在跑；连接完成后同一进程的后续读取
+只要几十毫秒。所以真正起作用的是"等了约 10 秒"，不是 <code>ctrl+shift+v</code>。</p>
+<h3 id="zheng-ju">证据</h3>
+<p>监听与连通性：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ss -ltnp | grep 6013
+LISTEN 0 128 127.0.0.1:6013 0.0.0.0:*
+
+$ python3 - &lt;&lt;&#x27;EOF&#x27;
+import socket, time
+for fam, addr in [(socket.AF_INET6, (&quot;::1&quot;, 6013)), (socket.AF_INET, (&quot;127.0.0.1&quot;, 6013))]:
+    s = socket.socket(fam)
+    s.settimeout(12)
+    t = time.time()
+    try:
+        s.connect(addr)
+        print(addr, &quot;ok %.3fs&quot; % (time.time() - t))
+    except Exception as e:
+        print(addr, &quot;err %.3fs&quot; % (time.time() - t), e)
+EOF
+(&#x27;::1&#x27;, 6013) err 12.018s timed out
+(&#x27;127.0.0.1&#x27;, 6013) ok 0.000s
+</code></pre>
+<p>用 opentui 的 host clipboard 默认参数（<code>timeoutMs=1000</code>）复现：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">1st(1s deadline): timed-out  1001ms
+2nd(after 12s):   read image&#x2F;png 120429B 49ms
+</code></pre>
+<p>连续按也一样（t=0/2s/6s 都超时，t=12s 才成功）；把 <code>DISPLAY</code> 改成
+<code>127.0.0.1:13.0</code> 后，<strong>第一次</strong>读取就是 60ms：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">1st(1s deadline): read image&#x2F;png 120429B 60ms
+</code></pre>
+<h3 id="xiu-fa">修法</h3>
+<p>在 SSH 登录 shell 里把 <code>DISPLAY</code> 的 host 换成 <code>127.0.0.1</code>（保留 display 编号）：</p>
+<pre data-lang="sh" class="language-sh "><code class="language-sh" data-lang="sh"># dotfiles&#x2F;.my_profile.d&#x2F;x11
+if [ -n &quot;${SSH_TTY:-}&quot; ] &amp;&amp; [ -n &quot;${DISPLAY:-}&quot; ]; then
+  case &quot;$DISPLAY&quot; in
+    localhost:*) export DISPLAY=&quot;127.0.0.1:${DISPLAY#localhost:}&quot; ;;
+  esac
+fi
+</code></pre>
+<p>注意：</p>
+<ul>
+<li>已运行的 opencode 进程环境是启动时定的，要重开 TUI。</li>
+<li>tmux pane 继承 tmux server 的环境，改 <code>.zshrc</code> 不会影响已存在的 server；
+需要 <code>tmux setenv -g DISPLAY 127.0.0.1:N</code>（N 用当前连接的值）或重启 server。</li>
+<li>这条规则只在 SSH 会话生效，避免影响本地 X 会话（有些 X server 不监听 TCP）。</li>
+<li>waypipe 会话里 <code>WAYLAND_DISPLAY</code> 有值，原生后端会优先走 Wayland；要在那里用
+X11 读图，给 opencode 单独加 <code>env -u WAYLAND_DISPLAY DISPLAY=127.0.0.1:N opencode</code>。
+<blockquote>
+<p>2026-10-22 复测：在 opencode 2.0.32 + waypipe 组合下，<code>DISPLAY</code> 与
+<code>WAYLAND_DISPLAY</code> 并存时 X11 也能兜底成功（3/3），<code>env -u</code> 非必需；
+但 <code>DISPLAY</code> 仍必须是 <code>127.0.0.1:N</code>。见下节矩阵。</p>
+</blockquote>
+</li>
+</ul>
+<h3 id="shun-dai-tmux-li-shift-enter-hui-bian-cheng-ti-jiao">顺带：tmux 里 Shift+Enter 会变成提交</h3>
+<p>同一轮还发现另一个不相关但同环境的坑：<code>ssh -Y</code> 直接开的 opencode 里
+<code>shift+enter</code> 正常换行，waypipe + tmux 里却直接提交。</p>
+<p>根因是 tmux 的扩展按键协商：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">tmux 3.5a: extended-keys off
+client_termfeatures = bpaste,ccolour,clipboard,hyperlinks,cstyle,focus,title
+                       ^ 没有 extkeys
+</code></pre>
+<p>opencode 在非 tmux 会话里直接向 kitty 发 <code>CSI &gt; 5u</code> 打开 kitty 键盘协议，
+<code>shift+enter</code> 是 <code>CSI 13;2u</code>，命中 <code>input_newline</code>；进了 tmux 后，tmux 既没有向
+kitty 请求扩展按键（feature 缺 <code>extkeys</code>），<code>extended-keys</code> 又是 off，Shift+Enter
+被压成普通 <code>CR</code>，只能命中 <code>input_submit</code>。</p>
+<p>修法（tmux &gt;= 3.5；<code>extended-keys-format</code> 是 3.5 才加的）：</p>
+<pre data-lang="tmux" class="language-tmux "><code class="language-tmux" data-lang="tmux">set -s extended-keys on
+set -s extended-keys-format xterm
+set -as terminal-features &quot;xterm-kitty:extkeys&quot;
+</code></pre>
+<p>格式用 <code>xterm</code>（默认）即可。opencode 的 stdin parser 在 tmux 里也会解析 CSI-u
+（<code>useKittyKeyboard</code> 来自配置项是否为 null，而不是终端能力探测），所以 <code>csi-u</code>
+其实也能用；选 <code>xterm</code> 是因为它对其它 TUI（vim/nvim 等）兼容性更好。</p>
+<p>运行中的 server 执行同样三条即可；<code>tmux refresh-client</code> 不会重算已 attach client
+的 features。用 <code>tmux show -s extended-keys</code> 和
+<code>tmux display -p '#{client_termfeatures}'</code> 验证。已经 attach 的 client 的
+<code>client_termfeatures</code> 是 attach 时算好的，新增 <code>extkeys</code> 后需要 detach/reattach
+（或新开一个 client）才生效——新 client 实测 features 里直接带 <code>extkeys</code>。
+另外，opencode 的 <code>CSI &gt; 4;1m</code> 是启动时发的：如果它启动时 <code>extended-keys</code> 还是
+off，tmux 会忽略；改完配置后要<strong>重启 tmux 里的 opencode</strong>，让
+<code>#{pane_key_mode}</code> 从 <code>VT10x</code> 变成 <code>Ext 1</code>。</p>
+<h2 id="2026-10-22-fu-ce-ba-zu-lian-jie-fang-shi-liang-ge-xin-keng">2026-10-22 复测：八组连接方式、两个新坑</h2>
+<p>上面两节分别是「data-control 缺失」和「<code>localhost</code> 的 10 秒 IPv6」两个单点复现。
+这一轮把<strong>连接方式</strong>本身作为变量做了完整矩阵：服务端用 Python <code>pty</code> 拉起真实的
+opencode TUI（v2.0.32），定时注入 <code>Ctrl+V</code>，原始 stdout 落盘后用 <code>pyte</code> 还原屏幕；
+同时把 TUI 实际拿到的 <code>DISPLAY</code> / <code>WAYLAND_DISPLAY</code> 打印出来。测试图 23,840 B，
+另造 720,683 B 大图。客户端不启动 tmux（tmux 单独作为对照组）。</p>
+<h3 id="jie-guo-ju-zhen">结果矩阵</h3>
+<table><thead><tr><th>连接方式</th><th>TUI 拿到的环境</th><th><code>Ctrl+V</code> 结果</th></tr></thead><tbody>
+<tr><td><code>ssh -tY</code>（新连接），<code>DISPLAY=localhost:N</code></td><td><code>DISPLAY=localhost:11.0</code></td><td>第 1 次：toast <code>Clipboard read timed out</code>，无图；第 2 次出 1 张；第 3 次共 2 张</td></tr>
+<tr><td>同上，<code>DISPLAY=127.0.0.1:N</code></td><td><code>DISPLAY=127.0.0.1:11.0</code></td><td>第 1 次即出图；第 2 次共 2 张</td></tr>
+<tr><td><code>waypipe ssh</code>（无 <code>-Y</code>）</td><td>只有 <code>WAYLAND_DISPLAY</code></td><td><strong>静默无反应</strong>（无图、无 toast，打字正常）</td></tr>
+<tr><td><code>waypipe ssh -Y</code>（新连接）</td><td>两者都有</td><td>3/3 都出图</td></tr>
+<tr><td><code>waypipe ssh -Y</code> + <code>env -u WAYLAND_DISPLAY</code></td><td>只有 <code>DISPLAY</code></td><td>3/3 都出图</td></tr>
+<tr><td>纯 <code>ssh</code>（无任何转发）</td><td>都没有</td><td>无反应</td></tr>
+<tr><td><strong>客户端 tmux</strong> 里跑 <code>ssh -tY</code></td><td><code>DISPLAY=127.0.0.1:11.0</code></td><td>2 次都出图</td></tr>
+<tr><td>X11 大图 720,683 B</td><td><code>DISPLAY=127.0.0.1:11.0</code></td><td>第 1 次即出图；<code>xclip</code> 远端读回 720,683 B / 45 ms</td></tr>
+</tbody></table>
+<p>这里「无 toast」是字面意思：按下去既没有图片附件、也没有任何提示条，像没按一样；
+但 TUI 没卡死（随后敲 <code>x</code>/<code>y</code> 能正常上屏）。10-21 的 2.0.18 记录是
+<code>Clipboard read timed out</code> toast；2.0.32 + waypipe 0.9.2 下原生读取一直挂着，
+连 1 s 的 timed-out 都没返回——两者差异来自版本/超时路径，但结果都是「贴不上」。</p>
+<h3 id="xiu-zheng-liang-chu-jiu-jie-lun">修正两处旧结论</h3>
+<ol>
+<li><strong>waypipe 剪贴板转发不是「只传类型」</strong>（此前仓库笔记里的说法）：fresh 会话里
+<code>wl-paste -t image/png | wc -c</code> → <strong>23840（0.8 s）</strong>；720,683 B 则超过 40 s 未完成。
+即小包能转发、<strong>≥64 KiB 会挂死</strong>。对 opencode 仍然没用——它走 data-control
+（waypipe 不提供），断点在原生读取，而不是 <code>wl_data_device</code> 转发。</li>
+<li><strong>两者并存时 X11 仍可兜底</strong>：<code>DISPLAY</code> 与 <code>WAYLAND_DISPLAY</code> 都在时 3/3 贴图成功；
+<code>env -u WAYLAND_DISPLAY</code> 后同样成功。因此「必须 unset」在 2.0.32 + waypipe
+组合下不成立，unset 可保留为兜底。<strong><code>DISPLAY</code> 必须是 <code>127.0.0.1:N</code></strong> 这一条不变。</li>
+</ol>
+<h3 id="xin-keng-yi-ke-hu-duan-tmux-bu-ying-xiang-nian-tie">新坑一：客户端 tmux 不影响粘贴</h3>
+<p>客户端 tmux 里跑 <code>ssh -tY</code>（新连接），2 次 <code>Ctrl+V</code> 都出图。tmux 只是 ssh 的父进程；
+读取发生在服务端 TUI 进程里，真正的决定因素是它能否拿到 <code>DISPLAY</code>。</p>
+<h3 id="xin-keng-er-controlmaster-hui-jing-mo-tun-diao-display">新坑二：ControlMaster 会静默吞掉 <code>DISPLAY</code></h3>
+<p>如果 <code>~/.ssh/config</code> 里是 <code>ControlMaster auto</code>，且<strong>已有 master 创建时没带 <code>-X/-Y</code></strong>，
+那么后续 <code>ssh -Y</code> 复用它<strong>不会设置 <code>DISPLAY</code>，也不报错</strong>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ ssh -Y &lt;server&gt; &#x27;printenv DISPLAY || echo &quot;(no DISPLAY)&quot;&#x27;
+(no DISPLAY)
+$ ssh -Y -o ControlMaster=no -o ControlPath=none &lt;server&gt; &#x27;printenv DISPLAY&#x27;
+localhost:11.0
+$ # 先用 -Y 建 master，再复用
+$ ssh -M -S &#x2F;tmp&#x2F;mux.sock -fN -Y &lt;server&gt;
+$ ssh -S &#x2F;tmp&#x2F;mux.sock -Y &lt;server&gt; &#x27;printenv DISPLAY&#x27;
+localhost:11.0
+</code></pre>
+<p>这会让「明明加了 <code>-Y</code> 却贴不出图」变得极难排查。需要图片粘贴时用
+<code>-o ControlMaster=no -o ControlPath=none</code>，或让 master 从一开始就带 <code>-Y</code>。</p>
+<h3 id="shi-jian-jian-yi-zai-shang-shu-ji-chu-shang-bu-chong">实践建议（在上述基础上补充）</h3>
+<ul>
+<li>要贴图：<code>ssh -tY -o ControlMaster=no -o ControlPath=none &lt;server&gt;</code>，确认 <code>DISPLAY</code>
+已被改写为 <code>127.0.0.1:N</code>。</li>
+<li>只用 waypipe：不要指望图片通道；加 <code>-Y</code> 让 X11 兜底，或走文件附件（<code>@路径</code>）。</li>
+<li>大图（&gt;64 KiB）不要走 waypipe 剪贴板；X11 转发 720 KB 实测 45 ms 读完。</li>
+</ul>
+<h2 id="yi-wai-shou-huo-tmux-paste-buffer-li-de-ming-wen-jian-tie-ban">意外收获：tmux paste buffer 里的明文剪贴板</h2>
+<p>实验中 <code>tmux show-buffer</code> 意外读到了一段 <code>sk-</code> 开头的 API key 明文——
+<code>set-clipboard on</code> 时，任何 pane 内程序发的原生 OSC52 都会被 tmux 解码存入
+paste buffer 栈（上限 50 条，可用 <code>tmux list-buffers</code> 翻历史）。多用户共享
+tmux server 的场景值得警惕；不需要的话 <code>set -g set-clipboard external</code> 可关闭
+tmux 侧存储（只转发）。</p>
+<h2 id="xiu-fu-yu-zui-zhong-yan-zheng">修复与最终验证</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">tmux set-option -g allow-passthrough on
+echo &#x27;set -g allow-passthrough on&#x27; &gt;&gt; ~&#x2F;.tmux.conf
+</code></pre>
+<p>重启 opencode TUI（拿到当前 SSH 会话的新 waypipe socket），按 <code>ctrl+x y</code>，
+内容即刻到达本地 kitty 剪贴板（信封直达，不再有 waypipe 的秒级延迟）。</p>
+<h2 id="zong-jie-yan-zheng-ju-zhen">总结：验证矩阵</h2>
+<table><thead><tr><th>主张</th><th>验证角度</th><th>结果</th></tr></thead><tbody>
+<tr><td>跨终端边界只有 OSC52（host 腿 remote 判定默认跳过）</td><td>字符串统计 + 双源逻辑提取 + 三环境动态捕获</td><td>✅ 外部工具 0 命中；<code>env -u TMUX</code>/剥 DISPLAY 均照发</td></tr>
+<tr><td>复制不 spawn 外部剪贴板工具</td><td>复制后 <code>pgrep xclip/wl-copy</code></td><td>✅ 零残留进程</td></tr>
+<tr><td>tmux&lt;3.6 强制 DCS 信封</td><td>静态逻辑 + pipe-pane 真实字节捕获</td><td>✅ 仅 1 次且在信封内</td></tr>
+<tr><td>信封被默认配置静默丢弃</td><td>伪终端假客户端开关对照</td><td>✅ off=0 / on=1</td></tr>
+<tr><td>按键链路（leader→y→toast）正常，失败在下游</td><td>全程 capture-pane 截屏 diff</td><td>✅ 会话无文本时 toast "No text parts found"</td></tr>
+<tr><td>tmux 原生转发不可靠</td><td>假客户端 10 次发射 + terminfo 审计</td><td>⚠️ 2/10 间歇成功；stock terminfo 全部缺 Ms</td></tr>
+<tr><td>Wayland 剪贴板通道（wl-copy 工具级）waypipe 可用性</td><td>写入回读 + 三态超时实验</td><td>⚠️ 健康 2.8s / 死文件快败 / 僵尸无限挂起（原生 host 腿同协议同通道，带 1s 超时）</td></tr>
+<tr><td>读取方向只靠 host 腿的 data-control</td><td><code>wayland-info</code> + 二进制接口字符串 + pty 复现</td><td>⚠️ 该 socket 无 ext/zwlr data-control（Mutter 均不实现）→ 1s 超时报 "Clipboard read timed out"</td></tr>
+<tr><td><code>wl_data_device</code> 兜底读取</td><td><code>WAYLAND_DEBUG</code> 协议跟踪</td><td>✅ 1×1 xdg_toplevel + <code>get_data_device</code>，纯 Wayland，非 X11</td></tr>
+<tr><td>opencode 的 <code>wl_data_device</code> 兜底是否真启用</td><td>二进制字符串 + opentui 源码 + <code>wayland-info</code></td><td>⚠️ 代码在但被门控：<code>allow_core_data_device = is_wsl</code>，且 helper 依赖 <code>wl_shell</code>（本机 0 命中）</td></tr>
+<tr><td>X11 转发读取（<code>DISPLAY=localhost:N</code>）</td><td><code>ss</code> 监听 + <code>::1</code>/IPv4 connect 计时 + opentui 1s 超时复现</td><td>⚠️ 先连 <code>::1</code> 黑洞 ~10s → 首次 <code>timed-out</code>；之后 20–60ms</td></tr>
+<tr><td>X11 转发读取（<code>DISPLAY=127.0.0.1:N</code>）</td><td>同一复现脚本只改 host</td><td>✅ 首次读取 60ms</td></tr>
+<tr><td>tmux 下 Shift+Enter</td><td>tmux 3.5a <code>extended-keys</code> + <code>client_termfeatures</code> + <code>pane_key_mode</code></td><td>⚠️ off 且缺 <code>extkeys</code> → Shift+Enter 被压成 <code>CR</code>；开启（xterm 格式）、reattach client、重启 pane 内 opencode 后恢复</td></tr>
+<tr><td>Bracketed Paste / OSC 52 的边界</td><td>xterm 转义序列定义 + TUI 能力协商</td><td>✅ 粘贴 = <code>CSI 200/201</code>（终端→程序）；复制 = <code>OSC 52</code>（程序→终端）</td></tr>
+<tr><td>xclip spawn 挂死</td><td>复现脚本计时</td><td>✅ pipe 挂死 / ignore 秒退（自研 spawn 方案的坑，opencode 不涉及）</td></tr>
+</tbody></table>
+<p>排查这类"环境变量都对但功能不通"的问题，多层链路里<strong>每一环都要有独立的字节级证据</strong>：
+静态看代码、动态抓输出、开关做对照。环境变量只是入口，真正的执行链在
+<code>进程边界 → 转义序列 → tmux 解析 → 终端能力协商 → 本地剪贴板</code> 的每一跳上。</p>
+<p>还要记住<strong>读写方向要分开看</strong>：写有 OSC52 兜底，读没有；所以"能复制"不代表
+"能粘贴"，反过来也一样。判断剪贴板链路是否健康，两条方向各自都要有独立的证据。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/systemd-run-working-directory-chdir/">&#8249; systemd-run --working-directory 的 ~ 不展开：一次 status=200/CHDIR 排查</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/git-lfs-local-bare-repo-migration/"> 给本地裸仓库启用 Git LFS：1.6GB 媒体历史迁移实录 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#tl-dr-duan-lian-de-wan-zheng-yin-guo">TL;DR：断链的完整因果</a>
+        </div>
+        <div>
+          <a href="#di-yi-ceng-fu-zhi-dao-di-zai-na-ge-jin-cheng-zhi-xing">第一层：复制到底在哪个进程执行</a>
+        </div>
+        <div>
+          <a href="#di-er-ceng-v2-0-24-de-jian-tie-ban-xie-ru-jie-gou-2026-10-09-xiu-zheng">第二层：v2.0.24 的剪贴板写入结构（2026-10-09 修正）</a>
+        </div>
+        <div>
+          <a href="#di-san-ceng-tmux-3-6-shi-qiang-zhi-dcs-xin-feng-ben-ci-wen-ti-de-gen-yuan">第三层：tmux &lt; 3.6 时强制 DCS 信封（本次问题的根源）</a>
+        </div>
+        <div>
+          <a href="#yan-zheng-bu-huo-zhen-shi-tui-fa-chu-de-zi-jie-zui-ying-de-zheng-ju">验证：捕获真实 TUI 发出的字节（最硬的证据）</a>
+        </div>
+        <div>
+          <a href="#di-si-ceng-allow-passthrough-de-kai-guan-dui-zhao-shi-yan">第四层：allow-passthrough 的开关对照实验</a>
+        </div>
+        <div>
+          <a href="#fan-xiang-yan-zheng-tmux-yuan-sheng-zhuan-fa-wei-shen-me-bu-kao-pu">反向验证：tmux 原生转发为什么不靠谱</a>
+        </div>
+        <div>
+          <a href="#ling-yi-tiao-lu-wl-copy-de-san-tai-waypipe-chang-jing">另一条路：wl-copy 的三态（waypipe 场景）</a>
+        </div>
+        <div>
+          <a href="#2026-10-21-bu-ji-du-qu-fang-xiang-ctrl-v-dan-clipboard-read-timed-out">2026-10-21 补记：读取方向——Ctrl+V 弹 &quot;Clipboard read timed out&quot;</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-gei-jie-lun"><small>- 先给结论</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zheng-ju-yi-zhe-ge-socket-shang-mei-you-data-control"><small>- 证据一：这个 socket 上没有 data-control</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zheng-ju-er-wl-paste-wei-shen-me-neng-yong-ta-zou-de-bu-shi-data-control"><small>- 证据二：wl-paste 为什么能用——它走的不是 data-control</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-yad-weston-dnd-zheng-chang-bu-dai-biao-jian-tie-ban-zheng-chang"><small>- 为什么 yad &#x2F; weston-dnd 正常不代表剪贴板正常</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#lin-shi-rao-guo-yu-shang-you-xiu-fu-fang-xiang"><small>- 临时绕过与上游修复方向</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shu-yu-cheng-qing-bracketed-paste-yu-osc-52-shi-liang-tao-bu-tong-de-zhuan-yi-xu-lie"><small>- 术语澄清：Bracketed Paste 与 OSC 52 是两套不同的转义序列</small></a>
+        </div>
+        <div>
+          <a href="#2026-10-22-bu-ji-x11-zhuan-fa-xia-di-yi-ci-ctrl-v-shi-bai-localhost-de-10-miao-ipv6-lian-jie">2026-10-22 补记：X11 转发下第一次 Ctrl+V 失败——localhost 的 10 秒 IPv6 连接</a>
+        </div>
+        <div class="hpad">
+          <a href="#gen-yin"><small>- 根因</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zheng-ju"><small>- 证据</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fa"><small>- 修法</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shun-dai-tmux-li-shift-enter-hui-bian-cheng-ti-jiao"><small>- 顺带：tmux 里 Shift+Enter 会变成提交</small></a>
+        </div>
+        <div>
+          <a href="#2026-10-22-fu-ce-ba-zu-lian-jie-fang-shi-liang-ge-xin-keng">2026-10-22 复测：八组连接方式、两个新坑</a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-guo-ju-zhen"><small>- 结果矩阵</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-zheng-liang-chu-jiu-jie-lun"><small>- 修正两处旧结论</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xin-keng-yi-ke-hu-duan-tmux-bu-ying-xiang-nian-tie"><small>- 新坑一：客户端 tmux 不影响粘贴</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xin-keng-er-controlmaster-hui-jing-mo-tun-diao-display"><small>- 新坑二：ControlMaster 会静默吞掉 DISPLAY</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shi-jian-jian-yi-zai-shang-shu-ji-chu-shang-bu-chong"><small>- 实践建议（在上述基础上补充）</small></a>
+        </div>
+        <div>
+          <a href="#yi-wai-shou-huo-tmux-paste-buffer-li-de-ming-wen-jian-tie-ban">意外收获：tmux paste buffer 里的明文剪贴板</a>
+        </div>
+        <div>
+          <a href="#xiu-fu-yu-zui-zhong-yan-zheng">修复与最终验证</a>
+        </div>
+        <div>
+          <a href="#zong-jie-yan-zheng-ju-zhen">总结：验证矩阵</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - openvpn</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://blog.juzhong.asia/tags/openvpn/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://blog.juzhong.asia"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-09-11T00:00:00+00:00</updated>
+    <id>https://blog.juzhong.asia/tags/openvpn/atom.xml</id>
+    <entry xml:lang="en">
+        <title>openvpn 配置</title>
+        <published>2025-10-26T10:30:40+08:00</published>
+        <updated>2026-09-11T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2025/10/openvpn 配置/"/>
+        <id>https://blog.juzhong.asia/2025/10/openvpn 配置/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2025/10/openvpn 配置/">&lt;h1 id=&quot;an-zhuang-he-pei-zhi&quot;&gt;安装和配置&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;apt install openvpn
+# 覆盖默认配置， 探测192.168.2.1可达
+sudo tee &amp;#x2F;etc&amp;#x2F;systemd&amp;#x2F;system&amp;#x2F;openvpn-client@work.service &amp;lt;&amp;lt;EOF
+[Unit]
+Description=OpenVPN tunnel for %I after IP 192.168.2.1 to be reachable
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=notify
+PrivateTmp=true
+WorkingDirectory=&amp;#x2F;etc&amp;#x2F;openvpn&amp;#x2F;client
+ExecStartPre=&amp;#x2F;bin&amp;#x2F;bash -c &amp;#x27;until ping -c 1 -W 5 192.168.2.1; do sleep 1; done
+ExecStart=&amp;#x2F;usr&amp;#x2F;sbin&amp;#x2F;openvpn --suppress-timestamps --nobind --config %i.conf
+CapabilityBoundingSet=CAP_IPC_LOCK CAP_NET_ADMIN CAP_NET_RAW CAP_SETGID CAP_SETUID CAP_SETPCAP CAP_SYS_CHROOT CAP_DAC_OVERRIDE
+LimitNPROC=10
+DeviceAllow=&amp;#x2F;dev&amp;#x2F;null rw
+DeviceAllow=&amp;#x2F;dev&amp;#x2F;net&amp;#x2F;tun rw
+ProtectSystem=true
+ProtectHome=true
+KillMode=process
+[Install]
+WantedBy=multi-user.target
+EOF
+
+cat &amp;lt;&amp;lt;EOF | sudo tee &amp;#x2F;etc&amp;#x2F;openvpn&amp;#x2F;client&amp;#x2F;work.conf
+client
+dev tun
+proto tcp
+remote &amp;lt;ip&amp;gt; &amp;lt;port&amp;gt;
+resolv-retry infinite
+nobind
+persist-key
+persist-tun
+comp-lzo no
+
+auth-user-pass
+# openvpn3 客户端支持账户认证, openvpn2 好像支持环境变量热证
+# &amp;lt;auth-user-pass&amp;gt;
+# VPN_USERNAME_HERE
+# VPN_PASSWORD_HERE
+# &amp;lt;&amp;#x2F;auth-user-pass&amp;gt;
+remote-cert-tls server
+
+data-ciphers AES-256-GCM:AES-256-CBC
+data-ciphers-fallback AES-256-CBC
+verb 3
+&amp;lt;ca&amp;gt;
+-----BEGIN CERTIFICATE-----
+XXX base 64
+-----END CERTIFICATE-----
+&amp;lt;&amp;#x2F;ca&amp;gt;
+EOF
+sudo systemctl start openvpn-client@work.service
+# 可以手动调节metric 防止影响局域网路由
+sudo ip route change default via 10.8.0.1 dev tun0 metric 300
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;fu-wu-duan-pei-zhi&quot;&gt;服务端配置&lt;&#x2F;h1&gt;
+&lt;p&gt;可以参考ldap账户认证&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;pei-zhi-lu-you&quot;&gt;配置路由&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;ip route
+# 192.168.5.0&amp;#x2F;24 dev eno1 proto kernel scope link src 192.168.5.23 metric 100 
+# 192.168.4.0&amp;#x2F;22 via 10.8.0.9 dev tun0 
+# 192.168.4.0&amp;#x2F;22 via 10.8.0.9 dev tun0 metric 10
+ip route get 192.168.5.244
+# 192.168.5.244 dev eno1 src 192.168.5.23 uid 1000
+#     cache
+
+# 为什么经过dev tun0 的路由地址metric优先级(10)更高, 但是路由却走了直连的路由？？？
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Metric 只在“相同目标前缀”的多条路由之间比较时才生效。
+&lt;ul&gt;
+&lt;li&gt;例如：两条都是 192.168.5.0&#x2F;24，一个 metric 10，一个 metric 100 → 选 metric 10。&lt;&#x2F;li&gt;
+&lt;li&gt;但你的 metric 10 路由是 192.168.4.0&#x2F;22，和 192.168.5.0&#x2F;24 不是相同前缀！&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;前缀长度优先于 metric
+&lt;ul&gt;
+&lt;li&gt;目标地址 192.168.5.244 属于 192.168.5.0&#x2F;24 网段。&lt;&#x2F;li&gt;
+&lt;li&gt;Linux 路由查找时会做 最长前缀匹配（Longest Prefix Match），而：&lt;&#x2F;li&gt;
+&lt;li&gt;192.168.5.0&#x2F;24 是 &#x2F;24 前缀&lt;&#x2F;li&gt;
+&lt;li&gt;192.168.4.0&#x2F;22 虽然也包含 192.168.5.244（因为 &#x2F;22 覆盖 192.168.4.0 ~ 192.168.7.255），但它是 更短的前缀（&#x2F;22 &amp;lt; &#x2F;24）&lt;&#x2F;li&gt;
+&lt;li&gt;✅ 所以系统 优先选择更具体的 &#x2F;24 路由&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;ru-guo-ni-zhen-de-xiang-rang-192-168-5-244-zou-tun0-zen-me-ban&quot;&gt;如果你真的想让 192.168.5.244 走 tun0 怎么办？&lt;&#x2F;h2&gt;
+&lt;p&gt;这是个非常规需求（因为 192.168.5.244 和你本机在同一个局域网），但技术上可以做到：&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;tian-jia-geng-ju-ti-de-32-lu-you-tui-jian&quot;&gt;添加更具体的 &#x2F;32 路由（推荐）&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip route add 192.168.5.244 via 10.8.0.9 dev tun0 metric 5
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;shi-yong-ce-lue-lu-you-gao-ji&quot;&gt;使用策略路由（高级）&lt;&#x2F;h3&gt;
+&lt;p&gt;通过 ip rule + 自定义路由表，对特定用户&#x2F;进程&#x2F;防火墙标记的流量使用不同路由。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip rule add to 192.168.5.244&amp;#x2F;24 lookup 100
+sudo ip route add default via 10.8.0.9 dev tun0 table 100
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;bao-cuo-nexthop-has-invalid-gateway-wang-guan-bi-xu-xie-tun-peer-2026-09-shi-ce&quot;&gt;报错 &lt;code&gt;Nexthop has invalid gateway&lt;&#x2F;code&gt;：网关必须写 tun peer（2026-09 实测）&lt;&#x2F;h3&gt;
+&lt;p&gt;给隧道内某个未推送网段的主机加 &#x2F;32 路由时，把网关写成了服务端内网网关：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip route add 192.168.1.1&amp;#x2F;32 via 192.168.4.1 dev tun0
+# Error: Nexthop has invalid gateway.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;内核要求 nexthop 在指定设备的&lt;strong&gt;直连网络内&lt;&#x2F;strong&gt;（on-link）。tun0 是点对点口（&lt;code&gt;10.8.0.6 peer 10.8.0.5&#x2F;32&lt;&#x2F;code&gt;），直连的只有 peer 一个地址；&lt;code&gt;192.168.4.1&lt;&#x2F;code&gt; 只是经路由（&lt;code&gt;192.168.4.0&#x2F;22 via 10.8.0.5&lt;&#x2F;code&gt;）才可达的远端地址，不能直接当 nexthop。隧道内所有目的地址都由 peer 代投，&lt;strong&gt;网关一律写 peer&lt;&#x2F;strong&gt;（即已推送路由里的 via 地址）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo ip route add 192.168.1.1&amp;#x2F;32 via 10.8.0.5 dev tun0
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;也可以加 &lt;code&gt;onlink&lt;&#x2F;code&gt; 强制跳过检查，但语义绕，不推荐。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带实测：网关写&lt;strong&gt;自己&lt;&#x2F;strong&gt;的 tun 地址（&lt;code&gt;via 10.8.0.6&lt;&#x2F;code&gt;）内核同样接受（自己的地址必然 on-link），且路由会被直接退化&#x2F;简化为直连——&lt;code&gt;ip route get&lt;&#x2F;code&gt; 里 &lt;code&gt;via&lt;&#x2F;code&gt; 消失，变成 &lt;code&gt;192.168.1.1 dev tun0&lt;&#x2F;code&gt;，报文路径与写 peer 完全一致。能用，但不如写 peer 语义清晰（真实下一跳、与推送路由风格一致）。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;networkmanager-gnome-wei-shen-me-qi-bu-dong-vpn-2026-09-shi-ce&quot;&gt;NetworkManager&#x2F;GNOME 为什么启不动 VPN（2026-09 实测）&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;用 GNOME 设置导入 .ovpn（NetworkManager openvpn 插件）建好连接后，点「启用」不报错，但退出再进页面仍是未启用状态；ping 不通 VPN 虚拟内网地址（隧道根本没起来）。命令行激活同样失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$ nmcli con up smyl
+错误：连接激活失败：Could not find source connection.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;fu-wu-duan-qi-shi-mei-wen-ti&quot;&gt;服务端其实没问题&lt;&#x2F;h2&gt;
+&lt;p&gt;用 openvpn CLI 带同一份 CA 凭据直接握手（&lt;code&gt;--dev null&lt;&#x2F;code&gt; 只测控制面、不动路由）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;VERIFY OK: depth=0, CN=smyl
+TLS: move_session: dest=TM_ACTIVE ...
+PUSH: Received control message: &amp;#x27;PUSH_REPLY,route 192.168.4.0 255.255.252.0,ifconfig 10.8.0.6 10.8.0.5,...&amp;#x27;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;服务器、证书、账号全正常，问题只在客户端激活环节。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gen-yin-nm-de-vpn-bi-xu-die-jia-zai-zhu-lian-jie-shang&quot;&gt;根因：NM 的 VPN 必须叠加在「主连接」上&lt;&#x2F;h2&gt;
+&lt;p&gt;NetworkManager 日志（&lt;code&gt;sudo journalctl -u NetworkManager&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;audit: op=&amp;quot;connection-activate&amp;quot; name=&amp;quot;smyl&amp;quot; ... result=&amp;quot;fail&amp;quot; reason=&amp;quot;Could not find source connection.&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;NM 源码（&lt;code&gt;src&#x2F;core&#x2F;nm-manager.c&lt;&#x2F;code&gt; 的 &lt;code&gt;_new_active_connection()&lt;&#x2F;code&gt;）：激活 VPN 时必须先有 parent——未指定 specific base connection 时取 &lt;code&gt;priv-&amp;gt;primary_connection&lt;&#x2F;code&gt;（即 NM 托管的、持有默认路由的已激活连接），拿不到就直接报 &quot;Could not find source connection.&quot;。也就是说 &lt;strong&gt;NM 把 VPN 建模为「基连接之上的叠加层」，不允许凭空激活&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;本机主网络是 ifupdown 静态配置的桥（vmbr0&#x2F;eno1，&lt;code&gt;&#x2F;etc&#x2F;network&#x2F;interfaces&lt;&#x2F;code&gt;），而 NM 默认 &lt;code&gt;[ifupdown] managed=false&lt;&#x2F;code&gt; → 该网络对 NM 是「未托管」（&lt;code&gt;nmcli dev status&lt;&#x2F;code&gt; 里 vmbr0 = 未托管，NM 整体状态只到 CONNECTED_LOCAL）→ NM 眼里没有任何带默认路由的连接 → &lt;code&gt;primary_connection&lt;&#x2F;code&gt; 为空 → 任何 VPN 启用必失败。&lt;&#x2F;p&gt;
+&lt;p&gt;结论：&lt;strong&gt;只要主网络不由 NM 托管&lt;&#x2F;strong&gt;（ifupdown&#x2F;systemd-networkd 的静态桥、libvirt 桥接等常见于服务器&#x2F;虚拟化主机），GNOME&#x2F;NM 的 VPN 开关就用不了——不是配置问题，是 NM 的模型限制。这类机器要么把主网络重构给 NM 管理（动网有风险），要么绕开 NM 直接用 openvpn CLI &#x2F; systemd 服务。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pu-tong-yong-hu-wei-shen-me-pao-bu-liao-openvpn-systemctl-user-ye-bu-xing&quot;&gt;普通用户为什么跑不了 openvpn（systemctl --user 也不行）&lt;&#x2F;h2&gt;
+&lt;p&gt;即使 &lt;code&gt;&#x2F;dev&#x2F;net&#x2F;tun&lt;&#x2F;code&gt; 是 0666，普通用户运行 openvpn 仍失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ERROR: Cannot ioctl TUNSETIFF tun-probe2: Operation not permitted (errno=1)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;TUNSETIFF（创建 tun 口）要求 &lt;strong&gt;CAP_NET_ADMIN&lt;&#x2F;strong&gt;，与设备文件权限无关；而 systemd &lt;strong&gt;user&lt;&#x2F;strong&gt; manager 运行在普通用户权限域内，无法授予该 capability，所以把 unit 复制成 &lt;code&gt;~&#x2F;.config&#x2F;systemd&#x2F;user&#x2F;&lt;&#x2F;code&gt; 服务同样失败。openvpn 需要的其实只是「建 tun + 配 IP + 写路由」那一下 root，TLS&#x2F;认证本身不需要特权。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jie-fa&quot;&gt;解法&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;做法&lt;&#x2F;th&gt;&lt;th&gt;说明&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;systemd 系统服务（推荐）&lt;&#x2F;td&gt;&lt;td&gt;配置放 &lt;code&gt;&#x2F;etc&#x2F;openvpn&#x2F;client&#x2F;*.conf&lt;&#x2F;code&gt;，&lt;code&gt;sudo systemctl enable --now openvpn-client@xxx&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;不依赖 NM，开机自启，无脑可用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;普通用户免密启停&lt;&#x2F;td&gt;&lt;td&gt;sudoers 窄白名单放行该 unit 的 systemctl 命令&lt;&#x2F;td&gt;&lt;td&gt;比 &lt;code&gt;systemctl --user&lt;&#x2F;code&gt; 简单直接&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;sudoers 白名单示例：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;# &amp;#x2F;etc&amp;#x2F;sudoers.d&amp;#x2F;openvpn-smyl
+peter ALL=(root) NOPASSWD: &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;systemctl start openvpn-client@smyl, &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;systemctl stop openvpn-client@smyl, &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;systemctl restart openvpn-client@smyl, &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;systemctl status openvpn-client@smyl
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;之后普通用户 &lt;code&gt;sudo systemctl start openvpn-client@smyl&lt;&#x2F;code&gt; 即可随时启停，无需输密码。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;systemd-ke-hu-duan-lian-bu-shang-de-keng-2026-09-shi-ce&quot;&gt;systemd 客户端连不上的坑（2026-09 实测）&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;remote-bu-shi-nm-de-host-port-xie-fa&quot;&gt;remote 不是 NM 的 &lt;code&gt;host:port&lt;&#x2F;code&gt; 写法&lt;&#x2F;h3&gt;
+&lt;p&gt;把 GNOME&#x2F;NM 连接里的 remote（&lt;code&gt;61.149.15.167:7896&lt;&#x2F;code&gt;，冒号）原样抄进 &lt;code&gt;&#x2F;etc&#x2F;openvpn&#x2F;client&#x2F;*.conf&lt;&#x2F;code&gt; 后，服务反复重启，日志：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;RESOLVE: Cannot resolve host address: 61.149.15.167:7896:1194 (Name or service not known)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;openvpn 的 &lt;code&gt;remote&lt;&#x2F;code&gt; 是&lt;strong&gt;空格分隔&lt;&#x2F;strong&gt; &lt;code&gt;&amp;lt;host&amp;gt; &amp;lt;port&amp;gt;&lt;&#x2F;code&gt;；冒号写法会把整串当主机名去解析（结尾多出的 &lt;code&gt;:1194&lt;&#x2F;code&gt; 是默认端口）。NM 的 vpn.data 里是 &lt;code&gt;host:port&lt;&#x2F;code&gt; 单字段，两处语法不同，别混抄。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;xiao-xin-crlf-xing-wei&quot;&gt;小心 CRLF 行尾&lt;&#x2F;h3&gt;
+&lt;p&gt;配置文件被保存成 CRLF（&lt;code&gt;\r\n&lt;&#x2F;code&gt;）后，肉眼、&lt;code&gt;grep -n&lt;&#x2F;code&gt; 都看不出差异，但 &lt;code&gt;sed&lt;&#x2F;code&gt; 的 &lt;code&gt;$&lt;&#x2F;code&gt; 锚点、diff 等工具会静默失效。统一转 LF 再改：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;sudo sed -i &amp;#x27;s&amp;#x2F;\r$&amp;#x2F;&amp;#x2F;&amp;#x27; &amp;#x2F;etc&amp;#x2F;openvpn&amp;#x2F;client&amp;#x2F;smyl.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+</content>
+        
+    </entry>
+</feed>

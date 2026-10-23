@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>dashmap-hang — 最小复现样本</title>
+<style>
+body { font-family: monospace; max-width: 720px; margin: 2em auto; padding: 0 1em; line-height: 1.6; }
+h1 { font-size: 1.3em; }
+pre { background: #f4f4f4; padding: 1em; overflow-x: auto; }
+a { color: #0366d6; }
+ul { list-style: none; padding: 0; }
+li { margin: .4em 0; }
+li a { text-decoration: none; }
+li a:hover { text-decoration: underline; }
+.note { color: #555; font-size: .9em; }
+</style>
+</head>
+<body>
+<h1>dashmap-hang — 最小复现样本</h1>
+<p>按生产真实锁序的 tokio 复现（dashmap 6.2.1）。详见
+<a href="/2026/08/tokio-runtime-hang-diagnosis/#最小独立复现样本dashmap-hang对齐生产真实锁序">博客正文</a>。</p>
+
+<h2>源码</h2>
+<ul>
+  <li><a href="Cargo.toml">Cargo.toml</a></li>
+  <li><a href="src/main.rs">src/main.rs</a> — 入口：启动 server → client → watchdog</li>
+  <li><a href="src/server.rs">src/server.rs</a> — server：Registry + 状态页 + A 对会话</li>
+  <li><a href="src/client.rs">src/client.rs</a> — client：B 对并发注册 (Barrier 同时性)</li>
+  <li><a href="src/watchdog.rs">src/watchdog.rs</a> — watchdog：进度监控 + wchan/gdb 取证</li>
+</ul>
+
+<h2>构建与运行</h2>
+<pre>
+# 下载全部源码（右键另存为，或 git clone 本仓库）
+# 将上述文件按目录结构放置后：
+
+cargo build --release
+./target/release/dashmap-hang          # 默认 12 轮, ~10s 内命中
+./target/release/dashmap-hang 24 500   # 自定义: 24 轮, 状态页 500ms
+</pre>
+
+<p class="note">预期输出: HANG: insert() 永久卡死, writer=0 + gdb 栈显示
+dashmap::lock::RawRwLock::lock_exclusive_slow ×2 (exit 42)</p>
+</body>
+</html>
