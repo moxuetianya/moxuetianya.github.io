@@ -1,0 +1,293 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="rustc #164250 复现与分析：结构体的生命周期约束可被协变字段赋值绕过，根因是漏掉一次 T: &#x27;static 证明，而非把短命引用当成 &#x27;static。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/" />
+  <meta property="og:description" content="rustc #164250 复现与分析：结构体的生命周期约束可被协变字段赋值绕过，根因是漏掉一次 T: &#x27;static 证明，而非把短命引用当成 &#x27;static。" />
+  <meta name="twitter:description" content="rustc #164250 复现与分析：结构体的生命周期约束可被协变字段赋值绕过，根因是漏掉一次 T: &#x27;static 证明，而非把短命引用当成 &#x27;static。" />
+  <meta property="og:title" content="Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束 | 墨雪天琊" />
+  <meta name="twitter:title" content="Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-16" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=268d9dc6cc51459c408a"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/rust-164250-covariant-field-assignment/">Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 16, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/rust/">Rust</a>] #<a href="https://blog.juzhong.asia/tags/rust/">Rust</a>  #<a href="https://blog.juzhong.asia/tags/bian-yi-yuan-li/">编译原理</a>  #<a href="https://blog.juzhong.asia/tags/an-quan/">安全</a> </span>
+
+    
+
+
+<h1 id="rust-mai-liao-11-nian-de-jian-quan-xing-lou-dong-xie-bian-zi-duan-fu-zhi-ru-he-rao-guo-jie-gou-ti-de-sheng-ming-zhou-qi-yue-shu">Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束</h1>
+<blockquote>
+<p>本文所有结论均在 <code>rustc 1.96.0 (2026-05-25)</code> 上实测复现；对照实验的完整样例见文末。</p>
+</blockquote>
+<h2 id="jie-lun-xian-xing">结论先行</h2>
+<p>2026-10-13，<a rel="noopener" target="_blank" href="https://github.com/rust-lang/rust/issues/164250">rust-lang/rust#164250</a> 报告了一个存在了十几年的 <code>I-unsound</code>（健全性漏洞，worst kind of bug）：<strong>结构体声明的生命周期约束，可以通过一次「协变字段赋值」被绕过</strong>，全程没有 <code>unsafe</code>。</p>
+<p>事情本身很快火出圈，随之而来的是大量二手介绍。其中流传最广的一种解释是：</p>
+<blockquote>
+<p>关键在 <code>q.0 = Some(&amp;l)</code> 这一行。<code>Option&lt;T&gt;</code> 对 <code>T</code> 是协变的，于是借用检查器在「合一 / 强制」阶段，把 <code>&amp;'a String</code>（短命）当成了 <code>&amp;'static String</code>（永生）的子类型，直接统一了进去。</p>
+</blockquote>
+<p>这句话是<strong>错的</strong>，而且错得有点关键：它把一个「<strong>漏检</strong>」描述成了「<strong>检查判错</strong>」。本文先给可复现的 POC 并把「编译器本该在这里报错」的那一步标出来，再解释真正的机制，最后给一组对照实验说明为什么这不是「从根上坏了」。</p>
+<h2 id="poc-na-yi-bu-ben-gai-bao-cuo">POC：哪一步本该报错</h2>
+<h3 id="zui-xiao-he-xin-qu-diao-yi-qie-gan-rao">最小核心（去掉一切干扰）</h3>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">struct Q&lt;T: &#x27;static&gt;(Option&lt;T&gt;);
+
+impl&lt;T: &#x27;static&gt; Drop for Q&lt;T&gt; {
+    fn drop(&amp;mut self) {
+        &#x2F;&#x2F; 在这里，编译器认为 self.0: Option&lt;T&gt;，并且 T: &#x27;static 成立，
+        &#x2F;&#x2F; 因此允许把字段当作一个「活到程序结束」的引用来使用。
+        let _ = self.0.take();
+    }
+}
+
+fn main() {
+    let l = String::new();
+    let mut q = Q(None); &#x2F;&#x2F; 此刻 T 仍是推断变量 ?T，无从检查
+    &#x2F;&#x2F; ★ 问题就在这一行 ★
+    &#x2F;&#x2F; 赋值使类型推断把 ?T 解析成 &amp;&#x27;a String（&#x27;a 是 l 的借用区域）。
+    &#x2F;&#x2F; 按语言规则，Q&lt;X&gt; 这个类型只在 X: &#x27;static 时成立，所以 T 定下来之后，
+    &#x2F;&#x2F; 编译器本应回头证明约束 `T: &#x27;static`（也就是 `&amp;&#x27;a String: &#x27;static`，
+    &#x2F;&#x2F; 即 `&#x27;a: &#x27;static`），并据此报 E0597「l 活不够长」。
+    &#x2F;&#x2F; 但这条证明义务被丢掉了：既没有报错，也没有生成任何 &#x27;a: &#x27;static 约束。
+    q.0 = Some(&amp;l);
+    &#x2F;&#x2F; 于是程序里出现了一个按编译器自己的规则不该存在的值：Q&lt;&amp;&#x27;a String&gt;。
+}
+</code></pre>
+<p>这段代码在 <code>rustc 1.96.0</code> 上<strong>编译通过</strong>。注意两个值得对照的细节（下文有完整对照表）：</p>
+<ul>
+<li>如果把类型参数写死成 <code>let mut q: Q&lt;&amp;'static String&gt; = Q(None);</code>，同一行 <code>q.0 = Some(&amp;l)</code> 会正确报错 <code>E0597</code>——因为这时「短引用要顶替 'static」的关系<strong>真的需要被判断</strong>，编译器老老实实拒绝了；</li>
+<li>如果构造时类型参数就已知（<code>Q(Some(&amp;l))</code>），也会正确报错。</li>
+</ul>
+<p>也就是说，唯独「先 <code>Q(None)</code>、再由字段赋值事后推断出 <code>T</code>」这条路径没有检查。</p>
+<h3 id="yuan-shi-poc-ba-xuan-chui-yin-yong-zou-si-chu-qu">原始 POC：把悬垂引用走私出去</h3>
+<p>上面那段只是「类型不该存在」，要变成肉眼可见的内存不安全，还需要一个「利用这条约束」的 <code>Drop</code>——这正是 issue 作者的原始样例：</p>
+<pre data-lang="rust" class="language-rust "><code class="language-rust" data-lang="rust">use std::sync::Mutex;
+
+static KEPT: Mutex&lt;Vec&lt;Box&lt;dyn std::any::Any + Send&gt;&gt;&gt; = Mutex::new(Vec::new());
+
+struct Q&lt;T: &#x27;static + Send&gt;(Option&lt;T&gt;);
+
+impl&lt;T: &#x27;static + Send&gt; Drop for Q&lt;T&gt; {
+    fn drop(&amp;mut self) {
+        if let Some(t) = self.0.take() {
+            &#x2F;&#x2F; ★ 把「按声明应当是 &#x27;static」的引用装箱塞进全局容器。
+            &#x2F;&#x2F; 生命周期在代码生成阶段已被完全擦除，这里只是拷贝了一个指针。
+            KEPT.lock().unwrap().push(Box::new(t));
+        }
+    }
+}
+
+fn main() {
+    {
+        let l = String::from(&quot;hello world, this is long enough&quot;);
+        let mut q = Q(None);
+        &#x2F;&#x2F; ★ 同前：T 被解析成 &amp;&#x27;a String，但约束 T: &#x27;static 从未被证明。
+        q.0 = Some(&amp;l);
+    } &#x2F;&#x2F; l 在此析构；KEPT 里留下指向它栈内存的悬垂指针
+
+    let _z = String::from(&quot;XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX&quot;);
+    let k = KEPT.lock().unwrap();
+    println!(&quot;{}&quot;, k[0].downcast_ref::&lt;&amp;&#x27;static String&gt;().unwrap());
+}
+</code></pre>
+<p>实测输出是 <code>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</code>——不是原来那句 <code>hello world...</code>，而是后创建的 <code>_z</code> 复用了 <code>l</code> 曾经占用的栈槽。issue 作者补充说，开着 AddressSanitizer 跑会直接 <code>stack-use-after-scope</code>。</p>
+<p>为什么 <code>Drop</code> 是链条里的一环：<code>impl&lt;T: 'static&gt; Drop for Q&lt;T&gt;</code> 的函数体是在「<code>T: 'static</code> 成立」这个前提下被检查的。这个前提本来由<strong>每一个构造 <code>Q&lt;X&gt;</code> 的地方</strong>负责兑现；漏掉一次兑现之后，析构函数对字段的使用就成了空头支票。没有 <code>Drop</code>（或没有别的依赖该约束的代码）时，漏洞仍是一个「编译器接受了自己规则不允许的程序」的健全性问题，但不会立刻产生可观测的 UB。</p>
+<h2 id="zheng-que-de-ji-zhi-bu-shi-tong-yi-cuo-liao-shi-gai-zheng-ming-de-mei-zheng-ming">正确的机制：不是「统一错了」，是「该证明的没证明」</h2>
+<h3 id="zi-lei-xing-de-fang-xiang-shi-fan-de">子类型的方向是反的</h3>
+<p>Rust Reference 对子类型（<a rel="noopener" target="_blank" href="https://doc.rust-lang.org/reference/subtyping.html">Subtyping and variance</a>）的原话是：</p>
+<blockquote>
+<p>Since <code>'static</code> outlives the lifetime parameter <code>'a</code>, <code>&amp;'static str</code> is a subtype of <code>&amp;'a str</code>.</p>
+</blockquote>
+<p>即<strong>长的能当短的用</strong>：<code>&amp;'static String</code> 是 <code>&amp;'a String</code> 的子类型。反过来 <code>&amp;'a String &lt;: &amp;'static String</code>，恰恰是健全的编译器<strong>永远不能</strong>得出的结论——如果哪天子类型关系真被搞成了「短的 &lt;: 长的、并能合一进去」，那么 <code>let r: &amp;'static String = &amp;l;</code> 一行就该编译，整个借用检查体系从根上就作废了。这并没有发生。</p>
+<h3 id="static-zai-zhe-li-shi-sheng-ming-yue-shu-bu-shi-fu-zhi-mu-biao"><code>'static</code> 在这里是「声明约束」，不是「赋值目标」</h3>
+<p>让人误以为「短命被赋给了 'static」的，是混淆了两件事：</p>
+<ol>
+<li><strong><code>Q&lt;T&gt;</code> 的类型参数要满足 <code>T: 'static</code></strong>——这是结构体对 <code>Q&lt;X&gt;</code> 是否成立的<strong>前提</strong>（well-formedness 要求），和 <code>&amp;'a T</code> 要求 <code>T: 'a</code> 是同一类东西；</li>
+<li>而 <code>q.0</code> 的类型是 <code>Option&lt;?T&gt;</code>，<strong>不是</strong> <code>Option&lt;&amp;'static String&gt;</code>。</li>
+</ol>
+<p>赋值那一刻实际发生的是：类型推断把推断变量 <code>?T</code> 解析成 <code>&amp;'a String</code>。这一步本身完全合法，也完全没有 <code>'static</code> 参与比较。真正缺失的，是「解析出 <code>T = &amp;'a String</code> 之后，回头证明结构体声明的 <code>T: 'static</code>」这一步。所以准确的说法是：</p>
+<blockquote>
+<p>编译器不是「把短命当成了 'static 的子类型」，而是<strong>没有要求这个证明</strong>；于是它手上出现了一个按自己的规则不该存在的类型实例 <code>Q&lt;&amp;'a String&gt;</code>。</p>
+</blockquote>
+<p>issue 里最接近根因的公开描述来自 rust-lang 组织成员 maxdexh：</p>
+<blockquote>
+<p>I think unification just generally doesn't check lifetime bounds of the type.</p>
+</blockquote>
+<p>（types 团队的置顶 note 并没有给出正式根因，只说明定级与历史。这也是为什么值得警惕：根因排查仍在进行。）</p>
+<p>顺带解释了另一个疑问：<strong>借用检查器（borrowck）不是被绕过了，而是根本没有收到那条本应生成的 <code>'a: 'static</code> 约束</strong>。NLL 只负责执行它拿到的区域约束；约束在上游的类型推断阶段就没被要求，borrowck 自然无感。</p>
+<h2 id="dui-zhao-shi-yan-lou-dong-zhi-cun-zai-yu-yi-tiao-lu-jing-shang">对照实验：漏洞只存在于一条路径上</h2>
+<p>在同一台机器（<code>rustc 1.96.0</code>）上把各种「把类型参数说明白」的写法逐一试过：</p>
+<table><thead><tr><th>变体</th><th>结果</th></tr></thead><tbody>
+<tr><td><code>let r: &amp;'static String = &amp;l;</code></td><td>❌ <code>E0597</code></td></tr>
+<tr><td><code>Q(Some(&amp;l))</code>（构造时 T 已知）</td><td>❌ <code>E0597</code></td></tr>
+<tr><td><code>let mut q: Q&lt;&amp;String&gt; = Q(None); q.0 = Some(&amp;l);</code></td><td>❌ <code>E0597</code></td></tr>
+<tr><td><code>let mut q: Q&lt;&amp;'static String&gt; = Q(None); q.0 = Some(&amp;l);</code></td><td>❌ <code>E0597</code></td></tr>
+<tr><td><strong><code>let mut q = Q(None); q.0 = Some(&amp;l);</code>（T 事后推断）</strong></td><td>✅ 编译通过（漏洞路径）</td></tr>
+<tr><td>同上、但结构体完全不带 <code>Drop</code> impl</td><td>✅ 编译通过（漏洞路径）</td></tr>
+<tr><td>原始 POC</td><td>✅ 编译通过并打印 <code>XXXX…</code></td></tr>
+</tbody></table>
+<p>这张表本身就是「<strong>局部漏检</strong>」而非「<strong>全局规则反转</strong>」的证据：凡是将「短引用必须成为 'static」讲清楚的地方，编译器都正确拒绝；只有把类型参数的确定推迟到赋值之后、从而错过检查点的路径漏了过去。</p>
+<p>社区还很快给出了两个不依赖「字段赋值」的变体，说明病灶在「推断/统一不检查约束」，而不是某一种赋值写法：</p>
+<ul>
+<li>theemathas 给出了不依赖 <code>static</code> 的版本（<code>struct Q&lt;'a: 'static&gt;(Option&lt;&amp;'a String&gt;)</code>），证明问题与 <code>'static</code> 无关，是通用的「生命周期要求被绕过」；</li>
+<li>maxdexh 给出了数组元素统一化的版本（连字段赋值都不需要，改用 <code>std::mem::swap</code> 把短命引用换进承诺 <code>'static</code> 的位置），随后有人在 stable 1.99.0 / nightly 1.101.0 上复现，并在 Miri 下得到 <code>use-after-free</code>。</li>
+</ul>
+<p>版本下限方面：theemathas 的简化版自 <code>1.18.0 (2017)</code> 起就能编译；lcnr 贴出的、只涉及生命周期约束的变体更是「unsound since 1.4」（2015）。所以「11 年」这个说法是站得住的。</p>
+<h2 id="na-pian-liu-chuan-de-zhong-wen-jie-shao-cuo-zai-na">那篇流传的中文介绍错在哪</h2>
+<p>逐条对照（结论：事实部分基本正确，<strong>机制解释是错的</strong>）：</p>
+<ol>
+<li><strong>子类型方向反了</strong>。Rust 里是 <code>&amp;'static String &lt;: &amp;'a String</code>（长的能当短的用）；「把 <code>&amp;'a String</code> 当成 <code>&amp;'static String</code> 的子类型」正是健全编译器绝不能做的事。</li>
+<li><strong>不存在「把 <code>&amp;'a String</code> 与 <code>&amp;'static String</code> 统一」</strong>。赋值时 <code>q.0: Option&lt;?T&gt;</code>，与 <code>'static</code> 无关；被统一的是推断变量 <code>?T</code> 和 <code>&amp;'a String</code>，这本身合法。缺的是随后对 <code>T: 'static</code> 的证明。</li>
+<li><strong>阶段说错了</strong>。「合一/统一」确实发生在类型推断阶段，但问题出在「该被要求而没被要求」的约束证明上，不是「借用检查器在合一阶段做了错误代换」。借用检查器只是没收到该有的约束。</li>
+<li><strong>译名</strong>。<code>soundness hole</code> 是「健全性/可靠性漏洞」，不是「声音漏洞」（典型的机翻）。</li>
+</ol>
+<p>其余转述——issue 日期与编号、<code>I-unsound</code> 标签、从 <code>P-critical</code> 下调为 <code>P-high</code>、11 年历史、「要利用需要蓄意恶意的 <code>Drop</code>」、以及团队在推进 next-generation trait solver / region constraints / Project Zero——都与原 issue 一致。</p>
+<h2 id="wei-shen-me-zhi-ding-p-high-er-bu-shi-p-critical">为什么只定 P-high，而不是 P-critical</h2>
+<p>issue 顶部由 lcnr 加了一段「降温」说明，要点：</p>
+<ul>
+<li>这个 bug「无论有没有人在野碰到，都本应是 <code>P-critical</code>」；</li>
+<li>之所以「只是 <code>P-high</code>」，是因为它已经藏了 11 年——<strong>一个 11 年没被撞上的 bug，不可能随手就能触发</strong>；</li>
+<li>而且「即便看起来容易触发，要利用它也需要一个蓄意恶意的 <code>Drop</code> 实现」，现实中几乎没有无意触发的可能。</li>
+</ul>
+<p>背景是：<code>P-critical</code> 在 issue 创建后十几分钟内被（自动/人工）打上，随后下调为 <code>P-high</code>。</p>
+<h2 id="zong-jie">总结</h2>
+<ul>
+<li>这是货真价实的 <code>I-unsound</code>：编译器接受了自己规则不允许的程序，且不需要任何 <code>unsafe</code>；</li>
+<li>但它的本质是<strong>某一条推断路径上缺少一次约束证明</strong>，不是「子类型/合一规则被写反了」；</li>
+<li>因此它没有、也不会「从根上」破坏借用检查：<code>let r: &amp;'static String = &amp;l;</code> 照常报错；影响面限定在「恰好构造出这个非法类型 + 恰好有依赖该约束的代码（如 <code>Drop</code>）」；</li>
+<li>对日常写 Rust 的启示：写 <code>Drop</code> 与泛型生命周期约束相关的代码时，别把「声明过的约束」当成「已被证明的真理」；不过普通业务代码基本碰不到这条路径。</li>
+</ul>
+<p>修复方向见 lcnr 提到的三件事：下一代 trait solver、region 约束重构，以及 Project Zero。</p>
+<h2 id="can-kao-zi-liao">参考资料</h2>
+<ol>
+<li>原始 issue：<a rel="noopener" target="_blank" href="https://github.com/rust-lang/rust/issues/164250">rust-lang/rust#164250 — struct's lifetime requirements can be bypassed via covariant field assignment</a>
+（关键评论：lcnr 的置顶 note 与「unsound since 1.4」；theemathas 的最小核心与不依赖 <code>static</code> 的变体；maxdexh 关于「unification 不检查生命周期边界」的判断及数组统一化变体；mueddib 在 stable 1.99.0 / nightly 1.101.0 + Miri 下的复现）</li>
+<li>Rust Reference：<a rel="noopener" target="_blank" href="https://doc.rust-lang.org/reference/subtyping.html">Subtyping and variance</a></li>
+<li>Rust Project Goals：<a rel="noopener" target="_blank" href="https://goals.rust-lang.org/2026/roadmap-project-zero.html">Project Zero</a>、<a rel="noopener" target="_blank" href="https://goals.rust-lang.org/2026/next-solver.html">next-generation trait solver</a>、<a rel="noopener" target="_blank" href="https://goals.rust-lang.org/2026/next-gen-region-constraints.html">next-generation region constraints</a></li>
+<li>被本文纠正的网络文章：《Rust 埋了 11 年的内存安全漏洞被挖出》（丹恩爱分享，2026-10-14，网络转载/二手介绍，未提供稳定链接）——其事实转述基本正确，但关于漏洞机制的那段解释（协变 + 合一 + 子类型）有误。</li>
+</ol>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/">&#8249; 把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/vllm-tool-call-silent-truncation/"> 客户端卡死在 tool-use 上——vLLM 工具调用静默截断排查记 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#rust-mai-liao-11-nian-de-jian-quan-xing-lou-dong-xie-bian-zi-duan-fu-zhi-ru-he-rao-guo-jie-gou-ti-de-sheng-ming-zhou-qi-yue-shu">Rust 埋了 11 年的健全性漏洞：协变字段赋值如何绕过结构体的生命周期约束</a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-lun-xian-xing"><small>- 结论先行</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#poc-na-yi-bu-ben-gai-bao-cuo"><small>- POC：哪一步本该报错</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zui-xiao-he-xin-qu-diao-yi-qie-gan-rao"><small>· 最小核心（去掉一切干扰）</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yuan-shi-poc-ba-xuan-chui-yin-yong-zou-si-chu-qu"><small>· 原始 POC：把悬垂引用走私出去</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zheng-que-de-ji-zhi-bu-shi-tong-yi-cuo-liao-shi-gai-zheng-ming-de-mei-zheng-ming"><small>- 正确的机制：不是「统一错了」，是「该证明的没证明」</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zi-lei-xing-de-fang-xiang-shi-fan-de"><small>· 子类型的方向是反的</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#static-zai-zhe-li-shi-sheng-ming-yue-shu-bu-shi-fu-zhi-mu-biao"><small>· &#x27;static 在这里是「声明约束」，不是「赋值目标」</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#dui-zhao-shi-yan-lou-dong-zhi-cun-zai-yu-yi-tiao-lu-jing-shang"><small>- 对照实验：漏洞只存在于一条路径上</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#na-pian-liu-chuan-de-zhong-wen-jie-shao-cuo-zai-na"><small>- 那篇流传的中文介绍错在哪</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#wei-shen-me-zhi-ding-p-high-er-bu-shi-p-critical"><small>- 为什么只定 P-high，而不是 P-critical</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#can-kao-zi-liao"><small>- 参考资料</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

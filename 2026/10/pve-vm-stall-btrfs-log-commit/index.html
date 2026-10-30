@@ -1,0 +1,223 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>PVE 虚拟机每 35 秒卡 3 秒：一场从 ping 到 btrfs log commit 的排查 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="虚机里普通命令偶发卡几秒、登录也慢。用双机对照 + eBPF 抓栈，定位到宿主 btrfs 事务提交全局串行排队，根因是文件系统 chunk 分配耗尽。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/10/pve-vm-stall-btrfs-log-commit/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/10/pve-vm-stall-btrfs-log-commit/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/10/pve-vm-stall-btrfs-log-commit/" />
+  <meta property="og:description" content="虚机里普通命令偶发卡几秒、登录也慢。用双机对照 + eBPF 抓栈，定位到宿主 btrfs 事务提交全局串行排队，根因是文件系统 chunk 分配耗尽。" />
+  <meta name="twitter:description" content="虚机里普通命令偶发卡几秒、登录也慢。用双机对照 + eBPF 抓栈，定位到宿主 btrfs 事务提交全局串行排队，根因是文件系统 chunk 分配耗尽。" />
+  <meta property="og:title" content="PVE 虚拟机每 35 秒卡 3 秒：一场从 ping 到 btrfs log commit 的排查 | 墨雪天琊" />
+  <meta name="twitter:title" content="PVE 虚拟机每 35 秒卡 3 秒：一场从 ping 到 btrfs log commit 的排查 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-10-30" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=268d9dc6cc51459c408a"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/10/pve-vm-stall-btrfs-log-commit/">PVE 虚拟机每 35 秒卡 3 秒：一场从 ping 到 btrfs log commit 的排查</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十月 30, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/xu-ni-hua-yu-rong-qi/">虚拟化与容器</a>] #<a href="https://blog.juzhong.asia/tags/cun-chu-yu-wen-jian-xi-tong/">存储与文件系统</a>  #<a href="https://blog.juzhong.asia/tags/xu-ni-hua/">虚拟化</a>  #<a href="https://blog.juzhong.asia/tags/diao-shi/">调试</a>  #<a href="https://blog.juzhong.asia/tags/qemu/">qemu</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>一台跑在 Proxmox 上的开发虚机（下称 <code>vm-a</code>，16 vCPU / 32G / virtio-scsi 单盘 300G，<code>iothread=1</code>、<code>cache=none</code>），用起来有这样的体感：</p>
+<ul>
+<li><code>ssh</code> 登录经常要顿一下才出提示符；</li>
+<li>在里面敲命令，<strong>偶尔一个再普通不过的命令（比如 <code>jobs</code>）也要卡几秒</strong>，然后突然一口气全出来；</li>
+<li>同一宿主上另一台虚机 <code>vm-b</code>「没有这个问题」。</li>
+</ul>
+<p>宿主是一台 Proxmox 节点，数据盘是一块 62.9T 的 MegaRAID 阵列，上面一个 btrfs 文件系统挂了四个子卷给 <code>pvesm</code> 当存储（<code>images</code> 都在里面，raw 格式）。</p>
+<h2 id="di-yi-bu-xian-pai-chu-xian-er-yi-jian-de-zhe-yi-bu-ji-ben-du-zai-zou-wan-lu">第一步：先排除「显而易见」的（这一步基本都在走弯路）</h2>
+<p>把能想到的都测了一遍，结论都是「不是它」：</p>
+<table><thead><tr><th>怀疑对象</th><th>实测</th><th>结论</th></tr></thead><tbody>
+<tr><td>网络</td><td>平时 ping 0.3ms；卡顿时出现 <code>2640→2434→2225→…→146ms</code> 的<strong>等差衰减</strong>（步长正好等于 ping 间隔 0.2s），零丢包</td><td>像是「整条路冻住再一次性放行」，先记着</td></tr>
+<tr><td>bufferbloat</td><td>拉 300MB（539Mbps）期间 ping 最大 1.0ms</td><td>不是</td></tr>
+<tr><td>CPU 抢占</td><td>guest 内 <code>%steal</code> 全程 0，宿主 256 核基本空闲</td><td>不是</td></tr>
+<tr><td>磁盘带宽</td><td><code>dd oflag=dsync</code> 150MB 只要 105ms</td><td>空闲时盘很快</td></tr>
+<tr><td>sshd / shell</td><td><code>zsh -i -c jobs</code> 温热 45ms；ICMP 也卡</td><td>不是</td></tr>
+<tr><td>gpg-agent</td><td>每次公钥签名 440ms（同 key 走 OpenSSH ssh-agent 只要 0.6ms）</td><td>真问题，但只解释登录慢 0.8s，解释不了「几秒」</td></tr>
+<tr><td>sshd PerSourcePenalties</td><td>OpenSSH 10.2 默认开启，一次未认证连接就让整个源 IP 被封 15–600s</td><td>真问题，但表现为「连接被重置」而不是「卡几秒」</td></tr>
+</tbody></table>
+<p><strong>弯路记录</strong>：那条等差衰减的 ping 曲线一开始被我当成「网络层冻结」的证据，还推导过「qemu 块设备线程卡住拖累主循环导致网络停」。后来双机对照 + 全程 ping 监控证明：<strong>卡顿发生时 ping 一直是 0.4ms，网络从头到尾是无辜的</strong>。衰减曲线其实是「宿主把发往虚机的 ICMP 缓在 tap 里，I/O 一恢复就批量放行」的表现——根因还是在存储，只是当时把因果弄反了。</p>
+<h2 id="di-er-bu-shuang-ji-dui-zhao-yi-fa-ming-zhong">第二步：双机对照，一发命中</h2>
+<p>写了一个几十行的探针，同时扔到同宿主的两台虚机里：每 5 秒做一次「写 4KB + <code>fsync</code>」（注意写到磁盘路径而不是 tmpfs！第一版写在 <code>/tmp</code> 上，而 <code>vm-a</code> 的 <code>/tmp</code> 是 tmpfs，探针完全测不到盘），记录每次延迟：</p>
+<pre><code>== vm-a: fsync 样本 62  p50=3.2ms  p95=970.8ms  max=1888ms
+   &gt;100ms: 17:22:44 1888 &#x2F; 17:23:58 429 &#x2F; 17:24:34 1363 &#x2F; 17:25:09 1732 &#x2F; 17:25:44 971 &#x2F; 17:26:18 562
+== vm-b: fsync 样本 62  p50=2.1ms  p95=1964.8ms  max=2887ms
+   &gt;100ms: 17:22:44 2887 &#x2F; 17:23:58 1427 &#x2F; 17:24:34 2362 &#x2F; 17:25:09 2722 &#x2F; 17:25:44 1965 &#x2F; 17:26:18 1558
+</code></pre>
+<p>三个信息量爆炸的细节：</p>
+<ol>
+<li><strong>两台虚机在同一秒卡</strong>（17:22:44、17:23:58、17:24:34…完全对齐）；</li>
+<li>两台的差值<strong>恒等于 ~1.0s</strong>——就是两个探针的采样相位差，说明它们<strong>在同一时刻被放行</strong>；</li>
+<li>卡顿间隔稳定在 <strong>~35 秒</strong>（72.5 / 36.9 / 35.4 / 34.2 / 33.6 / 33.9，其中 72.5 是漏采一次）。</li>
+</ol>
+<p>结论：这不是某台虚机的问题，是<strong>宿主共享层（存储）每 35 秒冻 1–3 秒</strong>。<code>vm-b</code> 之所以「没问题」，只是因为它空着没人用。</p>
+<p>顺带用 bpftrace 在 <code>vm-a</code> 里抓到了同步证据——ext4 日志线程在等块设备：</p>
+<pre><code>17:15:36 DSTATE 1966ms comm=jbd2&#x2F;sda2-8 pid=373
+</code></pre>
+<pre><code>io_schedule+76
+bit_wait_io+17 → __wait_on_bit → __wait_on_buffer
+jbd2_journal_commit_transaction+4778
+kjournald2+163
+</code></pre>
+<p>（期间还抓到 <code>runc</code> 每次阻塞 2–3 秒，栈是 <code>rwsem_down_read_slowpath → exec_mmap / __vma_start_write</code>，那是 podman healthcheck 的 mmap_lock 争用，与本案无关，别被带偏。）</p>
+<h2 id="di-san-bu-shang-su-zhu-zhan-zhi-jie-ba-ji-zhi-ding-si">第三步：上宿主，栈直接把机制钉死</h2>
+<p>宿主 <code>dmesg</code> 里有一天前的 hung task（&gt;122 秒）：</p>
+<pre><code>task:iou-wrk-4217  state:D
+  wait_log_commit+0x94&#x2F;0x100        [btrfs]
+  btrfs_sync_log+0x982&#x2F;0xc60        [btrfs]
+  btrfs_sync_file+0x4d1&#x2F;0x680       [btrfs]
+  vfs_fsync_range+0x4b&#x2F;0xa0
+  io_fsync+0x3d&#x2F;0x60                 ← qemu（aio=io_uring）发来的 fsync
+  io_issue_sqe → io_wq_submit_work → io_wq_worker
+</code></pre>
+<p>同一时刻一堆任务全栈在 <code>wait_log_commit</code>，另外还有 <code>btrfs_commit_transaction</code>。而 <strong>megaraid 驱动零 sense/abort/reset、零 I/O error</strong>，<code>iostat</code> 里阵列写入 4400+ IOPS、<code>w_await 0.2ms</code>、<code>%util 15%</code>——阵列又快又健康。</p>
+<p>再看 btrfs 状态，真正的根因出来了：</p>
+<pre><code>Device size:        62.87 TiB
+Device allocated:   62.87 TiB
+Device unallocated:  1.03 MiB     ← chunk 已经分配光
+Data, single:  total 62.57TiB  used 54.81TiB   (87.5%)
+Metadata, DUP: total   156GiB  used 113.99GiB  (73%)
+Free (statfs): 7.76 TiB                  ← 有空间，但全在已分配的 chunk 里
+[&#x2F;dev&#x2F;sda1].corruption_errs  32379       ← 另一个必须处理的完整性问题
+</code></pre>
+<h2 id="gen-yin">根因</h2>
+<p>把链路串起来：</p>
+<pre><code>guest 写 + flush（cache=none，每次 flush 都落到宿主）
+  → qemu（io_uring）对 raw 文件发 io_fsync
+    → btrfs_sync_file → btrfs_sync_log → wait_log_commit
+       └─ btrfs 的 transaction &#x2F; log commit 是【全局串行】的：
+          一次提交期间，这个文件系统上所有 fsync 排队等它
+</code></pre>
+<p>而这个 btrfs <strong>chunk 已分配光（unallocated ≈ 1MB）、用到 87.5%</strong>，写路径上的元数据预留会退化成 <code>flush_space(COMMIT_TRANS)</code>——同步触发一次全局事务提交；提交本身又因为空间紧张而变慢。默认 <code>commit=30s</code> 的定时提交叠加这条路径，就得到精确的「<strong>每 ~35 秒一次，全存储上的虚机一起冻 1–3 秒</strong>」，极端时就是 dmesg 里那次 122 秒。</p>
+<h2 id="chu-zhi-an-feng-xian-cong-di-dao-gao">处置（按风险从低到高）</h2>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># ① 秒级可回滚：把提交间隔 30s 拉到 120s，尖峰次数直接降到 1&#x2F;4
+mount -o remount,commit=120 &#x2F;home
+# 验证：guest 探针里卡顿间隔应从 ~35s 变成 ~123s —— 也是最终定案的判据
+
+# ② 若开了 qgroup 就关掉（每次 commit 遍历 qgroup，是提交变慢的经典元凶）
+btrfs quota status &#x2F;home &amp;&amp; btrfs quota disable &#x2F;home
+
+# ③ 腾空间 + 只搬低利用率 chunk，让 unallocated 回到几十 GB
+#    （千万别做全量 balance，55T 会跑好几天）
+btrfs balance start -musage=50 &#x2F;home &amp;
+btrfs balance start -dusage=40 &#x2F;home &amp;
+
+# ④ 虚机盘改 cache=writeback，减少触发点（需 stop→start，注意保留 iothread 等参数）
+cur=$(qm config 101 | awk -F&#x27;: &#x27; &#x27;&#x2F;^scsi0:&#x2F;{print $2}&#x27; | sed &#x27;s&#x2F;,cache=[^,]*&#x2F;&#x2F;g&#x27;)
+qm set 101 --scsi0 &quot;${cur},cache=writeback&quot;
+</code></pre>
+<p>长期方案：这块阵列既然健康，VM 盘值得挪去 <strong>LVM-thin</strong>（同阵列切 LV，没有 log commit 这个放大器）；btrfs 留给备份、ISO 这类不依赖 fsync 的数据。另外 <code>corruption_errs 32379</code> 是独立的数据完整性问题，性能修完仍要 <code>scrub</code> + 查内存/RAID cache。</p>
+<h2 id="zong-jie">总结</h2>
+<p>这次能收敛，靠的是三件事，比结论本身更值得复用：</p>
+<ol>
+<li><strong>找一个对照组</strong>。两台同宿主虚机跑同一份探针，「同秒冻结 + 恒定相位差」两个特征直接把问题从虚机层踢到宿主共享层，比任何单机数据都有说服力。</li>
+<li><strong>eBPF 抓栈，不要猜</strong>。<code>bpftrace</code> 在 guest 里 20 行脚本就拿到 <code>jbd2 → io_schedule → __wait_on_buffer</code>，在宿主上 dmesg 的 <code>wait_log_commit</code> 栈把最后一环补齐。猜「网络冻结」的那一版解释就是没有栈的时代产物。</li>
+<li><strong>周期是极强的指纹</strong>。35 秒 ≈ btrfs 默认 <code>commit=30</code> + 提交耗时；改一个参数让周期变成 123 秒，因果就闭合了。遇到「间歇性卡顿」先想办法测出它的周期，往往离答案就不远了。</li>
+</ol>
+<p>顺带捞到的两个真问题也值得记着：OpenSSH 10.2 默认开启的 <code>PerSourcePenalties</code> 会在单用户内网里因为一次失败把整 IP 封 15 秒以上（表现为 <code>kex_exchange_identification: Connection reset</code> 或服务端横幅 <code>Not allowed at this time</code>，单人内网建议 <code>PerSourcePenalties no</code>）；以及 gpg-agent 替 ssh 签名每次 ~440ms（raw <code>PKSIGN</code> 同样慢，换 OpenSSH ssh-agent 是 0.6ms），这是「每次登录都顿一下」的固定成本。</p>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/opencode-theme-white-tmux-osc11-reply/"> tmux 里的 opencode 一夜变白：tmux 对 OSC 11 背景色查询的代答 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#di-yi-bu-xian-pai-chu-xian-er-yi-jian-de-zhe-yi-bu-ji-ben-du-zai-zou-wan-lu">第一步：先排除「显而易见」的（这一步基本都在走弯路）</a>
+        </div>
+        <div>
+          <a href="#di-er-bu-shuang-ji-dui-zhao-yi-fa-ming-zhong">第二步：双机对照，一发命中</a>
+        </div>
+        <div>
+          <a href="#di-san-bu-shang-su-zhu-zhan-zhi-jie-ba-ji-zhi-ding-si">第三步：上宿主，栈直接把机制钉死</a>
+        </div>
+        <div>
+          <a href="#gen-yin">根因</a>
+        </div>
+        <div>
+          <a href="#chu-zhi-an-feng-xian-cong-di-dao-gao">处置（按风险从低到高）</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
