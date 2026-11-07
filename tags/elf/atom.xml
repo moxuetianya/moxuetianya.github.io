@@ -1,0 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - elf</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://blog.juzhong.asia/tags/elf/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://blog.juzhong.asia"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-16T20:50:07+08:00</updated>
+    <id>https://blog.juzhong.asia/tags/elf/atom.xml</id>
+    <entry xml:lang="en">
+        <title>把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析</title>
+        <published>2026-10-16T20:50:07+08:00</published>
+        <updated>2026-10-16T20:50:07+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/"/>
+        <id>https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2026/10/objcopy-embed-binary-payload/">&lt;h1 id=&quot;ba-400-duo-mb-zi-yuan-qian-jin-dan-ge-ke-zhi-xing-wen-jian-objcopy-i-binary-shou-fa-fen-xi&quot;&gt;把 400 多 MB 资源嵌进单个可执行文件：objcopy -I binary 手法分析&lt;&#x2F;h1&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;一句话结论&lt;&#x2F;strong&gt;：用 &lt;code&gt;objcopy -I binary&lt;&#x2F;code&gt; 把裸字节包装成合法的 ELF 目标文件（&lt;code&gt;.o&lt;&#x2F;code&gt;），和普通 C 代码一起链接进可执行文件的 &lt;code&gt;.data&lt;&#x2F;code&gt; 段——数据真正进入 &lt;code&gt;PT_LOAD&lt;&#x2F;code&gt; 映射，运行时通过链接期符号直接取地址，零解析、strip 安全；目录树等结构化资产则由生成器拼成&quot;纯字节 blob + 编译期 C 索引表&quot;两部分，等价于一个&lt;strong&gt;把解析逻辑在编译期消化掉的 tar&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;bei-jing-yu-xu-qiu&quot;&gt;背景与需求&lt;&#x2F;h2&gt;
+&lt;p&gt;BugHunterAgent（Python 写的漏洞猎手框架）需要交付一个&quot;单文件、只依赖 libc&quot;的可执行程序 &lt;code&gt;build&#x2F;bughunter&lt;&#x2F;code&gt;，里面要背三块东西：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;bughunter 框架本体&lt;&#x2F;strong&gt; —— Nuitka 编译出的 standalone 目录树 &lt;code&gt;cli.dist&#x2F;&lt;&#x2F;code&gt;（含插件资产 &lt;code&gt;opencode-project&#x2F;&lt;&#x2F;code&gt;、用户级依赖 &lt;code&gt;opencode-user&#x2F;&lt;&#x2F;code&gt;），几百 MB、上千个文件、带 symlink 和可执行权限位；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;opencode&lt;&#x2F;strong&gt; —— bun 现场编译出的单文件 TUI 宿主；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ripgrep&lt;&#x2F;strong&gt; —— musl 静态链接的 &lt;code&gt;rg&lt;&#x2F;code&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;运行时（一个几百行的 C bootstrap）首次启动把三块解到 &lt;code&gt;$XDG_CACHE_HOME&#x2F;bughunter&#x2F;{bughunter,opencode,ripgrep}-&amp;lt;版本&amp;gt;&#x2F;&lt;&#x2F;code&gt;，然后 exec 内嵌的 opencode 并注入环境变量。&lt;&#x2F;p&gt;
+&lt;p&gt;本文整理这套&quot;把任意目录树&#x2F;二进制嵌进 ELF&quot;的手法：基础用法 → 三个容易踩坑的替代方案 → 实际实现 → 最终产物上的实测验证。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ji-chu-shou-fa-objcopy-i-binary-wu-fen-zhong-ru-men&quot;&gt;基础手法：&lt;code&gt;objcopy -I binary&lt;&#x2F;code&gt; 五分钟入门&lt;&#x2F;h2&gt;
+&lt;p&gt;先看一个最小实验，5 个字节就够：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ printf &amp;#x27;ABCDE&amp;#x27; &amp;gt; demo.blob
+$ objcopy -I binary -O elf64-x86-64 -B i386:x86-64 demo.blob demo.o
+$ nm demo.o
+0000000000000005 D _binary_demo_blob_end
+0000000000000005 A _binary_demo_blob_size
+0000000000000000 D _binary_demo_blob_start
+$ objdump -h demo.o
+
+demo.o：     文件格式 elf64-x86-64
+
+节：
+Idx Name          Size      VMA               LMA               File off  Algn
+  0 .data         00000005  0000000000000000  0000000000000000  00000040  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;内容一个字节不动地进了 &lt;code&gt;.data&lt;&#x2F;code&gt; 段：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ objdump -s -j .data demo.o
+
+Contents of section .data:
+ 0000 41424344 45                          ABCDE
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;三个参数的含义：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;参数&lt;&#x2F;th&gt;&lt;th&gt;含义&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-I binary&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;输入是&lt;strong&gt;没有任何格式的裸字节&lt;&#x2F;strong&gt;，整个文件就是数据，不解析任何结构&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-O elf64-x86-64&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;输出为 x86-64 的 ELF relocatable（&lt;code&gt;.o&lt;&#x2F;code&gt;），&lt;code&gt;cc&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;ld&lt;&#x2F;code&gt; 的标准链接输入&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;-B i386:x86-64&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;打上架构标记，否则链接器报&quot;体系结构不匹配&quot;拒绝混合链接&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;符号名由输入文件名推导&lt;&#x2F;strong&gt;：加 &lt;code&gt;_binary_&lt;&#x2F;code&gt; 前缀、非字母数字字符替换为下划线、加 &lt;code&gt;_start&#x2F;_end&#x2F;_size&lt;&#x2F;code&gt; 后缀。&lt;code&gt;demo.blob&lt;&#x2F;code&gt; → &lt;code&gt;_binary_demo_blob_start&lt;&#x2F;code&gt;。注意它是&lt;strong&gt;链接期符号&lt;&#x2F;strong&gt;，不是运行时的查找键——C 侧一个 &lt;code&gt;extern&lt;&#x2F;code&gt; 声明就能用：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;extern const unsigned char _binary_demo_blob_start[];
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;这手法历史悠久了，等价写法还有 &lt;code&gt;ld -r -b binary -o blob.o blob&lt;&#x2F;code&gt;（&lt;a href=&quot;https:&#x2F;&#x2F;blog.juzhong.asia&#x2F;2023&#x2F;12&#x2F;%E4%BD%A0%E6%89%80%E4%B8%8D%E7%9F%A5%E9%81%93%E7%9A%84c&#x2F;&quot;&gt;《你所不知道的 C》&lt;&#x2F;a&gt;里演示过）和汇编的 &lt;code&gt;.incbin&lt;&#x2F;code&gt; 指令。objcopy 版本的好处是目标平台显式写在参数里，跨机器构建行为一致。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;san-ge-xiang-dang-ran-fang-an-de-keng&quot;&gt;三个&quot;想当然&quot;方案的坑&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fang-an-a-lian-jie-wan-zai-add-section-jia-duan&quot;&gt;方案 A：链接完再 &lt;code&gt;--add-section&lt;&#x2F;code&gt; 加段？&lt;&#x2F;h3&gt;
+&lt;p&gt;&quot;对最终 ELF 跑 &lt;code&gt;objcopy --add-section .rg=rg.bin&lt;&#x2F;code&gt; 不就行了？&quot;——不行，有个致命问题：&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;section 不在运行时内存里。&lt;&#x2F;strong&gt; ELF 加载器（内核 + ld.so）只映射 &lt;code&gt;PT_LOAD&lt;&#x2F;code&gt; 程序头描述的段；section header table 是链接期元数据，&lt;strong&gt;不会被映射&lt;&#x2F;strong&gt;。&lt;code&gt;--add-section&lt;&#x2F;code&gt; 追加的数据只登记在 section header 里，运行中的进程根本看不到它。要读就必须 &lt;code&gt;open(&quot;&#x2F;proc&#x2F;self&#x2F;exe&quot;)&lt;&#x2F;code&gt; → 解析 ELF header → 遍历 section table → 按名查找 → &lt;code&gt;pread&lt;&#x2F;code&gt;，等于在程序里内置一个小型 ELF 解析器；而且 &lt;strong&gt;strip 一下 section header 就没了&lt;&#x2F;strong&gt;（strip 保留 &lt;code&gt;PT_LOAD&lt;&#x2F;code&gt; 但删 section 表）。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;-I binary&lt;&#x2F;code&gt; 转 &lt;code&gt;.o&lt;&#x2F;code&gt; 则相反：数据落进普通 &lt;code&gt;.data&lt;&#x2F;code&gt; 段、被链接器放进 &lt;code&gt;PT_LOAD&lt;&#x2F;code&gt;，&lt;code&gt;extern&lt;&#x2F;code&gt; 符号在链接期解析完毕——运行时零查找、strip 安全、PIE 无关。&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;--add-section&lt;&#x2F;code&gt;（链接后处理）&lt;&#x2F;th&gt;&lt;th&gt;&lt;code&gt;-I binary&lt;&#x2F;code&gt; → &lt;code&gt;.o&lt;&#x2F;code&gt;（参与链接）&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;运行时可用&lt;&#x2F;td&gt;&lt;td&gt;❌ 不在内存，需解析自身 ELF&lt;&#x2F;td&gt;&lt;td&gt;✅ 普通符号直接取地址&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;strip 后&lt;&#x2F;td&gt;&lt;td&gt;❌ section header 被删&lt;&#x2F;td&gt;&lt;td&gt;✅ 不受影响&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;树形元数据（路径&#x2F;权限&#x2F;symlink）&lt;&#x2F;td&gt;&lt;td&gt;❌ 仍需另配 manifest&lt;&#x2F;td&gt;&lt;td&gt;✅ 配合索引表解决&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;构建流程&lt;&#x2F;td&gt;&lt;td&gt;链接后追加步骤&lt;&#x2F;td&gt;&lt;td&gt;单次 &lt;code&gt;cc&lt;&#x2F;code&gt; 完成&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;fang-an-b-xxd-bin2c-sheng-cheng-c-shu-zu&quot;&gt;方案 B：&lt;code&gt;xxd&lt;&#x2F;code&gt;&#x2F;bin2c 生成 C 数组？&lt;&#x2F;h3&gt;
+&lt;p&gt;小文件没问题，几百 MB 会把编译器打爆：巨型字符串&#x2F;数组字面量让 gcc&#x2F;clang 的内存和时间失控。所以大 payload 的正确分工是&lt;strong&gt;字节走 objcopy（O(n) 拷贝，开销极小），C 代码里只放小索引&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fang-an-c-nei-qian-tar-gz-yun-xing-shi-zi-jie-ya&quot;&gt;方案 C：内嵌 tar.gz，运行时自解压？&lt;&#x2F;h3&gt;
+&lt;p&gt;单文件自解压安装器的经典做法（makeself 一类），但和&quot;只依赖 libc 的 bootstrap&quot;目标冲突：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;tar 解析（512 字节头、八进制字段、长文件名、typeflag）得手写；gzip&#x2F;zstd 解压得再引依赖&lt;&#x2F;li&gt;
+&lt;li&gt;解析逻辑在运行时执行，代码量和测试面都落在运行时&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;它反而点破了本方案的核心思想：&lt;strong&gt;归档格式没问题，问题是&quot;解析&quot;不该发生在运行时&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;shi-ji-fang-an-blob-bian-yi-qi-suo-yin-biao&quot;&gt;实际方案：blob + 编译期索引表&lt;&#x2F;h2&gt;
+&lt;p&gt;一句话概括：&lt;strong&gt;自制一个 tar，但把解析逻辑在编译期消化掉——tar 的 512 字节头变成 C 结构体数组的字段，运行时只剩一个 for 循环。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;构建数据流：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;cli.dist&amp;#x2F; 目录树 ──generate_payload.py──► bughunter.blob（纯字节拼接）+ payload.c（C 索引表）
+opencode 单文件 ──┐                        opencode.blob + 表
+ripgrep  单文件 ──┘                        ripgrep.blob + 表
+
+三个 blob ──objcopy -I binary──► 三个 .o（各带 _binary_*_blob_start 符号）
+
+cc main.c payload.c bughunter-payload.o opencode-payload.o ripgrep-payload.o -o bughunter
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成器 &lt;code&gt;generate_payload.py&lt;&#x2F;code&gt; 做两件事：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;collect()&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：遍历目录树，每个条目记录 &lt;code&gt;(相对路径, 类型 file&#x2F;dir&#x2F;symlink, 字节, 权限位)&lt;&#x2F;code&gt;，symlink 存的是链接目标字符串；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;emit_table()&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;：所有非目录条目的字节顺序拼进 &lt;code&gt;.blob&lt;&#x2F;code&gt;；同时在 &lt;code&gt;payload.c&lt;&#x2F;code&gt; 里生成 C 数组，&lt;code&gt;data&lt;&#x2F;code&gt; 字段直接写 &lt;code&gt;_binary_&amp;lt;name&amp;gt;_blob_start + &amp;lt;offset&amp;gt;&lt;&#x2F;code&gt;——&lt;strong&gt;偏移在编译期就算好，链接后指针就是最终内存地址&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;生成的 &lt;code&gt;payload.c&lt;&#x2F;code&gt; 长这样（节选示意）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;#include &amp;quot;payload.h&amp;quot;
+
+extern const unsigned char _binary_bughunter_blob_start[];
+extern const unsigned char _binary_opencode_blob_start[];
+extern const unsigned char _binary_ripgrep_blob_start[];
+const char bughunter_version[] = &amp;quot;1.2.3&amp;quot;;
+
+const struct payload_entry bughunter_payload[] = {
+    { &amp;quot;bughunter.bin&amp;quot;,                      _binary_bughunter_blob_start + 0,       1234567, 0755, PAYLOAD_FILE },
+    { &amp;quot;opencode-project&amp;quot;,                   NULL,                                  0,       0755, PAYLOAD_DIRECTORY },
+    { &amp;quot;opencode-project&amp;#x2F;opencode.json&amp;quot;,     _binary_bughunter_blob_start + 1234567, 812,     0644, PAYLOAD_FILE },
+    &amp;#x2F;* ... *&amp;#x2F;
+};
+const size_t bughunter_payload_count = sizeof(bughunter_payload) &amp;#x2F; sizeof(bughunter_payload[0]);
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;索引表结构（&lt;code&gt;payload.h&lt;&#x2F;code&gt;）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;c&quot; class=&quot;language-c &quot;&gt;&lt;code class=&quot;language-c&quot; data-lang=&quot;c&quot;&gt;enum payload_kind { PAYLOAD_DIRECTORY = 1, PAYLOAD_FILE = 2, PAYLOAD_SYMLINK = 3 };
+
+struct payload_entry {
+    const char *path;              &amp;#x2F;* 相对路径 *&amp;#x2F;
+    const unsigned char *data;     &amp;#x2F;* 指向 blob 内偏移，目录为 NULL *&amp;#x2F;
+    size_t size;
+    mode_t mode;                   &amp;#x2F;* 权限位随表保留 *&amp;#x2F;
+    enum payload_kind kind;
+};
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;为什么拆三个 blob 而不是合并成一个大 blob&lt;&#x2F;strong&gt;：三块资产版本独立（bughunter&#x2F;opencode&#x2F;ripgrep 各有版本号），运行时分别装到 &lt;code&gt;&amp;lt;name&amp;gt;-&amp;lt;版本&amp;gt;&lt;&#x2F;code&gt; 三个缓存目录，失效粒度细——只升 ripgrep 时，另两个缓存目录不用重解几百 MB。&lt;&#x2F;p&gt;
+&lt;p&gt;一个容易忽略的耦合：objcopy 的符号名由 &lt;strong&gt;blob 文件名&lt;&#x2F;strong&gt;推导，所以 build.sh 里 blob 文件不能随便改名，否则 &lt;code&gt;payload.c&lt;&#x2F;code&gt; 里的 &lt;code&gt;extern&lt;&#x2F;code&gt; 声明就对不上了（链接报 undefined reference）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yun-xing-shi-install-payload&quot;&gt;运行时：&lt;code&gt;install_payload&lt;&#x2F;code&gt;&lt;&#x2F;h2&gt;
+&lt;p&gt;bootstrap（&lt;code&gt;main.c&lt;&#x2F;code&gt;）的消费逻辑很朴素：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;目标目录 &lt;code&gt;&amp;lt;cache&amp;gt;&#x2F;&amp;lt;name&amp;gt;-&amp;lt;version&amp;gt;&lt;&#x2F;code&gt; 已存在 → 直接返回（&lt;strong&gt;快速路径&lt;&#x2F;strong&gt;，二次启动零开销）；&lt;&#x2F;li&gt;
+&lt;li&gt;否则解到同级临时目录 &lt;code&gt;.&amp;lt;name&amp;gt;-&amp;lt;version&amp;gt;.tmp-&amp;lt;pid&amp;gt;&lt;&#x2F;code&gt;：for 循环遍历索引表，按 &lt;code&gt;kind&lt;&#x2F;code&gt; 建目录 &#x2F; &lt;code&gt;symlink()&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;open+write+fsync&lt;&#x2F;code&gt;，&lt;code&gt;mode&lt;&#x2F;code&gt; 按表恢复；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;rename()&lt;&#x2F;code&gt; 原子生效；并发启动撞车时容忍 &lt;code&gt;EEXIST&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;每个条目先做路径安全检查——拒绝绝对路径和 &lt;code&gt;..&#x2F;&lt;&#x2F;code&gt; 穿越（嵌入的路径本身是自己生成的，这是纵深防御）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;zai-zhen-shi-chan-wu-shang-yan-zheng&quot;&gt;在真实产物上验证&lt;&#x2F;h2&gt;
+&lt;p&gt;最终 &lt;code&gt;build&#x2F;bughunter&lt;&#x2F;code&gt; 435MB，用 nm&#x2F;objdump 直接看到三块 payload 的真实布局：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;$ ls -lh build&amp;#x2F;bughunter
+-rwxrwxr-x 1 peter peter 435M 10月16日 16:57 build&amp;#x2F;bughunter
+
+$ nm build&amp;#x2F;bughunter | grep _binary_
+000000000fabf423 D _binary_bughunter_blob_end
+000000000f90429b A _binary_bughunter_blob_size
+00000000001bb188 D _binary_bughunter_blob_start
+000000001ad0bca3 D _binary_opencode_blob_end
+000000000b24c880 A _binary_opencode_blob_size
+000000000fabf423 D _binary_opencode_blob_start
+000000001b23452b D _binary_ripgrep_blob_end
+0000000000528888 A _binary_ripgrep_blob_size
+000000001ad0bca3 D _binary_ripgrep_blob_start
+
+$ objdump -h build&amp;#x2F;bughunter | grep -E &amp;#x27;\.data &amp;#x27;
+ 25 .data         1b0793b3  00000000001bb178  00000000001bb178  001ba178  2**3
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;内存布局一目了然：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;.data 段（VMA 0x1bb178，总大小 0x1b0793b3 ≈ 453MB，占整个文件的 99%）
+0x01bb188  ┌─ bughunter blob   0x0f90429b ≈ 261MB
+0x0fabf423 ├─ opencode blob    0x0b24c880 ≈ 187MB   ← 恰好等于上一个的 end
+0x1ad0bca3 ├─ ripgrep blob     0x0528888  ≈ 5.4MB   ← 恰好等于上一个的 end
+0x1b23452b └─ .data 结束
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;验算&lt;&#x2F;strong&gt;：261,112,475 + 186,960,000 + 5,408,904 + 16（开头少量普通全局变量）= 453,481,395 = &lt;code&gt;0x1b0793b3&lt;&#x2F;code&gt;，与 &lt;code&gt;.data&lt;&#x2F;code&gt; 段大小严格一致——三个 blob 首尾相接、零填充（objcopy 生成的 &lt;code&gt;.o&lt;&#x2F;code&gt; 对齐是 2⁰，所以 &lt;code&gt;end&lt;&#x2F;code&gt; 严格等于下一个 &lt;code&gt;start&lt;&#x2F;code&gt;）。&lt;&#x2F;p&gt;
+&lt;p&gt;&quot;区分&quot;确实全靠符号，但不是运行时查找：每张索引表在生成期就写死了引用哪个 &lt;code&gt;_binary_*_blob_start&lt;&#x2F;code&gt;，链接器把符号解析成最终地址，运行时拿到的 &lt;code&gt;entries[i].data&lt;&#x2F;code&gt; 已经是指向正确位置的指针——&lt;strong&gt;不存在&quot;这段数据属于哪个 payload&quot;的运行时判定&lt;&#x2F;strong&gt;。objcopy 顺带生成的 &lt;code&gt;_end&#x2F;_size&lt;&#x2F;code&gt; 符号在这里是冗余的，因为每张表自带 &lt;code&gt;size&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;顺带一提 &lt;code&gt;.data&lt;&#x2F;code&gt; 段的 file-backed 特性：字节在文件里有真实内容，内核按需分页（demand paging），没访问过的页不占物理内存。对比&quot;启动时解压进 tmpfs&quot;的自解压方案，内存友好得多。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ju-xian-yu-gua-yong-chang-jing&quot;&gt;局限与适用场景&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;适合&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;分发单二进制、离线&#x2F;受控环境部署——&lt;code&gt;scp&lt;&#x2F;code&gt; 一个文件就完成安装；&lt;&#x2F;li&gt;
+&lt;li&gt;资产与代码强绑定、随版本整体发布的场景（运行时、工具链自带）；&lt;&#x2F;li&gt;
+&lt;li&gt;想要 file-backed 按需分页，而非启动即全量解压。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;不适合&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;资产频繁热更新——任何 payload 变更都要重发整个 ELF（几百 MB 全量传输）；&lt;&#x2F;li&gt;
+&lt;li&gt;极度在意二进制体积的场景；&lt;&#x2F;li&gt;
+&lt;li&gt;需要对嵌入资产随机修改的场景（它是只读快照，改动要重新构建）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h2&gt;
+&lt;p&gt;这套手法把三件事各归其位：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;objcopy 只负责&quot;格式转换&quot;&lt;&#x2F;strong&gt;：裸字节 → 合法 ELF 目标文件，链接后数据进入 &lt;code&gt;PT_LOAD&lt;&#x2F;code&gt;，运行时取址零成本；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;生成器负责&quot;结构&quot;&lt;&#x2F;strong&gt;：目录树压平成 blob + 编译期 C 索引表，归档解析在编译期消化完毕；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;bootstrap 只负责&quot;物化&quot;&lt;&#x2F;strong&gt;：for 循环 + 原子 rename + 版本化缓存目录，二次启动走零开销快速路径。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;想自己上手验证，五行命令就够：&lt;code&gt;printf&lt;&#x2F;code&gt; 造 blob → &lt;code&gt;objcopy -I binary&lt;&#x2F;code&gt; 转 &lt;code&gt;.o&lt;&#x2F;code&gt; → &lt;code&gt;nm&lt;&#x2F;code&gt; 看符号 → &lt;code&gt;objdump -s&lt;&#x2F;code&gt; 看字节 → 写个 &lt;code&gt;extern&lt;&#x2F;code&gt; 的 C 程序链接进去。从 5 字节的 &quot;ABCDE&quot; 到 435MB 的完整框架，是同一个机制。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>ELF 二进制分析与常用编译链接工具</title>
+        <published>2026-07-18T00:00:00+08:00</published>
+        <updated>2026-07-18T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2026/07/elf-二进制分析与编译链接工具/"/>
+        <id>https://blog.juzhong.asia/2026/07/elf-二进制分析与编译链接工具/</id>
+        
+        <summary type="html">&lt;p&gt;拿到一个陌生二进制，想知道它是怎么编译出来的？或者构建时遇到链接问题，需要快速定位？本文整理了 ELF 文件分析、编译选项提取以及常见链接器技巧。&lt;&#x2F;p&gt;
+</summary>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>编译链接与 ELF</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2025/07/compile-link-elf/"/>
+        <id>https://blog.juzhong.asia/2025/07/compile-link-elf/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2025/07/compile-link-elf/">&lt;h1 id=&quot;bian-yi-lian-jie-yu-elf&quot;&gt;编译链接与 ELF&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;dong-tai-ku-sou-suo-lu-jing&quot;&gt;动态库搜索路径&lt;&#x2F;h2&gt;
+&lt;p&gt;一个编译好的可执行文件在运行时按以下顺序搜索动态库：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;可执行文件的 &lt;code&gt;rpath&lt;&#x2F;code&gt; 中列出的目录&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 环境变量&lt;&#x2F;li&gt;
+&lt;li&gt;可执行文件的 &lt;code&gt;runpath&lt;&#x2F;code&gt; 指定的目录&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;&#x2F;etc&#x2F;ld.so.conf&lt;&#x2F;code&gt; 中的目录列表&lt;&#x2F;li&gt;
+&lt;li&gt;默认系统库目录：&lt;code&gt;&#x2F;lib&lt;&#x2F;code&gt; 和 &lt;code&gt;&#x2F;usr&#x2F;lib&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;rpath-yu-runpath-de-qu-bie&quot;&gt;rpath 与 runpath 的区别&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;rpath&lt;&#x2F;code&gt; 在 &lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 之前搜索&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;runpath&lt;&#x2F;code&gt; 在 &lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 之后搜索&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;设置 rpath：&lt;code&gt;-Wl,-rpath,.&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;设置 runpath：&lt;code&gt;-Wl,--enable-new-dtags,-rpath,.&lt;&#x2F;code&gt;&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;origin-bian-liang&quot;&gt;$ORIGIN 变量&lt;&#x2F;h3&gt;
+&lt;p&gt;rpath&#x2F;runpath 支持 &lt;code&gt;$ORIGIN&lt;&#x2F;code&gt; 表示可执行文件所在目录：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;g++ -o main main.o -lrandom -L. -Wl,-rpath,&amp;quot;\$ORIGIN&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;安全注意&lt;&#x2F;strong&gt;：setuid 程序会忽略 &lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 和包含 &lt;code&gt;$ORIGIN&lt;&#x2F;code&gt; 的 rpath&#x2F;runpath，防止权限提升攻击。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;rpath-diao-shi-bei-wang-lu&quot;&gt;rpath 调试备忘录&lt;&#x2F;h2&gt;
+&lt;p&gt;遇到 &lt;code&gt;error while loading shared libraries&lt;&#x2F;code&gt; 时：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;code&gt;ldd &amp;lt;executable&amp;gt;&lt;&#x2F;code&gt; 查看缺失依赖&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;readelf -d &amp;lt;executable&amp;gt; | grep NEEDED&lt;&#x2F;code&gt; 检查直接依赖&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;LD_DEBUG=libs ldd &amp;lt;executable&amp;gt;&lt;&#x2F;code&gt; 查看搜索过程&lt;&#x2F;li&gt;
+&lt;li&gt;通过 &lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 或 rpath&#x2F;runpath 添加搜索目录&lt;&#x2F;li&gt;
+&lt;li&gt;如果 &lt;code&gt;ldd&lt;&#x2F;code&gt; 没有缺失项但仍报错，检查是否有 setuid 权限&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;wei-shen-me-dong-tai-ku-li-bu-neng-jing-tai-lian-jie&quot;&gt;为什么动态库里不能静态链接&lt;&#x2F;h2&gt;
+&lt;p&gt;将 &lt;code&gt;.a&lt;&#x2F;code&gt; 静态链接进 &lt;code&gt;.so&lt;&#x2F;code&gt; 的问题：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;装载问题&lt;&#x2F;strong&gt;：&lt;code&gt;execve()&lt;&#x2F;code&gt; 系统调用只负责装载动态库（&lt;code&gt;.so&lt;&#x2F;code&gt;），静态库 &lt;code&gt;.a&lt;&#x2F;code&gt; 不会被单独装载&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;符号冲突&lt;&#x2F;strong&gt;：Linux 动态链接器的符号调解策略是&quot;先入为主&quot;，来自 &lt;code&gt;.a&lt;&#x2F;code&gt; 的符号可能与系统 &lt;code&gt;libstdc++.so&lt;&#x2F;code&gt; 冲突&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;全局变量重复&lt;&#x2F;strong&gt;：&lt;code&gt;libstdc++&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;libpthread&lt;&#x2F;code&gt; 维护的全局状态会出现两份，导致运行时异常&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;正确做法&lt;&#x2F;strong&gt;：将 &lt;code&gt;.a&lt;&#x2F;code&gt; 解包成 &lt;code&gt;.o&lt;&#x2F;code&gt; 文件再链接进 &lt;code&gt;.so&lt;&#x2F;code&gt;，并用 &lt;code&gt;visibility&lt;&#x2F;code&gt; 隐藏符号。但即使如此，全局变量重复的问题仍然存在，不推荐这种做法。&lt;&#x2F;p&gt;
+&lt;p&gt;若需静态链接标准库到可执行文件：使用 &lt;code&gt;-static&lt;&#x2F;code&gt;（全静态）或 &lt;code&gt;-static-libstdc++&lt;&#x2F;code&gt;（仅静态链接 libstdc++）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;lian-jie-qi-dui-bi-ld-bfd-ld-gold-mold&quot;&gt;链接器对比：ld.bfd &#x2F; ld.gold &#x2F; mold&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;链接器&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;ld.bfd&lt;&#x2F;td&gt;&lt;td&gt;GNU 默认链接器，兼容性最好&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;ld.gold&lt;&#x2F;td&gt;&lt;td&gt;速度更快，但不支持 &lt;code&gt;--copy-dt-needed-entries&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;mold&lt;&#x2F;td&gt;&lt;td&gt;现代化设计，速度极快（构建 LLVM 快 2 倍）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;ld.gold 注意事项&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;不支持 &lt;code&gt;--copy-dt-needed-entries&lt;&#x2F;code&gt;，间接依赖必须显式指定&lt;&#x2F;li&gt;
+&lt;li&gt;默认不生成 &lt;code&gt;.gnu.hash&lt;&#x2F;code&gt; 段，需加 &lt;code&gt;-Wl,--hash-style=gnu&lt;&#x2F;code&gt; 或 &lt;code&gt;--hash-style=both&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;使用 &lt;code&gt;-fuse-ld=gold&lt;&#x2F;code&gt; 启用&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;mold 在 Cargo 中的配置&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;toml&quot; class=&quot;language-toml &quot;&gt;&lt;code class=&quot;language-toml&quot; data-lang=&quot;toml&quot;&gt;[target.x86_64-unknown-linux-gnu]
+linker = &amp;quot;clang&amp;quot;
+rustflags = [&amp;quot;-C&amp;quot;, &amp;quot;link-arg=-fuse-ld=mold&amp;quot;]
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;也可直接 &lt;code&gt;mold -run cargo build&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;CMake 配置&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;cmake&quot; class=&quot;language-cmake &quot;&gt;&lt;code class=&quot;language-cmake&quot; data-lang=&quot;cmake&quot;&gt;-DCMAKE_EXE_LINKER_FLAGS=&amp;quot;-fuse-ld=mold&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;elf-er-jin-zhi-fen-xi&quot;&gt;ELF 二进制分析&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;gnu-binutils-chang-yong-gong-ju&quot;&gt;GNU Binutils 常用工具&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;工具&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;readelf&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看 ELF 头、段表、节表、符号表、重定位&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;objdump&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;反汇编、查看节内容&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;nm&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;列出目标文件符号&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;strings&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;提取可打印字符串&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;strip&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;剥离符号&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;c++filt&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;还原 C++ mangled 名称&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;addr2line&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;地址转文件名和行号&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;ldd&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;查看动态库依赖&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;chang-yong-ming-ling&quot;&gt;常用命令&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;readelf -h &amp;lt;elf&amp;gt;          # ELF 头部
+readelf -S &amp;lt;elf&amp;gt;          # 节表
+readelf -l &amp;lt;elf&amp;gt;          # 段表（program headers）
+readelf -s &amp;lt;elf&amp;gt;          # 符号表
+readelf --relocs &amp;lt;elf&amp;gt;    # 重定位信息
+readelf -d &amp;lt;elf&amp;gt; | grep NEEDED  # 动态依赖
+
+objdump -s -j .rodata &amp;lt;elf&amp;gt;     # 查看 .rodata 节内容
+objdump -b binary -D &amp;lt;bin&amp;gt; -m i386  # 反汇编裸二进制
+
+ldd &amp;lt;elf&amp;gt;                 # 递归查看动态依赖
+LD_DEBUG=bindings ldd &amp;#x2F;usr&amp;#x2F;bin&amp;#x2F;ls  # 调试动态链接过程
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ld-debug-xuan-xiang&quot;&gt;LD_DEBUG 选项&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;libs       — 库搜索路径
+reloc      — 重定位处理
+symbols    — 符号表查找
+bindings   — 符号绑定
+versions   — 版本依赖
+all        — 以上所有
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;sheng-cheng-map-wen-jian&quot;&gt;生成 Map 文件&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gcc -o main main.c -Wl,-Map,main.map
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;cha-kan-bian-yi-qi-yu-ding-yi-hong&quot;&gt;查看编译器预定义宏&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;g++ -E -dM - &amp;lt; &amp;#x2F;dev&amp;#x2F;null
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;cflags-ldflags&quot;&gt;CFLAGS &#x2F; LDFLAGS&lt;&#x2F;h2&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;CFLAGS=&amp;quot;-g -O2&amp;quot;
+LDFLAGS=&amp;quot;-L&amp;#x2F;opt&amp;#x2F;lib -Wl,-R&amp;#x2F;opt&amp;#x2F;lib&amp;quot;  # -R 同时设置运行时搜索路径
+LIBS=&amp;quot;-lpthread -liconv&amp;quot;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;LDFLAGS&lt;&#x2F;code&gt; 指定 &lt;code&gt;-L&lt;&#x2F;code&gt; 只能让链接器在编译时找到库，运行时仍需通过 rpath 或 &lt;code&gt;LD_LIBRARY_PATH&lt;&#x2F;code&gt; 指定；添加 &lt;code&gt;-Wl,-R&amp;lt;path&amp;gt;&lt;&#x2F;code&gt; 可将路径写入 ELF。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;chang-yong-bian-yi-xuan-xiang&quot;&gt;常用编译选项&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;gcc -mxgot ...             # MIPS 大 GOT 支持
+gcc -Wl,-z,max-page-size=4096  # 控制页对齐
+gcc -fno-pie -no-pie ...   # 禁用 PIE
+gcc -static ...            # 全静态链接
+gcc -static-libstdc++ ...  # 仅静态链接 libstdc++
+gcc -Wl,--verbose ...      # 查看链接器详细过程
+
+# 查看编译选项
+readelf -p .comment &amp;lt;elf&amp;gt;  # 查看编译器版本信息
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;rust-bian-yi-diao-shi&quot;&gt;Rust 编译调试&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;export RUSTFLAGS=&amp;quot;-C link-arg=-Wl,--verbose&amp;quot;
+export RUSTC_LOG=rustc_codegen_ssa::back::link=info
+cargo build --bin http-proxy
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;at-t-yu-intel-hui-bian-yu-fa&quot;&gt;AT&amp;amp;T 与 Intel 汇编语法&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;区别&lt;&#x2F;th&gt;&lt;th&gt;AT&amp;amp;T&lt;&#x2F;th&gt;&lt;th&gt;Intel&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;寄存器前缀&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;%eax&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;eax&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;立即数前缀&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;$1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;1&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;操作数顺序&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;movl $1, %eax&lt;&#x2F;code&gt; (源→目的)&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;mov eax, 1&lt;&#x2F;code&gt; (目的←源)&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;内存寻址&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;immed32(base, index, scale)&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;[base + index*scale + immed32]&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;switch-case-zhong-ding-yi-bian-liang&quot;&gt;Switch Case 中定义变量&lt;&#x2F;h2&gt;
+&lt;p&gt;C&#x2F;C++ 中 &lt;code&gt;switch&lt;&#x2F;code&gt; 的 &lt;code&gt;case&lt;&#x2F;code&gt; 标签后不能直接定义变量，因为变量的初始化可能因条件不满足而被跳过。解决方案：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;用 &lt;code&gt;{}&lt;&#x2F;code&gt; 括起来创建作用域&lt;&#x2F;li&gt;
+&lt;li&gt;将变量定义在 &lt;code&gt;switch&lt;&#x2F;code&gt; 之外&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;sockaddr-yu-sockaddr-in&quot;&gt;sockaddr 与 sockaddr_in&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;sockaddr&lt;&#x2F;code&gt;：通用套接字地址，&lt;code&gt;sa_data[14]&lt;&#x2F;code&gt; 混合存放地址和端口&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;sockaddr_in&lt;&#x2F;code&gt;：IPv4 专用，将端口（&lt;code&gt;sin_port&lt;&#x2F;code&gt;）和地址（&lt;code&gt;sin_addr&lt;&#x2F;code&gt;）分开存储&lt;&#x2F;li&gt;
+&lt;li&gt;二者长度相同（16 字节），可以强制类型转换&lt;&#x2F;li&gt;
+&lt;li&gt;使用时先填充 &lt;code&gt;sockaddr_in&lt;&#x2F;code&gt;，再转为 &lt;code&gt;sockaddr&lt;&#x2F;code&gt; 传入函数&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;htons()&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;htonl()&lt;&#x2F;code&gt; 将主机字节序转为网络字节序&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;inet_addr()&lt;&#x2F;code&gt; 将 IP 字符串转为网络字节序整数&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>

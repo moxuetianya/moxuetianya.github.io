@@ -1,0 +1,888 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>GDB 源码分析系列合集 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="GDB 源码分析系列剪藏两篇：主流程 event-loop 事件处理逻辑、调试信息的处理与符号表的创建使用" />
+  <link rel="canonical" href="https://blog.juzhong.asia/obsidian/gdb-源码分析系列合集/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/obsidian/gdb-源码分析系列合集/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/obsidian/gdb-源码分析系列合集/" />
+  <meta property="og:description" content="GDB 源码分析系列剪藏两篇：主流程 event-loop 事件处理逻辑、调试信息的处理与符号表的创建使用" />
+  <meta name="twitter:description" content="GDB 源码分析系列剪藏两篇：主流程 event-loop 事件处理逻辑、调试信息的处理与符号表的创建使用" />
+  <meta property="og:title" content="GDB 源码分析系列合集 | 墨雪天琊" />
+  <meta name="twitter:title" content="GDB 源码分析系列合集 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-11-06" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=9fccf38d998094baaf2e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/obsidian/gdb-源码分析系列合集/">GDB 源码分析系列合集</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 06, 2024 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://blog.juzhong.asia/tags/linux/">Linux</a>  #<a href="https://blog.juzhong.asia/tags/obsidian/">obsidian</a>  #<a href="https://blog.juzhong.asia/tags/he-ji/">合集</a>  #<a href="https://blog.juzhong.asia/tags/cao-zuo-xi-tong-yuan-li/">操作系统原理</a>  #<a href="https://blog.juzhong.asia/tags/bian-yi-lian-jie/">编译链接</a>  #<a href="https://blog.juzhong.asia/tags/diao-shi/">调试</a> </span>
+
+    
+
+
+<h2 id="xi-lie-er-gdb-zhu-liu-cheng-event-loop-shi-jian-chu-li-luo-ji">系列二：GDB 主流程 event-loop 事件处理逻辑</h2>
+<p><strong>系列文章：</strong></p>
+<p><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124565170?spm=1001.2014.3001.5501">GDB 源码分析系列文章一：ptrace 系统调用和事件循环（Event Loop）</a>
+<a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501">GDB 源码分析系列文章二：gdb 主流程 Event Loop 事件处理逻辑详解</a>
+<a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124961051?spm=1001.2014.3001.5502">GDB 源码分析系列文章三：调试信息的处理、符号表的创建和使用</a>
+<a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/125694365?spm=1001.2014.3001.5502">GDB 源码分析系列文章四：gdb 事件处理异步模式分析 ---- 以 ctrl-c 信号为例</a>
+<a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/126069052?spm=1001.2014.3001.5502">GDB 源码分析系列文章五：动态库延迟断点实现机制</a></p>
+<h5 id="gdb-yuan-ma-fen-xi-xi-lie-wen-zhang-er-gdb-zhu-liu-cheng-event-loop-shi-jian-chu-li-luo-ji-xiang-jie">GDB 源码分析系列文章二：gdb 主流程 Event Loop 事件处理逻辑详解</h5>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501#tracee__16">tracee 的被追踪模式发生了什么</a></li>
+<li><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501#gdb__102">gdb 断点机制简介</a></li>
+<li><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501#gdb__105">gdb 调试模拟程序</a></li>
+<li><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501#gdb__Event_Loop__278">gdb 主流程 Event Loop 详解</a></li>
+<li><a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124641934?spm=1001.2014.3001.5501#reference_569">reference</a></li>
+</ul>
+<p>上一篇 <a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124565170?spm=1001.2014.3001.5502">探寻 GDB 内部实现系列文章一：ptrace 系统调用和事件循环（Event Loop）</a> 介绍了 gdb 内部实现关键技术 ptrace 系统调用和 Event Loop <a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF%E6%9C%BA%E5%88%B6&amp;spm=1001.2101.3001.7020">事件循环机制</a>。今天将接着上文，详细介绍 gdb 主流程 Event Loop 事件处理机制。</p>
+<p>上文介绍了 gdb 主进程（tracer）创建子进程（inferior/tracee）后，子进程先进入被追踪模式，然后调用 exec 接口执行被调试程序时，inferior 会向主进程发送 SIGCHLD 信号，并将自己停住。我们探寻一下这个过程的原理。</p>
+<h3 id="tracee-de-bei-zhui-zong-mo-shi-fa-sheng-liao-shen-me">tracee 的被追踪模式发生了什么</h3>
+<p>gdb 创建 tracee，tracee 将自己设置为被追踪模式，然后执行 exec。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">void do_tracee( void )
+{
+	printf( &quot;tracee process %ld\n&quot;, (long)getpid() );
+
+	if (ptrace( PTRACE_TRACEME, 0, NULL, NULL ))
+	{
+		perror( &quot;tracee error!&quot; );
+		return;
+	}
+
+	execve( &quot;test&quot;, NULL, NULL); &#x2F;&#x2F; test 是一个可执行程序
+}
+
+int main()
+{
+	pid_t child;
+	child = fork();
+	if (child == 0)  &#x2F;&#x2F; 子进程
+		do_tracee();
+    ...
+}
+</code></pre>
+<p>ptrac() 会调用内核 sys_ptrace() 函数，sys_ptrace() 将自己标记为追踪模式，X86 CPU 的 sys_ptrace() 代码如下：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">asmlinkage int sys_ptrace(long request, long pid, long addr, long data)
+{
+    ...
+    if (request == PTRACE_TRACEME) {
+        if (current-&gt;ptrace &amp; PT_PTRACED)
+            goto out;
+        current-&gt;ptrace |= PT_PTRACED;
+        ret = 0;
+        goto out;
+    }
+    ...
+}
+</code></pre>
+<p>再看 exec() 函数执行过程中发生了什么？ exec() 函数调用过程如下：exec-&gt;sys_execve() -&gt; do_execve() -&gt; load_elf_binary()，在 load_elf_binary() 函数中会向当前进程发送 SIGTRAP 信号。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">static int load_elf_binary(struct linux_binprm * bprm, struct pt_regs * regs)
+{
+    ...
+    if (current-&gt;ptrace &amp; PT_PTRACED)
+        send_sig(SIGTRAP, current, 0);
+    ...
+}
+</code></pre>
+<p>当前进程接收到 SIGTRAP 时通过 do_signal() 进行处理：如果自己被标记为被追逐状态，则使当前进程暂停，并向主进程发送 SIGCHLD 信号。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">int do_signal(struct pt_regs *regs, sigset_t *oldset)
+{
+    for (;;) {
+        unsigned long signr;
+
+        spin_lock_irq(&amp;current-&gt;sigmask_lock);
+        signr = dequeue_signal(&amp;current-&gt;blocked, &amp;info);
+        spin_unlock_irq(&amp;current-&gt;sigmask_lock);
+
+        if ((current-&gt;ptrace &amp; PT_PTRACED) &amp;&amp; signr != SIGKILL) {
+            current-&gt;exit_code = signr;
+            current-&gt;state = TASK_STOPPED;
+            notify_parent(current, SIGCHLD);
+            schedule();
+            ...
+        }
+    }
+}
+</code></pre>
+<p>总结一下子进程在被被追踪模式时，调用 exec() 后主要做了哪些事情：</p>
+<ol>
+<li>将 tracee 设置为被追踪模式</li>
+<li>向 tracee 发送 SIGTRAP 信号</li>
+<li>处理 SIGTRAP 信号，将 tracee 暂停</li>
+<li>向 tracer 发送 SIGCHLD 信号</li>
+</ol>
+<h3 id="gdb-duan-dian-ji-zhi-jian-jie">gdb 断点机制简介</h3>
+<p>gdb 断点通常使用 INT3 指令来实现，INT3 是一个字节的指令，它的操作码是 0xcc。gdb 设置断点其实就是在断点位置，将第一个字节保存，并替换成 0xcc。当程序运行到断点位置将产生 SIGTRAP 信号。gdb 既接收到子进程发送的 SIGCHLD 信号，也能接收到子进程的 SIGTRAP 信号，然后 gdb 可以通过 ptrace 接口查看被调试程序状态。然后 gdb 再将断点处指令恢复，并将 pc 指针返回上一条指令，然后重新执行即可。</p>
+<h3 id="gdb-diao-shi-mo-ni-cheng-xu">gdb 调试模拟程序</h3>
+<p>下面给出一段程序来模拟 gdb 实现的过程。</p>
+<p>首先，给一段被调试程序：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#include &lt;stdio.h&gt;
+
+int main () {
+    int a = 3;
+    printf(&quot;before breakpoint pos!\n&quot;);
+    a = 4;
+    printf(&quot;after breakpoint pos!\n&quot;);
+    return 0;
+}
+</code></pre>
+<p>我们将在第二个 printf 之前设置断点，为此我们使用 objdump -d 观测反汇编：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">0000000000400526 &lt;main&gt;:
+  400526:	55                   	push   %rbp
+  400527:	48 89 e5             	mov    %rsp,%rbp
+  40052a:	48 83 ec 10          	sub    $0x10,%rsp
+  40052e:	c7 45 fc 03 00 00 00 	movl   $0x3,-0x4(%rbp)
+  400535:	bf e4 05 40 00       	mov    $0x4005e4,%edi
+  40053a:	e8 c1 fe ff ff       	callq  400400 &lt;puts@plt&gt;
+  40053f:	c7 45 fc 04 00 00 00 	movl   $0x4,-0x4(%rbp)
+  400546:	bf fb 05 40 00       	mov    $0x4005fb,%edi
+  40054b:	e8 b0 fe ff ff       	callq  400400 &lt;puts@plt&gt;
+  400550:	b8 00 00 00 00       	mov    $0x0,%eax
+  400555:	c9                   	leaveq
+  400556:	c3                   	retq
+  400557:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+  40055e:	00 00
+</code></pre>
+<p>断点位置设置在 0x400546 位置。我们的模拟程序如下：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">#include &lt;stdio.h&gt;
+#include &lt;signal.h&gt;
+#include &lt;sys&#x2F;ptrace.h&gt;
+#include &lt;sys&#x2F;types.h&gt;
+#include &lt;sys&#x2F;wait.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;string.h&gt;
+#include &lt;sys&#x2F;user.h&gt;
+#include &lt;time.h&gt;
+
+void sigchld_handler( int sig )
+{
+    printf( &quot;Process %ld received signal %d\n&quot;, (long)getpid(), sig );
+}
+
+void do_debugger( pid_t child )
+{
+    int status = 0;
+    long data;
+    long orig_data;
+    unsigned long addr;
+
+    struct user_regs_struct regs;
+
+    printf( &quot;debugger process %ld\n&quot;, (long)getpid() );
+
+    if (signal( SIGCHLD, sigchld_handler ) == SIG_ERR)
+    {
+        perror( &quot;signal&quot; );
+        exit( -1 );
+    }
+
+    &#x2F;&#x2F; Waiting for child process to stop...
+    wait( &amp;status );
+
+    &#x2F;&#x2F; Placing breakpoint...
+    addr = 0x400546;
+
+    data = ptrace( PTRACE_PEEKTEXT, child, (void *)addr, NULL );
+    orig_data = data;
+    data = (data &amp; ~0xff) | 0xcc;
+    ptrace( PTRACE_POKETEXT, child, (void *)addr, data );
+
+    &#x2F;&#x2F; Breakpoint is ready. Telling child to continue running...
+    printf( &quot;resume debuggee!\n&quot;);
+    ptrace( PTRACE_CONT, child, NULL, NULL );
+    child = wait( &amp;status );
+
+    &#x2F;&#x2F; Restoring original data...
+    ptrace( PTRACE_POKETEXT, child, (void *)addr, orig_data );
+
+    &#x2F;&#x2F; Changing RIP register so that it will point to the right address...
+    memset( &amp;regs, 0, sizeof( regs ) );
+    ptrace( PTRACE_GETREGS, child, NULL, &amp;regs );
+    printf( &quot;RIP before resuming child is %lx\n&quot;, regs.rip );
+    regs.rip = addr;
+    ptrace( PTRACE_SETREGS, child, NULL, &amp;regs );
+    sleep( 2 );
+    printf( &quot;debugger can watch debuggee here!\n&quot;);
+    sleep( 2 );
+    printf( &quot;resume debuggee!\n&quot;);
+    ptrace( PTRACE_CONT, child, NULL, NULL );
+
+    child = wait( &amp;status );
+    if (WIFSTOPPED( status ))
+        printf( &quot;Debuggie stopped %d\n&quot;, WSTOPSIG( status ) );
+    if (WIFEXITED( status ))
+        printf( &quot;Debuggie exited...\n&quot; );
+
+    printf( &quot;Debugger exiting...\n&quot; );
+}
+
+void do_debuggee( void )
+{
+    char* argv[] = {  NULL };
+    char* envp[] = {  NULL };
+
+    printf( &quot;In debuggie process %ld\n&quot;, (long)getpid() );
+
+    if (ptrace( PTRACE_TRACEME, 0, NULL, NULL ))
+    {
+        perror( &quot;ptrace&quot; );
+        return;
+    }
+
+    execve( &quot;test&quot;, argv, envp );
+}
+
+int main()
+{
+    pid_t child;
+
+    child = fork();
+    if (child == 0)
+        do_debuggee();
+    else if (child &gt; 0)
+        do_debugger( child );
+    else
+    {
+        perror( &quot;fork&quot; );
+        return -1;
+    }
+
+    return 0;
+}
+</code></pre>
+<p>运行程序，输出如下：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">debugger process 68107
+In debuggie process 68108
+Process 68107 received signal 17
+resume debuggee!
+before breakpoint pos!
+Process 68107 received signal 17
+RIP before resuming child is 400547
+debugger can watch debuggee here!
+resume debuggee!
+after breakpoint pos!
+Process 68107 received signal 17
+Debuggie exited...
+Debugger exiting...
+</code></pre>
+<p>总结一下模拟程序的流程：</p>
+<ol>
+<li>主进程 debugger 创建子进程 debuggee。</li>
+<li>debuggee 设置自己为被追踪模式，并执行目标程序。</li>
+<li>debugger 中通过 signal 机制监控来自子进程的 SIGCHLD 信号，并使用回调函数 sigchld_handler 记录日志。</li>
+<li>debugger 接收到 SIGCHLD 信号，并且通过 wait 接口接收到 debuggee 停止状态信号。</li>
+<li>debugger 读取 test 断点位置指令并保存，然后修改为 0xcc INT3 指令。接着发送 PTRACE_CONT 信号让 test 继续执行。</li>
+<li>debugger 接收到 SIGCHLD 信号，并且通过 wait 接口接收到 debuggee 停止状态信号。说明 test 停在了我们设置的断点位置。这个时候就可以观测 test 程序的状态了。接着读取 pc 指针，并替换成前一条指令，并且恢复断点位置的指令。发送PTRACE_CONT 信号让 test 继续执行。</li>
+<li>debugger SIGCHLD 信号，并且通过 wait 接口接收到 debuggee 退出信号。此事，目标程序已执行完成。debugger 退出。</li>
+</ol>
+<h3 id="gdb-zhu-liu-cheng-event-loop-xiang-jie">gdb 主流程 Event Loop 详解</h3>
+<p>上面一节 gdb 调试的模拟程序已经在很大程度上体现了 gdb 调试程序的流程。下面，我将结合 gdb 源码（7.12）分析和梳理下 gdb 处理主流程。</p>
+<p>从上一篇文章的介绍我们知道，gdb 主流程采用 Event Loop 循环机制，Event Loop 循环处理两个事件：用户输入（stdin event）事件和目标程序事件（target event）。</p>
+<p>用户事件是将标准输入（fd=0）作为事件源加入到 gdb_nitifier。当用户输入命令后，Event Loop 中通过 poll/select 捕捉到事件源发生改变，随即进入 stdin event 回调函数处理用户命令。</p>
+<p>目标程序事件是使用 linux_nat_event_pipe[2] = {-1, -1} 作为事件源。linux_nat_event_pipe 地一个元素作为 fd，第二个元素用于事件变化。通过 linux_async_pipe 创建和销毁 target event pipe：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">&#x2F;&#x2F; gdb&#x2F;linux-nat.c
+ 4528 static int
+ 4529 linux_async_pipe (int enable)
+ 4530 {
+ 4531   int previous = linux_is_async_p ();
+ 4532
+ 4533   if (previous != enable)
+ 4534     {
+ 4535       sigset_t prev_mask;
+ 4536
+ 4537       &#x2F;* Block child signals while we create&#x2F;destroy the pipe, as
+ 4538      their handler writes to it.  *&#x2F;
+ 4539       block_child_signals (&amp;prev_mask);
+ 4540
+ 4541       if (enable)
+ 4542     {
+ 4543       if (gdb_pipe_cloexec (linux_nat_event_pipe) == -1)
+ 4544         internal_error (__FILE__, __LINE__,
+ 4545                 &quot;creating event pipe failed.&quot;);
+ 4546
+ 4547       fcntl (linux_nat_event_pipe[0], F_SETFL, O_NONBLOCK);
+ 4548       fcntl (linux_nat_event_pipe[1], F_SETFL, O_NONBLOCK);
+ 4549     }
+ 4550       else
+ 4551     {
+ 4552       close (linux_nat_event_pipe[0]);
+ 4553       close (linux_nat_event_pipe[1]);
+ 4554       linux_nat_event_pipe[0] = -1;
+ 4555       linux_nat_event_pipe[1] = -1;
+ 4556     }
+ 4557
+ 4558       restore_child_signals_mask (&amp;prev_mask);
+ 4559     }
+ 4560
+ 4561   return previous;
+ 4562 }
+</code></pre>
+<p>通过 async_file_mark 接口改变事件事件源，也即向 Event Loop 插入 target event。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">69 &#x2F;* Put something (anything, doesn&#x27;t matter what, or how much) in event
+  270    pipe, so that the select&#x2F;poll in the event-loop realizes we have
+  271    something to process.  *&#x2F;
+  272
+  273 static void
+  274 async_file_mark (void)
+  275 {
+  276   int ret;
+  277
+  278   &#x2F;* It doesn&#x27;t really matter what the pipe contains, as long we end
+  279      up with something in it.  Might as well flush the previous
+  280      left-overs.  *&#x2F;
+  281   async_file_flush ();
+  282
+  283   do
+  284     {
+  285       ret = write (linux_nat_event_pipe[1], &quot;+&quot;, 1);
+  286     }
+  287   while (ret == -1 &amp;&amp; errno == EINTR);
+  288
+  289   &#x2F;* Ignore EAGAIN.  If the pipe is full, the event loop will already
+  290      be awakened anyway.  *&#x2F;
+  291 }
+  292
+</code></pre>
+<p>因此，向 Event Loop 插入 stdin event，只需要通过 add_file_handler接口 向 gdb_notifier 插入事件源和注册回调函数，用户输入命令，即可被 Event Loop 的 poll/select 接口捕捉，并进入回调函数处理用户命令。</p>
+<p>向 Event Loop 插入 target event，则需要通过 linux_async_pipe 先创建 async_pipe，再通过 add_file_handler 接口向 gdb_notifier 插入事件源和回调函数，并且通过 async_file_mark 接口使 target event ready，即可被 Event Loop 的 poll/select 接口捕捉，并进入回调函数处理目标程序事件。</p>
+<p>回顾了 Event Loop 的机制后，我们在分析下 gdb 主流程。</p>
+<p><strong>一、Event Loop 前的准备工作：</strong></p>
+<p>启动 gdb 进入 gdb 主函数 captured_main。captured_main 在进入 Event Loop 之前主要是一些初始化动作，这里主要介绍两个跟<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=%E4%BA%8B%E4%BB%B6%E5%BE%AA%E7%8E%AF&amp;spm=1001.2101.3001.7020">事件循环</a>强相关动作：</p>
+<p><strong>SIGCHLD 信号回调函数注册：</strong></p>
+<p>在 captured_main-&gt;gdb_init-&gt;initialize_all_files-&gt;_initialize_linux_nat：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp"> void
+ 4970 _initialize_linux_nat (void)
+ 4971 {
+ 4972   &#x2F;&#x2F; ...
+ 4990   &#x2F;* Save this mask as the default.  *&#x2F;
+ 4991   sigprocmask (SIG_SETMASK, NULL, &amp;normal_mask);
+ 4992
+ 4993   &#x2F;* Install a SIGCHLD handler.  *&#x2F;
+ 4994   sigchld_action.sa_handler = sigchld_handler;
+ 4995   sigemptyset (&amp;sigchld_action.sa_mask);
+ 4996   sigchld_action.sa_flags = SA_RESTART;
+ 4997
+ 4998   &#x2F;* Make it the default.  *&#x2F;
+ 4999   sigaction (SIGCHLD, &amp;sigchld_action, NULL);
+ 5000
+ 5001   &#x2F;* Make sure we don&#x27;t block SIGCHLD during a sigsuspend.  *&#x2F;
+ 5002   sigprocmask (SIG_SETMASK, NULL, &amp;suspend_mask);
+ 5003   sigdelset (&amp;suspend_mask, SIGCHLD);
+ 5004
+ 5005   sigemptyset (&amp;blocked_mask);
+ 5006   &#x2F;&#x2F; ....
+      }
+
+</code></pre>
+<p>通过 sigaction 监听 SIGCHLD 信号，并注册回调函数：sigchld_handler。</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp"> 4496 &#x2F;* SIGCHLD handler that serves two purposes: In non-stop&#x2F;async mode,
+ 4497    so we notice when any child changes state, and notify the
+ 4498    event-loop; it allows us to use sigsuspend in linux_nat_wait_1
+ 4499    above to wait for the arrival of a SIGCHLD.  *&#x2F;
+ 4500
+ 4501 static void
+ 4502 sigchld_handler (int signo)
+ 4503 {
+ 4504   int old_errno = errno;
+ 4505
+ 4506   if (debug_linux_nat)
+ 4507     ui_file_write_async_safe (gdb_stdlog,
+ 4508                   &quot;sigchld\n&quot;, sizeof (&quot;sigchld\n&quot;) - 1);
+ 4509
+ 4510   if (signo == SIGCHLD
+ 4511       &amp;&amp; linux_nat_event_pipe[0] != -1)
+ 4512     async_file_mark (); &#x2F;* Let the event loop know that there are
+ 4513                events to handle.  *&#x2F;
+ 4514
+ 4515   errno = old_errno;
+ 4516 }
+</code></pre>
+<p>sigchld_handler 即为子进程（tracee/inferior）发送的 SIGCHLD 信号后的回调函数。sigchld_handler 通过 async_file_mark 接口时 target event 就绪，Event Loop 即可捕捉。但这里有个入口条件 linux_nat_event_pipe[0] != -1 ，这个需要linux_async_pipe 接口将 event_pipe 创建后，sigchld_handler 才能向 Event Loop 插入 target event，因此 sigchld_handler 暂时还无法向 Event Loop 插入事件。</p>
+<p><strong>插入 stdin_event：</strong></p>
+<p>captured_main-&gt;set_top_level_interpreter-&gt;interp_set-&gt;tui_resume-&gt;gdb_setup_readline-&gt;ui_register_input_event_handler:</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">  563 void
+  564 ui_register_input_event_handler (struct ui *ui)
+  565 {
+  566   add_file_handler (ui-&gt;input_fd, stdin_event_handler, ui);
+  567 }
+</code></pre>
+<p>通过 add_file_handler 将 stdin event 加入到 gdb_notifier，并注册回调函数 stdin_event_handler。</p>
+<p>二、 Event_Loop 处理</p>
+<p>启动 gdb 完成初始化操作，即通过 start_event_loop 进入 while 死循环，通过 poll/select 监听 stdin event 和 target event。在初始化阶段已经将 stdin event 加入到 poll/select 的事件源中。这个时候只要用户输入命令，即可进入 Event Loop 事件处理。</p>
+<p>一般地，用户会在此时设置断点，然后执行 run 命令。</p>
+<p>Event Loop 捕捉到用户输入，进入 stdin event 回调函数 stdin_event_handler。stdin_event_handler 首先处理断点命令（这里就不展开了），然后处理 run 命令（run_command_1），这里介绍一下主要处理逻辑：</p>
+<p><strong>创建子进程 fork inferior</strong>：</p>
+<p>这里主要就是调用 fork 接口创建 inferior，调用 exec 接口执行被调试程序。</p>
+<p><strong>启动子进程 startup_inferior：</strong></p>
+<p>接着调用 startup_inferior-&gt;target_wait-&gt;delegate_wait-&gt;linux_nat_wait-&gt;linux_nat_wait_1-&gt;my_waitpid：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">  79 int
+  80 my_waitpid (int pid, int *status, int flags)
+  81 {
+  82   int ret, out_errno;
+  83
+  84   linux_debug (&quot;my_waitpid (%d, 0x%x)\n&quot;, pid, flags);
+  85
+  86   do
+  87     {
+  88       ret = waitpid (pid, status, flags);
+  89     }
+  90   while (ret == -1 &amp;&amp; errno == EINTR);
+  91   out_errno = errno;
+  92
+  93   linux_debug (&quot;my_waitpid (%d, 0x%x): status(%x), %d\n&quot;,
+  94            pid, flags, (ret &gt; 0 &amp;&amp; status != NULL) ? *status : -1, ret);
+  95
+  96   errno = out_errno;
+  97   return ret;
+  98 }
+</code></pre>
+<p>这里调用 wait_pid 同步接口等待子进程信号（这时候sigchld_handler异步信号处理还没有真正开启）。</p>
+<p>接收到子进程信号（SIGTRAP）后，继续执行子进程：startup_inferior-&gt;target_resume-&gt;delegate_resume-&gt;linux_nat_resume：</p>
+<p>linux_nat_resume 一方面调用 linux_resume_one_lwp-&gt;linux_resume_one_lwp_throw-&gt;inf_ptrace_resume 通过 ptrace 接口给子进程发生 CONTINUE 信号让子进程继续运行：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">322 &#x2F;* Resume execution of thread PTID, or all threads if PTID is -1.  If
+ 323    STEP is nonzero, single-step it.  If SIGNAL is nonzero, give it
+ 324    that signal.  *&#x2F;
+ 325
+ 326 static void
+ 327 inf_ptrace_resume (struct target_ops *ops,
+ 328            ptid_t ptid, int step, enum gdb_signal signal)
+ 329 {
+ 330   pid_t pid;
+ 331   int request;
+ 332
+ 333   if (ptid_equal (minus_one_ptid, ptid))
+ 334     &#x2F;* Resume all threads.  Traditionally ptrace() only supports
+ 335        single-threaded processes, so simply resume the inferior.  *&#x2F;
+ 336     pid = ptid_get_pid (inferior_ptid);
+ 337   else
+ 338     pid = get_ptrace_pid (ptid);
+ 339
+ 340   if (catch_syscall_enabled () &gt; 0)
+ 341     request = PT_SYSCALL;
+ 342   else
+ 343     request = PT_CONTINUE;
+ 344
+ 345   if (step)
+ 346     {
+ 347       &#x2F;* If this system does not support PT_STEP, a higher level
+ 348          function will have called single_step() to transmute the step
+ 349          request into a continue request (by setting breakpoints on
+ 350          all possible successor instructions), so we don&#x27;t have to
+ 351          worry about that here.  *&#x2F;
+ 352       request = PT_STEP;
+ 353     }
+ 354
+ 355   &#x2F;* An address of (PTRACE_TYPE_ARG3)1 tells ptrace to continue from
+ 356      where it was.  If GDB wanted it to start some other way, we have
+ 357      already written a new program counter value to the child.  *&#x2F;
+ 358   errno = 0;
+ 359   ptrace (request, pid, (PTRACE_TYPE_ARG3)1, gdb_signal_to_host (signal));
+ 360   if (errno != 0)
+ 361     perror_with_name ((&quot;ptrace&quot;));
+ 362 }
+ 363
+</code></pre>
+<p>linux_nat_resume 另一方面通过 target_async-&gt;delegate_async-&gt;linux_nat_async：</p>
+<pre data-lang="cpp" class="language-cpp "><code class="language-cpp" data-lang="cpp">6 static void
+ 4567 linux_nat_async (struct target_ops *ops, int enable)
+ 4568 {
+ 4569   if (enable)
+ 4570     {
+ 4571       if (!linux_async_pipe (1))
+ 4572     {
+ 4573       add_file_handler (linux_nat_event_pipe[0],
+ 4574                 handle_target_event, NULL);
+ 4575       &#x2F;* There may be pending events to handle.  Tell the event loop
+ 4576          to poll them.  *&#x2F;
+ 4577       async_file_mark ();
+ 4578     }
+ 4579     }
+ 4580   else
+ 4581     {
+ 4582       delete_file_handler (linux_nat_event_pipe[0]);
+ 4583       linux_async_pipe (0);
+ 4584     }
+ 4585   return;
+ 4586 }
+
+</code></pre>
+<p>linux_async_pipe 创建 async_pipe，并调用 add_file_handler 和 async_file_mark 接口向 Event_loop 插入 target event。也就是说这时候向 Event Loop 插入 target event 是执行 run 命令后，在 resume 子进程后主动做的。在此之后就是通过 sigchld_handler 异步方式来向 Event_loop 插入target event 事件。</p>
+<p>startup_inferior 使用 while 死循环调用 target_wait，多次进入 linux_nat_wait 和 linux_nat_resume（这里为什么进入多次，可以详细阅读源码） 后退出 while 循环。这时候回到 Event Loop 循环。</p>
+<p><strong>断点命中：</strong></p>
+<p>当子进程停在断点处后，进入 sigchld_handler 处理，向 Event Loop 插入 target event。Event Loop 中 poll/select 捕捉后进入该事件处理。Event Loop 采用 round-robin 模式捕捉事件，有多种方式相应 target event（感兴趣可以查看源码）。Event Loop 响应 target event，进入 linux_nat_wait 中等待接收和处理子进程发送的 SIGTRAP 等信号。处理完 target event 后调用 add_file_handler 向 Event Loop 插入用户事件，等待用户命令。</p>
+<p>如此，通过 Event Loop 机制循环处理用户事件和目标程序事件，直到程序退出，删除事件源，Event Loop 也随之退出。</p>
+<p>这次就介绍到这里，更多 gdb 内部实现的介绍尽请期待！</p>
+<h2 id="xi-lie-san-diao-shi-xin-xi-de-chu-li-fu-hao-biao-de-chuang-jian-he-shi-yong">系列三：调试信息的处理、符号表的创建和使用</h2>
+<p>原文：<a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/124961051?spm=1001.2014.3001.5502">https://blog.csdn.net/Dong_HFUT/article/details/124961051?spm=1001.2014.3001.5502</a></p>
+<h3 id="gdb-yuan-ma-fen-xi-xi-lie-wen-zhang-san-diao-shi-xin-xi-de-chu-li-fu-hao-biao-de-chuang-jian-he-shi-yong">GDB 源码分析系列文章三：调试信息的处理、符号表的创建和使用</h3>
+<p>gdb 之所以能够进行源码级调试，本质上是编译的过程保存了源码到目标程序之间的映射关系，包括行号、地址等映射关系。gdb 在调试程序时，会对调试信息和符号表进行加工处理，得到 gdb 内部的符号表，gdb 依靠符号表完成一些列调试任务。</p>
+<h3 id="diao-shi-xin-xi-he-fu-hao-biao-jian-jie">调试信息和符号表简介</h3>
+<p>这里说的调试信息指的是 <code>debug_*</code> 相关信息，符号表是指 <code>symtab</code> 和 <code>dynsym</code>。gdb 对这两种信息进行解析和加工，得到的信息在 gdb 内部统称为符号表。</p>
+<h4 id="diao-shi-xin-xi">调试信息</h4>
+<p>调试信息需要带上 -g 编译选项才能产生。关于调试信息在我之前的博客中有一篇引导性的介绍 <a rel="noopener" target="_blank" href="https://blog.csdn.net/Dong_HFUT/article/details/122617871?spm=1001.2014.3001.5502">调试信息（debugging information）——解析DWARF文件</a> 这里只简单列举下各个 section。</p>
+<p>使用 <code>readelf -S xx.out</code> 得到可执行文件各个 section 的列表：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">There are 37 section headers, starting at offset 0x99d8:
+
+Section Headers:
+  [Nr] Name              Type             Address           Offset
+       Size              EntSize          Flags  Link  Info  Align
+  [ 0]                   NULL             0000000000000000  00000000
+       0000000000000000  0000000000000000           0     0     0
+  [ 1] .interp           PROGBITS         0000000000000318  00000318
+       000000000000001c  0000000000000000   A       0     0     1
+  [ 2] .note.gnu.propert NOTE             0000000000000338  00000338
+       0000000000000020  0000000000000000   A       0     0     8
+  [ 3] .note.gnu.build-i NOTE             0000000000000358  00000358
+       0000000000000024  0000000000000000   A       0     0     4
+  [ 4] .note.ABI-tag     NOTE             000000000000037c  0000037c
+       0000000000000020  0000000000000000   A       0     0     4
+  [ 5] .gnu.hash         GNU_HASH         00000000000003a0  000003a0
+       0000000000000024  0000000000000000   A       6     0     8
+  [ 6] .dynsym           DYNSYM           00000000000003c8  000003c8
+       00000000000000a8  0000000000000018   A       7     1     8
+  [ 7] .dynstr           STRTAB           0000000000000470  00000470
+       0000000000000084  0000000000000000   A       0     0     1
+  [ 8] .gnu.version      VERSYM           00000000000004f4  000004f4
+       000000000000000e  0000000000000002   A       6     0     2
+  [ 9] .gnu.version_r    VERNEED          0000000000000508  00000508
+       0000000000000020  0000000000000000   A       7     1     8
+  [10] .rela.dyn         RELA             0000000000000528  00000528
+       00000000000000c0  0000000000000018   A       6     0     8
+  [11] .rela.plt         RELA             00000000000005e8  000005e8
+       0000000000000018  0000000000000018  AI       6    24     8
+  [12] .init             PROGBITS         0000000000001000  00001000
+       000000000000001b  0000000000000000  AX       0     0     4
+  [13] .plt              PROGBITS         0000000000001020  00001020
+       0000000000000020  0000000000000010  AX       0     0     16
+  [14] .plt.got          PROGBITS         0000000000001040  00001040
+       0000000000000010  0000000000000010  AX       0     0     16
+  [15] .plt.sec          PROGBITS         0000000000001050  00001050
+       0000000000000010  0000000000000010  AX       0     0     16
+  [16] .text             PROGBITS         0000000000001060  00001060
+       00000000000001d5  0000000000000000  AX       0     0     16
+  [17] .fini             PROGBITS         0000000000001238  00001238
+       000000000000000d  0000000000000000  AX       0     0     4
+  [18] .rodata           PROGBITS         0000000000002000  00002000
+       000000000000000c  0000000000000000   A       0     0     4
+  [19] .eh_frame_hdr     PROGBITS         000000000000200c  0000200c
+       000000000000004c  0000000000000000   A       0     0     4
+  [20] .eh_frame         PROGBITS         0000000000002058  00002058
+       0000000000000128  0000000000000000   A       0     0     8
+  [21] .init_array       INIT_ARRAY       0000000000003db8  00002db8
+       0000000000000008  0000000000000008  WA       0     0     8
+  [22] .fini_array       FINI_ARRAY       0000000000003dc0  00002dc0
+       0000000000000008  0000000000000008  WA       0     0     8
+  [23] .dynamic          DYNAMIC          0000000000003dc8  00002dc8
+       00000000000001f0  0000000000000010  WA       7     0     8
+  [24] .got              PROGBITS         0000000000003fb8  00002fb8
+       0000000000000048  0000000000000008  WA       0     0     8
+  [25] .data             PROGBITS         0000000000004000  00003000
+       0000000000000014  0000000000000000  WA       0     0     8
+  [26] .bss              NOBITS           0000000000004014  00003014
+       0000000000000004  0000000000000000  WA       0     0     1
+  [27] .comment          PROGBITS         0000000000000000  00003014
+       000000000000002b  0000000000000001  MS       0     0     1
+  [28] .debug_aranges    PROGBITS         0000000000000000  0000303f
+       0000000000000030  0000000000000000           0     0     1
+  [29] .debug_info       PROGBITS         0000000000000000  0000306f
+       000000000000037f  0000000000000000           0     0     1
+  [30] .debug_abbrev     PROGBITS         0000000000000000  000033ee
+       0000000000000122  0000000000000000           0     0     1
+  [31] .debug_line       PROGBITS         0000000000000000  00003510
+       0000000000000266  0000000000000000           0     0     1
+  [32] .debug_str        PROGBITS         0000000000000000  00003776
+       00000000000047a7  0000000000000001  MS       0     0     1
+  [33] .debug_macro      PROGBITS         0000000000000000  00007f1d
+       000000000000106a  0000000000000000           0     0     1
+  [34] .symtab           SYMTAB           0000000000000000  00008f88
+       00000000000006d8  0000000000000018          35    52     8
+  [35] .strtab           STRTAB           0000000000000000  00009660
+       000000000000020c  0000000000000000           0     0     1
+  [36] .shstrtab         STRTAB           0000000000000000  0000986c
+       0000000000000167  0000000000000000
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings), I (info),
+  L (link order), O (extra OS processing required), G (group), T (TLS),
+  C (compressed), x (unknown), o (OS specific), E (exclude),
+  l (large), p (processor specific)
+</code></pre>
+<p>其中 .debug 打头的就是调试信息了。</p>
+<table><thead><tr><th>section</th><th>description</th></tr></thead><tbody>
+<tr><td>.debug_aranges</td><td>范围表。每个编译单元对应一个范围表，记录一些 entry 的范围，方便多个编译单元间快速查询。</td></tr>
+<tr><td>.debug_info</td><td>主要的调试信息。</td></tr>
+<tr><td>.debug_abbrev</td><td>调试信息缩写表。每个编译单元对应一个缩写表，缩写表是该编译单元的一系列缩写。</td></tr>
+<tr><td>.debug_line</td><td>调试行信息。源码的行对应到的目标程序的pc。</td></tr>
+<tr><td>.debug_str</td><td>.debug_info中使用到的字符串表</td></tr>
+<tr><td>.debug_macinfo</td><td>宏信息。-g3 编译才会产生。上面的编译程序没有</td></tr>
+</tbody></table>
+<h4 id="fu-hao-biao">符号表</h4>
+<p>其实符号表包括 <code>symtab</code> 和 <code>dynsym</code> 两种。在没有 -g 编译也会产生，在<a rel="noopener" target="_blank" href="https://so.csdn.net/so/search?q=%E9%87%8D%E5%AE%9A%E4%BD%8D&amp;spm=1001.2101.3001.7020">重定位</a>过程中需要处理。</p>
+<ul>
+<li>symtab 包括两种类型符号：全局符号和本地静态符号。</li>
+<li>dynsym 仅仅包加载动态库所需要的符号。</li>
+</ul>
+<p>其实，<code>symtab</code> 是包含了 <code>dynsym</code>，也就是说 <code>dynsym</code> 是 <code>symtab</code> 的子集。那为什么还要保存重复的 <code>dynsym</code> 呢？当对目标程序进行 strip 时 <code>strip xx.out</code> ，<code>symtab</code> 将会被去除，但是 dynsym 还在，可以保证动态加载可以正常工作。因此，gdb 在解析符号表时候，只需要读取 <code>symtab</code> 即可。</p>
+<h3 id="diao-shi-xin-xi-de-chu-li-he-fu-hao-biao-de-chuang-jian">调试信息的处理和符号表的创建</h3>
+<p>gdb 读取调试信息和符号表，在 gdb 使用符号表来记录， gdb 内部存在 3 种符号表。</p>
+<ol>
+<li><strong>minimal symbol table</strong>：最小符号表。直接读取 ELF 文件中 .symtab 的 section。也即链接过程中使用到的符号。最小符号表 “better than nothing” 。最小符号表至少可以满足你通过函数名打断点。</li>
+<li><strong>partial symbol table</strong>：部分符号表。在 minimal symbol table 基础上初步分析调试信息（.debug_info section），得到部分符号的部分信息，可以满足一定的调试要求。并且部分符号表记录了读取完整符号表的函数指针，可以在部分符号表的基础上读取完整符号表。</li>
+<li><strong>full symbol table</strong>：完整符号表。记录了完整的调试信息，占用内存大。gdb 首先是建立部分符号表，只在必要的时候才会建立完整的符号表。</li>
+</ol>
+<h4 id="zui-xiao-fu-hao-biao">最小符号表</h4>
+<p>最小符号表是直接读取 ELF 文件的 <code>.symtab</code> section 得到。</p>
+<h5 id="zui-xiao-fu-hao-biao-shu-ju-jie-gou-jian-jie">最小符号表数据结构简介</h5>
+<p>在看 <code>minimal_symbol</code> 之前，先看下 <code>general_symbol_info</code>。<code>general_symbol_info</code> 是在所有 3 种符号（<code>minimal_symbol</code>，<code>partial_symbol</code> 和 <code>(full) symbol</code>）都共有的成员。</p>
+<p><code>general_symbol_info</code> 主要成员如下（详见 gdb/symtab.h）：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>name</td><td>符号的名字。对于 c++ 而言，mangled name 和 demangled name 是不一样的，这里是 mangled name。</td></tr>
+<tr><td>value</td><td>符号的值。是一个枚举类型，它的含义取决于符号的类型（SYMBOL_CLASS）。比如一个函数符号，这里就对应一个 block，block中包含 pc 范围。</td></tr>
+<tr><td>language_specific</td><td>特定语言使用，是一个枚举，比如 c++，这里就是它的 demangled name</td></tr>
+<tr><td>section</td><td>指明这个符号属于哪个 section，是一个下标索引</td></tr>
+</tbody></table>
+<p><code>minimal_symbol</code> 主要成员如下（详见 gdb/symtab.h）：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>general_symbol_info mginfo</td><td>即 general_symbol_info</td></tr>
+<tr><td>unsigned long size</td><td>符号的 size</td></tr>
+<tr><td>filename</td><td>符号归属的源文件</td></tr>
+<tr><td>type</td><td>minimal symbol 类型。比如属于 bss 段、text 段等</td></tr>
+<tr><td>struct minimal_symbol *hash_next</td><td>拥有相同 hash key 的 minmal symbol 通过 hash_next 链接在一起</td></tr>
+</tbody></table>
+<p><code>minimal_symbol</code> 最后存储在 <code>objfile</code> 的 <code>per-bfd</code> 的存储空间，形成 <code>minimal symbol table</code>。</p>
+<h5 id="zui-xiao-fu-hao-biao-chuang-jian-liu-cheng">最小符号表创建流程</h5>
+<p><code>read_symbols</code>
+  <code>elf_symfile_read </code>
+    <code>elf_read_minimal_symbols</code>
+      <code>elf_symtab_read</code>
+      <code>install_minimal_symbols</code></p>
+<p><code>elf_symfile_read</code> 调用 <code>elf_read_minimal_symbols</code> 读取和建立最小符号表。</p>
+<p><code>elf_read_minimal_symbols</code> 首先通过 bfd 库得到 <code>.symtab</code> section 的大小和符号个数。然后调用 <code>elf_symtab_read</code> 函数读取符号表。最后调用 <code>install_minimal_symbols</code> 安装符号表。</p>
+<p><code>install_minimal_symbols</code> 会对符号表进行排序、去重、压缩后存放在 <code>objfile-&gt;per_bfd-&gt;msymbols</code> 中，再给 minimal symblos 建立 hash table，用于对 <code>minimal symbols</code> 进行索引。</p>
+<p>此外，符号表除了 <code>dwarf</code> 格式，还有其他格式，例如 <code>stab</code> 格式。符号表的建立流程中还有很多兼容性处理，这里不再赘述。</p>
+<h4 id="bu-fen-fu-hao-biao">部分符号表</h4>
+<p>部分符号表是在最小符号表的基础上，尝试读取 dwarf 的调试信息，形成相对比较完整的符号表。</p>
+<h5 id="bu-fen-fu-hao-biao-shu-ju-jie-gou-jian-jie">部分符号表数据结构简介</h5>
+<p><code>partial_symbol</code> 成员如下（详见 gdb/psympriv.h）：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>ginfo</td><td>即 general_symbol_info</td></tr>
+<tr><td>domain</td><td>符号的类型。变量、函数、label、type等</td></tr>
+<tr><td>aclass</td><td>adress class。符号的地址类型，是寄存器、局部变量、typedef、args等</td></tr>
+</tbody></table>
+<p><code>partial_symbol</code> 以一定的规则组合形成 <code>partial_symtab</code>，一个源文件对应一个 <code>partial_symtab</code>，一个 objfile 中所有 <code>partial_symtab</code> 形成一个链表。</p>
+<p><code>partial_symtab</code> 主要成员如下（详见 gdb/psympriv.h）：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>struct partial_symtab *next</td><td>partial_symtab 链表</td></tr>
+<tr><td>filename、 fullname、dirname</td><td>文件名、完整路径文件 、编译目录</td></tr>
+<tr><td>CORE_ADDR textlow 、CORE_ADDR textlow</td><td>文件地址范围</td></tr>
+<tr><td>void (*read_symtab) (struct partial_symtab *, struct objfile *)</td><td>用于读取完整符号表的函数指针</td></tr>
+<tr><td>struct partial_symtab *user</td><td>非空则代表本符号表是一个共享的 prtial_symtab，被 user 共享</td></tr>
+<tr><td>struct partial_symtab **dependencies</td><td>指向本符号表依赖的符号表，被依赖的符号表需要先读入。似乎是给 stabs 格式专用</td></tr>
+<tr><td>unsigned char readin</td><td>标识符号表是否已经读入</td></tr>
+<tr><td>int globals_offset、n_global_syms</td><td>本文件对应的全局符号在 objfile-&gt;global_psymbols 中的偏移和个数</td></tr>
+<tr><td>statics_offset、n_static_syms</td><td>本文件对应的静态符号在 objfile-&gt;static_psymbols 中的偏移和个数</td></tr>
+<tr><td>struct compunit_symtab *compunit_symtab</td><td>本文件最终编译单元的符号表</td></tr>
+</tbody></table>
+<p>每个源文件还没有完全读入，会先形成部分符号表。其中包含有关特定文件的调试符号在可执行文件中的位置的信息，以及位于该文件中的全局符号的名称列表。它们链接形成部分符号列表，即使完整符号表读入后，它们依然保留。</p>
+<h5 id="bu-fen-fu-hao-biao-chuang-jian-liu-cheng">部分符号表创建流程</h5>
+<p><code>read_symbols</code>
+  <code>require_partial_symbols</code>
+    <code>read_psyms</code>
+      <code>dwarf2_build_psymtabs</code>
+        <code>dwarf2_build_psymtabs_hard</code></p>
+<p>建立最小符号表后，随即调用到 <code>dwarf2_build_psymtabs_hard</code>，在 <code>dwarf2_build_psymtabs_hard</code> 中处理 <code>.debug_info</code> 和 <code>.debug_abbrev</code> section 建立部分符号表 。</p>
+<p><code>dwarf2_build_psymtabs_hard</code>
+  <code>dwarf2_read_section</code>
+  <code>create_all_comp_units</code>
+  <code>process_psymtab_comp_unit</code>
+    <code>init_cutu_and_read_dies</code>
+    <code>process_psymtab_comp_unit_reader</code>
+      <code>create_partial_symtab</code>
+      <code>load_partial_dies</code>
+      <code>scan_partial_symbols</code>
+      <code>dwarf2_build_include_psymtabs</code></p>
+<p><code>dwarf2_build_psymtabs_hard</code> 首先调用 <code>dwarf2_read_section</code> 将 <code>.debug_info</code> section 读入。然后调用 <code>create_all_comp_units</code> 找到每个 compile unit （cu），记录 cu 个数，然后依次读取 cu 的 offset、length 等信息。最后调用 <code>process_psymtab_comp_unit</code> 处理每个 cu 的信息。</p>
+<p><code>init_cutu_and_read_dies</code> 首先读取 <code>.debug_info section</code> 的 <code>Abbrev offset</code> ，该 <code>offset</code> 是本 cu 在 <code>.debug_abbrev</code> 中的偏移。然后读取该 cu 的 <code>.debug_abbrev</code> section。接着根据 abbrev 读取 comiple unit 的 DIE。</p>
+<p>在读取 cu 信息后，调用<code>process_psymtab_comp_unit_reader</code> 处理该 cu 的符号信息。由于一个 cu 对应一个 partial symtab（pst），根据文件名、路径、完整符号表调用函数等信息通过 <code>create_partial_symtab</code> 函数建立符号表，并添加到 <code>objfile-&gt;psymtabs</code> 中，并设置 pst 的 <code>globals_offset</code> 和 <code>static_offset</code> 等信息。</p>
+<p>建立 pst 后，调用 <code>load_partial_dies</code> 将感兴趣的 dies 读入，这里只读入本文件全局或者静态变量相关的 die。比如 <code>DW_TAG_subprogram</code> 是代表一个函数的 die，<code>DW_TAG_variable</code> 代表变量的 die。</p>
+<p><code>scan_partial_symbols</code> 解析这些 dies，不同 die 有不同的处理函数，得到 global symbols 和 static symbols，并存放到 <code>objfile-&gt;global_psymbols</code> 和 <code>objfile-&gt;static_psymbols</code> 中，得到该文件的全局符号和静态符号信息，但这里不包括局部符号。这里顺便说下，对于函数符号，<code>psym-&gt;ginfo.value.address</code> 存放的是函数首地址，对于全局或者静态变量，存放的是变量地址。</p>
+<p>最后，还需要调用 <code>dwarf2_build_include_psymtabs</code> 处理本文件包含的头文件的 pst。这里只会为本文件实际用到的头文件建立 pst（例如，你可能 include 了一个不需要的头文件，那则没必要为它建立 pst）。这就需要分析 <code>.debug_line</code> 的信息了。<code>.debug_line</code> 中的行信息也是以 cu 为单位存放的。逐行解析<code>.debug_line</code> 中的 opcode，有的 opcode 会改变 file 寄存器，并且与当前文件 file 寄存器值不一样，则需要为该 include file 创建 pst， 并加入到 <code>objfile-&gt;psymtabs</code> 中，并记录 include file 的 <code>dependencies</code> 为本文件 pst。</p>
+<p>至此，psts 建立完成。</p>
+<h4 id="wan-zheng-fu-hao-biao">完整符号表</h4>
+<p>如果 gdb 调试过程中需要的符号信息，超出了 pst 的范围，则需要根据 pst 的函数指针 <code>read_symtab</code> 读取完整符号表。</p>
+<h5 id="wan-zheng-fu-hao-biao-shu-ju-jie-gou-jian-jie">完整符号表数据结构简介</h5>
+<p>完整符号表的符号定义在 gdb/symtab.h 中。<code>struct symbol</code> 主要成员如下：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>ginfo</td><td>即 general_symbol_info</td></tr>
+<tr><td>type</td><td>data type of value</td></tr>
+<tr><td>union owner</td><td>该符号归属的符号表指针</td></tr>
+<tr><td>domain</td><td>符号的类型。变量、函数、label、type等</td></tr>
+<tr><td>aclass_index</td><td>adress class</td></tr>
+<tr><td>unsigned is_argument</td><td>是否为一个 argument</td></tr>
+<tr><td>unsigned is_inlined</td><td>是否为一个内连函数</td></tr>
+<tr><td>unsigned is_cplus_template_function</td><td>是否为 c++ 木板函数</td></tr>
+<tr><td>unsigned short line</td><td>符号被定义的行数</td></tr>
+<tr><td>struct symbol *hash_next</td><td>next hash</td></tr>
+</tbody></table>
+<p><code>struct symtab</code> 主要成员如下：</p>
+<table><thead><tr><th>成员</th><th>说明</th></tr></thead><tbody>
+<tr><td>struct symtab *next</td><td>symtab 链表</td></tr>
+<tr><td>struct compunit_symtab *compunit_symtab</td><td>cu symtab 链表</td></tr>
+<tr><td>struct linetable *linetable</td><td>本文件的 core address 和 line number 的 map</td></tr>
+<tr><td>const char *filename;</td><td>源文件名</td></tr>
+<tr><td>int nlines</td><td>源文件总行数</td></tr>
+<tr><td>enum language language</td><td>源文件语言</td></tr>
+<tr><td>char *fullname</td><td>完整文件名</td></tr>
+</tbody></table>
+<p>另外，完整符号表定义了 <code>struct pending *file_symbols</code>、<code>pending *global_symbols</code> 和 <code>pending *local_symbols</code> 等信息分别记录 static、global 和 local 符号信息。详见 gdb/buildsym.h 。</p>
+<h5 id="wan-zheng-fu-hao-biao-chuang-jian-liu-cheng">完整符号表创建流程</h5>
+<p><code>dwarf2_read_symtab</code>
+  <code>psymtab_to_symtab_1</code>
+   <code>dw2_do_instantiate_symtab</code>
+    <code>load_cu</code>
+    <code>process_queue</code>
+     <code>process_full_comp_unit</code>
+      <code>process_die</code>
+        <code>read_file_scope</code>
+        <code>read_func_scope</code>
+        <code>process_structure_scope</code>
+        <code>new_symbol</code>
+      <code>end_symtab_get_static_block</code>
+      <code>end_symtab_from_static_block</code>
+        <code>end_symtab_with_blockvector</code></p>
+<p><code>dwarf2_read_symtab</code> 首先调用 <code>psymtab_to_symtab_1</code> 包含依赖文件在内的所有文件的 符号表。 <code>psymtab_to_symtab_1</code> 再调用 <code>load_cu</code> 读取 cu，加入到 queue 中，然后调用 <code>process_queue</code>-&gt;<code>process_full_comp_unit</code>-&gt;<code>process_die</code> 处理每个 die，建立完整符号表。</p>
+<p><code>process_die</code> 根据不同 die 进入不同的分发函数进行处理。比如 <code>read_func_scope</code> 函数：将局部变量放到 <code>local_symbols</code>、file_static 变量符号放到 <code>static_symbols</code>、global 符号放入到 <code>global_symbols</code>。函数创建 <code>block</code>，<code>block</code> 的 <code>startaddr</code> 和 <code>endaddr</code> 对应函数的 pc 地址范围，将局部符号添加到 <code>block-&gt;dict</code> 中，并将函数的 <code>symbol</code> 和 <code>block</code> 绑定，再将该<code>block</code> 放入<code>pending_blocks</code> 中。</p>
+<p>最后，<code>end_symtab_with_blockvector</code> 构建 <code>static_blocks</code>，将 <code>file_symbols</code> 添加到它的 <code>dict</code> 中。构建 <code>global_blocks</code>，将 <code>global_symbols</code> 添加到它的 <code>dict</code> 中。最后将 <code>static_blocks</code> 、<code>globla_blocks</code> 和 <code>pending_blocks</code> 组成 <code>blockvector</code>。最后放到 <code>symtab</code> 的 <code>compunit_symtab</code> 中。</p>
+<h3 id="fu-hao-biao-de-shi-yong">符号表的使用</h3>
+<p>使用符号表的接口为 <code>lookup_symbol</code>。根据当前 pc，找到当前 block，在该 block 的 dict 中查找所需的符号（根据符号名），若找到，则返回。否则在 <code>static_block</code> 中 <code>dict</code> 查找，若找到，则返回。若还找不到，说明不在当前 cu 中，接着调用 <code>lookup_global_symbol</code>。在 <code>lookup_global_symbol</code>-&gt;…-&gt;<code>lookup_symbol_in_objfile</code> 中，先调用 <code>lookup_symbol_in_objfile_symtabs</code>，若找到，则返回。否则，这个时候需要遍历 psts，在 <code>obifile-&gt;global_symbols</code> 查找，找到对应的 pst，进入完整符号表的构建。这里也可以看到，只在需要的时候才会建立完整的符号表。在完整符号表建立后，上述查找符号表的过程中就一定能够找到所需的符号了。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/obsidian/pve磁盘直通/">&#8249; pve磁盘直通</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/obsidian/qemu-virtio-device-behind-pci-bridge/"> qemu virtio device behind pci bridge &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xi-lie-er-gdb-zhu-liu-cheng-event-loop-shi-jian-chu-li-luo-ji">系列二：GDB 主流程 event-loop 事件处理逻辑</a>
+        </div>
+        <div class="hpad">
+          <a href="#gdb-yuan-ma-fen-xi-xi-lie-wen-zhang-er-gdb-zhu-liu-cheng-event-loop-shi-jian-chu-li-luo-ji-xiang-jie"><small>- GDB 源码分析系列文章二：gdb 主流程 Event Loop 事件处理逻辑详解</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tracee-de-bei-zhui-zong-mo-shi-fa-sheng-liao-shen-me"><small>- tracee 的被追踪模式发生了什么</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gdb-duan-dian-ji-zhi-jian-jie"><small>- gdb 断点机制简介</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gdb-diao-shi-mo-ni-cheng-xu"><small>- gdb 调试模拟程序</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#gdb-zhu-liu-cheng-event-loop-xiang-jie"><small>- gdb 主流程 Event Loop 详解</small></a>
+        </div>
+        <div>
+          <a href="#xi-lie-san-diao-shi-xin-xi-de-chu-li-fu-hao-biao-de-chuang-jian-he-shi-yong">系列三：调试信息的处理、符号表的创建和使用</a>
+        </div>
+        <div class="hpad">
+          <a href="#gdb-yuan-ma-fen-xi-xi-lie-wen-zhang-san-diao-shi-xin-xi-de-chu-li-fu-hao-biao-de-chuang-jian-he-shi-yong"><small>- GDB 源码分析系列文章三：调试信息的处理、符号表的创建和使用</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#diao-shi-xin-xi-he-fu-hao-biao-jian-jie"><small>- 调试信息和符号表简介</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#diao-shi-xin-xi"><small>· 调试信息</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#fu-hao-biao"><small>· 符号表</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#diao-shi-xin-xi-de-chu-li-he-fu-hao-biao-de-chuang-jian"><small>- 调试信息的处理和符号表的创建</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#zui-xiao-fu-hao-biao"><small>· 最小符号表</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#bu-fen-fu-hao-biao"><small>· 部分符号表</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wan-zheng-fu-hao-biao"><small>· 完整符号表</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu-hao-biao-de-shi-yong"><small>- 符号表的使用</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

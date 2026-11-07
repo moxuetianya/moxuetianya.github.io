@@ -1,0 +1,466 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>SSH 隧道合集：UDP 转发与 tun/tap 隧道 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="autossh+socat 的 UDP 转发实战、ssh -w 建立二层三层加密隧道的配置详解与极简步骤" />
+  <link rel="canonical" href="https://blog.juzhong.asia/obsidian/ssh-隧道合集/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/obsidian/ssh-隧道合集/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/obsidian/ssh-隧道合集/" />
+  <meta property="og:description" content="autossh+socat 的 UDP 转发实战、ssh -w 建立二层三层加密隧道的配置详解与极简步骤" />
+  <meta name="twitter:description" content="autossh+socat 的 UDP 转发实战、ssh -w 建立二层三层加密隧道的配置详解与极简步骤" />
+  <meta property="og:title" content="SSH 隧道合集：UDP 转发与 tun&#x2F;tap 隧道 | 墨雪天琊" />
+  <meta name="twitter:title" content="SSH 隧道合集：UDP 转发与 tun&#x2F;tap 隧道 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2024-05-16" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=9fccf38d998094baaf2e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/obsidian/ssh-隧道合集/">SSH 隧道合集：UDP 转发与 tun/tap 隧道</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 五月 16, 2024 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://blog.juzhong.asia/tags/linux/">Linux</a>  #<a href="https://blog.juzhong.asia/tags/ssh/">SSH</a>  #<a href="https://blog.juzhong.asia/tags/obsidian/">obsidian</a>  #<a href="https://blog.juzhong.asia/tags/wang-luo/">网络</a>  #<a href="https://blog.juzhong.asia/tags/he-ji/">合集</a> </span>
+
+    
+
+
+<h2 id="ssh-tunnel-for-udp-autossh-socat-shi-zhan">SSH Tunnel for UDP（autossh + socat 实战）</h2>
+<h3 id="ssh-tunnel-for-udp"><a rel="noopener" target="_blank" title="发布于 2019-06-21 15:44" href="https://www.cnblogs.com/wsjhk/p/11064992.html">SSH Tunnel for UDP</a></h3>
+<p>UDP port forwarding is a bit more complicated. We will need to convert the packets from UDP to TCP on the SSH client side, tunnel it over the SSH connection and convert it back from TCP to UDP on the SSH server side.</p>
+<p>由于业务需要，要实现内网一个服务器的udp服务对外暴露，并且外网需要访问该服务，但是该机器没有公网IP，也不能做NAT。所以实现基于ssh隧道的端口转发，拓扑图和原理如下：</p>
+<p><img src="/obsidian/assets/ssh-tunnel-udp/ssh-udp-tunnel-topology.png" alt="" /></p>
+<p>根据以上原理，配置如下：</p>
+<p>server01：xxx.xxx.xxx.xxx</p>
+<p>server02：10.21.xxx.xxx</p>
+<p>server03：172.18.153.13</p>
+<p>1.配置ssh隧道和socat的udp/tcp端口转发：</p>
+<p>在server02（10.21.17.15）上执行</p>
+<h2 id="autossh-p-22-m-6777-nfr-8899-127-0-0-1-8899-root-94-191-109-129-huo-zhe-ssh-r-8899-127-0-0-1-8899-xxx-xxx-xxx-xxx-vmstat-30">autossh -p 22 -M 6777 -NfR '*:8899:127.0.0.1:8899' root@94.191.109.129 或者 # ssh -R 8899:127.0.0.1:8899 xxx.xxx.xxx.xxx "vmstat 30"</h2>
+<h2 id="socat-tcp4-listen-8899-reuseaddr-fork-udp-172-18-153-13-9999-huo-zhe-shi-yong-guan-dao-lai-shi-xian-mkfifo-tmp-fifo-nc-l-p-8899-tmp-fifo-nc-u-172-18-153-13-9999-tmp-fifo">socat tcp4-listen:8899,reuseaddr,fork udp:172.18.153.13:9999 或者使用管道来实现 # mkfifo /tmp/fifo &amp;&amp; nc -l -p 8899 &lt; /tmp/fifo | nc -u 172.18.153.13 9999 &gt; /tmp/fifo</h2>
+<p>在server01（94.191.109.129）上执行</p>
+<h2 id="socat-udp4-listen-9999-reuseaddr-fork-tcp-localhost-8899-huo-zhe-shi-yong-guan-dao-lai-shi-xian-mkfifo-tmp-fifo-nc-l-u-p-9999-tmp-fifo-nc-localhost-8899-tmp-fifo">socat udp4-listen:9999,reuseaddr,fork tcp:localhost:8899 或者使用管道来实现 # mkfifo /tmp/fifo &amp;&amp; nc -l -u -p 9999 &lt; /tmp/fifo | nc localhost 8899 &gt; /tmp/fifo</h2>
+<p>*其中udp4-listen:改成udp4-recvfrom也是可以的。</p>
+<p>2.在server03上启动python进程：</p>
+<pre data-lang="container" class="language-container "><code class="language-container" data-lang="container"># -*- coding: utf-8 -*-
+import socket
+
+&#x27;&#x27;&#x27;
+使用UDP协议时，不需要建立连接，只需要知道对方的IP地址和端口号，就可以直接发数据包。但是，能不能到达就不知道了。
+虽然用UDP传输数据不可靠，但它的优点是和TCP比，速度快，对于不要求可靠到达的数据，就可以使用UDP协议。
+我们来看看如何通过UDP协议传输数据。和TCP类似，使用UDP的通信双方也分为客户端和服务器。服务器首先需要绑定端口
+绑定端口和TCP一样，但是不需要调用listen()方法，而是直接接收来自任何客户端的数据
+&#x27;&#x27;&#x27;
+# ipv4 SOCK_DGRAM指定了这个Socket的类型是UDP
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+# 绑定 客户端口和地址:
+s.bind((&#x27;172.18.153.13&#x27;, 9999))
+print &#x27;Bind UDP on 9999...&#x27;
+while True:
+# 接收数据 自动阻塞 等待客户端请求:
+data, addr = s.recvfrom(1024)
+print &#x27;Received from %s:%s.&#x27; % addr
+s.sendto(&#x27;Hello, %s!&#x27; % data, addr)
+</code></pre>
+<p>3.在测试机器上做如下测试：</p>
+<p>测试一：只有一个进程连接传输数据</p>
+<p>1）持续写数据到临时文件中：</p>
+<h2 id="while-true-do-echo-test-tmp-socat-tmp-sleep-0-05-done">while true;do echo test &gt;&gt; /tmp/socat.tmp;sleep 0.05;done</h2>
+<p>2）从临时文件中读取数据并使用socat发送udp数据：</p>
+<h2 id="tail-f-tmp-socat-tmp-socat-udp-connect-xxx-xxx-xxx-xxx-9999">tail -f /tmp/socat.tmp | socat - udp-connect:xxx.xxx.xxx.xxx:9999</h2>
+<p>测试二：不断使用新端口连接传输数据</p>
+<h2 id="while-true-do-echo-test-socat-udp-connect-xxx-xxx-xxx-xxx-9999-sleep-0-05-done">while true;do echo test | socat - udp-connect:xxx.xxx.xxx.xxx:9999;sleep 0.05;done</h2>
+<p>4.socat进程在会话完成之后会自动断开，需要写脚本自动拉起：</p>
+<pre data-lang="container" class="language-container "><code class="language-container" data-lang="container">#!&#x2F;bin&#x2F;bash
+while :
+do
+    pid=`ps -ef|grep socat|grep listen|awk &#x27;{print $2}&#x27; | wc -l`
+    sleep 10
+    {
+        if [ &quot;$pid&quot; -le 8 ]
+        then
+                    socat tcp4-listen:9010,reuseaddr,fork udp:172.18.171.15:43010 &gt;&gt; 9010.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9011,reuseaddr,fork udp:172.18.171.15:43011 &gt;&gt; 9011.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9012,reuseaddr,fork udp:172.18.171.15:43012 &gt;&gt; 9012.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9013,reuseaddr,fork udp:172.18.171.15:43013 &gt;&gt; 9013.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9014,reuseaddr,fork udp:172.18.171.15:43014 &gt;&gt; 9014.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9015,reuseaddr,fork udp:172.18.171.15:43015 &gt;&gt; 9015.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9016,reuseaddr,fork udp:172.18.171.15:43016 &gt;&gt; 9016.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9017,reuseaddr,fork udp:172.18.171.15:43017 &gt;&gt; 9017.log 2&gt;&amp;1 &amp;
+        fi
+    }||{
+        if [ &quot;$pid&quot; -le 8 ]
+        then
+            ps -ef|grep socat|grep listen|awk &#x27;{print $2}&#x27;|xargs kill -9
+            sleep 5
+                    socat tcp4-listen:9010,reuseaddr,fork udp:172.18.171.15:43010 &gt;&gt; 9010.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9011,reuseaddr,fork udp:172.18.171.15:43011 &gt;&gt; 9011.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9012,reuseaddr,fork udp:172.18.171.15:43012 &gt;&gt; 9012.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9013,reuseaddr,fork udp:172.18.171.15:43013 &gt;&gt; 9013.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9014,reuseaddr,fork udp:172.18.171.15:43014 &gt;&gt; 9014.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9015,reuseaddr,fork udp:172.18.171.15:43015 &gt;&gt; 9015.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9016,reuseaddr,fork udp:172.18.171.15:43016 &gt;&gt; 9016.log 2&gt;&amp;1 &amp;
+            socat tcp4-listen:9017,reuseaddr,fork udp:172.18.171.15:43017 &gt;&gt; 9017.log 2&gt;&amp;1 &amp;
+        fi
+    }
+done
+</code></pre>
+<p>总结：</p>
+<p>1.配置完成之后，隧道，socat端口转发和数据的传输正常，稳定，测试过程中没有出现断线，丢包的问题。</p>
+<p>2.socat工具强大，主要特点就是在两个数据流之间建立通道，且支持众多协议和链接方式。如 IP、TCP、 UDP、IPv6、PIPE、EXEC、System、Open、Proxy、Openssl、Socket等。更多功能待验证和熟悉。</p>
+<h2 id="ssh-shi-yong-ssh-socat-zhong-ji-udp-shu-ju-bao">SSH 使用 ssh、socat 中继 UDP 数据包</h2>
+<blockquote>
+<p>我们在阿里云开了一台服务器, 合作方那边的设备需要向服务器6000端口不停的发送UDP数据包, 我通过SSH和SOCAT把对服务器6000端口的数据包转发到我本地Macbook Pro的6000端口上以方便开发和测试工作. <code>目的是解决SSH仅支持TCP的问题</code></p>
+</blockquote>
+<h3 id="wang-luo">网络</h3>
+<p><img src="/obsidian/assets/ssh-socat-udp-relay/ssh-socat-udp-relay.jpg" alt="图片描述" /></p>
+<p>其中<code>server_ip</code>为阿里云SSH服务器IP地址或域名. 使用时可以替换为你自己的服务器IP地址或域名.</p>
+<h3 id="sshduan-kou-zhuan-fa-xu-yao-de-gong-ju">SSH端口转发需要的工具</h3>
+<p>SSH服务器, SOCAT工具</p>
+<h3 id="sshde-tcpduan-kou-zhuan-fa">SSH的TCP端口转发</h3>
+<p>在<code>client</code>端运行如下命令</p>
+<pre><code>ssh -vv -N -R 8000:127.0.0.1:8000 root@server_ip
+</code></pre>
+<p>上面的命令在客户端和SSH服务器之间建立了一根相互连接的隧道. 隧道客户端地址为本机地址 <code>127.0.0.1:8000</code>, 服务器端地址为 <code>0.0.0.0:8000</code>(监听在<code>0.0.0.0</code>表示绑定服务器的所有接口地址, 这样客户端能够访问服务器端的所有接口地址)</p>
+<h3 id="sshde-udpduan-kou-zhuan-fa">SSH的UDP端口转发</h3>
+<blockquote>
+<p>由于SSH并不直接支持UDP, 因此我们用到了一个UDP中继工具 <code>socat</code> (SOcket CAT)</p>
+</blockquote>
+<p>把服务器在UDP 6000端口上收到的UDP数据包转发到服务器本地8000 TCP端口上. 在 <code>server</code> 端运行如下命令:</p>
+<pre><code>socat -T15 udp4-recvfrom:6000,reuseaddr,fork tcp:localhost:8000
+</code></pre>
+<p>此时UDP数据包会通过SSH隧道到达我本机笔记本的8000端口上, 我们还需要开一个转换器, 让本地8000端口接收到的TCP数据包转换为UDP数据包, 并发送到本地 6000 UDP端口上. 在 <code>client</code> 端运行如下命令:</p>
+<pre><code>socat tcp4-listen:8000,reuseaddr,fork udp:127.0.0.1:6000
+</code></pre>
+<p>现在我的本机就看到了, 从服务器6000端口, 通过SSH隧道过来的UDP数据包了.</p>
+<blockquote>
+<p>对于SSH的远程转发, 需要在SSH服务器端的<code>/etc/ssh/sshd_config</code>配置文件中增加<code>GatewayPorts yes</code></p>
+</blockquote>
+<p>下图为erlang编写的一个简单udp服务器接收到数据包时的输出.</p>
+<p><img src="/obsidian/assets/ssh-socat-udp-relay/erlang-udp-server-output.jpg" alt="图片描述" /></p>
+<h3 id="can-kao-zi-liao">参考资料</h3>
+<p><a rel="noopener" target="_blank" href="https://link.segmentfault.com/?enc=vUdrF17yQKydwV3SzQrzxA%3D%3D.c%2FXkwWMYO7lJlkoKRZHc0%2BQiZY%2FDeZOJiJ7CPjakwzLXb%2FpQwK7hYcViYrnTf2GvoQhvJ9Hq0UEPoEg%2BuicWQhkDbauA96QfLZeb6%2Fq3QtM%3D">SSH Port Forwarding for TCP and UDP Packets</a>
+<a rel="noopener" target="_blank" href="https://link.segmentfault.com/?enc=Gli0MAdwXjYsI1X84ZG6GA%3D%3D.PKBI1NsbjXncbWSdfNo%2FH3Q%2FsYgad3APikdbAnfNigpuXHB8K8CYHOGZc06H7rD1tYiR2N22M4FedjYB0iIvjv9yYGM4VN4J3dsqWD%2B7oS0%3D">Performing UDP tunneling through an SSH connection</a></p>
+<h2 id="how-to-setup-ssh-tun-tap-tunnel-ji-jian-bu-zou">How to Setup SSH tun/tap Tunnel（极简步骤）</h2>
+<h3 id="prerequesites">Prerequesites</h3>
+<p>Add or uncomment this line in /etc/ssh/sshd_config of remote machine</p>
+<pre><code>PermitTunnel yes
+</code></pre>
+<h3 id="remote-machine-setup">Remote machine setup</h3>
+<p>Setup TUN virtual interface</p>
+<pre><code># ip tuntap add tun[remote interface number] mode tun
+# ip link set dev tun[remote interface number] up
+</code></pre>
+<p>Set address for interface.</p>
+<pre><code># ip address add [remote address] peer [local address] dev tun[remote interface number]
+</code></pre>
+<p>[remote address] – IP address with prefix that will be used for connection on remote machine, [local address] – that will be used for connection on local machine.</p>
+<p>Setup routing</p>
+<pre><code># ip route add [address network] via [remote address]
+</code></pre>
+<h3 id="local-machine-setup">Local machine setup</h3>
+<p>Setup TUN virtual interface</p>
+<pre><code># ip tuntap add tun[local interface number] mode tun
+# ip link set dev tun[local interface number] up
+</code></pre>
+<p>Set address for interface</p>
+<pre><code># ip address add [local address] peer [remote address] dev tun[remote interface number]
+</code></pre>
+<p>Setup routing</p>
+<pre><code># ip route add [address network] via [local address]
+</code></pre>
+<h3 id="starting-tunnel">Starting tunnel</h3>
+<pre><code>ssh -v -N -f -p [remote machine port] \
+-o Tunnel=point-to-point -o ServerAliveInterval=10 -o TCPKeepAlive=yes \
+-w [local machine interface number]:[remote machine interface number] \
+[remote machine IP&#x2F;domain]
+</code></pre>
+<h2 id="tong-guo-openssh-jian-li-er-ceng-he-san-ceng-jia-mi-sui-dao-xiang-jie">通过 OpenSSH 建立二层和三层加密隧道（详解）</h2>
+<p>OpenSSH 可以使用tun/tap设备来创建一个加密隧道，SSH隧道类似mode TCP
+模式下的OpenVPN，对于有需求快速设置一个基于IP的VPN
+来说非常方便。使用SSH隧道的优点：</p>
+<ol>
+<li>不需要安装和配置额外的软件</li>
+<li>使用SSH认证并自带加密，不需要使其它VPN软件一样配置共享密钥或者证书</li>
+<li>兼容性强，可以建立二层隧道或三层隧道，所有3/4层协议如：ICMP
+、TCP/UDP
+等都可支持</li>
+<li>配置过程简单</li>
+</ol>
+<p>当然也有缺点：</p>
+<ol>
+<li>基于TCP协议，其传输效率较低</li>
+<li>隧道依赖于单个TCP连接，容易中断或假死</li>
+<li>需要ROOT权限</li>
+</ol>
+<p>这里还要说明一下二层和三层的区别：</p>
+<ul>
+<li>layer 2 : 交换单元是帧，只识别MAC地址，只有交换功能，相关协议：Ethernet、VLAN、STP、PPP、FDDI、ARP（OSI模型）、MPLS（介于2层3层之间）等，在Linux
+中是虚拟点对点设备，显示为tap</li>
+<li>layer 3 : 交换单元是包，能识别MAC地址和IP，有交换和路由
+功能，相关协议：IP、ICMP、IGMP、IPsec
+等，在Linux中是虚拟以太网设备，显示tun</li>
+</ul>
+<p>在Linux中tun/tap都可以设置IP，只是模拟的工作层有区别，tun是模拟三层网络设备，收发的是IP包，无法处理以太网数据帧。tap模拟的是二层设备，收发的是以为网数据帧，更接近物理网卡，可以和物理网卡通过网桥绑定。我们日常用的wmware虚拟机
+中的nat网络，对应的就是tun，桥接网络对应的就是tap。</p>
+<h3 id="yi-ssh-serverduan-pei-zhi">一、ssh server端配置</h3>
+<p>首先要使用ssh的二层和三层隧道，尽量保证系统差别不要太大，我这里两边都是oracle linux 8，SSH版本更新到最新。server端需要允许root登录和隧道，编辑/etc/ssh/sshd_config：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">PermitRootLogin yes
+PermitTunnel yes
+#建议添加
+TCPKeepAlive yes
+</code></pre>
+<p>PermitTunnel yes代表允许point-to-point (layer 3)和ethernet (layer 2)</p>
+<h3 id="er-san-ceng-sui-dao-pei-zhi">二、三层隧道配置</h3>
+<h4 id="2-1-jian-li-san-ceng-sui-dao">2.1 建立三层隧道</h4>
+<p>在client端执行：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ssh -w any:any  root@[server_ip]
+</code></pre>
+<p>如果客户端和<a rel="noopener" target="_blank" href="https://cloud.tencent.com/product/cvm/?from_column=20065&amp;from=20065">服务器</a>端没有其它的tun设备，就会在客户端和服务器端各生成一个名为tun0设备，指定any可以自动分配可用的设备。查看设备：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">[root@centos8 ~]# ip addr
+3: tun0: &lt;POINTOPOINT,MULTICAST,NOARP&gt; mtu 1500 qdisc noop state DOWN group default qlen 500
+    link&#x2F;none
+</code></pre>
+<p>可以看到有个tun0 &lt;POINTOPOINT,MULTICAST,NOARP&gt;，这个设备是未激活的状态，如果用ifconfig命令查看，需要加上-a参数才能看到。</p>
+<p>为安全起见，建议使用以下命令：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ssh -NTCf -w 5:5 root@[server_ip]
+</code></pre>
+<ul>
+<li>“-N”：不执行远程命令</li>
+<li>“-T”：不分配终端</li>
+<li>“-C”：压缩传输的流量</li>
+<li>“-f”：在客户端后台运行</li>
+</ul>
+<p>执行完该命令client和server各自会创建一个tun5的点对点设备，下一步就是需要激活设备并分配IP。</p>
+<h4 id="2-2-fen-pei-ipbing-ji-huo-sui-dao">2.2 分配IP并激活隧道</h4>
+<p>分配IP不要与服务器和客户端网段有冲突，这里假设：</p>
+<p>客户端IP：10.0.0.2 tun5 服务器IP：10.0.0.1 tun5</p>
+<p>服务器激活点对点设备并分配IP和路由：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip link set tun5 up
+ip addr add 10.0.0.1&#x2F;32 peer 10.0.0.2 dev tun5
+</code></pre>
+<p>客户端同理：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip link set tun5 up
+ip addr add 10.0.0.2&#x2F;32 peer 10.0.0.1 dev tun5
+</code></pre>
+<p>这时隧道已经建立成功，此时用查看一下状态：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">[root@centos8 ~]# ip addr
+14: tun5: &lt;POINTOPOINT,MULTICAST,NOARP,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UNKNOWN group default qlen 500
+    link&#x2F;none
+    inet 10.0.0.1 peer 10.0.0.2&#x2F;32 scope global tun5
+</code></pre>
+<p>可以看到比之前多了“UP,LOWER_UP”，说明已经激活。正常情况下客户端和服务器已经可以相互ping。</p>
+<p>客户端用一条命令也能搞定：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ssh \
+  -o PermitLocalCommand=yes \
+  -o LocalCommand=&quot;ip link set tun5 up &amp;&amp; ip addr add 10.0.0.2&#x2F;32 peer 10.0.0.1 dev tun5 &quot; \
+  -o TCPKeepAlive=yes \
+  -w 5:5  root@[server_ip] \
+  &#x27;ip link set tun5 up &amp;&amp; ip addr add 10.0.0.1&#x2F;32 peer 10.0.0.2 dev tun5&#x27;
+</code></pre>
+<h4 id="2-3-tian-jia-qi-ta-wang-duan-de-lu-you">2.3 添加其它网段的路由</h4>
+<p>如果服务器端有其它内网段，需要继续添加客户端路由才能ping通，例如，客户端想与服务器端网段10.0.12.0/24互通，需在客户端执行：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip route add  10.0.12.0&#x2F;24 dev tun5
+</code></pre>
+<p>按需添加即可，更改路由是高风险操作，需要格外小心，同时也要确保ssh连接不要中断。</p>
+<h3 id="san-er-ceng-sui-dao-pei-zhi">三、二层隧道配置</h3>
+<p>由于linux中允许为tap设备设置ip，所以二层隧道和三层隧道也可以完全一样的进行配置。区别是tap设备可以和物理网卡进行绑定，也就是桥接，同时由于工作在二层，允许Arp通过，能支持STP生成树、PPP等协议。</p>
+<h4 id="3-1-jian-li-er-ceng-sui-dao">3.1 建立二层隧道</h4>
+<p>在客户端执行：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ssh  -o Tunnel=ethernet -w 6:6    root@[server_ip]
+</code></pre>
+<p>这里参数 -o 需要在 -w 前面，查看一下客户端和服务器的网卡：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">[root@centos8 ~]# ip addr
+20: tap6: &lt;BROADCAST,MULTICAST&gt; mtu 1500 qdisc noop state DOWN group default qlen 1000
+</code></pre>
+<p>在ip命令中 tap6: &lt;BROADCAST,MULTICAST&gt;，和物理网卡显示的一样，说明模拟的是物理网卡。</p>
+<h4 id="3-2-chuang-jian-bing-pei-zhi-wang-qiao">3.2 创建并配置网桥</h4>
+<p>二层可以进行网卡桥接，桥接可以多块网卡，也可以一块网卡，这里测试为了省事只用一块网卡，创建网桥有三种工具：</p>
+<ol>
+<li>使用bridge-utils中的brctl命令</li>
+<li>使用oracle linux 8 系列自带的nmcli</li>
+<li>使用ip命令</li>
+</ol>
+<p>建议用ip命令建立：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip link add br0 type bridge
+</code></pre>
+<p>将tap6加入网桥：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip link set tap6 master br0
+</code></pre>
+<p>配置服务器端网桥IP信息并启动网桥：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">ip address add 10.0.0.1&#x2F;32 dev br0
+ip link set tap6 up
+ip link set br0 up
+</code></pre>
+<p>客户端流程一样，只是客户端的ip是10.0.0.2</p>
+<p>在客户端测试ARP包能不能通过：</p>
+<pre data-lang="javascript" class="language-javascript "><code class="language-javascript" data-lang="javascript">[root@oracle8 ~]# arping -I br0 10.0.0.1
+ARPING 10.0.0.1 from 10.0.0.2 br0
+Unicast reply from 10.0.0.1 [3A:E7:2F:3F:42:24]  193.222ms
+Unicast reply from 10.0.0.1 [3A:E7:2F:3F:42:24]  191.903ms
+</code></pre>
+<p>如果是三层隧道，就无法使用arping。</p>
+<p>看似很多内容，其实使用很简单，OpenSSH套件功能真强大。</p>
+<p><strong>参考文章</strong><a rel="noopener" target="_blank" href="https://cloud.tencent.com/developer/tools/blog-entry?target=https%3A%2F%2Fhelp.ubuntu.com%2Fcommunity%2FSSH_VPN&amp;objectId=1838265&amp;objectType=1&amp;isNewArticle=undefined">https://help.ubuntu.com/community/SSH_VPN</a><a rel="noopener" target="_blank" href="https://cloud.tencent.com/developer/tools/blog-entry?target=https%3A%2F%2Fwww.cyberciti.biz%2Ffaq%2Fcentos-8-add-network-bridge-br0-with-nmcli-command%2F&amp;objectId=1838265&amp;objectType=1&amp;isNewArticle=undefined">https://www.cyberciti.biz/faq/centos-8-add-network-bridge-br0-with-nmcli-command/</a><a rel="noopener" target="_blank" href="https://cloud.tencent.com/developer/tools/blog-entry?target=https%3A%2F%2Fgobomb.github.io%2Fpost%2Fbuild-l2-l3-vpn-by-openssh%2F&amp;objectId=1838265&amp;objectType=1&amp;isNewArticle=undefined">https://gobomb.github.io/post/build-l2-l3-vpn-by-openssh/</a></p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/obsidian/蚂蚁集团rust内存占用排查/">&#8249; 蚂蚁集团 ｜ 如何在生产环境排查 Rust 内存占用过高问题</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/obsidian/如何编写zsh补全脚本/"> 如何编写一个 zsh 补全脚本 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#ssh-tunnel-for-udp-autossh-socat-shi-zhan">SSH Tunnel for UDP（autossh + socat 实战）</a>
+        </div>
+        <div class="hpad">
+          <a href="#ssh-tunnel-for-udp"><small>- SSH Tunnel for UDP</small></a>
+        </div>
+        <div>
+          <a href="#autossh-p-22-m-6777-nfr-8899-127-0-0-1-8899-root-94-191-109-129-huo-zhe-ssh-r-8899-127-0-0-1-8899-xxx-xxx-xxx-xxx-vmstat-30">autossh -p 22 -M 6777 -NfR &#x27;*:8899:127.0.0.1:8899&#x27; root@94.191.109.129 或者 # ssh -R 8899:127.0.0.1:8899 xxx.xxx.xxx.xxx &quot;vmstat 30&quot;</a>
+        </div>
+        <div>
+          <a href="#socat-tcp4-listen-8899-reuseaddr-fork-udp-172-18-153-13-9999-huo-zhe-shi-yong-guan-dao-lai-shi-xian-mkfifo-tmp-fifo-nc-l-p-8899-tmp-fifo-nc-u-172-18-153-13-9999-tmp-fifo">socat tcp4-listen:8899,reuseaddr,fork udp:172.18.153.13:9999 或者使用管道来实现 # mkfifo &#x2F;tmp&#x2F;fifo &amp;&amp; nc -l -p 8899 &lt; &#x2F;tmp&#x2F;fifo | nc -u 172.18.153.13 9999 &gt; &#x2F;tmp&#x2F;fifo</a>
+        </div>
+        <div>
+          <a href="#socat-udp4-listen-9999-reuseaddr-fork-tcp-localhost-8899-huo-zhe-shi-yong-guan-dao-lai-shi-xian-mkfifo-tmp-fifo-nc-l-u-p-9999-tmp-fifo-nc-localhost-8899-tmp-fifo">socat udp4-listen:9999,reuseaddr,fork tcp:localhost:8899 或者使用管道来实现 # mkfifo &#x2F;tmp&#x2F;fifo &amp;&amp; nc -l -u -p 9999 &lt; &#x2F;tmp&#x2F;fifo | nc localhost 8899 &gt; &#x2F;tmp&#x2F;fifo</a>
+        </div>
+        <div>
+          <a href="#while-true-do-echo-test-tmp-socat-tmp-sleep-0-05-done">while true;do echo test &gt;&gt; &#x2F;tmp&#x2F;socat.tmp;sleep 0.05;done</a>
+        </div>
+        <div>
+          <a href="#tail-f-tmp-socat-tmp-socat-udp-connect-xxx-xxx-xxx-xxx-9999">tail -f &#x2F;tmp&#x2F;socat.tmp | socat - udp-connect:xxx.xxx.xxx.xxx:9999</a>
+        </div>
+        <div>
+          <a href="#while-true-do-echo-test-socat-udp-connect-xxx-xxx-xxx-xxx-9999-sleep-0-05-done">while true;do echo test | socat - udp-connect:xxx.xxx.xxx.xxx:9999;sleep 0.05;done</a>
+        </div>
+        <div>
+          <a href="#ssh-shi-yong-ssh-socat-zhong-ji-udp-shu-ju-bao">SSH 使用 ssh、socat 中继 UDP 数据包</a>
+        </div>
+        <div class="hpad">
+          <a href="#wang-luo"><small>- 网络</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#sshduan-kou-zhuan-fa-xu-yao-de-gong-ju"><small>- SSH端口转发需要的工具</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#sshde-tcpduan-kou-zhuan-fa"><small>- SSH的TCP端口转发</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#sshde-udpduan-kou-zhuan-fa"><small>- SSH的UDP端口转发</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#can-kao-zi-liao"><small>- 参考资料</small></a>
+        </div>
+        <div>
+          <a href="#how-to-setup-ssh-tun-tap-tunnel-ji-jian-bu-zou">How to Setup SSH tun&#x2F;tap Tunnel（极简步骤）</a>
+        </div>
+        <div class="hpad">
+          <a href="#prerequesites"><small>- Prerequesites</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#remote-machine-setup"><small>- Remote machine setup</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#local-machine-setup"><small>- Local machine setup</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#starting-tunnel"><small>- Starting tunnel</small></a>
+        </div>
+        <div>
+          <a href="#tong-guo-openssh-jian-li-er-ceng-he-san-ceng-jia-mi-sui-dao-xiang-jie">通过 OpenSSH 建立二层和三层加密隧道（详解）</a>
+        </div>
+        <div class="hpad">
+          <a href="#yi-ssh-serverduan-pei-zhi"><small>- 一、ssh server端配置</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#er-san-ceng-sui-dao-pei-zhi"><small>- 二、三层隧道配置</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-1-jian-li-san-ceng-sui-dao"><small>· 2.1 建立三层隧道</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-2-fen-pei-ipbing-ji-huo-sui-dao"><small>· 2.2 分配IP并激活隧道</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#2-3-tian-jia-qi-ta-wang-duan-de-lu-you"><small>· 2.3 添加其它网段的路由</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#san-er-ceng-sui-dao-pei-zhi"><small>- 三、二层隧道配置</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-1-jian-li-er-ceng-sui-dao"><small>· 3.1 建立二层隧道</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#3-2-chuang-jian-bing-pei-zhi-wang-qiao"><small>· 3.2 创建并配置网桥</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>
