@@ -1,0 +1,242 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="apt update 全线报 Read-only file system，追查发现根分区被 ext4 errors=remount-ro 只读保护了 23 天：每周一的 fstrim 触发一块 SATA SSD 在 RAID 卡 JBOD 直通模式下锁死 77 秒、丢失已确认写入导致 ext4 损坏。完整取证链、iBMC 远程修复过程与 console= 输入源、dropbear-initramfs 救援加固" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/" />
+  <meta property="og:description" content="apt update 全线报 Read-only file system，追查发现根分区被 ext4 errors=remount-ro 只读保护了 23 天：每周一的 fstrim 触发一块 SATA SSD 在 RAID 卡 JBOD 直通模式下锁死 77 秒、丢失已确认写入导致 ext4 损坏。完整取证链、iBMC 远程修复过程与 console= 输入源、dropbear-initramfs 救援加固" />
+  <meta name="twitter:description" content="apt update 全线报 Read-only file system，追查发现根分区被 ext4 errors=remount-ro 只读保护了 23 天：每周一的 fstrim 触发一块 SATA SSD 在 RAID 卡 JBOD 直通模式下锁死 77 秒、丢失已确认写入导致 ext4 损坏。完整取证链、iBMC 远程修复过程与 console= 输入源、dropbear-initramfs 救援加固" />
+  <meta property="og:title" content="根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记 | 墨雪天琊" />
+  <meta name="twitter:title" content="根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/">根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 18, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://blog.juzhong.asia/tags/linux/">Linux</a>  #<a href="https://blog.juzhong.asia/tags/systemd/">systemd</a>  #<a href="https://blog.juzhong.asia/tags/cun-chu-yu-wen-jian-xi-tong/">存储与文件系统</a>  #<a href="https://blog.juzhong.asia/tags/bmc/">bmc</a>  #<a href="https://blog.juzhong.asia/tags/serial/">serial</a> </span>
+
+    
+
+
+<h1 id="gen-fen-qu-zhi-du-liao-23-tian-cai-fa-xian-zhou-yi-ling-chen-de-fstrim-yi-kuai-smart-quan-lu-de-ssd-he-ext4-sun-pi-pai-cha-ji">根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记</h1>
+<h2 id="xian-xiang">现象</h2>
+<p>给一台 ARM 架构的推理服务器跑 <code>apt update</code>，每个源以两种姿势死掉：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">错误:1 http:&#x2F;&#x2F;ports.ubuntu.com&#x2F;ubuntu-ports jammy InRelease
+  Couldn&#x27;t create temporary file &#x2F;tmp&#x2F;apt.conf.AN08wd for passing config to apt-key
+错误:5 http:&#x2F;&#x2F;ports.ubuntu.com&#x2F;ubuntu-ports jammy-updates Release
+  Could not open file &#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;partial&#x2F;... - open (30: Read-only file system)
+W: chown to _apt:root of directory &#x2F;var&#x2F;lib&#x2F;apt&#x2F;lists&#x2F;partial failed - SetupAPTPartialDirectory (30: Read-only file system)
+</code></pre>
+<p>两个关键细节：</p>
+<ol>
+<li><strong>连 <code>/tmp</code> 都建不了临时文件</strong>——这不是 apt 或镜像源的问题；</li>
+<li><code>errno 30</code>（EROFS）铺满了 <code>/tmp</code>、<code>/var/lib/apt</code>、<code>/var/cache/apt</code> 所有写路径——这不是「某目录权限不对」，是<strong>整条挂载链不可写</strong>。</li>
+</ol>
+<p>顺带发现 14 个 systemd 单元集体 failed（snapd、logrotate、man-db、motd-news、apt-daily……全是写盘的），<code>/var/log/syslog</code> 的修改时间冻结在<strong>三个多星期前</strong>。</p>
+<h2 id="ding-xing-san-shi-miao-pai-chu-diao-si-ge-cuo-wu-fang-xiang">定性：三十秒排除掉四个错误方向</h2>
+<p>多路径 EROFS 的正确第一反应是看挂载，不是修 apt：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">findmnt -n &#x2F;                        # &#x2F;dev&#x2F;sda2 ext4  ro,relatime   ← 实锤
+cat &#x2F;etc&#x2F;fstab                      # &#x2F; 挂的是 defaults，排除配置手滑
+df -h &#x2F;                             # 29% 使用，排除磁盘满
+sudo blockdev --getro &#x2F;dev&#x2F;sda2     # 0，排除设备层写保护
+</code></pre>
+<p>根分区被以只读挂载、fstab 又没这么写，只有一种常见可能：<strong>ext4 自己检测到文件系统错误，按超级块里的 <code>errors=remount-ro</code> 策略把根分区保护起来了</strong>。剩下的问题只有一个——它看到了什么错误？</p>
+<h2 id="qu-zheng-nei-he-ri-zhi-ba-shui-xian-dong-shou-ding-si-liao">取证：内核日志把「谁先动手」钉死了</h2>
+<p>这台机器的 <code>/var/log/kern.log</code> 恰好从事发前 2 分钟开始（早前内容已轮转），完整保留了案发过程：</p>
+<table><thead><tr><th>时间（某周一凌晨）</th><th>内核记录</th></tr></thead><tbody>
+<tr><td>00:15:29–00:16:13</td><td><code>sd 1:0:6:0: [sda] tag#… BRCM Debug mfi stat 0x2d, data len requested/completed 0x1000/0x0</code> ×3</td></tr>
+<tr><td>00:17:31</td><td><code>tag#983 FAILED … cmd_age=77s</code>，<code>CDB: Unmap…</code>（<strong>TRIM/UNMAP 挂了 77 秒后失败</strong>）</td></tr>
+<tr><td>00:17:31</td><td><code>tag#984 Sense Key: Aborted Command</code>，<code>CDB: Write(10)</code> → <code>blk_update_request: I/O error</code> → <code>Aborting journal on device sda2-8</code></td></tr>
+<tr><td>00:18:49 / 00:20:07</td><td>再两轮 UNMAP + Write 失败，<code>I/O error while writing superblock</code></td></tr>
+<tr><td>00:21:24</td><td><strong><code>EXT4-fs (sda2): Remounting filesystem read-only</code></strong></td></tr>
+</tbody></table>
+<p>注意因果顺序：<strong>先是盘/链路拒绝服务（TRIM 失败、写命令被中止），然后才是 ext4 受损</strong>——不是文件系统自己坏了。</p>
+<p>接着对齐「谁在 00:15 开始干活」。这台机器开着 Ubuntu 默认的 <code>fstrim.timer</code>（每周一 00:00 起半小时窗口内跑一次全盘 TRIM）：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">10-19 00:44  fstrim 正常完成（trim 78.5 GiB）
+本周一 00:14:53  fstrim 启动          ← 与首个 RAID 卡异常只差 36 秒
+本周一 00:21:39  fstrim 结束（自称 trim 261.5 GiB，是上周的 3.3 倍）
+</code></pre>
+<p>时间轴严丝合缝。而 <code>e2fsck -n</code>（只读体检）也交出了损伤清单：块位图和 inode 位图几十段不一致、containerd 快照里的证书 symlink inode 类型损坏、甚至有一个日志文件在磁盘上的 inode 被清零（size=0、无数据块，<code>tail</code> 还能读到内容纯粹是因为数据还躺在内存页缓存里——rsyslog 打开它的文件偏移量停在冻结时刻，一字节都没多写）。</p>
+<h3 id="wei-shen-me-shi-yi-kuai-smart-quan-lu-de-pan">为什么是一块「SMART 全绿」的盘？</h3>
+<p>盘的拓扑（<code>lsblk -f</code> + <code>readlink /sys/block/sda</code>）：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">04:00.0 RAID bus controller: Broadcom&#x2F;LSI MegaRAID Tri-Mode SAS3408
+sda → target 1:0:6  型号 ATA &#x2F; Samsung SSD 870   ← JBOD 直通（所以能看到真实型号）
+sdb → target 1:2:0  型号 AVAGO &#x2F; MR9440-8i       ← 卡上建的真 RAID 逻辑卷（数据盘）
+</code></pre>
+<p>根分区<strong>没有 RAID</strong>：那是一块 Samsung 870 SATA SSD 以 JBOD 直通挂在 SAS3408 卡后——但「直通」不等于「绕过卡」，I/O 依然穿过 RAID 卡固件（<code>BRCM ... mfi</code> 报错就是驱动与固件之间通信异常）。</p>
+<p>事后 SMART 检查：<code>PASSED</code>，Reallocated=0、Reported_Uncorrect=0、UDMA_CRC_Error=0。<strong>全绿，但它在事发当晚锁死了 77 秒、中止了写命令、并且丢失了此前已确认写入的数据</strong>（那个被清零的 inode 就是「曾被告知写入成功、盘上却没有」的直接证据）。</p>
+<p>结论：不是坏块劣化，是「固件/直通通路在 TRIM 压力下的瞬时锁死」。SATA SSD 挂 LSI/Broadcom 卡跑 TRIM 出问题，是有相当先例的坑区。</p>
+<h2 id="xiu-fu-qia-zai-initramfs-de-na-liang-ge-xiao-shi">修复：卡在 initramfs 的那两个小时</h2>
+<p>文件系统元数据已经不一致，在线 <code>remount,rw</code> 只是掩耳盗铃，必须离线 fsck。流程：</p>
+<ol>
+<li>优雅停掉机器上的虚拟机和容器（VM 磁盘镜像在数据盘，不受影响），把 VM 定义、容器 inspect、<code>/etc</code>、包列表备份到数据盘；</li>
+<li>重启。initramfs 里的 <code>fsck.ext4 -a</code> 撞上 <code>UNEXPECTED INCONSISTENCY; RUN fsck MANUALLY</code>（exit 4），按设计掉进 BusyBox shell 等人工介入；</li>
+<li><strong>然后是本次事故最有教育意义的两个小时</strong>（见下一节）；</li>
+<li><code>fsck -y /dev/sda2</code> 跑两遍：第一遍大量 <code>Fix? yes</code> + <code>FILE SYSTEM WAS MODIFIED</code>；第二遍 <strong><code>clean</code> 零修复项</strong>才算收工。只跑一遍就收工是常见错误——第一遍的修复本身可能引入新的不一致，第二遍干净是验收标准；</li>
+<li><code>exit</code> 继续启动，确认 <code>/</code> 变回 rw 后，<strong>第一件事禁掉 fstrim 定时器</strong>——否则下周一它还会来一次。</li>
+</ol>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">systemctl disable --now fstrim.timer
+</code></pre>
+<h3 id="jiao-yu-yi-yi-de-liang-ge-xiao-shi-sol-he-kvm-bu-shi-yi-hui-shi">教育意义的两个小时：SOL 和 KVM 不是一回事</h3>
+<p>机器没接显示器，远程修复靠 BMC（这台是华为 iBMC）。它有两条独立的远程控制台通道，我一开始用错了：</p>
+<table><thead><tr><th>通道</th><th>控制的对象</th><th>本机表现</th></tr></thead><tbody>
+<tr><td><strong>SOL</strong>（Serial Over LAN，SSH CLI 里 <code>ipmcset -t sol -d activate -v 1 0</code>）</td><td>物理<strong>串口</strong></td><td>全程零回显，敲进去的字石沉大海</td></tr>
+<tr><td><strong>Web KVM</strong>（浏览器里的 H5 虚拟控制台）</td><td><strong>VGA 显示器 + USB 键鼠</strong></td><td>initramfs 提示符就在这里</td></tr>
+</tbody></table>
+<p>差别的根源是内核参数的顺序规则：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">console=ttyS0,115200 console=tty0
+                          ^^^^^^^^ 排最后的 console= 才是 &#x2F;dev&#x2F;console 的输入源
+</code></pre>
+<p><code>console=</code> 的语义是：<strong>输出广播给列表里所有终端，输入只从最后一个读</strong>。这台机器把 <code>tty0</code>（VGA）排在最后，所以 initramfs 的 shell 读的是 KVM 键盘；SOL 连的串口上既没有 getty 也没有 shell 在读，我的 <code>fsck</code> 命令全部石沉大海——而且因为 SOL 里全程零回显、零输出，我一度还以为连接没建立。</p>
+<p>最终修复就是在 Web KVM 的画面上手敲 <code>fsck -y /dev/sda2</code>。顺便把这条规则记牢：</p>
+<blockquote>
+<p><strong><code>console=</code> 输出广播、输入单选（最后一个生效）。</strong> 想让串口可以敲命令，串口必须排在参数列表最后。</p>
+</blockquote>
+<h3 id="yi-ge-ye-huan-cun-zao-cheng-de-ling-yi-xian-xiang">一个页缓存造成的「灵异现象」</h3>
+<p>排查中有个困惑了很久的矛盾：<code>kern.log</code> 的 mtime 冻结在事发时刻，<code>stat</code> 也是，但 <code>tail</code> 却能读到事发<strong>之后</strong>日期的内容。真相是：磁盘上的 inode 已被清零（<code>debugfs</code> 直读 size=0），文件在 VFS 层的 14667 字节内容全是只读挂载前残留在页缓存里的数据——<code>tail</code> 读的是内存不是盘。遇到「文件内容比 mtime 新」这种物理矛盾时，先怀疑文件系统本身已经损坏，别急着解释时间线。</p>
+<h2 id="jia-gu-rang-xia-yi-ci-bu-yong-dun-liu-lan-qi">加固：让下一次不用蹲浏览器</h2>
+<p>这次修复能完成，全靠浏览器里的 Web KVM。事后把远程救援能力配齐：</p>
+<p><strong>dropbear-initramfs</strong>——把一个微型 SSH server 和公钥打进 initramfs 镜像。下次卡在 initramfs 时直接：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ssh root@&lt;服务器内网IP&gt;     # 进入 initramfs 的 busybox shell
+fsck -y &#x2F;dev&#x2F;sda2
+exit
+</code></pre>
+<p>几个只有踩过才知道的点：</p>
+<ul>
+<li>Ubuntu jammy 的授权文件路径是 <strong><code>/etc/dropbear/initramfs/authorized_keys</code></strong>（老教程写的 <code>/etc/dropbear-initramfs/</code> 在新版本里不存在）；</li>
+<li>initramfs 阶段网络要在内核参数里显式给：<code>ip=&lt;机器IP&gt;::&lt;网关&gt;:&lt;掩码&gt;:&lt;主机名&gt;:&lt;网卡&gt;:off</code>；</li>
+<li><strong><code>update-initramfs -u</code> 默认只重建最新内核的镜像</strong>，机器上还留着旧内核时要用 <code>-k &lt;版本&gt;</code> 逐个补齐，否则回退到旧内核时救援是空的。</li>
+</ul>
+<p><strong>console 顺序交换激活 SOL</strong>：把参数改成 <code>console=tty0 console=ttyS0,115200</code>（串口排最后），SOL 从「只能看」变成「可以敲」——机器自身网络挂掉时，SSH 到 BMC 的串口就是唯一的键盘。GRUB 菜单不受影响（GRUB 读自己的终端配置），正常启动后 VGA 和串口的 getty 也各自独立。</p>
+<p>顺带盘点出的 BMC 通道矩阵，值得抄给每一台有带外管理的机器：</p>
+<table><thead><tr><th>故障深度</th><th>手段</th><th>依赖</th></tr></thead><tbody>
+<tr><td>initramfs 卡住</td><td>dropbear-initramfs</td><td>机器自身网络</td></tr>
+<tr><td>内核/引导卡死</td><td>BMC SOL（需 console= 配置）</td><td>无</td></tr>
+<tr><td>图形 / BIOS / 装系统</td><td>BMC VNC 或 Web KVM</td><td>VNC 客户端 / 浏览器</td></tr>
+<tr><td>需要断电 / 挂 ISO</td><td>BMC 电源控制 / 虚拟光驱</td><td>无</td></tr>
+</tbody></table>
+<h2 id="zong-jie">总结</h2>
+<ol>
+<li><strong>多路径 EROFS（<code>/tmp</code>、<code>/var</code> 同时写不进）= 先 <code>findmnt</code>，别修 apt</strong>。报错列表再长，定性只需要一条 mount 信息。</li>
+<li><strong><code>kern.log</code> 里每天重复一条 <code>error count since last fsck: N</code></strong> 是 ext4 定时器在喊「盘上记着错误、等一次 fsck」。看到它就该安排检查，别等 apt 罢工才发现根分区已经只读了 23 天。</li>
+<li><strong>SMART 全绿 ≠ 不会锁死</strong>。Reallocated/Uncorrect/CRC 全 0 的盘，照样可以整盘锁死 77 秒并丢失「已确认写入」。丢过已确认写入的盘，不应再作为系统盘信任。</li>
+<li><strong>凌晨卡死先对齐 cron/timer</strong>：事发时刻（周一 00:15）与 fstrim 定时器（周一 00:00 起的窗口）精确吻合，是把「RAID 卡异常 → ext4 损坏」串成因果链的关键一环。</li>
+<li><strong><code>console=</code> 输出广播、输入单选（最后一个）</strong>。SOL 和 KVM 在「内核级输入」上确实是二选一——但可以靠 dropbear-initramfs 把第二把钥匙塞进 initramfs 里。</li>
+<li><strong>RAID 卡 JBOD 直通 ≠ 绕过卡</strong>：盘还在卡后，固件仍在 I/O 路径上。SATA SSD 挂 LSI/Broadcom 卡跑 TRIM，属于已知坑区。</li>
+</ol>
+<p>fstrim 定时器已禁用（对一块只用了 29% 的系统盘，短期不 TRIM 没有可感知的性能代价）；中期计划是把系统盘迁离 RAID 卡（板载 SATA 口可用），之后再恢复定时 TRIM。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/">&#8249; Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/"> opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#gen-fen-qu-zhi-du-liao-23-tian-cai-fa-xian-zhou-yi-ling-chen-de-fstrim-yi-kuai-smart-quan-lu-de-ssd-he-ext4-sun-pi-pai-cha-ji">根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记</a>
+        </div>
+        <div class="hpad">
+          <a href="#xian-xiang"><small>- 现象</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#ding-xing-san-shi-miao-pai-chu-diao-si-ge-cuo-wu-fang-xiang"><small>- 定性：三十秒排除掉四个错误方向</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qu-zheng-nei-he-ri-zhi-ba-shui-xian-dong-shou-ding-si-liao"><small>- 取证：内核日志把「谁先动手」钉死了</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#wei-shen-me-shi-yi-kuai-smart-quan-lu-de-pan"><small>· 为什么是一块「SMART 全绿」的盘？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xiu-fu-qia-zai-initramfs-de-na-liang-ge-xiao-shi"><small>- 修复：卡在 initramfs 的那两个小时</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#jiao-yu-yi-yi-de-liang-ge-xiao-shi-sol-he-kvm-bu-shi-yi-hui-shi"><small>· 教育意义的两个小时：SOL 和 KVM 不是一回事</small></a>
+        </div>
+        <div class="hpad2">
+          <a href="#yi-ge-ye-huan-cun-zao-cheng-de-ling-yi-xian-xiang"><small>· 一个页缓存造成的「灵异现象」</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#jia-gu-rang-xia-yi-ci-bu-yong-dun-liu-lan-qi"><small>- 加固：让下一次不用蹲浏览器</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#zong-jie"><small>- 总结</small></a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

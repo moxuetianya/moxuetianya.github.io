@@ -1,0 +1,254 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>git push 不止推 GitHub：SSH 直推远端仓库与非 bare 的 updateInstead | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="git push 的远端不限于 GitHub，任何 ssh 可达的仓库都能推：原理、bare 与非 bare 的 .git 异同、updateInstead 直推检出分支与最简部署用法" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/ssh-git-push-non-bare-repo/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/ssh-git-push-non-bare-repo/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/ssh-git-push-non-bare-repo/" />
+  <meta property="og:description" content="git push 的远端不限于 GitHub，任何 ssh 可达的仓库都能推：原理、bare 与非 bare 的 .git 异同、updateInstead 直推检出分支与最简部署用法" />
+  <meta name="twitter:description" content="git push 的远端不限于 GitHub，任何 ssh 可达的仓库都能推：原理、bare 与非 bare 的 .git 异同、updateInstead 直推检出分支与最简部署用法" />
+  <meta property="og:title" content="git push 不止推 GitHub：SSH 直推远端仓库与非 bare 的 updateInstead | 墨雪天琊" />
+  <meta name="twitter:title" content="git push 不止推 GitHub：SSH 直推远端仓库与非 bare 的 updateInstead | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-20" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/ssh-git-push-non-bare-repo/">git push 不止推 GitHub：SSH 直推远端仓库与非 bare 的 updateInstead</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 20, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/linux-yu-xi-tong/">Linux 与系统</a>] #<a href="https://blog.juzhong.asia/tags/git/">Git</a>  #<a href="https://blog.juzhong.asia/tags/ssh/">SSH</a>  #<a href="https://blog.juzhong.asia/tags/deployment/">deployment</a> </span>
+
+    
+
+
+<h1 id="bei-jing-mei-you-github-key-de-ji-qi-zen-me-tong-bu-dai-ma">背景：没有 GitHub key 的机器，怎么同步代码</h1>
+<p>场景：本地和一台 DUT（dut2）各有一份同一仓库的 checkout，远端在 GitHub。某天 DUT 落后了
+10 个提交，想同步过去，却发现：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">$ git pull --ff-only
+git@github.com: Permission denied (publickey).
+</code></pre>
+<p>DUT 上既没有记录 GitHub 的 host key，也没有部署 key。往 GitHub 加 key 固然是一条路，但这里
+有个更直接的认知：<strong>git push 从来不绑定 GitHub——任何我能 ssh 上去的机器上的 git 仓库，
+都可以当远端推</strong>：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">GPG_TTY=&#x2F;dev&#x2F;nonexistent git push ssh:&#x2F;&#x2F;dut2&#x2F;home&#x2F;smyl&#x2F;project&#x2F;learn-wayland master
+# To ssh:&#x2F;&#x2F;dut2&#x2F;home&#x2F;smyl&#x2F;project&#x2F;learn-wayland
+#    8dcafbb..e6a9746  master -&gt; master
+</code></pre>
+<p>一条命令，dut2 上的仓库和工作树一起更新到最新。这篇文章拆开讲它为什么成立、推非 bare
+仓库为什么要先配置、以及它和推 GitHub 的异同。</p>
+<h1 id="yuan-li-git-push-tui-de-dao-di-shi-shen-me">原理：git push 推的到底是什么</h1>
+<p><code>git push &lt;URL&gt; &lt;branch&gt;</code> 的本质是两端的 git 进程在对话：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">本地 git-send-pack
+   │  ssh 登录 dut2，在远端执行：
+   │      git-receive-pack &#x2F;home&#x2F;smyl&#x2F;project&#x2F;learn-wayland
+   │  传输 pack（对象）→ 请求更新 refs&#x2F;heads&#x2F;master
+   ▼
+远端 git-receive-pack 校验并落盘 → refs&#x2F;heads&#x2F;master 指向新提交
+</code></pre>
+<p>推 GitHub 时（<code>git push origin master</code>，<code>origin = git@github.com:user/repo.git</code>）发生的是
+<strong>同一件事</strong>：sshd 收到请求后在服务器上执行 <code>git-receive-pack</code>，收到对象、挪动 ref。
+GitHub 只是在外面套了认证、权限、web 界面和一堆服务端 hook。把 URL 换成
+<code>ssh://dut2/路径</code>，对端从"GitHub 的机器"变成"我的机器"，协议层一个字节都没变。</p>
+<p>所以「能不能推」的唯一前提是：<strong>远端能跑 <code>git-receive-pack</code>，且我有 ssh 权限</strong>。</p>
+<h1 id="bare-yu-fei-bare-git-mu-lu-li-you-shen-me-bu-yi-yang">bare 与非 bare：.git 目录里有什么不一样</h1>
+<h2 id="jie-gou-bare-zhi-you-git-na-bu-fen">结构：bare = 只有 .git 那部分</h2>
+<p>用同一仓库实测对比（bare 那份是 <code>git clone --bare</code> 出来的）：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">=== bare 仓库 ===
+branches  config  description  HEAD  hooks  info  objects  packed-refs  refs
+
+=== 非 bare 的 .git ===
+branches  config  description  HEAD  hooks  info  objects  packed-refs  refs
+（另有）COMMIT_EDITMSG  FETCH_HEAD  index  logs  ORIG_HEAD  ……
+</code></pre>
+<table><thead><tr><th>条目</th><th>bare</th><th>非 bare</th><th>说明</th></tr></thead><tbody>
+<tr><td><code>HEAD</code> / <code>refs/</code> / <code>objects/</code> / <code>hooks/</code> / <code>config</code></td><td>有</td><td>有</td><td>仓库本体，两边同构</td></tr>
+<tr><td><code>core.bare</code></td><td><code>true</code></td><td><code>false</code></td><td>决定 git 是否允许它检出工作树</td></tr>
+<tr><td><code>index</code></td><td>无</td><td>有</td><td>暂存区状态——没有工作树自然没有暂存</td></tr>
+<tr><td><code>logs/</code>（reflog）</td><td>默认无</td><td>有</td><td>本地操作痕迹，服务端基本用不上</td></tr>
+</tbody></table>
+<p>也就是说：<strong>bare 仓库就是「把 .git 目录的内容提升为仓库根目录」</strong>，仅此而已。</p>
+<h2 id="shu-ju-he-github-shang-de-yi-yang-ma">数据：和 GitHub 上的一样吗？</h2>
+<p>「我本地的 <code>.git</code> 和 GitHub 存的是同一份数据吗？」——<strong>同格式、同内容寻址，但集合不一定相等</strong>：</p>
+<ul>
+<li><strong>格式与内容完全同构</strong>：git 对象是内容寻址的（SHA-1/SHA-256 由内容算出），同一个提交在
+两边就是同一个哈希。实测两边 <code>rev-parse master</code> 都是 <code>e6a9746...</code>，逐字节一致——这是
+内容寻址的必然，和松散对象还是 packfile、谁压缩得狠无关。</li>
+<li><strong>集合可以不相等</strong>：本地可能有未 push 的提交、reflog 里的历史悬空对象；远端可能有别人
+push 的分支、平台专属的 ref（如 GitHub 的 PR ref）。两边是<strong>互相超集</strong>关系，push/pull
+就是在做增量对齐。</li>
+<li>GitHub 服务端那份，逻辑上就是一个挂满 hook 的 bare 仓库。</li>
+</ul>
+<h1 id="zhi-tui-fei-bare-cang-ku-receive-denycurrentbranch">直推非 bare 仓库：receive.denyCurrentBranch</h1>
+<h2 id="mo-ren-wei-shen-me-ju-jue">默认为什么拒绝</h2>
+<p>GitHub/GitLab 服务端是 bare 仓库，推过去只动 ref，没有任何工作树需要操心。但 dut2 上是
+普通 checkout，master 正被检出——<strong>push 只更新 ref 和对象，不会碰工作树</strong>。如果放任直推，
+dut2 上 <code>git log</code> 已经是新提交、磁盘上的文件却还是旧内容，HEAD 和工作树就此分裂。</p>
+<p>所以 git 对非 bare 仓库默认拒绝推当前检出分支：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">remote: error: refusing to update checked out branch: refs&#x2F;heads&#x2F;master
+</code></pre>
+<p>（早先版本表现为 <code>receive.denyCurrentBranch</code> 相关提示，语义相同。）</p>
+<h2 id="updateinstead-gan-jing-jiu-lian-gong-zuo-shu-yi-qi-geng">updateInstead：干净就连工作树一起更</h2>
+<p>解法是在<strong>远端</strong>仓库配置一次：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">git config receive.denyCurrentBranch updateInstead
+</code></pre>
+<p>各取值的语义：</p>
+<table><thead><tr><th>取值</th><th>行为</th></tr></thead><tbody>
+<tr><td><code>refuse</code>（默认）</td><td>拒绝推当前检出分支</td></tr>
+<tr><td><code>ignore</code> / <code>warn</code></td><td>允许，但工作树留在旧状态（分裂，慎用）</td></tr>
+<tr><td><code>updateInstead</code></td><td><strong>工作树与暂存区干净、且没有会被覆盖的未跟踪文件时</strong>，收包后顺手把工作树检出到新 HEAD；否则拒收保护</td></tr>
+</tbody></table>
+<p>配好后本机直推，dut2 的仓库和工作树同步前进，之后在 dut2 上 <code>grep</code> 新内容立即命中。</p>
+<h1 id="yong-fa-su-ji">用法速记</h1>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># 远端一次性配置（每个非 bare 仓库都要）
+git config receive.denyCurrentBranch updateInstead
+
+# 本机直推：两种 URL 写法
+git push ssh:&#x2F;&#x2F;dut2&#x2F;home&#x2F;smyl&#x2F;project&#x2F;learn-wayland master   # 绝对路径
+git push dut2:project&#x2F;learn-wayland master                   # scp 风格，相对家目录
+
+# 用得频繁就命名成 remote
+git remote add dut2 ssh:&#x2F;&#x2F;dut2&#x2F;home&#x2F;smyl&#x2F;project&#x2F;learn-wayland
+git push dut2 master
+</code></pre>
+<p>两个细节：</p>
+<ul>
+<li><code>GPG_TTY=/dev/nonexistent</code> 前缀与推 GitHub 时相同：key 由 gpg-agent 管理时防止
+pinentry 弹窗把命令挂住，失败会立即报 <code>agent refused operation</code>。</li>
+<li>直推不更新远端对它自己 <code>origin</code> 的认知，dut2 的 <code>git status</code> 可能显示假 <code>ahead</code>，fetch
+一次即消失，无害。</li>
+</ul>
+<h1 id="zhe-jiu-shi-zui-jian-bu-shu-de-xing-tai">这就是「最简部署」的形态</h1>
+<p>服务器配 <code>updateInstead</code>（或 <code>post-receive</code> hook），本地一条 <code>git push</code> 完成发布——这是
+git 部署的经典手法，本文的 dut2 同步就是它的最小版本。选择上：</p>
+<ul>
+<li><strong>个人机器间同步 / 单人部署</strong>：<code>updateInstead</code> 足够，零额外设施。</li>
+<li><strong>正式部署</strong>：服务器放 bare 仓库 + <code>post-receive</code> hook（检出到 web 目录、重启服务），
+工作树与仓库分离，还能叠加回滚逻辑。</li>
+<li><strong>多人协作</strong>：回到 GitHub/Gitea 等平台——认证、权限、PR 这些 push 协议本身不管的事，
+才是平台的价值所在。</li>
+</ul>
+<p>顺带一提，本地裸仓库还能直接当 origin 承接 push，配合 Git LFS 的玩法见
+<a href="https://blog.juzhong.asia/2026/10/git-lfs-local-bare-repo-migration/">给本地裸仓库启用 Git LFS</a>。</p>
+<h1 id="zong-jie">总结</h1>
+<ul>
+<li><code>git push</code> = 本地 <code>send-pack</code> 经任意传输（ssh/https/file）驱动远端 <code>receive-pack</code>，
+GitHub 不是必要条件；</li>
+<li>bare 仓库与非 bare 的 <code>.git</code> 同构，差异只在有无 <code>index</code>/reflog 等工作痕迹；</li>
+<li>两边数据同格式同哈希，但对象集合互为超集，push/pull 做增量对齐；</li>
+<li>直推非 bare 的检出分支要先配 <code>receive.denyCurrentBranch=updateInstead</code>，它以
+「工作树干净」为前提，脏则拒收，不会弄丢远端未提交内容。</li>
+</ul>
+
+      <nav>
+        <div>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/"> 锁相环（PLL）与时钟数据恢复（CDR）原理详解 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#bei-jing-mei-you-github-key-de-ji-qi-zen-me-tong-bu-dai-ma">背景：没有 GitHub key 的机器，怎么同步代码</a>
+        </div>
+        <div>
+          <a href="#yuan-li-git-push-tui-de-dao-di-shi-shen-me">原理：git push 推的到底是什么</a>
+        </div>
+        <div>
+          <a href="#bare-yu-fei-bare-git-mu-lu-li-you-shen-me-bu-yi-yang">bare 与非 bare：.git 目录里有什么不一样</a>
+        </div>
+        <div class="hpad">
+          <a href="#jie-gou-bare-zhi-you-git-na-bu-fen"><small>- 结构：bare = 只有 .git 那部分</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#shu-ju-he-github-shang-de-yi-yang-ma"><small>- 数据：和 GitHub 上的一样吗？</small></a>
+        </div>
+        <div>
+          <a href="#zhi-tui-fei-bare-cang-ku-receive-denycurrentbranch">直推非 bare 仓库：receive.denyCurrentBranch</a>
+        </div>
+        <div class="hpad">
+          <a href="#mo-ren-wei-shen-me-ju-jue"><small>- 默认为什么拒绝</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#updateinstead-gan-jing-jiu-lian-gong-zuo-shu-yi-qi-geng"><small>- updateInstead：干净就连工作树一起更</small></a>
+        </div>
+        <div>
+          <a href="#yong-fa-su-ji">用法速记</a>
+        </div>
+        <div>
+          <a href="#zhe-jiu-shi-zui-jian-bu-shu-de-xing-tai">这就是「最简部署」的形态</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

@@ -1,0 +1,288 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>锁相环（PLL）与时钟数据恢复（CDR）原理详解 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从反馈环四要素讲起，说明 PLL 如何捕获与锁定、CDR 怎样靠数据边沿重建时钟，以及 8B&#x2F;10B、SSC 为迁就这套机制的物理极限所做的取舍" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/" />
+  <meta property="og:description" content="从反馈环四要素讲起，说明 PLL 如何捕获与锁定、CDR 怎样靠数据边沿重建时钟，以及 8B&#x2F;10B、SSC 为迁就这套机制的物理极限所做的取舍" />
+  <meta name="twitter:description" content="从反馈环四要素讲起，说明 PLL 如何捕获与锁定、CDR 怎样靠数据边沿重建时钟，以及 8B&#x2F;10B、SSC 为迁就这套机制的物理极限所做的取舍" />
+  <meta property="og:title" content="锁相环（PLL）与时钟数据恢复（CDR）原理详解 | 墨雪天琊" />
+  <meta name="twitter:title" content="锁相环（PLL）与时钟数据恢复（CDR）原理详解 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-19" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/">锁相环（PLL）与时钟数据恢复（CDR）原理详解</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 19, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/za-xiang/">杂项</a>] #<a href="https://blog.juzhong.asia/tags/ying-jian/">硬件</a>  #<a href="https://blog.juzhong.asia/tags/xie-yi-yu-biao-zhun/">协议与标准</a> </span>
+
+    
+
+
+<p>串行链路上没有时钟线，接收端看到的只有一串电平跳变。它凭什么知道每一位该在什么时候采样？答案是一套负反馈：拿数据自身的边沿当"隐形参考"，让本地振荡器的相位持续对齐到眼图张得最开的位置。这套机制里，PLL 是机构，CDR 是用法，而 8B/10B、SSC 这些协议条款，本质都是在迁就同一件事——环路的物理极限。</p>
+<h1 id="yi-pll-yi-ge-rang-xiang-wei-zi-dong-dui-qi-de-fu-fan-kui-xi-tong">一、PLL：一个让相位自动对齐的负反馈系统</h1>
+<p>PLL（Phase-Locked Loop）的目标只有一个：<strong>让输出信号的频率和相位自动跟踪输入参考信号</strong>。它靠一个闭环不断纠错来实现。</p>
+<h2 id="1-1-si-ge-he-xin-huan-jie">1.1 四个核心环节</h2>
+<table><thead><tr><th>环节</th><th>器件</th><th>作用</th></tr></thead><tbody>
+<tr><td>鉴相</td><td>鉴相器（PD / PFD）</td><td>比较输入参考与 VCO 输出（常经分频）的相位差，输出误差电压或"早/晚"指示</td></tr>
+<tr><td>滤波</td><td>环路滤波器（低通）</td><td>滤掉误差信号中的高频噪声，留下平滑的控制量</td></tr>
+<tr><td>振荡</td><td>压控振荡器（VCO）</td><td>控制量升高则频率升高，降低则频率降低</td></tr>
+<tr><td>反馈</td><td>分频器（可选）</td><td>把 VCO 输出分频后送回鉴相器，实现倍频</td></tr>
+</tbody></table>
+<h2 id="1-2-bu-huo-yu-suo-ding-shi-liang-chong-zhuang-tai">1.2 捕获与锁定是两种状态</h2>
+<ol>
+<li><strong>捕获/牵引阶段</strong>：VCO 自由振荡频率与目标有偏差，鉴相器输出周期性误差，滤波器积分后产生控制量，把频率拉向目标。此阶段<strong>频率在变</strong>。</li>
+<li><strong>锁定/跟踪阶段</strong>：频率基本对准，VCO 只在控制量微调下小幅波动，<strong>主要表现为相位对齐</strong>。稳态时两侧频率相等、相位差恒定。</li>
+</ol>
+<blockquote>
+<p><strong>关键理解</strong>：环路的控制量是相位误差，而相位是频率的积分。所以对 VCO 的控制本质上是"调频率以达相位锁定"。说"PLL 主要调相位"只在锁定后的稳态意义下成立，两者不可割裂。</p>
+</blockquote>
+<h1 id="er-pll-yu-bei-pin-dian-lu-shi-bao-han-bu-shi-dui-li">二、PLL 与倍频电路：是包含，不是对立</h1>
+<p>倍频电路是个宽泛概念，实现路径有多条，PLL 只是其中最主流的一种：</p>
+<table><thead><tr><th>方式</th><th>机理</th><th>特点</th></tr></thead><tbody>
+<tr><td>PLL 倍频</td><td>反馈路径插入 ÷N 分频器，锁定后 VCO 频率 = N × 参考频率</td><td>可整数/小数倍频，相位噪声、杂散可控，能同时净化时钟</td></tr>
+<tr><td>谐波倍频</td><td>用非线性器件（阶跃恢复二极管等）产生谐波，再滤波选出第 N 次</td><td>电路简单，但灵活性差、杂散难压</td></tr>
+<tr><td>延迟线倍频</td><td>用延迟线做边沿组合，把脉冲数翻倍</td><td>适合固定窄范围，抖动随级数累积</td></tr>
+</tbody></table>
+<p>更准确的说法是：<strong>PLL 是一种能同时完成倍频、分频、时钟清洁和相位对齐的通用频率合成架构，倍频只是它的一种配置模式</strong>。所以二者不是原理完全不同的两类电路，而是"通用架构"与"具体功能"的关系。</p>
+<h1 id="san-cdr-cong-shu-ju-liu-li-zai-zao-chu-yi-ge-shi-zhong">三、CDR：从数据流里"再造"出一个时钟</h1>
+<h2 id="3-1-he-xin-dong-cha-bian-yan-li-cang-zhao-xiang-wei">3.1 核心洞察：边沿里藏着相位</h2>
+<p><strong>数据本身未必含明显的时钟谱线，但跳变边沿里隐含了时钟的相位信息。</strong> 系统检测这些边沿去控制本地 VCO，使时钟相位对准数据的最佳采样时刻，从而"再造"一个与数据同步的时钟。</p>
+<pre><code>数据 ──► 边沿检测 ──► 相位检测（早&#x2F;晚）──► 环路滤波&#x2F;电荷泵 ──► VCO ──► 恢复时钟
+   ▲                                                                  │
+   └──────────────── 用恢复时钟重采样（D 触发器）◄────────────────────┘
+</code></pre>
+<h2 id="3-2-rz-yu-nrz-liang-tiao-bu-tong-nan-du-de-lu-jing">3.2 RZ 与 NRZ：两条不同难度的路径</h2>
+<p><strong>归零码（RZ）等自带时钟分量的数据</strong>：每一位都回到零电平，跳变密集，可直接送鉴相器，环路会"抓住"这些边沿把 VCO 拉到同步。</p>
+<p><strong>非归零码（NRZ）这类没有明显时钟分量的数据</strong>（更常见也更麻烦）：</p>
+<ol>
+<li><strong>预处理</strong>：把 NRZ 转成含时钟分量的形式（如异或提取跳变沿），或直接检测上升/下降沿、生成反映跳变时刻的脉冲序列，再送鉴相器。</li>
+<li><strong>"提前-滞后"相位检测</strong>：判断恢复时钟相对数据边沿是"早了"还是"晚了"。工程上最经典的做法是<strong>中心采样 + 边沿采样</strong>：在眼图正中间采数据，在相邻两位的交界处采边沿，比较两者关系即可得出偏相方向。</li>
+<li><strong>闭环追踪与采样</strong>：按"早/晚"指示，电荷泵和滤波器微调 VCO 相位。环路稳定后，时钟边沿稳定落在数据脉冲正中央（眼图张开最大处），再用恢复时钟触发 D 触发器重采样，得到干净且对齐的恢复数据。</li>
+</ol>
+<h2 id="3-3-yi-ge-rong-yi-cai-de-keng-ban-su-cuo-suo">3.3 一个容易踩的坑：半速错锁</h2>
+<p><code>1010</code> 交替图样在比特率的<strong>一半</strong>处（f_bit/2）有很强的谱线，恰好是环路最容易抓到的成分。若鉴相器设计不当，环路可能锁到这个次谐波上——表现为数据"能采但整体错位"，这就是经典的<strong>虚假锁定（false lock）</strong>。所以很多 CDR 的鉴相器会同时给出"频率是否对"的判据，而不只看相位。</p>
+<h1 id="si-dui-bian-ma-de-yao-qiu-you-cheng-chang-du-rll">四、对编码的要求：游程长度（RLL）</h1>
+<p><strong>有严格要求。</strong> 核心指标是<strong>游程长度限制（RLL, Run Length Limited）</strong>——编码后数据中连续相同比特的最大数量。</p>
+<p>如果出现一长串 0 或 1，期间没有任何跳变，鉴相器就"无事可做"，VCO 只能靠惯性滑行，相位逐渐漂移，最终采错。所以协议必须保证边沿足够密集：</p>
+<table><thead><tr><th>编码/机制</th><th>最长游程</th><th>用在哪</th></tr></thead><tbody>
+<tr><td>曼彻斯特</td><td>2</td><td>10M 以太网、部分工业总线</td></tr>
+<tr><td>8B/10B</td><td>5</td><td>PCIe Gen1/2、USB 3.x、SATA、Fibre Channel</td></tr>
+<tr><td>位填充（bit stuffing）</td><td>连续 6 个 <code>1</code> 后插一个 <code>0</code></td><td>USB 2.0 HS</td></tr>
+<tr><td>128B/130B + 加扰</td><td>由 LFSR 加扰器约束</td><td>PCIe Gen3 及以后、USB4 隧道</td></tr>
+</tbody></table>
+<blockquote>
+<p>顺带纠正一个流传很广的说法："高速串行都用 8B/10B"。PCIe 从 Gen3 起为省掉 20% 的编码开销换成了 128B/130B，但没有放弃游程约束——它改用 <strong>LFSR 加扰</strong>把长连 0/1 打散，道理是一样的。</p>
+</blockquote>
+<h2 id="4-1-1100-dao-di-zen-me-chu-li">4.1 <code>1100</code> 到底怎么处理</h2>
+<p><code>1100</code> 里只有 <code>1→0</code> 这一个下降沿，"11" 和 "00" 期间都没有跳变。整个图样的边沿间隔可以拉到 4 个比特周期。环路不会因此乱掉，原因有三：</p>
+<ul>
+<li><strong>VCO 自由振荡频率本来就设在正确的比特率上</strong>，无沿期间它不是"重新猜"，而是按正确节奏滑行；</li>
+<li><strong>环路滤波器有记忆</strong>（积分项保留了历史相位误差），不会因为这一拍没边沿就把控制量清零；</li>
+<li><strong>漂移是可预算的</strong>：只要连续相同比特不超过编码上限（如 8B/10B 的 5），两次边沿之间累积的相位误差就落在一个环路的可容忍窗口内。</li>
+</ul>
+<p>换句话说，边沿负责"校准"，无沿区间靠"惯性 + 记忆"穿过，两者缺一不可。</p>
+<h2 id="4-2-hui-fu-de-shi-zui-gao-pin-lu-ma">4.2 恢复的是"最高频率"吗</h2>
+<p><strong>不是。</strong> 环路恢复的是数据的<strong>比特率（Baud Rate）</strong>，即一个比特时长的倒数。它不需要追踪数据里更高的频率成分（比如 <code>1010</code> 的 f_bit/2），而是用跳变边沿校准相位，让输出时钟周期恰好等于一个比特的持续时间。</p>
+<h1 id="wu-huan-lu-de-dai-jia-yan-chi">五、环路的代价：延迟</h1>
+<p>PLL（尤其是数字 CDR）的环路延迟是头号性能瓶颈。延迟来自鉴相器、滤波器、数字逻辑寄存器等环节的处理时间，主要带来两个后果：</p>
+<ol>
+<li><strong>吃掉稳定性</strong>：反馈路径中的延时等效于额外相位滞后。延迟越大，相位裕度越小，越容易振荡。</li>
+<li><strong>恶化抖动容限</strong>：为了绕开第一条，设计者只能压低环路带宽；可带宽一低，CDR 就追不上数据里较快的相位变化，抖动容限随之变差。</li>
+</ol>
+<p>所以高速 CDR 设计里，砍环路延迟（简化逻辑、减少寄存器级联、把鉴相做在模拟域）往往比堆指标更有效。</p>
+<h1 id="liu-pin-lu-cong-na-lai-can-kao-shi-zhong-zhong-xin-pin-lu-yu-qian-dao-ma">六、频率从哪来：参考时钟、中心频率与前导码</h1>
+<h2 id="6-1-qian-dao-ma-bu-xi-dai-pin-lu">6.1 前导码不"携带"频率</h2>
+<p>常见的误解是"前导码里有频率信息"。准确地说：<strong>前导码不编码频率数值，它只是提供足够多、足够规律的跳变，让环路有时间完成捕获和锁定。</strong></p>
+<ul>
+<li>CDR 的 VCO 有一个<strong>自由振荡频率（中心频率）</strong>，设计时已大致设定在目标比特率附近，但会因工艺、电压、温度产生偏差；</li>
+<li>数据流开头的前导码（如 <code>10101010…</code>）提供密集且周期已知的跳变，鉴相器据此产生稳定的误差信号，滤波器积分后把 VCO <strong>牵引并锁定</strong>到实际比特率；</li>
+<li>一旦锁定，后续即使出现 <code>1100</code> 这类游程，也能靠滤波器记忆和 VCO 惯性维持。</li>
+</ul>
+<h2 id="6-2-san-chong-pin-lu-lai-yuan">6.2 三种"频率来源"</h2>
+<table><thead><tr><th>来源</th><th>作用</th><th>精度</th></tr></thead><tbody>
+<tr><td>参考时钟（Refclk / 晶振）</td><td>环路的频率基准，也是多速率配置的计算起点</td><td>ppm 级</td></tr>
+<tr><td>VCO 中心频率设计值</td><td>决定捕获起点，越接近目标越好锁</td><td>受 PVT 影响，通常需校准</td></tr>
+<tr><td>数据边沿（前导码 + 后续流量）</td><td>提供相位误差样本，把本地频率校准到真实速率</td><td>实时闭环修正</td></tr>
+</tbody></table>
+<p>没有前导码，环路可能捕获时间不足或锁到错误频率；但前导码本身并不告诉你"频率是多少"。</p>
+<h1 id="qi-pcie-usb-de-shi-kuang-wu-shi-zhong-xian-su-lu-ye-bu-shi-jue-dui-gu-ding">七、PCIe / USB 的实况：无时钟线，速率也不是绝对固定</h1>
+<p>这两个协议确实没有独立时钟线，速率也不是绝对固定。但要澄清：<strong>标称比特率是固定的，"不固定"主要来自扩频时钟（SSC）为压 EMI 所做的微量、缓慢的频率调制。</strong></p>
+<h2 id="7-1-zhong-xin-pin-lu-zen-me-lai">7.1 中心频率怎么来</h2>
+<ol>
+<li><strong>按标准设定</strong>：每档速率都有明确标称值（PCIe 2.5 / 5 / 8 / 16 / 32 GT/s，USB 1.5 / 12 / 480 Mbps、5 / 10 / 20 Gbps）。CDR 的 VCO 中心频率设计时就落在这些目标附近。</li>
+<li><strong>可配置覆盖多速率</strong>：VCO 用可切换的电容阵列/频段（band select）覆盖宽范围，由寄存器按协商结果选档。</li>
+<li><strong>闭环跟踪 SSC</strong>：SSC 用 30–33 kHz 的低频三角波调制时钟，常见<strong>向下扩频约 -0.5%（-5000 ppm）</strong>。收到的数据速率就在标称值附近缓慢"漂移"，环路必须跟得上。</li>
+</ol>
+<h2 id="7-2-gen-zong-ssc-yu-yi-zhi-dou-dong-shi-yi-dui-mao-dun">7.2 跟踪 SSC 与抑制抖动是一对矛盾</h2>
+<p>这是 CDR 设计里最现实的取舍：</p>
+<ul>
+<li>环路带宽<strong>必须高于</strong> SSC 调制频率（30–33 kHz，还要留足余量），否则跟不住漂移，弹性缓冲会被慢慢填满或抽空；</li>
+<li>带宽又<strong>必须尽量低</strong>，才能滤掉高频随机抖动，不把噪声搬进恢复时钟。</li>
+</ul>
+<p>类型 II（双积分）环路对 SSC 三角波的两段斜坡，稳态相位误差是个常量（大小与斜率、环路带宽相关），真正的应力出现在三角波的<strong>折返点</strong>——那里是频率加速度的突变，误差瞬时最大。这也解释了为什么 SSC 的调制频率、幅度和形状都被规范卡得很死：留给 CDR 的余量本来就不多。</p>
+<h2 id="7-3-huan-you-yi-ge-ppm-chai-dan-xing-huan-chong">7.3 还有一个 ppm 差：弹性缓冲</h2>
+<p>SSC 之外，收发两端的参考时钟本来就不完全同源。PCIe 公共时钟架构给参考时钟留了约 ±300 ppm 的容差；用独立参考时钟（SRNS/SRIS）时两端差值更大。这部分差值 CDR 无法、也不该用调 VCO 的方式吃掉，而是交给<strong>弹性缓冲（elastic buffer）</strong>：靠插入/删除 SKP 有序集来吸收累积的比特差。</p>
+<p>分清这两件事很重要：</p>
+<table><thead><tr><th>现象</th><th>谁来处理</th></tr></thead><tbody>
+<tr><td>SSC 造成的缓慢频率漂移</td><td>CDR 环路（实时微调 VCO 频率）</td></tr>
+<tr><td>两端参考时钟的静态 ppm 差</td><td>弹性缓冲 + SKP 插入/删除</td></tr>
+<tr><td>高频随机抖动</td><td>环路低通滤除，配合均衡</td></tr>
+</tbody></table>
+<p>所以在 PCIe/USB 里，接收端并不是靠前导码去"猜"一个未知频率：它<strong>事先就知道</strong>目标范围（协议规定 + SSC 范围），前导码和后续流量只是让环路持续微调，精确跟踪那个缓慢漂移中的实际速率。</p>
+<h1 id="ba-chang-jian-wu-qu-su-cha">八、常见误区速查</h1>
+<table><thead><tr><th>问题</th><th>结论</th></tr></thead><tbody>
+<tr><td>PLL 与倍频电路的关系</td><td>倍频是 PLL 的一种配置模式，不是对立关系</td></tr>
+<tr><td>PLL 调相位还是调频率</td><td>两者并调；捕获阶段调频率，稳态以相位跟踪为主</td></tr>
+<tr><td>频率靠前导码获取吗</td><td>不。基准来自参考时钟/中心频率设计值，前导码只提供锁定机会</td></tr>
+<tr><td>对数据编码有要求吗</td><td>有。RLL 约束保证边沿足够密集，8B/10B / 位填充 / 加扰都是手段</td></tr>
+<tr><td>恢复的是数据里的最高频率吗</td><td>不是，恢复的是比特率节奏，靠边沿校准相位</td></tr>
+<tr><td><code>1100</code> 里的 <code>10</code> 怎么处理</td><td>该跳变沿被用来校准；无沿区间靠滤波器记忆和 VCO 惯性维持</td></tr>
+<tr><td>环路延迟的影响</td><td>降低稳定性和抖动容限，设计中要尽量压缩</td></tr>
+<tr><td>PCIe/USB 中心频率可调吗</td><td>是协议约束下的设计值：可配置多速率，并闭环跟踪 SSC</td></tr>
+</tbody></table>
+<p><strong>一句话概括</strong>：PLL 提供了一套精准的"相位对齐"机制；CDR 把这套机制用在数据自身的跳变规律上，把它当作"隐形参考"，驱动本地振荡器生成与比特率同步、相位落在最佳判决点的时钟；而无时钟线协议（PCIe/USB）的工程实现，就是在标称频率和 SSC 漂移的窗口内，让这套机制持续、稳定地工作。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/ssh-git-push-non-bare-repo/">&#8249; git push 不止推 GitHub：SSH 直推远端仓库与非 bare 的 updateInstead</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/"> CUBIC 与 BBR 原理对比：发包时序与窗口计算 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-pll-yi-ge-rang-xiang-wei-zi-dong-dui-qi-de-fu-fan-kui-xi-tong">一、PLL：一个让相位自动对齐的负反馈系统</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-1-si-ge-he-xin-huan-jie"><small>- 1.1 四个核心环节</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#1-2-bu-huo-yu-suo-ding-shi-liang-chong-zhuang-tai"><small>- 1.2 捕获与锁定是两种状态</small></a>
+        </div>
+        <div>
+          <a href="#er-pll-yu-bei-pin-dian-lu-shi-bao-han-bu-shi-dui-li">二、PLL 与倍频电路：是包含，不是对立</a>
+        </div>
+        <div>
+          <a href="#san-cdr-cong-shu-ju-liu-li-zai-zao-chu-yi-ge-shi-zhong">三、CDR：从数据流里&quot;再造&quot;出一个时钟</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-he-xin-dong-cha-bian-yan-li-cang-zhao-xiang-wei"><small>- 3.1 核心洞察：边沿里藏着相位</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-rz-yu-nrz-liang-tiao-bu-tong-nan-du-de-lu-jing"><small>- 3.2 RZ 与 NRZ：两条不同难度的路径</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-yi-ge-rong-yi-cai-de-keng-ban-su-cuo-suo"><small>- 3.3 一个容易踩的坑：半速错锁</small></a>
+        </div>
+        <div>
+          <a href="#si-dui-bian-ma-de-yao-qiu-you-cheng-chang-du-rll">四、对编码的要求：游程长度（RLL）</a>
+        </div>
+        <div class="hpad">
+          <a href="#4-1-1100-dao-di-zen-me-chu-li"><small>- 4.1 1100 到底怎么处理</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-2-hui-fu-de-shi-zui-gao-pin-lu-ma"><small>- 4.2 恢复的是&quot;最高频率&quot;吗</small></a>
+        </div>
+        <div>
+          <a href="#wu-huan-lu-de-dai-jia-yan-chi">五、环路的代价：延迟</a>
+        </div>
+        <div>
+          <a href="#liu-pin-lu-cong-na-lai-can-kao-shi-zhong-zhong-xin-pin-lu-yu-qian-dao-ma">六、频率从哪来：参考时钟、中心频率与前导码</a>
+        </div>
+        <div class="hpad">
+          <a href="#6-1-qian-dao-ma-bu-xi-dai-pin-lu"><small>- 6.1 前导码不&quot;携带&quot;频率</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#6-2-san-chong-pin-lu-lai-yuan"><small>- 6.2 三种&quot;频率来源&quot;</small></a>
+        </div>
+        <div>
+          <a href="#qi-pcie-usb-de-shi-kuang-wu-shi-zhong-xian-su-lu-ye-bu-shi-jue-dui-gu-ding">七、PCIe &#x2F; USB 的实况：无时钟线，速率也不是绝对固定</a>
+        </div>
+        <div class="hpad">
+          <a href="#7-1-zhong-xin-pin-lu-zen-me-lai"><small>- 7.1 中心频率怎么来</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-2-gen-zong-ssc-yu-yi-zhi-dou-dong-shi-yi-dui-mao-dun"><small>- 7.2 跟踪 SSC 与抑制抖动是一对矛盾</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#7-3-huan-you-yi-ge-ppm-chai-dan-xing-huan-chong"><small>- 7.3 还有一个 ppm 差：弹性缓冲</small></a>
+        </div>
+        <div>
+          <a href="#ba-chang-jian-wu-qu-su-cha">八、常见误区速查</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

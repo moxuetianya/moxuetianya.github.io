@@ -1,0 +1,341 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>KVM 用 Cloud Image + cloud-init 分钟级创建虚拟机：从原理到实操 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="在 aarch64 KVM 宿主机上用 Ubuntu cloud image 分钟级创建零共享虚拟机：seed.iso 与 cidata 卷标原理、--import 本质、完整命令与避坑。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/kvm-cloud-image-cloud-init-quick-create/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/kvm-cloud-image-cloud-init-quick-create/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/kvm-cloud-image-cloud-init-quick-create/" />
+  <meta property="og:description" content="在 aarch64 KVM 宿主机上用 Ubuntu cloud image 分钟级创建零共享虚拟机：seed.iso 与 cidata 卷标原理、--import 本质、完整命令与避坑。" />
+  <meta name="twitter:description" content="在 aarch64 KVM 宿主机上用 Ubuntu cloud image 分钟级创建零共享虚拟机：seed.iso 与 cidata 卷标原理、--import 本质、完整命令与避坑。" />
+  <meta property="og:title" content="KVM 用 Cloud Image + cloud-init 分钟级创建虚拟机：从原理到实操 | 墨雪天琊" />
+  <meta name="twitter:title" content="KVM 用 Cloud Image + cloud-init 分钟级创建虚拟机：从原理到实操 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/kvm-cloud-image-cloud-init-quick-create/">KVM 用 Cloud Image + cloud-init 分钟级创建虚拟机：从原理到实操</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 18, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/xu-ni-hua-yu-rong-qi/">虚拟化与容器</a>] #<a href="https://blog.juzhong.asia/tags/kvm/">kvm</a>  #<a href="https://blog.juzhong.asia/tags/libvirt/">libvirt</a>  #<a href="https://blog.juzhong.asia/tags/qemu/">qemu</a>  #<a href="https://blog.juzhong.asia/tags/xu-ni-hua/">虚拟化</a> </span>
+
+    
+
+
+<h2 id="xu-qiu-kuai-su-zai-lai-yi-tai-gan-jing-de-xu-ni-ji">需求：快速再来一台干净的虚拟机</h2>
+<p>一台 aarch64 KVM 宿主机（libvirt 8.0 / QEMU 6.2，ARM 服务器）上已经跑着一台 Ubuntu 24.04 开发机 <code>dev-vm</code>：</p>
+<ul>
+<li>磁盘 <code>/data/vm/dev-vm.qcow2</code>，qcow2 精简置备，<strong>虚拟 300G、实际占用 234G</strong>（盘内真实数据 175G：<code>/data</code> 81G + <code>/var</code> 约 72G 的 docker + <code>/home</code> 21G）</li>
+<li>UEFI（AAVMF secure boot 变体）+ <code>virt-6.2</code> 机型，macvtap 直连物理网卡，cloud-init 出身（挂着 <code>seed.iso</code>）</li>
+</ul>
+<p>现在要<strong>快速</strong>再创建一台新虚拟机，三个硬性要求：</p>
+<ol>
+<li>不修改原来的 <code>dev-vm</code>（盘文件一个字节都不能动）；</li>
+<li>与原机<strong>没有任何共享</strong>（排除 qcow2 backing file 这类共享基础镜像的方案）；</li>
+<li>新机只要 <strong>100G</strong> 盘。</li>
+</ol>
+<p>原盘实际数据 175G &gt; 100G，这个矛盾直接决定了技术选型。</p>
+<h2 id="xuan-xing-san-tiao-lu-xian-dui-bi">选型：三条路线对比</h2>
+<table><thead><tr><th>路线</th><th>做法</th><th>耗时</th><th>评价</th></tr></thead><tbody>
+<tr><td>完整克隆</td><td><code>qemu-img convert</code> 全拷 234G → 新机内删 <code>/data</code>、清 docker → 在线缩 ext4 + 缩盘到 100G</td><td>1 小时+</td><td>步骤多；ext4/GPT 缩盘有风险；违背"快速"</td></tr>
+<tr><td>完整克隆但放弃 100G</td><td>全拷后直接用 200G+ 的盘</td><td>30-60 分钟</td><td>可行，但违背 100G 约束</td></tr>
+<tr><td><strong>全新 cloud image</strong></td><td>用官方 cloud 镜像 + cloud-init 造一台干净新机</td><td><strong>几分钟</strong></td><td>数据不带走（确实也不需要），系统底座与原机同版；软件按需重装</td></tr>
+</tbody></table>
+<p>选第三条。因为"根据原机创建"的真实诉求是<strong>要一台同款系统的机器</strong>，不是要那 175G 数据——数据大头是 docker 镜像和 <code>/data</code> 数据集，新机上要么不需要、要么可重新拉取。</p>
+<h2 id="cloud-image-yu-desktop-iso-de-ben-zhi-qu-bie">Cloud image 与 Desktop ISO 的本质区别</h2>
+<p>很多人第一次接触 cloud image 会疑惑它和 <code>ubuntu-24.04-desktop-amd64.iso</code> 有什么区别——<strong>一个是"装好的系统盘"，一个是"安装程序"</strong>：</p>
+<table><thead><tr><th></th><th>Desktop ISO</th><th>Cloud image</th></tr></thead><tbody>
+<tr><td>本质</td><td>光盘安装介质：live 系统 + 图形安装器</td><td>现成的磁盘镜像（qcow2），系统已预装好</td></tr>
+<tr><td>体积</td><td>~6 GB</td><td>~600 MB</td></tr>
+<tr><td>装机方式</td><td>挂 ISO → VNC 图形 console → 人工点分区/建用户，10-20 分钟</td><td><code>virt-install --import</code> 直接从盘启动，cloud-init 首启自动初始化，1-2 分钟出机</td></tr>
+<tr><td>预装内容</td><td>GNOME 桌面、浏览器、办公全家桶</td><td>极简 server：无桌面；但预装 cloud-init、ssh、qemu-guest-agent</td></tr>
+<tr><td>默认账户</td><td>安装时人工创建</td><td><code>ubuntu</code> 用户，密码锁定、仅 SSH key 登录，root 禁用</td></tr>
+<tr><td>分区设计</td><td>安装时人工定死</td><td>root 分区特意放在分区表<strong>最后</strong>，growpart/resizefs 首启自动扩满整盘</td></tr>
+</tbody></table>
+<p>最后一行是"直接 resize 到 100G"能成立的原因。</p>
+<p>另外两个发行版层面的细节：</p>
+<ul>
+<li>下载地址：官方 <code>cloud-images.ubuntu.com/&lt;代号&gt;/current/</code>（noble=24.04、jammy=22.04），国内清华镜像 <code>mirrors.tuna.tsinghua.edu.cn/ubuntu-cloud-images/</code> 同步且快得多。文件名带架构：<code>...-arm64.img</code> / <code>...-amd64.img</code>，取 <code>.img</code>（qcow2），别取 <code>.sqsh</code>/<code>.vhd</code> 等云平台专用变体。</li>
+<li><strong>架构必须对</strong>：这次宿主机上正好躺着一张历史的 <code>ubuntu-24.04.1-desktop-amd64.iso</code>，但宿主是 aarch64，amd64 的 ISO 根本装不了——ARM 机器上别拿错。</li>
+</ul>
+<h2 id="yuan-li-pian-si-ge-guan-jian-wen-ti">原理篇：四个关键问题</h2>
+<h3 id="1-jing-xiang-fu-zhi-de-ben-zhi-bu-shi-dd-shi-qemu-img-convert">1. 镜像复制的本质——不是 dd，是 <code>qemu-img convert</code></h3>
+<p>把 cloud image 变成新机磁盘，语义上是"整盘复制"，但实现不用 dd：</p>
+<table><thead><tr><th></th><th><code>dd</code></th><th><code>qemu-img convert</code></th></tr></thead><tbody>
+<tr><td>工作层次</td><td>逐字节块盲拷，不理解内容</td><td>格式感知：解析 qcow2 结构，只拷"已分配的簇"</td></tr>
+<tr><td>数据量</td><td>拷全部（含空洞）</td><td>只拷有效数据，跳过全零簇，可顺带压缩/转格式</td></tr>
+</tbody></table>
+<p>之后的 <code>qemu-img resize 100G</code> 更轻：<strong>只改 qcow2 头里的"虚拟大小"字段</strong>（纯元数据操作，秒级），不搬数据。guest 看到的盘瞬间变 100G，旧数据在低地址原封不动，新增部分是未分配的"零"——首启 cloud-init 的 growpart + resizefs 把根分区扩满。</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">qemu-img convert -f qcow2 -O qcow2 noble-server-cloudimg-arm64.img dev-vm-2.qcow2
+qemu-img resize dev-vm-2.qcow2 100G
+chown libvirt-qemu:kvm dev-vm-2.qcow2 &amp;&amp; chmod 664 dev-vm-2.qcow2
+</code></pre>
+<h3 id="2-wei-shen-me-bi-xu-yao-seed-iso-cloud-image-shi-wu-jun-jing-xiang">2. 为什么必须要 seed.iso——cloud image 是"无菌"镜像</h3>
+<p>cloud-init 首启要回答"我是谁、允许谁登录"，这些信息<strong>设计上就不在镜像里</strong>（否则全世界同一张镜像的机器都有相同的用户/密码/主机名）。配置必须从外部注入，来源叫 <strong>datasource</strong>：</p>
+<ul>
+<li>云上（EC2 等）：guest 起网后去 <code>169.254.169.254</code> 元数据服务拿；</li>
+<li>本地 KVM：没有这种服务 → <strong>NoCloud</strong> 方案——把 <code>user-data</code> 和 <code>meta-data</code> 打成一个小 ISO 挂成光驱。</li>
+</ul>
+<p>不给 seed 的后果：cloud-init 找不到数据源，等待超时（拖慢启动 1-2 分钟），然后按镜像默认值跑——<code>ubuntu</code> 用户密码锁定、无 key、root 禁用 → <strong>一个都登不进去</strong>。这是安全特性：镜像可以随便公开传播，钥匙永远由部署者现场注入。</p>
+<p><code>meta-data</code> 里的 <code>instance-id</code> 是实例身份——同一张 seed 挂到第二台机器，cloud-init 认为"还是那个实例"，per-instance 初始化（hostname/用户/key）不再重跑。<strong>这也是克隆现有虚拟机时必须重新生成 seed 的原因</strong>（克隆路线还有 MAC 地址、<code>/etc/machine-id</code> 两个要去重的）。</p>
+<h3 id="3-juan-biao-cidata-ke-zhong-fu-de-jie-tou-an-hao">3. 卷标 <code>cidata</code>——可重复的"接头暗号"</h3>
+<p>genisoimage 打包时的 <code>-volid cidata</code> 常被照抄却不知所以然。卷标（volume label）是<strong>给一个卷（文件系统/分区/光盘镜像）起的人可读名字</strong>，写在文件系统自己的元数据里：</p>
+<table><thead><tr><th>文件系统</th><th>卷标存放位置</th></tr></thead><tbody>
+<tr><td>ISO 9660</td><td>主卷描述符（镜像偏移 32808）里的 Volume Identifier，32 字节</td></tr>
+<tr><td>ext4</td><td>超级块里的 <code>s_volume_name</code>，16 字节</td></tr>
+<tr><td>vfat/FAT32</td><td>根目录区的卷标项</td></tr>
+</tbody></table>
+<p>可以直接从现成 seed.iso 里把这 32 字节抠出来验证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">$ dd if=seed.iso bs=1 skip=32808 count=32 2&gt;&#x2F;dev&#x2F;null
+cidata
+</code></pre>
+<p><strong>卷标可以重复</strong>——它设计上就是给人看的名字，没有唯一性校验；承担唯一性职责的是 UUID（fstab/挂载靠它）。cloud-init 的 NoCloud 检测正是利用这点：它不知道配置盘会出现在哪个设备名（<code>/dev/sr0</code>？<code>/dev/vdb</code>？），于是开机<strong>枚举所有块设备，谁符合「文件系统 iso9660/vfat 且卷标 == <code>cidata</code>」就认谁</strong>。这不是"身份证比对"，是"接头暗号"：全世界所有 NoCloud seed 盘共用同一个名字，靠约定俗成工作；一台 VM 只挂一个 seed，重复也无所谓。</p>
+<p>卷标重复真正会碍事的只有 <code>mount -L 卷标名</code>（按卷标挂载）这类场景。日常操作小抄：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">lsblk -o NAME,FSTYPE,LABEL,UUID   # 总览
+blkid &#x2F;dev&#x2F;vda1                    # 单设备详情
+e2label &#x2F;dev&#x2F;vda1 mydisk           # 改 ext4 卷标
+mkfs.ext4 -L mydisk &#x2F;dev&#x2F;vdb1      # 格式化时定名
+</code></pre>
+<h3 id="4-virt-install-import-dui-qemu-ling-ying-xiang">4. <code>virt-install --import</code> 对 qemu 零影响</h3>
+<p>QEMU 本身<strong>没有"安装"这个概念</strong>——它只管"给我盘我就跑"。区别全在 virt-install 生成 libvirt domain XML 的策略：</p>
+<ul>
+<li><strong>普通安装（两阶段）</strong>：建空盘 → 挂安装 ISO（或 <code>-kernel</code>/<code>-initrd</code> 直启安装器）→ 安装器把系统写进盘 → virt-install 收到完成信号 → 改写 XML（卸安装介质、boot 改硬盘）→ 重启进新系统；</li>
+<li><strong><code>--import</code>（一步）</strong>：声明"这盘里已是可启动系统"，生成的 XML 从一开始就是 <code>&lt;boot dev='hd'/&gt;</code>，define + start 完事。省掉的"安装阶段"由 cloud-init 在 guest 内部接管。</li>
+</ul>
+<p>实证：<code>ps</code> 抓一台 <code>--import</code> 出身的运行中 VM 的 qemu 命令行（<code>tr '\0' '\n' &lt; /proc/&lt;pid&gt;/cmdline</code>），关键部分是：</p>
+<pre><code>-drive file=&#x2F;usr&#x2F;share&#x2F;AAVMF&#x2F;AAVMF_CODE.ms.fd,...       # pflash0 固件
+-drive file=&#x2F;var&#x2F;lib&#x2F;libvirt&#x2F;qemu&#x2F;nvram&#x2F;..._VARS.fd,... # pflash1 NVRAM
+-machine virt-6.2,...,pflash0=...,pflash1=...
+-drive file=&#x2F;data&#x2F;vm&#x2F;dev-vm.qcow2,...                    # 系统盘
+-device virtio-blk-pci,...,bootindex=1
+-drive file=&#x2F;data&#x2F;vm&#x2F;seed.iso,...                        # cloud-init 配置盘
+</code></pre>
+<p><strong>没有</strong> <code>-kernel</code>/<code>-initrd</code>/<code>-append</code>（直启安装器才需要），也没有安装 ISO。qemu 层面收到的和任何"从硬盘启动的 VM"一模一样。</p>
+<h3 id="fu-cloud-init-bu-shi-xu-ni-ji-zhuan-shu">附：cloud-init 不是虚拟机专属</h3>
+<p>cloud-init 对环境没有硬性要求，唯一需求是<strong>开机时能从某处拿到配置</strong>。物理机的玩法：</p>
+<ul>
+<li><strong>MAAS</strong>（Canonical 官方裸机置备）：物理机 PXE 网启 → MAAS 把 cloud image 直接写盘 → 首启 cloud-init 找 MAAS 要身份，"物理机像云主机一样即插即用"；</li>
+<li><strong>U 盘/第二块盘</strong>：FAT/ext4 卷标 <code>cidata</code> 均可（NoCloud 不强制 ISO），插上就行；</li>
+<li><strong>kernel 启动参数</strong>：grub 里加 <code>ds=nocloud-net;s=http://provision-server/</code>，开机从 HTTP 拉 user-data；</li>
+<li>树莓派官方 Ubuntu 镜像同理：烧完盘把 user-data 丢进 system-boot 分区，首启自动配置。</li>
+</ul>
+<p>与传统裸机安装的定位差异：<strong>preseed / kickstart / autoinstall 是自动化"安装器"</strong>（装系统时自动回答分区/选包），<strong>cloud-init 是首启注入"身份"</strong>（用户/key/hostname/网络）——两者是配合关系，MAAS 的完整链路就是 PXE 写盘 + cloud-init 收尾。</p>
+<h2 id="shi-cao-wan-zheng-liu-cheng">实操：完整流程</h2>
+<h3 id="zuo-pan-du-li-ling-gong-xiang">① 做盘（独立、零共享）</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">qemu-img convert -f qcow2 -O qcow2 &#x2F;data&#x2F;vm&#x2F;noble-server-cloudimg-arm64.img &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2
+qemu-img resize &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2 100G
+chown libvirt-qemu:kvm &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2 &amp;&amp; chmod 664 &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2
+qemu-img info &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2
+# virtual size: 100 GiB &#x2F; file format: qcow2 &#x2F; 无 backing file
+</code></pre>
+<p>convert 读源镜像一次、产出完全独立的新文件——即使源镜像与原机当年用过的是同一张 cloud image，也不构成与运行中 VM 的任何共享（cloud image 只是"安装介质"性质的源材料）。</p>
+<h3 id="xie-user-data">② 写 user-data</h3>
+<pre data-lang="yaml" class="language-yaml "><code class="language-yaml" data-lang="yaml">#cloud-config
+hostname: dev-vm-2
+manage_etc_hosts: true
+users:
+  - default
+  - name: dev
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: [sudo]
+    shell: &#x2F;bin&#x2F;bash
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAA... &lt;你的公钥&gt;
+ssh_pwauth: false
+disable_root: true
+package_update: false
+growpart:
+  mode: auto
+  devices: [&#x27;&#x2F;&#x27;]
+resize_rootfs: true
+</code></pre>
+<p>要点：<code>lock_passwd: true</code> + <code>ssh_pwauth: false</code> = 只能 key 登录。别预设 <code>docker</code> 组——cloud image 里该组不存在时 <code>useradd -G</code> 会报错导致用户创建失败，装 docker 时再加。</p>
+<h3 id="qi-dong">③ 启动</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">virt-install \
+  --connect qemu:&#x2F;&#x2F;&#x2F;system \
+  --name dev-vm-2 \
+  --memory 16384 --vcpus 16 \
+  --cpu host --machine virt-6.2 \
+  --boot loader=&#x2F;usr&#x2F;share&#x2F;AAVMF&#x2F;AAVMF_CODE.ms.fd,loader_ro=yes,loader_type=pflash,nvram_template=&#x2F;usr&#x2F;share&#x2F;AAVMF&#x2F;AAVMF_VARS.ms.fd \
+  --import \
+  --disk &#x2F;data&#x2F;vm&#x2F;dev-vm-2.qcow2,bus=virtio,format=qcow2 \
+  --network type=direct,source=enp2s0f0,source_mode=bridge,model=virtio \
+  --cloud-init user-data=&#x2F;tmp&#x2F;dev-vm-2-user-data \
+  --noautoconsole --autostart
+</code></pre>
+<p>三个细节：</p>
+<ul>
+<li><code>--cloud-init user-data=文件</code> 让 virt-install 自动生成 seed（含唯一 instance-id、正确的 <code>cidata</code> 卷标 ISO 并挂载），替掉手工程序：写 meta-data、<code>genisoimage -volid cidata -joliet -rock user-data meta-data</code>（两个坑：卷标必须 <code>cidata</code>，文件名必须是 <code>user-data</code>/<code>meta-data</code>；偷懒可用 <code>cloud-localds</code>）；</li>
+<li><strong>ARM 上要显式指定 AAVMF loader</strong>：这台宿主的 osinfo-db 太老不认识 Ubuntu 24.04（<code>osinfo-query os</code> 查不到），<code>--os-variant</code> 靠不住；loader 路径从原机 <code>virsh dumpxml</code> 的 <code>&lt;os&gt;</code> 段照抄（secure boot 的 <code>.ms.fd</code> 变体，cloud image 的签名内核支持）；</li>
+<li>MAC 不指定则自动随机，不会与原机冲突。</li>
+</ul>
+<h3 id="na-ip-yan-zheng">④ 拿 IP、验证</h3>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash"># cloud image 自带 qemu-guest-agent，起机后 1-2 分钟可直接问 libvirt 要 IP
+virsh domifaddr dev-vm-2 --source agent
+
+# 兜底：宿主机上按 MAC 查 arp 表（ip neigh | grep &lt;MAC&gt;）
+
+ssh dev@&lt;IP&gt;
+$ lsblk; df -h &#x2F;     # 根分区已自动扩到 100G（growpart + resizefs 生效）
+</code></pre>
+<h2 id="cockpit-machines-webui-neng-zuo-tong-yang-de-shi-ma">Cockpit Machines WebUI 能做同样的事吗</h2>
+<p>能，<code>cockpit-machines</code>（249+ 均可）的 Create VM 对话框与手工步骤对应关系：</p>
+<table><thead><tr><th>手工步骤</th><th>WebUI 位置</th></tr></thead><tbody>
+<tr><td>下载镜像 + convert/resize</td><td>❌ 无内置——先在 Terminal 页跑命令</td></tr>
+<tr><td><code>virt-install --import</code></td><td>Installation Type 选 <strong>"Existing disk image on the host computer"</strong></td></tr>
+<tr><td><code>--cloud-init</code>（自动 seed）</td><td>对话框 <strong>Automation / Cloud-init</strong> 区块（root 密码 + SSH key）</td></tr>
+<tr><td>内存/vCPU/autostart</td><td>对话框表单</td></tr>
+<tr><td>拿 IP</td><td>VM 详情页网卡卡片（guest-agent 采集）</td></tr>
+</tbody></table>
+<p>局限：</p>
+<ol>
+<li><strong>cloud-init 字段太少</strong>：只有 root 密码、SSH key 两三个框，"自定义用户 + sudo NOPASSWD + 禁密码登录"这种完整 user-data 表达不了；</li>
+<li><strong>网络是最大的坑</strong>：创建对话框基本只给虚拟网络（NAT）选项，macvtap 直连（<code>direct</code> + 物理口）在 UI 里选不到，得创建后 <code>virsh edit</code> 补。且两种拓扑的宿主机访问性<strong>正好相反</strong>：macvtap 下 guest 拿 LAN IP、LAN 内机器随便访问，但<strong>宿主机反而 ping 不通 guest</strong>（macvtap 经典限制）；NAT 下宿主可直接 ssh guest，但 LAN 其他机器进不来；</li>
+<li>osinfo-db 同样老，OS 列表没有 24.04。</li>
+</ol>
+<p>结论：WebUI 适合"快速起一台标准 NAT 网络的机器"；要复刻现有机器的 macvtap 直连 + 自定义用户体系，命令行一步到位。</p>
+<h2 id="keng-yu-yao-dian-zong-jie">坑与要点总结</h2>
+<ul>
+<li><strong>数据量矛盾先算清</strong>：克隆路线前先看原盘实际占用（<code>qemu-img info</code> 的 disk size、盘内 <code>df</code>），超出目标盘就只能清理或缩盘，别硬上；</li>
+<li><strong>运行中的 qcow2 直接拷贝是崩溃一致性</strong>：要么短暂关机再 convert，要么用 <code>virsh blockcopy</code> 在线镜像（不碰原盘）；</li>
+<li><strong>克隆现有 VM 必须换三样</strong>：MAC 地址、seed 的 instance-id（否则 cloud-init 不重跑）、<code>/etc/machine-id</code>（否则 DHCP 拿到重复 IP）；</li>
+<li><strong>无 seed = 登不进去</strong>：cloud image 默认账户全部锁定，是安全设计不是 bug；</li>
+<li><strong>ARM 上别拿 amd64 ISO</strong>；osinfo-db 老就用显式 <code>--boot loader=...</code>；</li>
+<li><strong>存储池文件属主</strong>：<code>libvirt-qemu:kvm</code> + 664，对齐 <code>virsh pool-info</code> 里其他卷的姿势；</li>
+<li>cloud-init 不只属于虚拟机：MAAS/U 盘/kernel cmdline/SMBIOS 都能喂配置，物理机一样用。</li>
+</ul>
+<h2 id="zong-jie">总结</h2>
+<p>"快速造一台干净的 KVM 虚拟机"这件事，cloud image + cloud-init + <code>virt-install --import</code> 是最优解：分钟级出机、无人值守、身份与钥匙部署时注入、盘大小随意（首启自动扩满）。理解三个核心概念后整个流程再无黑盒：<strong>cloud image 是装好的系统盘</strong>（与安装器 ISO 本质不同）、<strong>seed.iso 是 cloud-init 的配置来源</strong>（靠 <code>cidata</code> 卷标接头）、<strong><code>--import</code> 只是让 virt-install 跳过安装阶段直接从盘启动</strong>（qemu 层面没有任何特殊之处）。</p>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/">&#8249; opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/10/pve-vm-stall-btrfs-log-commit/"> PVE 虚拟机每 35 秒卡 3 秒：一场从 ping 到 btrfs log commit 的排查 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xu-qiu-kuai-su-zai-lai-yi-tai-gan-jing-de-xu-ni-ji">需求：快速再来一台干净的虚拟机</a>
+        </div>
+        <div>
+          <a href="#xuan-xing-san-tiao-lu-xian-dui-bi">选型：三条路线对比</a>
+        </div>
+        <div>
+          <a href="#cloud-image-yu-desktop-iso-de-ben-zhi-qu-bie">Cloud image 与 Desktop ISO 的本质区别</a>
+        </div>
+        <div>
+          <a href="#yuan-li-pian-si-ge-guan-jian-wen-ti">原理篇：四个关键问题</a>
+        </div>
+        <div class="hpad">
+          <a href="#1-jing-xiang-fu-zhi-de-ben-zhi-bu-shi-dd-shi-qemu-img-convert"><small>- 1. 镜像复制的本质——不是 dd，是 qemu-img convert</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-wei-shen-me-bi-xu-yao-seed-iso-cloud-image-shi-wu-jun-jing-xiang"><small>- 2. 为什么必须要 seed.iso——cloud image 是&quot;无菌&quot;镜像</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-juan-biao-cidata-ke-zhong-fu-de-jie-tou-an-hao"><small>- 3. 卷标 cidata——可重复的&quot;接头暗号&quot;</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#4-virt-install-import-dui-qemu-ling-ying-xiang"><small>- 4. virt-install --import 对 qemu 零影响</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#fu-cloud-init-bu-shi-xu-ni-ji-zhuan-shu"><small>- 附：cloud-init 不是虚拟机专属</small></a>
+        </div>
+        <div>
+          <a href="#shi-cao-wan-zheng-liu-cheng">实操：完整流程</a>
+        </div>
+        <div class="hpad">
+          <a href="#zuo-pan-du-li-ling-gong-xiang"><small>- ① 做盘（独立、零共享）</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#xie-user-data"><small>- ② 写 user-data</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#qi-dong"><small>- ③ 启动</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#na-ip-yan-zheng"><small>- ④ 拿 IP、验证</small></a>
+        </div>
+        <div>
+          <a href="#cockpit-machines-webui-neng-zuo-tong-yang-de-shi-ma">Cockpit Machines WebUI 能做同样的事吗</a>
+        </div>
+        <div>
+          <a href="#keng-yu-yao-dian-zong-jie">坑与要点总结</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

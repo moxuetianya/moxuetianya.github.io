@@ -1,0 +1,320 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="从一份 net.ipv4 快照出发，解析 BBR、ECN、缓冲区三元值、重传与 TIME_WAIT 参数，并澄清 accept 与三次握手的关系" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/" />
+  <meta property="og:description" content="从一份 net.ipv4 快照出发，解析 BBR、ECN、缓冲区三元值、重传与 TIME_WAIT 参数，并澄清 accept 与三次握手的关系" />
+  <meta name="twitter:description" content="从一份 net.ipv4 快照出发，解析 BBR、ECN、缓冲区三元值、重传与 TIME_WAIT 参数，并澄清 accept 与三次握手的关系" />
+  <meta property="og:title" content="Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优 | 墨雪天琊" />
+  <meta name="twitter:title" content="Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-19" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/">Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 19, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://blog.juzhong.asia/tags/wang-luo/">网络</a>  #<a href="https://blog.juzhong.asia/tags/linux/">Linux</a>  #<a href="https://blog.juzhong.asia/tags/xie-yi-yu-biao-zhun/">协议与标准</a> </span>
+
+    
+
+
+<p>手里有一份服务器的 <code>net.ipv4.*</code> 快照，逐项看下来有几处容易望文生义：<code>tcp_ecn = 2</code> 到底开没开 ECN、<code>tcp_rmem</code> 的三个数怎么配合自动调优、<code>tcp_tw_reuse = 2</code> 是不是把所有 TIME_WAIT 都复用了。顺手也澄清一个常见疑问：服务端是不是调用了 <code>accept()</code> 才开始接收 SYN。</p>
+<p>查看当前值：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sysctl -a | grep -E &#x27;^net\.ipv4\.tcp_&#x27;
+# 或者只挑本文关注的
+sysctl net.ipv4.tcp_congestion_control net.ipv4.tcp_ecn \
+       net.ipv4.tcp_rmem net.ipv4.tcp_wmem net.ipv4.tcp_mem \
+       net.ipv4.tcp_tw_reuse net.ipv4.tcp_retries2
+</code></pre>
+<h1 id="yi-yong-sai-kong-zhi">一、拥塞控制</h1>
+<h2 id="bbr">BBR</h2>
+<p><code>tcp_congestion_control = bbr</code>。默认通常是 <code>cubic</code>。</p>
+<p>BBR（Bottleneck Bandwidth and RTT）不把丢包当作拥塞信号，而是维护两个模型量：窗口化的瓶颈带宽 <code>BtlBw</code> 和窗口化的最小 RTT <code>RTprop</code>，再用 pacing 主动安排发送速率。它不靠"撞到丢包再退让"，所以在有随机丢包、带宽时延积又大的链路上，吞吐通常比 CUBIC 稳定；代价是排队延迟和流间公平性不如丢包驱动算法。</p>
+<p>机制细节单独整理了一篇：<a href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/">CUBIC 与 BBR 原理对比</a>；实测数据见 <a href="https://blog.juzhong.asia/2026/08/learn/bbr-speedup-test/">开启 TCP BBR 实测</a>。这里只记结论：<strong>拥塞控制只在发送端生效</strong>，下载场景里接收方开 BBR 不改变速度。</p>
+<p>两个配套参数：</p>
+<ul>
+<li><code>tcp_allowed_congestion_control</code>：非特权进程可选的算法集合</li>
+<li><code>tcp_available_congestion_control</code>：内核当前已加载的全部算法</li>
+</ul>
+<p>快照里两者都是 <code>reno cubic bbr</code>。<code>tcp_congestion_control</code> 只能从 available 里选，普通进程写时还必须落在 allowed 之内。要确认 BBR 模块确实加载，看 <code>/sys/module/tcp_bbr</code>。</p>
+<h2 id="tcp-ecn-2">tcp_ecn = 2</h2>
+<p>现代内核的 <code>tcp_ecn</code> 是一个模式值，不是简单开关：</p>
+<table><thead><tr><th>值</th><th>入站连接</th><th>出站连接</th></tr></thead><tbody>
+<tr><td>0</td><td>不启用</td><td>不启用</td></tr>
+<tr><td>1</td><td>ECN</td><td>请求 ECN</td></tr>
+<tr><td>2</td><td>ECN</td><td>不请求（默认）</td></tr>
+<tr><td>3</td><td>AccECN</td><td>AccECN</td></tr>
+<tr><td>4</td><td>AccECN</td><td>ECN</td></tr>
+<tr><td>5</td><td>AccECN</td><td>不请求</td></tr>
+</tbody></table>
+<p>所以 <code>2</code> 的含义是：<strong>别人连进来时，如果对端请求 ECN 就配合；自己主动连出去时不请求</strong>。这是内核默认值，属于保守兼容策略，不是有人刻意打开的。3~5 涉及 Accurate ECN（RFC 9768），普通场景基本用不到。</p>
+<h2 id="tcp-fastopen-1">tcp_fastopen = 1</h2>
+<p>TFO 用位掩码表示：<code>0x1</code> 客户端、<code>0x2</code> 服务端，<code>3</code> 即两者都开。当前值是 <code>1</code>，只开了客户端。</p>
+<p>注意 TFO 的客户端支持不会改变 <code>connect()</code> 的行为——应用必须用 <code>sendto()</code>/<code>sendmsg()</code> 加 <code>MSG_FASTOPEN</code> 显式把数据塞进 SYN。开了 sysctl 不等于所有连接都自动省一个 RTT。</p>
+<h1 id="er-lian-jie-jian-li-yu-yi-chang-chu-li">二、连接建立与异常处理</h1>
+<ul>
+<li><strong><code>tcp_syncookies = 1</code></strong>：SYN 队列溢出时启用 SYN Cookie。这是兜底，不是常规手段——内核文档明确说不能用它支撑合法的连接速率；频繁触发应当去调 backlog、accept 速度或 <code>tcp_synack_retries</code>。</li>
+<li><strong><code>tcp_max_syn_backlog = 2048</code></strong>：SYN_RECV 队列上限。内核文档把它描述为 per-listener 限制，实际还会和 <code>listen(backlog)</code>、<code>net.core.somaxconn</code> 一起决定队列深度。</li>
+<li><strong><code>tcp_syn_retries = 6</code></strong>：主动连接 SYN 最多重传 6 次。按当前 1 秒初始 RTO，最后一次重传约在 67 秒，最终放弃约在 131 秒。</li>
+<li><strong><code>tcp_synack_retries = 5</code></strong>：被动连接 SYN-ACK 重传 5 次，最终超时约 63 秒。</li>
+<li><strong><code>tcp_abort_on_overflow = 0</code></strong>：accept 队列满时不发 RST，而是丢掉完成握手的 ACK。客户端会重传，给服务端留出排空队列的时间。设成 <code>1</code> 能让客户端快速失败，但突发流量下容易误伤。</li>
+<li><strong><code>tcp_slow_start_after_idle = 1</code></strong>：空闲超过一个 RTO 后重置拥塞窗口（RFC 2861），重新慢启动。保守但安全；长连接、高吞吐且流量呈间歇突发的场景可以评估设为 <code>0</code>。</li>
+</ul>
+<h2 id="guan-jian-cheng-qing-fu-wu-duan-shi-zai-accept-zhi-hou-cai-jie-shou-syn-ma">关键澄清：服务端是在 accept 之后才接收 SYN 吗？</h2>
+<p><strong>不是。</strong> 三次握手完全由内核协议栈自主完成，不需要用户态调用 <code>accept()</code> 来触发。</p>
+<ol>
+<li><code>listen()</code> 之后内核就开始处理到达的 SYN，此时 <code>accept()</code> 还没被调用。</li>
+<li>内核维护两个队列：
+<ul>
+<li><strong>半连接队列（SYN 队列）</strong>：收到 SYN、尚未完成握手，状态 <code>SYN_RECV</code>。</li>
+<li><strong>全连接队列（accept 队列）</strong>：三次握手已完成、状态 <code>ESTABLISHED</code>，等待应用 <code>accept()</code> 取走。</li>
+</ul>
+</li>
+<li><code>accept()</code> 只是从全连接队列头部取一个已建立的连接，返回新 fd，<strong>不参与握手</strong>。</li>
+</ol>
+<p>即使应用迟迟不 <code>accept()</code>，内核也会继续完成握手并把连接放进全连接队列。这正是 <code>tcp_abort_on_overflow</code> 有意义的前提：队列满之后，对后续完成握手的连接是丢 ACK 还是回 RST。</p>
+<p>全连接队列的上限是 <code>min(listen(backlog), net.core.somaxconn)</code>。排查时可以直接看监听套接字：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">ss -lnt sport = :80
+# LISTEN 状态下：Recv-Q = 当前 accept 队列长度，Send-Q = backlog 上限
+</code></pre>
+<p>如果 <code>Recv-Q</code> 长期接近 <code>Send-Q</code>，说明应用 accept 不及时，先调应用或 <code>somaxconn</code>，而不是只加大 <code>tcp_max_syn_backlog</code>。内核计数器也能佐证：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">nstat -az TcpExtListenOverflows TcpExtListenDrops TcpExtSyncookiesSent
+</code></pre>
+<h1 id="san-nei-cun-yu-huan-chong-qu">三、内存与缓冲区</h1>
+<p>快照值：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">tcp_rmem = 4096 131072 6291456      # 4 KiB &#x2F; 128 KiB &#x2F; 6 MiB
+tcp_wmem = 4096 16384 4194304       # 4 KiB &#x2F; 16 KiB &#x2F; 4 MiB
+tcp_mem  = 310098 413466 620196     # 页数，约 1.18 &#x2F; 1.58 &#x2F; 2.37 GiB
+</code></pre>
+<ul>
+<li><strong><code>tcp_mem</code></strong>：TCP 全局内存页数阈值（min / pressure / max），由内核按系统内存自动计算。超过 pressure 进入内存压力模式，低于 min 退出。</li>
+<li><strong><code>tcp_moderate_rcvbuf = 1</code></strong>：接收缓冲区自动调优开关。</li>
+<li><strong><code>tcp_notsent_lowat = 4294967295</code></strong>：未发送数据低水位线取 <code>UINT_MAX</code>，等于不限。调低可以让 <code>poll()</code> 更早报告可写、降低写侧排队延迟，但可能牺牲单流吞吐。</li>
+</ul>
+<h2 id="san-yuan-zhi-de-han-yi">三元值的含义</h2>
+<p><code>tcp_rmem</code> / <code>tcp_wmem</code> 的三个值分别是<strong>最小 / 默认 / 最大</strong>：</p>
+<ul>
+<li><strong>最小值</strong>：内存紧张时每个连接也能保证拿到的额度，不能低于 4096。</li>
+<li><strong>默认值</strong>：连接建立时的初始缓冲区，也是自动调优的起点。</li>
+<li><strong>最大值</strong>：自动调优的天花板。接收侧直接决定能通告多大的窗口。</li>
+</ul>
+<p>自动调优的实际行为：</p>
+<ul>
+<li><strong>接收侧</strong>：内核跟踪应用在每个 RTT 里读走的数据量，把缓冲区向"约两倍的每 RTT 消费量"扩充，上限 <code>tcp_rmem[2]</code>。应用读得越快，窗口涨得越大。当前上限 6 MiB，在高速长肥管道上能撑起更大的接收窗口。</li>
+<li><strong>发送侧</strong>：缓冲区存放已写入但未被确认的数据，自动调优会随 cwnd/MSS 需求增长，上限 <code>tcp_wmem[2]</code>。缓冲区满时 <code>write()</code>/<code>send()</code> 会阻塞或部分写入。</li>
+</ul>
+<p>两个容易踩的坑：</p>
+<ol>
+<li><strong><code>setsockopt(SO_RCVBUF/SO_SNDBUF)</code> 会关闭该 socket 的自动调优</strong>，此后 sysctl 的最大值对它无效。应用自己设了固定缓冲区，就别再指望内核帮忙扩。</li>
+<li>收发缓冲区是<strong>按连接</strong>算的。<code>tcp_rmem[2] = 6 MiB</code> 乘以并发连接数才是潜在内存占用，<code>tcp_mem</code> 就是给这堆连接兜底的总闸。</li>
+</ol>
+<h1 id="si-zhong-chuan-yu-chao-shi">四、重传与超时</h1>
+<ul>
+<li>
+<p><strong><code>tcp_retries2 = 15</code></strong>：已建立连接在 RTO 重传失败 15 次后放弃，累计超时约 <strong>924 秒（约 15 分钟）</strong>。死连接可能占资源到这一刻。</p>
+</li>
+<li>
+<p><strong><code>tcp_fin_timeout = 60</code></strong>：孤儿连接停留在 <code>FIN_WAIT_2</code> 的超时秒数。</p>
+</li>
+<li>
+<p><strong><code>tcp_orphan_retries = 0</code></strong>：这里最容易误解。内核源码里 <code>tcp_orphan_retries()</code> 的逻辑是：</p>
+<ul>
+<li>socket 最近还发过东西（alive）时，<code>0</code> 会被替换成 <code>8</code> 次；</li>
+<li>socket 已经不活跃时保持 <code>0</code>，也就是尽快放弃；</li>
+<li>收到过软 ICMP 错误时也会置 <code>0</code>。</li>
+</ul>
+<p>所以它不是简单的"零次重传"，也不是固定的"默认 8 次"，而是按连接活跃度决定。</p>
+</li>
+<li>
+<p><strong><code>tcp_rto_min_us = 200000</code></strong>：最小 RTO 200 ms。广域网下是保守合理的值；低延迟数据中心可以评估调小（路由和 socket 选项的优先级高于此 sysctl）。</p>
+</li>
+</ul>
+<h1 id="wu-sack-yu-shi-jian-chuo">五、SACK 与时间戳</h1>
+<ul>
+<li><strong><code>tcp_sack = 1</code> / <code>tcp_dsack = 1</code></strong>：选择性确认。发送方能精确知道哪些段丢了、哪些只是乱序，多丢包场景的恢复效率远高于累计 ACK。</li>
+<li><strong><code>tcp_timestamps = 1</code></strong>：RFC 1323 时间戳，用于 RTT 测量和 PAWS，也是 <code>tcp_tw_reuse</code> 能安全工作的前提。值 <code>2</code> 表示启用但不加随机偏移（一般不这么用）。</li>
+<li><strong><code>tcp_comp_sack_nr = 44</code> / <code>tcp_comp_sack_delay_ns = 1000000</code></strong>：SACK 压缩，最多合并 44 个 SACK，最多延迟 1 ms。目的是减少小包和 ACK 风暴，默认值通常不用动。</li>
+</ul>
+<h1 id="liu-time-wait-yu-duan-kou-fu-yong">六、TIME_WAIT 与端口复用</h1>
+<ul>
+<li>
+<p><strong><code>tcp_tw_reuse = 2</code></strong>：这里和网上很多说法相反——<strong><code>2</code> 不是"更安全的全局复用"，而是只对 loopback 流量生效</strong>。内核文档写得很清楚：</p>
+<table><thead><tr><th>值</th><th>含义</th></tr></thead><tbody>
+<tr><td>0</td><td>禁用</td></tr>
+<tr><td>1</td><td>全局启用</td></tr>
+<tr><td>2</td><td>仅 loopback（默认）</td></tr>
+</tbody></table>
+<p>快照里的 <code>2</code> 就是内核默认值。它对本机回环上的代理/转发（比如 sing-box 的本地入站）有用，对"服务端主动连出去耗尽端口"没有帮助。真要在出站方向复用 TIME_WAIT，需要设 <code>1</code>，并且依赖时间戳（PAWS）保证旧连接的迟到报文不会污染新连接。较新内核还增加了 <code>tcp_tw_reuse_delay</code>（默认 1000 ms），控制 TIME_WAIT 套接字至少存活多久才可被复用。</p>
+</li>
+<li>
+<p><strong><code>tcp_max_tw_buckets = 131072</code></strong>：全系统 TIME_WAIT 套接字上限，超过后新的 TIME_WAIT 直接被销毁并打印警告。它只是防 DoS 的天花板，不应为了"消掉 TIME_WAIT"而调低。</p>
+</li>
+</ul>
+<h1 id="qi-qi-ta-can-shu">七、其他参数</h1>
+<table><thead><tr><th>参数</th><th>快照值</th><th>含义</th></tr></thead><tbody>
+<tr><td><code>tcp_max_orphans</code></td><td>131072</td><td>无用户进程关联的孤儿套接字上限</td></tr>
+<tr><td><code>tcp_limit_output_bytes</code></td><td>1048576</td><td>每 socket 允许滞留在 qdisc/设备队列的未确认字节，限制本地 bufferbloat；内核新默认值是 4 MiB，这里 1 MiB 更激进</td></tr>
+<tr><td><code>tcp_no_metrics_save</code></td><td>0</td><td>关闭连接时保存 cwnd/rtt 等指标，供后续同目标连接复用</td></tr>
+<tr><td><code>tcp_mtu_probing</code></td><td>0</td><td>关闭 PLPMTUD。存在 ICMP 被阻断的 MTU 黑洞时，设为 <code>1</code>（检测到黑洞才探测）或 <code>2</code>（始终探测）</td></tr>
+<tr><td><code>tcp_fastopen_key</code></td><td><code>6d5b...</code></td><td>TFO Cookie 的主密钥（可带一个备份密钥），泄露等于允许伪造 Cookie，日志里应打码</td></tr>
+<tr><td><code>tcp_stdurg</code></td><td>0</td><td>紧急指针采用 BSD 解释，与大多数主机兼容</td></tr>
+<tr><td><code>tcp_challenge_ack_limit</code></td><td>2147483647</td><td>每秒 Challenge ACK 上限为 <code>INT_MAX</code>，即实质不限（默认值）</td></tr>
+</tbody></table>
+<h1 id="ba-zhuan-ti-ecn-shi-shen-me">八、专题：ECN 是什么</h1>
+<p><strong>ECN（Explicit Congestion Notification，显式拥塞通知）</strong> 让路由器在队列将满、但还没满时，直接在 IP 头里打标记，提前通知发送方降速，而不是等溢出后丢包。</p>
+<p>传统 Reno/CUBIC 只有"丢包"这一个拥塞信号：队列必须先被填满、溢出、丢包，发送方看到重传超时或重复 ACK 才退让。代价是重传延迟，以及 queue 被反复填满带来的 bufferbloat。</p>
+<p>ECN 的流程：</p>
+<ol>
+<li>两端在 SYN/SYN-ACK 的 TCP 标志位（ECE/CWR）里协商 ECN 能力；协商成功后，数据包的 IP 头 ECN 字段置为 ECT(0) 或 ECT(1)。</li>
+<li>路径上的 AQM（RED、CoDel、fq_codel 的 ecn 模式等）发现队列超阈值时，把 ECN 字段改成 <strong>CE（Congestion Experienced，<code>11</code>）</strong>，包仍然照常转发。</li>
+<li>接收方看到 CE，在 TCP 头里置 <strong>ECE</strong> 位回给发送方。</li>
+<li>发送方收到 ECE，像收到拥塞信号一样降速，并置 <strong>CWR</strong> 位确认；被标记的包已经到达，<strong>不需要重传</strong>。</li>
+</ol>
+<p>IP 头里 ECN 占 2 bit：<code>00</code> Not-ECT、<code>01</code> ECT(1)、<code>10</code> ECT(0)、<code>11</code> CE。注意 ECN 是"端到端协商 + 路径设备标记"，只在端主机上设置 <code>tcp_ecn</code> 并不会凭空产生 CE 标记——如果路径上的 qdisc 从不做 ECN 标记（例如普通 <code>pfifo_fast</code>），ECN 协商成功也不会带来任何降速收益。</p>
+<p>回到 <code>tcp_ecn = 2</code>：作为服务端，它愿意配合入站连接使用 ECN；作为客户端主动连别人时不请求。这个组合在"我的服务器是接收方、对端和路径都支持 ECN"时能减少丢包，同时避免主动连接时与老旧中间设备发生兼容问题。</p>
+<p>一个容易忽略的点：<strong>BBRv1 不把 ECN 标记作为带宽模型的输入</strong>。CE 只通过 TCP 通用的 cwnd 减小流程短暂影响在途窗口，真正决定速率的是 pacing rate；BBRv2/v3 才把 ECN 纳入拥塞响应。所以在 BBR + ECN 的组合里，别期待 ECN 会像对 CUBIC 那样直接改变发送速率。</p>
+<h1 id="zong-jie">总结</h1>
+<p>这份配置的核心特征是：<strong>BBR + 默认的 ECN 服务端策略 + SYN Cookie 兜底 + 偏宽松的缓冲区 + 标准重传参数</strong>，没有明显激进项。</p>
+<p>几个可以按场景复查的点：</p>
+<ul>
+<li><code>tcp_tw_reuse = 2</code> 是默认值，只惠及 loopback。出站端口压力大的机器应评估改成 <code>1</code>。</li>
+<li><code>tcp_limit_output_bytes = 1 MiB</code> 小于新内核默认的 4 MiB，对延迟友好；但如果单流速率极高（数十 Gbps），需要确认它没有成为本地队列瓶颈。</li>
+<li>长肥管道上若单流吞吐上不去，先看接收窗口是否被 <code>tcp_rmem[2]</code> 卡住，以及应用是否用 <code>SO_RCVBUF</code> 关掉了自动调优。</li>
+<li>延迟敏感服务可以评估 <code>tcp_slow_start_after_idle=0</code>，但要接受空闲后突发可能造成的排队。</li>
+</ul>
+<h1 id="can-kao">参考</h1>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html">Linux Kernel Documentation: IP Sysctl</a></li>
+<li><a href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/">CUBIC 与 BBR 原理对比</a></li>
+<li><a href="https://blog.juzhong.asia/2026/08/learn/bbr-speedup-test/">开启 TCP BBR 实测：代理隧道发送端才有收益</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/">&#8249; CUBIC 与 BBR 原理对比：发包时序与窗口计算</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/"> 根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-yong-sai-kong-zhi">一、拥塞控制</a>
+        </div>
+        <div class="hpad">
+          <a href="#bbr"><small>- BBR</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tcp-ecn-2"><small>- tcp_ecn = 2</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#tcp-fastopen-1"><small>- tcp_fastopen = 1</small></a>
+        </div>
+        <div>
+          <a href="#er-lian-jie-jian-li-yu-yi-chang-chu-li">二、连接建立与异常处理</a>
+        </div>
+        <div class="hpad">
+          <a href="#guan-jian-cheng-qing-fu-wu-duan-shi-zai-accept-zhi-hou-cai-jie-shou-syn-ma"><small>- 关键澄清：服务端是在 accept 之后才接收 SYN 吗？</small></a>
+        </div>
+        <div>
+          <a href="#san-nei-cun-yu-huan-chong-qu">三、内存与缓冲区</a>
+        </div>
+        <div class="hpad">
+          <a href="#san-yuan-zhi-de-han-yi"><small>- 三元值的含义</small></a>
+        </div>
+        <div>
+          <a href="#si-zhong-chuan-yu-chao-shi">四、重传与超时</a>
+        </div>
+        <div>
+          <a href="#wu-sack-yu-shi-jian-chuo">五、SACK 与时间戳</a>
+        </div>
+        <div>
+          <a href="#liu-time-wait-yu-duan-kou-fu-yong">六、TIME_WAIT 与端口复用</a>
+        </div>
+        <div>
+          <a href="#qi-qi-ta-can-shu">七、其他参数</a>
+        </div>
+        <div>
+          <a href="#ba-zhuan-ti-ecn-shi-shen-me">八、专题：ECN 是什么</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+        <div>
+          <a href="#can-kao">参考</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

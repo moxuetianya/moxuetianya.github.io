@@ -1,0 +1,271 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="日常使用的 opencode 突然只剩 4 个 provider，deepseek 等所有 auth 登录的供应商集体消失；curl 智谱 &#x2F;models 接口一切正常，TUI 里却看不到 GLM 模型列表。顺着 &#x2F;proc&#x2F;PID&#x2F;environ、服务日志和一次对照实验，定位到 opencode v2 客户端-服务端架构的三条规则：模型列表从不请求 provider 的 &#x2F;models、OPENCODE_CONFIG_DIR 是替换而非叠加、共享单例服务会被『版本不匹配的客户端』静默换掉并继承它的环境。wfuzz 捆绑的旧版 opencode（2.0.7）与系统 2.2.7 反复争夺单例，最终留下『2.2.7 二进制 + wfuzz 环境』这个最难察觉的组合态。" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/" />
+  <meta property="og:description" content="日常使用的 opencode 突然只剩 4 个 provider，deepseek 等所有 auth 登录的供应商集体消失；curl 智谱 &#x2F;models 接口一切正常，TUI 里却看不到 GLM 模型列表。顺着 &#x2F;proc&#x2F;PID&#x2F;environ、服务日志和一次对照实验，定位到 opencode v2 客户端-服务端架构的三条规则：模型列表从不请求 provider 的 &#x2F;models、OPENCODE_CONFIG_DIR 是替换而非叠加、共享单例服务会被『版本不匹配的客户端』静默换掉并继承它的环境。wfuzz 捆绑的旧版 opencode（2.0.7）与系统 2.2.7 反复争夺单例，最终留下『2.2.7 二进制 + wfuzz 环境』这个最难察觉的组合态。" />
+  <meta name="twitter:description" content="日常使用的 opencode 突然只剩 4 个 provider，deepseek 等所有 auth 登录的供应商集体消失；curl 智谱 &#x2F;models 接口一切正常，TUI 里却看不到 GLM 模型列表。顺着 &#x2F;proc&#x2F;PID&#x2F;environ、服务日志和一次对照实验，定位到 opencode v2 客户端-服务端架构的三条规则：模型列表从不请求 provider 的 &#x2F;models、OPENCODE_CONFIG_DIR 是替换而非叠加、共享单例服务会被『版本不匹配的客户端』静默换掉并继承它的环境。wfuzz 捆绑的旧版 opencode（2.0.7）与系统 2.2.7 反复争夺单例，最终留下『2.2.7 二进制 + wfuzz 环境』这个最难察觉的组合态。" />
+  <meta property="og:title" content="opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持 | 墨雪天琊" />
+  <meta name="twitter:title" content="opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-18" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/opencode-shared-service-env-hijack/">opencode 一夜只剩 4 个模型：共享后台服务被环境变量静默劫持</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 18, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/ai/">AI</a>] #<a href="https://blog.juzhong.asia/tags/opencode/">opencode</a>  #<a href="https://blog.juzhong.asia/tags/agent/">agent</a>  #<a href="https://blog.juzhong.asia/tags/llm/">llm</a> </span>
+
+    
+
+
+<h2 id="xian-xiang">现象</h2>
+<p>某天打开 opencode，模型选择器里<strong>只剩 4 个 provider</strong>：</p>
+<pre><code>$ opencode models
+glm&#x2F;glm-5.3-flash
+opencode&#x2F;beam-free
+opencode&#x2F;big-pickle
+...
+provider&#x2F;qwen3.8-27b-fp8
+vllm&#x2F;qwen3.8-27b-fp8
+</code></pre>
+<p>两个疑点：</p>
+<ol>
+<li><code>~/.local/share/opencode/auth.json</code> 里明明存着 deepseek、智谱、MiniMax、小米的 API key（<code>opencode auth list</code> 全部显示 stored），却一个都不出现——「deepseek 去哪了？」</li>
+<li>GLM 只剩 <code>glm-5.3-flash</code> 一个模型，但直接 curl 智谱的 <code>/models</code> 端点明明能拿到全家桶：</li>
+</ol>
+<pre><code>$ curl -H &quot;Authorization: Bearer $ZHIPU_TOKEN&quot; \
+    https:&#x2F;&#x2F;open.bigmodel.cn&#x2F;api&#x2F;coding&#x2F;paas&#x2F;v4&#x2F;models | jq .
+# 正常返回 glm-5.3 &#x2F; glm-5.3-flash &#x2F; glm-5.3-highspeed ...
+</code></pre>
+<p>接口好的，opencode 却「获取不到」——问题显然不在智谱侧。</p>
+<h2 id="pai-cha">排查</h2>
+<h3 id="di-yi-bu-mo-xing-lie-biao-de-lai-yuan-opencode-gen-ben-bu-diao-models">第一步：模型列表的来源——opencode 根本不调 <code>/models</code></h3>
+<p>opencode 的模型列表来自两个地方，<strong>从不请求 provider 的 <code>/models</code> 端点</strong>：</p>
+<ul>
+<li><strong>models.dev 注册表</strong>：内置的供应商目录（含 baseURL、模型清单、元数据），定期拉取缓存到 <code>~/.cache/opencode/models.json</code>；</li>
+<li><strong>配置文件里显式声明的 <code>models</code></strong>：自定义 provider 必须逐个写模型条目，写几个显示几个。</li>
+</ul>
+<p>所以 <code>curl /models</code> 能拿到什么对 opencode 毫无意义。当前生效的 <code>glm</code> 是个自定义 provider，配置里只声明了 <code>glm-5.3-flash</code> 一个模型——列表里自然只有它。</p>
+<h3 id="di-er-bu-sheng-xiao-de-pei-zhi-gen-ben-bu-shi-config-opencode">第二步：生效的配置根本不是 <code>~/.config/opencode</code></h3>
+<p>看运行时 API 问服务端自己认哪些 provider：</p>
+<pre><code>$ opencode api get &#x2F;api&#x2F;provider | jq -r &#x27;.data[].id&#x27;
+opencode
+vllm
+glm
+provider
+</code></pre>
+<p>正好 4 个，和 <code>opencode models</code> 完全对应。而 <code>~/.config/opencode/opencode.json</code> 里定义的 <code>local</code> provider <strong>没出现</strong>——这份文件根本没被解析。</p>
+<p>检查服务进程的环境：</p>
+<pre><code>$ pid=$(opencode api get &#x2F;api&#x2F;info | jq -r .pid)
+$ readlink &#x2F;proc&#x2F;$pid&#x2F;cwd        # &#x2F;home&#x2F;peter（不是任何项目目录）
+$ tr &#x27;\0&#x27; &#x27;\n&#x27; &lt; &#x2F;proc&#x2F;$pid&#x2F;environ | grep -E &#x27;^OPENCODE&#x27;
+OPENCODE_CONFIG_DIR=&#x2F;home&#x2F;peter&#x2F;project&#x2F;task&#x2F;.global-opencode
+OPENCODE_DISABLE_MODELS_FETCH=1
+...
+</code></pre>
+<p>两个关键事实：</p>
+<ul>
+<li><strong><code>OPENCODE_CONFIG_DIR</code> 是「替换」语义</strong>：设置后 <code>~/.config/opencode/</code> 整个目录不再被读，自定义目录顶替它成为全局配置目录。<code>.global-opencode/opencode.jsonc</code> 里有一个 <code>enabled_providers</code> 白名单，只放行了这 4 个 provider——这就是 deepseek 等集体消失的直接原因，key 还存在 auth.json 里也没用。</li>
+<li><strong><code>OPENCODE_DISABLE_MODELS_FETCH=1</code></strong>：连 models.dev 注册表都不拉了，模型只能靠配置显式声明。</li>
+</ul>
+<p><code>.global-opencode/</code> 是 wfuzz agent 平台的会话配置目录（<a href="https://blog.juzhong.asia/2026/08/opencode-ipv6-and-opentui-startup-hang/">上一篇讲启动排查的文章</a>里已经见过它），每次启动会被整目录重灌，并把平台下发的 <code>model</code> + <code>provider</code> 键合并进 <code>opencode.jsonc</code>——<strong>手改这份文件会在下次启动被覆盖</strong>。</p>
+<p>问题变成了：我在 <code>~/project/tools</code> 里用的 opencode，为什么会吃 wfuzz 在另一个项目的配置？</p>
+<h3 id="di-san-bu-ri-zhi-li-de-jing-mo-huan-fu-wu">第三步：日志里的「静默换服务」</h3>
+<p>opencode 是客户端-服务端架构：TUI/CLI 连接一个<strong>用户级共享单例服务</strong>。客户端启动时先做服务发现，规则是——<strong>已注册服务健康且版本匹配就附着，否则用客户端自己的二进制和环境拉起一个新服务</strong>（daemon 化、接管注册表）。</p>
+<p>在 <code>~/.local/share/opencode/log/opencode.log</code> 里搜服务更替事件：</p>
+<pre><code>$ grep -a &#x27;background service starting&#x27; ~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log | tail -5
+2026-11-13T08:28:14 ... reason=version-mismatch previousVersion=2.2.7
+2026-11-13T08:57:27 ... reason=version-mismatch previousVersion=2.0.7
+2026-11-17T07:24:18 ... reason=version-mismatch previousVersion=2.2.7
+2026-11-17T08:54:02 ... reason=version-mismatch previousVersion=2.0.7
+</code></pre>
+<p>版本在 2.2.7 ↔ 2.0.7 之间打乒乓——<strong>谁后跑，谁就把单例服务换成自己的版本 + 自己的环境</strong>。</p>
+<p>2.0.7 是哪来的？wfuzz agent 的下载缓存里有答案：</p>
+<pre><code>$ ls ~&#x2F;.wfuzz&#x2F;&lt;server&gt;&#x2F;wfuzz-agent&#x2F;
+0_1_46 ... 0_2_0  0_2_1  0_2_3
+$ ~&#x2F;.wfuzz&#x2F;&lt;server&gt;&#x2F;wfuzz-agent&#x2F;0_2_3&#x2F;bin&#x2F;opencode --version
+opencode v2.0.7      # 0.1.x 系列甚至还是 1.17&#x2F;1.18
+</code></pre>
+<p><strong>wfuzz 捆绑的 opencode 是 2.0.7，系统里的是 2.2.7</strong>。每次 wfuzz 会话启动，它的 2.0.7 客户端发现注册的服务版本不匹配 → 拉起新服务（继承 wfuzz 注入的 <code>OPENCODE_CONFIG_DIR</code> 等环境）；之后任何一次系统 2.2.7 的运行又把它换回来。</p>
+<h3 id="di-si-bu-wei-shen-me-wo-shen-me-du-mei-zuo-pei-zhi-que-bian-liao">第四步：为什么「我什么都没做」配置却变了</h3>
+<p>时间线精确到秒：</p>
+<table><thead><tr><th>时刻</th><th>事件</th></tr></thead><tbody>
+<tr><td>11-17 16:54:02</td><td>一个客户端报告 <code>version-mismatch previousVersion=2.0.7</code>，拉起新服务</td></tr>
+<tr><td>11-17 16:54:03</td><td>新服务 PID 2699039 daemon 化（ppid=1）</td></tr>
+<tr><td>同一秒</td><td>wfuzz 重灌 <code>.global-opencode/</code>（目录 mtime 全是 16:54）</td></tr>
+</tbody></table>
+<p>而这个新服务的诡异之处：<strong>二进制是系统 2.2.7（<code>readlink /proc/PID/exe</code>），环境却是 wfuzz 那套</strong>（<code>OPENCODE_CONFIG_DIR</code> 等全在 environ 里）。</p>
+<p>这推翻了「环境变量残留」的直觉——<strong>进程死了环境就没了，环境变量不可能「残留」到下一个进程</strong>。新服务的环境是启动它的客户端在 spawn 那一刻注入的快照，「2.2.7 二进制 + wfuzz 环境」说明发起者本身就是这个组合：一次在 wfuzz 注入环境里运行系统 PATH 二进制的调用。版本和环境永远同源，都来自发起替换的那个进程。</p>
+<p>这个组合态还是<strong>最稳定的坏状态</strong>：</p>
+<ul>
+<li>如果服务是 2.0.7：日常任何一次 <code>opencode</code> 都会 mismatch 替换它，活不长；</li>
+<li>但「2.2.7 + wfuzz 环境」：所有日常客户端版本匹配 → <strong>安静附着、毫无察觉</strong> → 从 11-17 一直稳坐到发现问题时。</li>
+</ul>
+<p>版本匹配完美掩盖了环境劫持。</p>
+<h3 id="di-wu-bu-dui-zhao-shi-yan-fu-zhao-ke-hu-duan-de-huan-jing-bian-liang-wan-quan-bu-sheng-xiao">第五步：对照实验——附着客户端的环境变量完全不生效</h3>
+<p>建一个带独特 provider 的配置目录，用它启动客户端：</p>
+<pre><code>$ mkdir -p ~&#x2F;.tmp&#x2F;opencode&#x2F;client-cfg-demo
+$ cat &gt; ~&#x2F;.tmp&#x2F;opencode&#x2F;client-cfg-demo&#x2F;opencode.jsonc &lt;&lt;&#x27;EOF&#x27;
+{ &quot;provider&quot;: { &quot;clientonly&quot;: {
+    &quot;name&quot;: &quot;ClientOnlyDemo&quot;,
+    &quot;npm&quot;: &quot;@ai-sdk&#x2F;openai-compatible&quot;,
+    &quot;options&quot;: { &quot;baseURL&quot;: &quot;http:&#x2F;&#x2F;127.0.0.1:9&#x2F;v1&quot;, &quot;apiKey&quot;: &quot;demo&quot; },
+    &quot;models&quot;: { &quot;demo-model&quot;: {} } } } }
+EOF
+
+$ opencode models                          # A: 正常启动
+$ OPENCODE_CONFIG_DIR=~&#x2F;.tmp&#x2F;opencode&#x2F;client-cfg-demo opencode models   # B
+</code></pre>
+<p>A 和 B 输出<strong>完全一致</strong>，<code>clientonly/demo-model</code> 始终没出现，服务 PID 没变——附着模式下，客户端的 <code>OPENCODE_CONFIG_DIR</code> 对服务端零影响。</p>
+<h2 id="ji-zhi-zong-jie">机制总结</h2>
+<p>客户端的环境变量是否生效，取决于这次启动最终<strong>附着</strong>还是<strong>拉起</strong>服务：</p>
+<table><thead><tr><th>层级</th><th>附着已运行服务时</th><th>由谁决定</th></tr></thead><tbody>
+<tr><td><strong>服务级</strong>：<code>OPENCODE_CONFIG_DIR</code> / <code>OPENCODE_CONFIG</code>、provider key、代理、<code>OPENCODE_DISABLE_MODELS_FETCH</code></td><td>❌ 完全无效</td><td>服务进程<strong>出生那一刻</strong>的环境，出生后不再重读</td></tr>
+<tr><td><strong>会话级</strong>：项目配置链（<code>opencode.json(c)</code>、<code>.opencode/</code>、AGENTS.md、skills）</td><td>✅ 有效</td><td>客户端把启动时的 cwd 作为会话目录交给服务端，服务端从该目录向上发现</td></tr>
+<tr><td><strong>客户端本地</strong>：<code>cli.json</code>（主题、按键等终端偏好）</td><td>✅ 有效</td><td>客户端进程自己读</td></tr>
+</tbody></table>
+<p>配套的还有三条：</p>
+<ol>
+<li><strong>模型列表 = models.dev 注册表 ∪ 配置显式声明</strong>，与 provider 的 <code>/models</code> 端点无关；</li>
+<li><strong><code>OPENCODE_CONFIG_DIR</code> 是替换不是叠加</strong>，设置后默认目录整个失效；</li>
+<li><strong><code>enabled_providers</code> 是白名单</strong>，不在名单里的 provider 即使有凭据也不显示。</li>
+</ol>
+<h2 id="xiu-fu-yu-jian-yi">修复与建议</h2>
+<p>对使用者：</p>
+<pre><code># 临时用另一套配置（私有服务，环境百分百生效，不碰共享单例）
+opencode --standalone
+
+# 永久切换：新终端里（干净环境）
+opencode service stop &amp;&amp; opencode service start
+</code></pre>
+<p>对会注入环境的 agent 平台（wfuzz 这类）：</p>
+<ul>
+<li><strong>根治</strong>：会话用 <code>--standalone</code> 起私有服务，或平台自管服务生命周期（独立端口 + 密码 + 显式连接），不要依赖「碰巧版本不匹配/服务不在场」才注入成功；</li>
+<li><strong>防御</strong>：exec 之后校验附着到的服务环境里含自己的标记变量（如 <code>WFUZZ_PRODUCT</code>），不含就报错退出，而不是静默跑在裸配置上；</li>
+<li><strong>同步升级</strong>捆绑的 opencode 版本——版本差本身就是乒乓的源头。</li>
+</ul>
+<p>顺带一个命名陷阱：models.dev 里智谱有四个 provider——<code>zhipuai</code>（国内开放平台）、<code>zhipuai-coding-plan</code>（国内 Coding Plan，<code>open.bigmodel.cn/api/coding/...</code>）、<code>zai</code> / <code>zai-coding-plan</code>（海外 Z.AI，<code>api.z.ai</code>）。国内 Coding Plan 的 token 存到 <code>zai-coding-plan</code> 名下会直接 401，登录时认准 "Zhipu AI Coding Plan"。</p>
+<h2 id="zong-jie">总结</h2>
+<p>这次排查最大的收获是把 opencode v2 的配置解析边界搞清楚了：<strong>重配置（provider/模型/权限）只在服务进程里解析一次，客户端唯一可靠贡献的是会话目录</strong>。一旦理解「附着 vs 拉起」这个分叉，「我什么都没做、配置却全变了」就不再是玄学——一定有一个带着不同环境的客户端，在某次服务不在场或版本不匹配的时刻，悄悄坐上了单例的位置。</p>
+<p>排查这类问题的固定三板斧：</p>
+<pre><code>pid=$(opencode api get &#x2F;api&#x2F;info | jq -r .pid)
+tr &#x27;\0&#x27; &#x27;\n&#x27; &lt; &#x2F;proc&#x2F;$pid&#x2F;environ | grep -E &#x27;^OPENCODE&#x27;   # 服务吃的哪套环境
+opencode api get &#x2F;api&#x2F;provider | jq -r &#x27;.data[].id&#x27;        # 服务认哪些 provider
+grep -a &#x27;background service starting&#x27; \
+    ~&#x2F;.local&#x2F;share&#x2F;opencode&#x2F;log&#x2F;opencode.log               # 服务被谁换过
+</code></pre>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/ssd-trim-lockup-rootfs-readonly/">&#8249; 根分区只读了 23 天才发现：周一凌晨的 fstrim、一块 SMART 全绿的 SSD 和 ext4 损坏排查记</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/kvm-cloud-image-cloud-init-quick-create/"> KVM 用 Cloud Image + cloud-init 分钟级创建虚拟机：从原理到实操 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#xian-xiang">现象</a>
+        </div>
+        <div>
+          <a href="#pai-cha">排查</a>
+        </div>
+        <div class="hpad">
+          <a href="#di-yi-bu-mo-xing-lie-biao-de-lai-yuan-opencode-gen-ben-bu-diao-models"><small>- 第一步：模型列表的来源——opencode 根本不调 &#x2F;models</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-er-bu-sheng-xiao-de-pei-zhi-gen-ben-bu-shi-config-opencode"><small>- 第二步：生效的配置根本不是 ~&#x2F;.config&#x2F;opencode</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-san-bu-ri-zhi-li-de-jing-mo-huan-fu-wu"><small>- 第三步：日志里的「静默换服务」</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-si-bu-wei-shen-me-wo-shen-me-du-mei-zuo-pei-zhi-que-bian-liao"><small>- 第四步：为什么「我什么都没做」配置却变了</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#di-wu-bu-dui-zhao-shi-yan-fu-zhao-ke-hu-duan-de-huan-jing-bian-liang-wan-quan-bu-sheng-xiao"><small>- 第五步：对照实验——附着客户端的环境变量完全不生效</small></a>
+        </div>
+        <div>
+          <a href="#ji-zhi-zong-jie">机制总结</a>
+        </div>
+        <div>
+          <a href="#xiu-fu-yu-jian-yi">修复与建议</a>
+        </div>
+        <div>
+          <a href="#zong-jie">总结</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

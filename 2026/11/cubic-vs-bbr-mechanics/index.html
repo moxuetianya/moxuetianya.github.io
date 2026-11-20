@@ -1,0 +1,317 @@
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <script src="https://blog.juzhong.asia/js/theme.min.js"></script>
+  <link rel="stylesheet" href="https://blog.juzhong.asia/abridge.css?h=11008b611808be942688" />
+  <link rel="stylesheet" href="https://blog.juzhong.asia/extra.css?h=c4e7981c56f052b93039" />
+  <meta charset="utf-8" />
+  <meta http-equiv="x-ua-compatible" content="ie=edge" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="base" content="https://blog.juzhong.asia" />
+  <meta name="HandheldFriendly" content="True" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <link rel="alternate" type="application/atom+xml" title="墨雪天琊 Atom Feed" href="https://blog.juzhong.asia/atom.xml" />
+  <meta name="robots" content="index, follow" />
+  <meta name="googlebot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <meta name="bingbot" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+  <title>CUBIC 与 BBR 原理对比：发包时序与窗口计算 | 墨雪天琊</title>
+  <meta name="copyright" content="墨雪天琊" />
+  <meta name="description" content="对比 CUBIC 的 ACK 时钟与三次函数加窗，和 BBR 的 pacing 主动探测与 BDP 窗口，附 K 值推导与 Linux 实现入口" />
+  <link rel="canonical" href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/" />
+  <meta property="og:url" content="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/" />
+  <meta name="twitter:url" content="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/" />
+  <meta property="og:description" content="对比 CUBIC 的 ACK 时钟与三次函数加窗，和 BBR 的 pacing 主动探测与 BDP 窗口，附 K 值推导与 Linux 实现入口" />
+  <meta name="twitter:description" content="对比 CUBIC 的 ACK 时钟与三次函数加窗，和 BBR 的 pacing 主动探测与 BDP 窗口，附 K 值推导与 Linux 实现入口" />
+  <meta property="og:title" content="CUBIC 与 BBR 原理对比：发包时序与窗口计算 | 墨雪天琊" />
+  <meta name="twitter:title" content="CUBIC 与 BBR 原理对比：发包时序与窗口计算 | 墨雪天琊" />
+  <meta name="twitter:card" content="summary" />
+  <meta property="og:site_name" content="墨雪天琊" />
+  <meta property="og:locale" content="zh_CN" />
+  <meta property="og:type" content="website" />
+  <meta property="og:updated_time" content="2026-11-19" />
+  <script defer src="https://talk.hyvor.com/embed/embed.js" type="module"></script>
+  <script defer src="https://blog.juzhong.asia/js/theme_button.js?h=12a31e87fcbe7a55e953"></script>
+  <script defer src="https://blog.juzhong.asia/js/email.js?h=ee3dd742e11c5014fdef"></script>
+  <script defer src="https://blog.juzhong.asia/js/codecopy.js?h=0a54f99e682443925d3a"></script>
+  <script defer src="https://blog.juzhong.asia/js/elasticlunr.min.js?h=4f648b9e42abdef9c436"></script>
+  <script defer src="https://blog.juzhong.asia/search_index.en.js?h=95df47e705619621907e"></script>
+  <script defer src="https://blog.juzhong.asia/js/searchjava.js?h=afc943710b713d57871a"></script>
+  <noscript><link rel="stylesheet" href="https://blog.juzhong.asia/nojs.css" /></noscript>
+</head>
+<body>
+  <header>
+    <nav>
+      <div><big><a href="https://blog.juzhong.asia" title="墨雪天琊">墨雪天琊</a></big></div>
+      <div>
+
+        <div>
+          <ul><li><a class="s110" href="https://blog.juzhong.asia/"> 首页 </a></li><li><a class="s110" href="https://blog.juzhong.asia/archive/"> 归档 </a></li><li><a class="s110" href="https://blog.juzhong.asia/updated/"> 最近更新 </a></li><li><a class="s110" href="https://blog.juzhong.asia/tags/"> 标签 </a></li><li><a class="s110" href="https://blog.juzhong.asia/search/"> 搜索 </a></li><li><a class="s110" href="https://blog.juzhong.asia/obsidian/"> 摘录 </a></li><li><i type="reset" id="mode" class="js svgs adjust"></i></ul>
+        </div>
+
+        <div>
+          <div>
+            <form autocomplete=off class="js" name="goSearch" id="searchbox">
+              <div class="searchd">
+                <input id="searchinput" type="text" placeholder="搜索" title="Search" />
+                <button type="submit" title="Search" class="svgs svgm search"></button>
+              </div>
+              <div class="results"><div id="suggestions"></div></div>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </nav>
+  </header>
+  <main>
+    <article>
+      <h1><a href="https://blog.juzhong.asia/2026/11/cubic-vs-bbr-mechanics/">CUBIC 与 BBR 原理对比：发包时序与窗口计算</a></h1>
+
+      <span class="s95"> <span class="rpad"></span> 十一月 19, 2026 <span class="rpad"></span> [<a href="https://blog.juzhong.asia/categories/wang-luo-yu-an-quan/">网络与安全</a>] #<a href="https://blog.juzhong.asia/tags/wang-luo/">网络</a>  #<a href="https://blog.juzhong.asia/tags/xie-yi-yu-biao-zhun/">协议与标准</a>  #<a href="https://blog.juzhong.asia/tags/linux/">Linux</a> </span>
+
+    
+
+
+<p>同样跑在 TCP 上，CUBIC 和 BBR 对"什么时候发包、发多少"的回答完全不同：前者跟着 ACK 走，用三次函数把窗口撑大；后者自己排发送节奏，用带宽和 RTT 的模型算出在途数据上限。下面按"发包时序 → 窗口计算 → 丢包响应"拆开看。</p>
+<h1 id="yi-zong-lan">一、总览</h1>
+<table><thead><tr><th>维度</th><th>CUBIC</th><th>BBR</th></tr></thead><tbody>
+<tr><td>驱动信号</td><td>丢包 / 重复 ACK</td><td>带宽估计 + 最小 RTT</td></tr>
+<tr><td>发包节奏</td><td>ACK 时钟（事件驱动）</td><td>Pacing（时间驱动）</td></tr>
+<tr><td>窗口角色</td><td>增长目标，按三次函数主动撑大</td><td>在途数据量上限，防止超过 BDP</td></tr>
+<tr><td>拥塞响应</td><td>乘法减小 <code>cwnd * β</code>（β≈0.7）</td><td>不把丢包直接当带宽信号，靠 ProbeRTT 周期性排空</td></tr>
+</tbody></table>
+<p>一句话：<strong>CUBIC 是"丢包驱动 + 窗口增长"，BBR 是"模型驱动 + 速率规划"</strong>。</p>
+<h1 id="er-cubic-ack-shi-zhong-yu-san-ci-han-shu">二、CUBIC：ACK 时钟与三次函数</h1>
+<h2 id="2-1-fa-bao-shi-xu">2.1 发包时序</h2>
+<p>CUBIC 仍运行在传统 TCP 框架里，发包由<strong>ACK 到达事件</strong>驱动：收到能推进 <code>snd_una</code> 的 ACK，才按当前 <code>cwnd</code> 决定还能不能再发。ACK 被压缩或延迟，发包就会呈突发状。</p>
+<p>它本身不内置强制性的速率调度。现代内核可以配合 <code>fq</code> qdisc 做 pacing，或退回 TCP 内部的高精度定时器 pacing，但这些是外部机制；CUBIC 算法核心的节奏仍是"事件驱动"。这也是它和 BBR 最根本的差别。</p>
+<h2 id="2-2-chuang-kou-ru-he-zeng-chang">2.2 窗口如何增长</h2>
+<p>CUBIC 的窗口曲线是一条凹-凸三次曲线，按时间分两段：</p>
+<ul>
+<li><strong>凹区（<code>cwnd &lt; W_max</code>）</strong>：低于上次拥塞前的窗口，增长较快，目标是把窗口迅速恢复到接近 <code>W_max</code>。</li>
+<li><strong>凸区（<code>cwnd &gt; W_max</code>）</strong>：超过旧上限后，增速放缓，小心试探新的带宽上限。</li>
+</ul>
+<p>核心公式：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">W_cubic(t) = C * (t - K)^3 + W_max
+</code></pre>
+<ul>
+<li><code>t</code>：距上次拥塞事件的时间</li>
+<li><code>W_max</code>：上次拥塞前的窗口</li>
+<li><code>C</code>：常数，论文取 0.4</li>
+<li><code>K</code>：从当前窗口增长回 <code>W_max</code> 所需的时间</li>
+</ul>
+<p>每收到一个 ACK，CUBIC 用公式算出当前的目标窗口 <code>W_cubic(t)</code>，再决定本次该给 <code>cwnd</code> 加多少。</p>
+<p>Linux 实现里并不直接照抄浮点公式，而是用定点数（<code>BICTCP_HZ = 10</code>）预计算 <code>cube_factor</code> / <code>cube_rtt_scale</code>：论文里的 <code>C</code> 被拆成 <code>c = bic_scale / 1024 ≈ 0.04</code>，再除以 100 ms 的参考 RTT，得到 <code>c/rtt ≈ 0.4/s</code>。真正决定"每个 ACK 涨多少"的是 <code>ca-&gt;cnt</code>：目标窗口与当前窗口差得越多，<code>cnt</code> 越小，增长越快。</p>
+<p>另外 Linux 还做了两件补丁：</p>
+<ul>
+<li><strong>TCP friendliness</strong>：维护一条 Reno 基准曲线，CUBIC 增长慢于 Reno 时抬到 Reno 的速率，避免高 RTT 链路上饿死 Reno 流。</li>
+<li><strong>HyStart</strong>：慢启动阶段用 ACK train / 延迟上升来提前退出，减少启动期丢包。</li>
+</ul>
+<h2 id="2-3-rtt-shi-ce-chu-lai-de-ma">2.3 RTT 是测出来的吗？</h2>
+<p><strong>是，而且一直在变。</strong> 每收到一个有效 ACK，内核用"当前时间 − 该数据段发送时间"得到一个 RTT 样本，交给 <code>tcp_ack_update_rtt()</code> 更新平滑值 <code>srtt_us</code>。没有有效样本时内部会用 <code>-1</code> 之类的哨兵值表示"本次不算"，这个哨兵不会被当成 RTT 传给拥塞控制。</p>
+<p>但要注意 CUBIC 对 RTT 的使用方式：</p>
+<ul>
+<li>理论上，<code>W_cubic(t)</code> 的 <code>t</code> 是墙钟时间，公式本身不需要 RTT。</li>
+<li>实际上窗口增长按 ACK 触发，要把"每秒涨多少"折算成"每个 ACK 涨多少"，就必须知道每秒有多少个 ACK，也就是 <code>cwnd / RTT</code>。RTT 变了，同样的 <code>cnt</code> 对应的实际增速也会变。</li>
+<li>Linux 实现还额外把<strong>最小 RTT</strong>（<code>ca-&gt;delay_min</code>）加到时间轴上（<code>t += delay_min</code>），也就是说曲线并非从 <code>t=0</code> 起算，而是从 <code>t = delay_min</code> 处起算；<code>K</code> 则在每次拥塞事件开启新 epoch 时重算一次，而不是每个 ACK 重算。</li>
+</ul>
+<p>所以准确说法是：<strong>CUBIC 的曲线是时间函数，但落地到 ACK 时钟时依赖 RTT 估计；RTT 由 ACK 驱动持续测量并平滑。</strong></p>
+<h2 id="2-4-k-zhi-zen-me-lai">2.4 K 值怎么来</h2>
+<p><code>K</code> 不是测量值，是从公式反推的。</p>
+<p>拥塞事件后窗口被乘性减小到 <code>cwnd_start</code>（近似 <code>W_max * β</code>，β≈0.7）。令 <code>t = 0</code> 时 <code>W_cubic(0) = cwnd_start</code>：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">cwnd_start = C * (0 - K)^3 + W_max
+</code></pre>
+<p>解得：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">K = ∛((W_max - cwnd_start) &#x2F; C)
+</code></pre>
+<p>Linux 的 <code>bictcp_update()</code> 里对应：</p>
+<pre data-lang="c" class="language-c "><code class="language-c" data-lang="c">if (ca-&gt;last_max_cwnd &lt;= cwnd) {
+        ca-&gt;bic_K = 0;
+        ca-&gt;bic_origin_point = cwnd;
+} else {
+        ca-&gt;bic_K = cubic_root(cube_factor
+                               * (ca-&gt;last_max_cwnd - cwnd));
+        ca-&gt;bic_origin_point = ca-&gt;last_max_cwnd;
+}
+</code></pre>
+<p>几个特殊情形：</p>
+<ul>
+<li>当前窗口已经不低于 <code>W_max</code>（例如超时后重置、或新流首次进入拥塞避免），<code>K</code> 直接为 0。</li>
+<li>开启 <strong>Fast Convergence</strong> 时，如果本次 <code>cwnd &lt; last_max_cwnd</code>，会先把 <code>W_max</code> 压低到 <code>cwnd * (1+β)/2</code>，给新流让出空间；<code>K</code> 用压低后的 <code>W_max</code> 计算。</li>
+<li>超时后的第一次拥塞避免走 <code>bictcp_reset()</code> 路径，<code>last_max_cwnd</code> 和 epoch 清零，相当于重新起一条曲线。</li>
+</ul>
+<h2 id="2-5-diu-bao-xiang-ying">2.5 丢包响应</h2>
+<p>检测到丢包（重复 ACK / RACK 判定）后，CUBIC 做乘性减小：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">cwnd = cwnd * β
+</code></pre>
+<p>Linux 默认 <code>beta = 717/1024 ≈ 0.7</code>，比 Reno 的 0.5 温和。之后窗口从降低后的值重新沿三次曲线爬向新的 <code>W_max</code>。所以 CUBIC 的吞吐曲线在瓶颈队列里通常呈锯齿状，对缓冲区深度很敏感。</p>
+<h1 id="san-bbr-pacing-zhu-dao-bdp-chuang-kou">三、BBR：Pacing 主导 + BDP 窗口</h1>
+<p>BBR 抛开了"丢包即拥塞"的假设。它维护两个模型量：</p>
+<ul>
+<li><code>BtlBw</code>：瓶颈带宽，取最近约 10 个 RTT 内交付速率的最大值（窗口化最大值，滤掉测量噪声）</li>
+<li><code>RTprop</code>：最小 RTT，取最近 10 秒内的最小值（窗口化最小值，只在 ProbeRTT 时刷新）</li>
+</ul>
+<p>然后：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">pacing_rate = pacing_gain * BtlBw
+BDP         = BtlBw * RTprop
+cwnd        ≈ cwnd_gain * BDP
+</code></pre>
+<h2 id="3-1-fa-bao-shi-xu-pacing">3.1 发包时序：Pacing</h2>
+<p>BBR 的核心是 pacing：估算出 <code>BtlBw</code> 后，按 <code>pacing_gain * BtlBw</code> 的速率把包均匀撒出去，而不是等 ACK 攒够一批再突发。</p>
+<p>稳定态是 <strong>ProbeBW</strong>，一个 8 相的增益循环：</p>
+<ul>
+<li><strong>UP 相</strong>：<code>pacing_gain = 1.25</code>，比估计带宽多发 25%，试探还有没有余量。若瓶颈排队，RTT 会上升，但 BBR 不会立刻退让。</li>
+<li><strong>DOWN 相</strong>：<code>pacing_gain = 0.75</code>，把 UP 相可能攒出的队列排掉。</li>
+<li><strong>CRUISE 相</strong>：<code>pacing_gain = 1.0</code>，按估计带宽匀速发送。</li>
+</ul>
+<p>循环是 <code>1.25, 0.75, 1, 1, 1, 1, 1, 1</code>，每相约一个 RTT 量级，正好覆盖"挤压 → 放松 → 巡航"的完整探测周期。</p>
+<p>此外还有两个阶段：</p>
+<ul>
+<li><strong>STARTUP</strong>：<code>pacing_gain = 2/ln2 ≈ 2.885</code>，每个 RTT 翻倍，快速找到初始带宽。</li>
+<li><strong>DRAIN</strong>：增益取 <code>1/2.885 ≈ 0.35</code>，把 STARTUP 期间积攒的队列排空。</li>
+</ul>
+<h2 id="3-2-chuang-kou-ru-he-ji-suan">3.2 窗口如何计算</h2>
+<p>BBR 不主动"撑大"窗口，<code>cwnd</code> 是防止在途数据超过 BDP 的保险丝：</p>
+<pre data-lang="text" class="language-text "><code class="language-text" data-lang="text">cwnd = max(cwnd_gain * BtlBw * RTprop, 4)
+</code></pre>
+<p>Linux 里 <code>bbr_cwnd_gain = 2</code>，<code>bbr_cwnd_min_target = 4</code> 个包。乘以 2 是为了容忍 ACK 聚合、延迟 ACK 和突发，而不是为了增长。</p>
+<p>真正会主动压窗口的是 <strong>ProbeRTT</strong>：如果连续 10 秒没有采到更小的 RTT，BBR 进入 ProbeRTT，把 <code>cwnd</code> 压到 4 个包并至少保持 200 ms，排空瓶颈队列以测到真实的 <code>RTprop</code>，然后恢复。这对应源码里的 <code>bbr_probe_rtt_mode_ms = 200</code>、<code>bbr_min_rtt_win_sec = 10</code>、<code>bbr_cwnd_min_target = 4</code>。</p>
+<h2 id="3-3-diu-bao-he-ecn-zen-me-chu-li">3.3 丢包和 ECN 怎么处理</h2>
+<p>BBRv1 的带宽模型不看丢包，也不看 ECN：</p>
+<ul>
+<li>丢包不会让 <code>pacing_rate</code> 直接下降；它可能短暂影响 cwnd，BBR 在恢复后会把 <code>prev_cwnd</code> 还原。</li>
+<li>ECN 的 CE 标记只走 TCP 通用的 cwnd 减小流程，不会改变 BBR 的 <code>BtlBw</code> 估计。</li>
+<li>真正的降速来自 ProbeBW 的 DOWN 相和 ProbeRTT 的排空。</li>
+</ul>
+<p>这是 BBRv1 的取舍：在浅缓冲、有随机丢包的链路上吞吐稳，但在深缓冲队列里可能占队过多、对丢包流不公平。BBRv2/v3 才引入丢包率、ECN 和更明确的公平性机制（主线内核目前仍是 BBRv1 实现）。</p>
+<h1 id="si-shi-ji-biao-xian">四、实际表现</h1>
+<ul>
+<li><strong>CUBIC</strong>：平时按三次函数缓慢加窗，撞上丢包砍一刀再爬回来。吞吐呈锯齿状，受 buffer 深度影响大；RTT 越短、丢包越少，恢复越快。</li>
+<li><strong>BBR</strong>：以 ProbeBW 循环持续采样带宽，窗口只做上限。随机丢包下吞吐更稳，排队延迟通常更低；代价是 ProbeRTT 的周期性排空会带来轻微吞吐抖动，多流共存时公平性不如 CUBIC。</li>
+</ul>
+<p>选择上：</p>
+<ul>
+<li>跨境、无线、有随机丢包的链路 → BBR 通常更稳</li>
+<li>同机房、低延迟、多流公平性优先 → CUBIC 仍然合适</li>
+<li>开了 BBR 但 qdisc 是 <code>fq_codel</code>，建议换成 <code>fq</code>，让 pacing 走 qdisc 而不是每个 socket 一个高精度定时器</li>
+</ul>
+<p>验证当前连接用的是哪种算法、窗口和 pacing 状态：</p>
+<pre data-lang="bash" class="language-bash "><code class="language-bash" data-lang="bash">sysctl net.ipv4.tcp_congestion_control net.core.default_qdisc
+ss -ti dst :443
+# BBR 连接会额外显示 bbr:(bw,rtt,pacing_rate)，以及 cwnd&#x2F;rtt
+</code></pre>
+<h1 id="wu-yao-dian-su-cha">五、要点速查</h1>
+<table><thead><tr><th>问题</th><th>CUBIC</th><th>BBR</th></tr></thead><tbody>
+<tr><td>RTT 是否固定</td><td>否，从 ACK 测量并平滑，动态变化</td><td>维护 <code>RTprop</code>（最小 RTT）与 <code>BtlBw</code> 两个模型量</td></tr>
+<tr><td>窗口如何增长</td><td>按 <code>W_cubic(t)=C(t-K)^3+W_max</code> 计算目标</td><td>不主动增长，<code>cwnd ≈ cwnd_gain * BDP</code> 作上限</td></tr>
+<tr><td>K 如何得到</td><td><code>K = ∛((W_max - cwnd_start)/C)</code> 反推</td><td>无此概念</td></tr>
+<tr><td>丢包如何响应</td><td>乘法减小 <code>cwnd * β</code>（β≈0.7）</td><td>不直接改带宽估计，靠 ProbeRTT 周期性排空</td></tr>
+<tr><td>发包节奏由谁决定</td><td>ACK 时钟（事件驱动），pacing 可选</td><td>Pacing（时间驱动，<code>pacing_gain * BtlBw</code>）</td></tr>
+<tr><td>周期性行为</td><td>无（只有丢包触发）</td><td>ProbeBW 8 相循环 + 约每 10 秒一次 ProbeRTT</td></tr>
+</tbody></table>
+<h1 id="liu-yuan-ma-wei-zhi">六、源码位置</h1>
+<p>想对照实现，直接看这两个文件：</p>
+<ul>
+<li><code>net/ipv4/tcp_cubic.c</code>
+<ul>
+<li><code>bictcp_update()</code>：三次曲线目标窗口与 <code>ca-&gt;cnt</code></li>
+<li><code>cubictcp_cong_avoid()</code>：按 ACK 推进 cwnd</li>
+<li><code>cubictcp_recalc_ssthresh()</code>：乘性减小、Fast Convergence、<code>W_max</code> 更新</li>
+<li><code>cubictcp_state()</code>：超时/恢复状态切换时重置曲线</li>
+</ul>
+</li>
+<li><code>net/ipv4/tcp_bbr.c</code>
+<ul>
+<li><code>bbr_update_bw()</code>：更新 <code>BtlBw</code></li>
+<li><code>bbr_set_pacing_rate()</code>：<code>pacing_gain * BtlBw</code></li>
+<li><code>bbr_set_cwnd()</code>：<code>cwnd_gain * BDP</code> 上限</li>
+<li><code>bbr_update_cycle_phase()</code>：ProbeBW 的 8 相循环</li>
+<li><code>bbr_check_probe_rtt_done()</code>：ProbeRTT 退出条件</li>
+</ul>
+</li>
+</ul>
+<p>参数速记：<code>CYCLE_LEN = 8</code>、<code>bbr_cwnd_gain = 2</code>、<code>bbr_probe_rtt_mode_ms = 200</code>、<code>bbr_min_rtt_win_sec = 10</code>、<code>bbr_cwnd_min_target = 4</code>。</p>
+<h1 id="can-kao">参考</h1>
+<ul>
+<li><a rel="noopener" target="_blank" href="https://queue.acm.org/detail.cfm?id=3022184">BBR: Congestion-Based Congestion Control</a></li>
+<li><a rel="noopener" target="_blank" href="https://doi.org/10.1145/1400097.1400105">CUBIC: A New TCP-Friendly High-Speed TCP Variant</a></li>
+<li><a rel="noopener" target="_blank" href="https://www.kernel.org/doc/html/latest/networking/ip-sysctl.html">Linux Kernel Documentation: IP Sysctl</a></li>
+<li><a href="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/">Linux TCP 内核参数解析</a></li>
+<li><a href="https://blog.juzhong.asia/2026/08/learn/bbr-speedup-test/">开启 TCP BBR 实测：代理隧道发送端才有收益</a></li>
+</ul>
+
+      <nav>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/pll-cdr-clock-recovery/">&#8249; 锁相环（PLL）与时钟数据恢复（CDR）原理详解</a>
+        </div>
+        <div>
+          <a href="https://blog.juzhong.asia/2026/11/linux-tcp-kernel-params/"> Linux TCP 内核参数解析：BBR、ECN 与缓冲区调优 &#8250;</a>
+        </div>
+      </nav>
+    </article>
+
+    <div class="sblock">
+      <div class="blockdiv sticky">
+        <a class="b s150" href="#">索引</a>
+        <div>
+          <a href="#yi-zong-lan">一、总览</a>
+        </div>
+        <div>
+          <a href="#er-cubic-ack-shi-zhong-yu-san-ci-han-shu">二、CUBIC：ACK 时钟与三次函数</a>
+        </div>
+        <div class="hpad">
+          <a href="#2-1-fa-bao-shi-xu"><small>- 2.1 发包时序</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-2-chuang-kou-ru-he-zeng-chang"><small>- 2.2 窗口如何增长</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-3-rtt-shi-ce-chu-lai-de-ma"><small>- 2.3 RTT 是测出来的吗？</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-4-k-zhi-zen-me-lai"><small>- 2.4 K 值怎么来</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#2-5-diu-bao-xiang-ying"><small>- 2.5 丢包响应</small></a>
+        </div>
+        <div>
+          <a href="#san-bbr-pacing-zhu-dao-bdp-chuang-kou">三、BBR：Pacing 主导 + BDP 窗口</a>
+        </div>
+        <div class="hpad">
+          <a href="#3-1-fa-bao-shi-xu-pacing"><small>- 3.1 发包时序：Pacing</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-2-chuang-kou-ru-he-ji-suan"><small>- 3.2 窗口如何计算</small></a>
+        </div>
+        <div class="hpad">
+          <a href="#3-3-diu-bao-he-ecn-zen-me-chu-li"><small>- 3.3 丢包和 ECN 怎么处理</small></a>
+        </div>
+        <div>
+          <a href="#si-shi-ji-biao-xian">四、实际表现</a>
+        </div>
+        <div>
+          <a href="#wu-yao-dian-su-cha">五、要点速查</a>
+        </div>
+        <div>
+          <a href="#liu-yuan-ma-wei-zhi">六、源码位置</a>
+        </div>
+        <div>
+          <a href="#can-kao">参考</a>
+        </div>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="c">
+      <nav class="tpad"><div></div></nav>
+      <p> &copy; <span id="year">2026</span> 墨雪天琊</p>
+      <p>Powered by <a href="https://www.getzola.org/" target="_blank">Zola</a> & <a href="https://github.com/jieiku/abridge/" target="_blank">Abridge</a></p>
+    </div>
+  </footer><span class="topout">
+<span class="topleft"> </span><a href="#" class="top" title="Back to Top"><i class="svgs svgh angu"></i></a>
+</span>
+</body>
+</html>

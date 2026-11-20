@@ -1,0 +1,667 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">
+    <title>墨雪天琊 - proxy</title>
+    <subtitle>墨雪天琊的技术博客</subtitle>
+    <link rel="self" type="application/atom+xml" href="https://blog.juzhong.asia/tags/proxy/atom.xml"/>
+    <link rel="alternate" type="text/html" href="https://blog.juzhong.asia"/>
+    <generator uri="https://www.getzola.org/">Zola</generator>
+    <updated>2026-10-17T00:00:00+08:00</updated>
+    <id>https://blog.juzhong.asia/tags/proxy/atom.xml</id>
+    <entry xml:lang="en">
+        <title>彻底搞懂：UDP Bind&#x2F;Connect 底层语义与 QUIC 如何解决 UDP 代理痛点</title>
+        <published>2026-10-17T00:00:00+08:00</published>
+        <updated>2026-10-17T00:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2026/10/udp-bind-connect-quic-datagram/"/>
+        <id>https://blog.juzhong.asia/2026/10/udp-bind-connect-quic-datagram/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2026/10/udp-bind-connect-quic-datagram/">&lt;h2 id=&quot;qian-yan&quot;&gt;前言&lt;&#x2F;h2&gt;
+&lt;p&gt;做网络代理、游戏穿透、UDP 隧道、实时音视频的同学，几乎都会遇到一组经典困惑：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;UDP 明明是无连接协议，为什么还存在 &lt;code&gt;bind()&lt;&#x2F;code&gt;、&lt;code&gt;connect()&lt;&#x2F;code&gt;？调用和不调用到底差在哪？&lt;&#x2F;li&gt;
+&lt;li&gt;原生 UDP 做代理抖动、丢包、会话断裂问题极多，TCP&#x2F;QUIC 封装 UDP 反而更慢？&lt;&#x2F;li&gt;
+&lt;li&gt;QUIC 基于 UDP 实现，到底&lt;strong&gt;解决了原生 UDP 的哪些天生缺陷&lt;&#x2F;strong&gt;？&lt;&#x2F;li&gt;
+&lt;li&gt;服务端靠五元组管理流量，和 QUIC ConnectionID 会话管理有什么本质区别？&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;本文结合 Socket 内核机制、QUIC 协议底层设计与真实 UDP 代理工程的踩坑经验，一次性讲透所有底层逻辑，适合收藏复盘、面试复盘。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yi-xian-jiu-zheng-he-xin-wu-qu-udp-wu-lian-jie-wu-nei-he-zhuang-tai&quot;&gt;一、先纠正核心误区：UDP 无连接 ≠ 无内核状态&lt;&#x2F;h2&gt;
+&lt;p&gt;很多人最大的错误认知：&lt;&#x2F;p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;UDP 无连接，所以 socket 没有任何状态，bind&#x2F;connect 都是多余的。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;正确结论：&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;UDP 是&lt;strong&gt;协议层面无连接（无握手、无状态传输、不保证可靠）&lt;&#x2F;strong&gt;，
+但&lt;strong&gt;操作系统 Socket 层面可以缓存状态（本地端口、远端地址过滤）&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;code&gt;bind()&lt;&#x2F;code&gt;、&lt;code&gt;connect()&lt;&#x2F;code&gt; 都是&lt;strong&gt;纯本地内核行为，不会发送任何网络报文&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;er-udp-bind-bang-ding-ben-di-duan-dian-jue-ding-zen-me-shou-bao-yong-na-ge-duan-kou-fa-bao&quot;&gt;二、UDP bind()：绑定本地端点，决定「怎么收包、用哪个端口发包」&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-diao-yong-bind&quot;&gt;1. 调用 bind()&lt;&#x2F;h3&gt;
+&lt;p&gt;将 socket &lt;strong&gt;固定绑定到本地 IP:端口&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;核心能力：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;固定本地出口端口&lt;&#x2F;strong&gt;，不会被内核随机分配；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;具备被动收包能力&lt;&#x2F;strong&gt;：只有绑定了明确端口，内核才会把外网入站 UDP 报文交付给当前 socket；&lt;&#x2F;li&gt;
+&lt;li&gt;服务端必备：所有 UDP 服务端（DNS、游戏服务、隧道服务端）&lt;strong&gt;必须 bind 固定端口&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;适用场景：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;UDP 服务端监听端口；&lt;&#x2F;li&gt;
+&lt;li&gt;需要固定本地源端口的客户端。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;2-bu-diao-yong-bind&quot;&gt;2. 不调用 bind()&lt;&#x2F;h3&gt;
+&lt;p&gt;socket 创建后直接 &lt;code&gt;sendto()&lt;&#x2F;code&gt;。&lt;&#x2F;p&gt;
+&lt;p&gt;内核行为：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;第一次发包时，内核自动隐式 bind 随机端口&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;全程使用同一个随机端口通信；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;无法被动收包&lt;&#x2F;strong&gt;（无固定监听端口，外网无法主动发包进来）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;适用场景：绝大多数普通 UDP 客户端。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;bind-he-xin-zong-jie&quot;&gt;Bind 核心总结&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;只收不发 → &lt;strong&gt;必须 bind&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;主动发包客户端 → 可不用 bind；&lt;&#x2F;li&gt;
+&lt;li&gt;服务端流量五元组管理、端口监听 → &lt;strong&gt;依赖 bind 实现&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;san-udp-connect-suo-ding-yuan-duan-di-zhi-nei-he-ceng-mian-wei-lian-jie&quot;&gt;三、UDP connect()：锁定远端地址，内核层面「伪连接」&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;guan-jian-zhen-li&quot;&gt;关键真理&lt;&#x2F;h3&gt;
+&lt;p&gt;&lt;strong&gt;UDP connect() 不握手、不建连、不改变 UDP 无连接、不可靠的本质！&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;p&gt;它仅仅是：&lt;strong&gt;在内核 socket 结构体中，缓存一个固定的远端 IP:Port&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;diao-yong-connect-dai-lai-3-da-bian-hua&quot;&gt;调用 connect() 带来 3 大变化&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;API 简化&lt;&#x2F;strong&gt;：可以使用 &lt;code&gt;send()&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;recv()&lt;&#x2F;code&gt;，不再强制用 &lt;code&gt;sendto&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;recvfrom&lt;&#x2F;code&gt;，默认发给已绑定的远端。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;内核自动过滤报文&lt;&#x2F;strong&gt;：socket &lt;strong&gt;只接收已 connect 对端发来的报文&lt;&#x2F;strong&gt;，其他 IP&#x2F;端口的 UDP 包直接被内核丢弃。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;禁止随意切换目标&lt;&#x2F;strong&gt;：connect 后的 socket，再次调用 &lt;code&gt;sendto&lt;&#x2F;code&gt; 指定其他地址，会直接报 &lt;code&gt;EISCONN&lt;&#x2F;code&gt; 错误。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;bu-diao-yong-connect&quot;&gt;不调用 connect()&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;只能使用 &lt;code&gt;sendto&lt;&#x2F;code&gt;&#x2F;&lt;code&gt;recvfrom&lt;&#x2F;code&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;单 socket 可以&lt;strong&gt;自由和任意多个远端 IP 通信&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;内核不过滤报文，所有匹配本地端口的入包都会交付应用层。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h3 id=&quot;connect-he-xin-chang-jing&quot;&gt;Connect 核心场景&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;一对一固定通信的 UDP 客户端；&lt;&#x2F;li&gt;
+&lt;li&gt;简化代码逻辑，不需要每次填充远端地址。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;&lt;strong&gt;绝对不会改变：UDP 丢包、乱序、不可靠的传输特性。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;si-si-chong-udp-socket-zu-he-mo-shi-gong-cheng-quan-fu-gai&quot;&gt;四、四种 UDP Socket 组合模式（工程全覆盖）&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;bind + 不 connect（标准 UDP 服务端）&lt;&#x2F;strong&gt;：固定本地端口，接收任意客户端，靠五元组区分会话，最通用。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;bind + connect（固定两端通信）&lt;&#x2F;strong&gt;：本地端口固定、远端地址锁定，适合一对一专属隧道。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;不 bind + connect（极简 UDP 客户端）&lt;&#x2F;strong&gt;：内核随机本地端口，锁定单一远端，代码最简。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;不 bind + 不 connect&lt;&#x2F;strong&gt;：极少用，仅自由多目标发包场景。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;wu-yuan-sheng-udp-de-zhi-ming-que-xian-wei-shen-me-luo-udp-dai-li-nan-yong&quot;&gt;五、原生 UDP 的致命缺陷（为什么裸 UDP 代理难用）&lt;&#x2F;h2&gt;
+&lt;p&gt;理解完 Socket 机制，就能明白原生 UDP 做代理的所有痛点：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;无加密、明文传输&lt;&#x2F;strong&gt;，极易被嗅探、篡改、封禁；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;无连接标识&lt;&#x2F;strong&gt;，完全依赖**五元组（源 IP&#x2F;源端口&#x2F;目的 IP&#x2F;目的端口&#x2F;协议）**区分会话；&lt;&#x2F;li&gt;
+&lt;li&gt;NAT 刷新、网络重连后，客户端源端口改变 → &lt;strong&gt;旧会话直接断裂，识别为新用户&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;无拥塞控制、无重传机制&lt;&#x2F;strong&gt;：要么丢包不管，要么应用层自己实现；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;无报文完整性校验、无身份校验&lt;&#x2F;strong&gt;，极易被伪造 DDoS。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;这就是为什么：&lt;strong&gt;裸 UDP 跑得快，但极其不稳定、不安全、难运维&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;liu-quic-dao-di-jie-jue-liao-udp-de-na-xie-wen-ti&quot;&gt;六、QUIC 到底解决了 UDP 的哪些问题？&lt;&#x2F;h2&gt;
+&lt;p&gt;QUIC 完全基于 UDP 封装，&lt;strong&gt;保留 UDP 底层优势，补齐所有短板&lt;&#x2F;strong&gt;，是目前 UDP 代理最优解。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-che-di-tuo-chi-wu-yuan-zu-hui-hua-bang-ding&quot;&gt;1. 彻底脱离「五元组会话绑定」&lt;&#x2F;h3&gt;
+&lt;p&gt;QUIC 核心：&lt;strong&gt;用 ConnectionID 代替五元组作为唯一会话标识&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;客户端切换 Wi-Fi&#x2F;4G、NAT 重映射、端口变化；&lt;&#x2F;li&gt;
+&lt;li&gt;只要 ConnectionID 不变，&lt;strong&gt;连接永不中断&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;解决了原生 UDP 最大痛点：&lt;strong&gt;网络抖动即断会话&lt;&#x2F;strong&gt;。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;2-nei-zhi-tls-1-3-jia-mi-yu-shen-fen-xiao-yan&quot;&gt;2. 内置 TLS 1.3 加密与身份校验&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;全程密文传输，防嗅探、防篡改、防伪造包；&lt;&#x2F;li&gt;
+&lt;li&gt;握手即完成鉴权，无需额外加密层；&lt;&#x2F;li&gt;
+&lt;li&gt;彻底解决裸 UDP 不安全问题。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-shuang-mo-shi-chuan-shu-jian-rong-ke-kao-yuan-sheng-udp-bu-ke-kao-yu-yi&quot;&gt;3. 双模式传输：兼容可靠 + 原生 UDP 不可靠语义&lt;&#x2F;h3&gt;
+&lt;p&gt;QUIC 提供两种帧模式，完美适配所有场景：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Stream 帧（可靠有序）&lt;&#x2F;strong&gt;：带重传、拥塞控制、流控，替代 TCP，解决 TCP 队头阻塞；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Datagram 帧（RFC 9221，不可靠）&lt;&#x2F;strong&gt;：&lt;strong&gt;不重传、不排队、无序交付&lt;&#x2F;strong&gt;，&lt;strong&gt;100% 等价原生 UDP 语义&lt;&#x2F;strong&gt;，同时带加密和连接管理。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;行业最大的坑：大量 QUIC 代理错误地使用 Stream 转发 UDP，导致延迟暴涨、速率暴跌，和 TCP 通病一致。
+&lt;strong&gt;正确的实时 UDP 代理：必须用 QUIC Datagram 帧。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;4-duo-lu-fu-yong-che-di-xiao-mie-tcp-dui-tou-zu-sai&quot;&gt;4. 多路复用，彻底消灭 TCP 队头阻塞&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;单 QUIC 连接多独立流，A 流丢包不影响 B 流；&lt;&#x2F;li&gt;
+&lt;li&gt;比 TCP、原生 UDP 隧道稳定性碾压式领先。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;5-zi-dai-yong-sai-kong-zhi-yan-chi-you-hua&quot;&gt;5. 自带拥塞控制、延迟优化&lt;&#x2F;h3&gt;
+&lt;p&gt;原生 UDP 无任何调控能力，容易缓冲区打满、突发丢包；QUIC 内置现代化 CC 算法，兼顾延迟与带宽。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;qi-quic-nei-bu-shi-fou-shi-yong-bind-connect&quot;&gt;七、QUIC 内部是否使用 Bind&#x2F;Connect？&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;Bind&#x2F;Connect 是操作系统 Socket API，和 QUIC 协议本身无关。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;QUIC 服务端&lt;&#x2F;strong&gt;：必然 &lt;code&gt;bind()&lt;&#x2F;code&gt; 固定 UDP 端口，监听全网报文，和普通 UDP 服务端一致。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;QUIC 客户端&lt;&#x2F;strong&gt;：两种实现——
+&lt;ul&gt;
+&lt;li&gt;简单实现：UDP socket &lt;code&gt;connect()&lt;&#x2F;code&gt; 锁定服务端地址，简化编码；&lt;&#x2F;li&gt;
+&lt;li&gt;高级实现：不 connect，支持多地址迁移、网络漫游。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;&lt;strong&gt;QUIC 的连接状态是用户态协议层实现，不是内核 Socket 状态。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;ba-fu-wu-duan-liu-liang-guan-li-wu-yuan-zu-vs-quic-connectionid&quot;&gt;八、服务端流量管理：五元组 VS QUIC ConnectionID&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;1-chuan-tong-udp-chun-wu-yuan-zu-guan-li&quot;&gt;1. 传统 UDP：纯五元组管理&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;优点：简单、内核原生支持、无需应用层维护状态；&lt;&#x2F;li&gt;
+&lt;li&gt;致命缺点：NAT 端口变化 → 会话丢失，限流&#x2F;统计&#x2F;鉴权全部错乱。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;2-quic-shuang-ceng-liu-liang-guan-li-gong-cheng-zui-you-fang-an&quot;&gt;2. QUIC 双层流量管理（工程最优方案）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;底层：五元组&lt;&#x2F;strong&gt;——负责 IP 封禁、IP 并发限制、基础风控；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;上层：ConnectionID&lt;&#x2F;strong&gt;——负责真实用户会话、单隧道限流、连接统计、时长计费。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;核心优势：&lt;strong&gt;物理网络变了，用户会话不变&lt;&#x2F;strong&gt;。完美解决游戏、长连接隧道、实时通信的稳定性问题。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;jiu-udp-dai-li-zhong-ji-gong-cheng-xuan-xing-jie-lun&quot;&gt;九、UDP 代理终极工程选型结论&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;UDP over TCP&lt;&#x2F;strong&gt;：致命缺陷是队头阻塞、强制重传、拥塞降窗。❌ 彻底不推荐用于实时 UDP 业务。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;QUIC Stream 模式转发 UDP&lt;&#x2F;strong&gt;：复刻 TCP 所有问题，抖动环境性能崩坏。❌ 错误用法。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;裸 UDP 隧道&lt;&#x2F;strong&gt;：无加密、会话不稳定、不安全。⚠️ 仅内网使用。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;QUIC Datagram 模式（RFC 9221）&lt;&#x2F;strong&gt;：✅ 原生 UDP 语义、无重传、无队头阻塞；✅ 自带 TLS 加密、连接漫游、稳定会话。游戏、实时音视频、UDP 隧道&lt;strong&gt;行业最优标准方案&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-socks5-jie-ru-vs-yuan-sheng-udp-duan-kou-jie-ru&quot;&gt;十、SOCKS5 接入 VS 原生 UDP 端口接入&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;通用代理（Clash&#x2F;Xray）&lt;&#x2F;strong&gt;：默认 SOCKS5 UDP_ASSOCIATE 接入。适配所有 APP，通用性强，带少量包头开销。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;专业低延迟 UDP 隧道（quic-tunnel&#x2F;udp2raw）&lt;&#x2F;strong&gt;：默认&lt;strong&gt;原生 UDP 端口接入&lt;&#x2F;strong&gt;。无多余封装、零开销、延迟最低；缺点是需要前置程序承载「目标地址解析」，否则无法代理普通 APP 流量。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-yi-ge-lei-udp-dai-li-fang-an-xiang-xi-chai-jie-quic-tunnel-udp2raw-tun2socks&quot;&gt;十一、各类 UDP 代理方案详细拆解（quic-tunnel &#x2F; udp2raw &#x2F; tun2socks）&lt;&#x2F;h2&gt;
+&lt;p&gt;前置要点——UDP 代理的核心矛盾：UDP 本身&lt;strong&gt;无连接、每个报文自带目的地址&lt;&#x2F;strong&gt;。做 UDP 代理，本质是两件事：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;获取客户端每个 UDP 报文的&lt;strong&gt;最终目标五元组&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;通过隧道链路把报文送到远端网关，网关再向外发包。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;p&gt;一旦封装方式选错，就会引入重传、队头阻塞，实时流量延迟飙升。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;1-liang-lei-ru-kou-fang-shi-socks5-udp-associate-ben-di-udp-duan-kou-jian-ting&quot;&gt;1. 两类入口方式：SOCKS5 UDP_ASSOCIATE ｜ 本地 UDP 端口监听&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;1-socks5-udp-associate-mo-shi&quot;&gt;（1）SOCKS5 UDP_ASSOCIATE 模式&lt;&#x2F;h4&gt;
+&lt;p&gt;适用：通用代理客户端（Xray、Clash 等）。流程：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;应用发起 UDP 请求 → 代理客户端和 SOCKS 服务先建立 TCP 控制连接；&lt;&#x2F;li&gt;
+&lt;li&gt;发送 &lt;code&gt;UDP_ASSOCIATE&lt;&#x2F;code&gt; 指令，告知 SOCKS 服务：我要转发 UDP；&lt;&#x2F;li&gt;
+&lt;li&gt;SOCKS 服务返回一个 UDP 监听端口；后续所有应用 UDP 数据，封装 &lt;strong&gt;SOCKS5 UDP 包头（包含目标 IP:端口）&lt;&#x2F;strong&gt;，发给这个端口；&lt;&#x2F;li&gt;
+&lt;li&gt;代理拿到包头里的目标地址，再送入隧道。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;ul&gt;
+&lt;li&gt;✅ 优点：通用性极强，绝大多数应用无需改造，开箱即用。&lt;&#x2F;li&gt;
+&lt;li&gt;❌ 缺点：每个 UDP 包额外增加 SOCKS 包头，有少量额外开销；需要维持 TCP 控制通道，TCP 通道断了，UDP 代理直接失效。&lt;&#x2F;li&gt;
+&lt;li&gt;适用场景：科学代理，应用层统一接管流量。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;2-ben-di-udp-duan-kou-jian-ting-zhuan-ye-sui-dao-gong-ju-mo-ren-fang-an-quic-tunnel-udp2raw&quot;&gt;（2）本地 UDP 端口监听（专业隧道工具默认方案：quic-tunnel、udp2raw）&lt;&#x2F;h4&gt;
+&lt;p&gt;这类隧道&lt;strong&gt;默认不带 SOCKS5&lt;&#x2F;strong&gt;。原理：程序监听本机一个 UDP 端口，客户端应用把 UDP 包发到这个本地端口。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;关键：UDP 载荷内部必须携带目标地址信息。&lt;&#x2F;strong&gt;&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;
+&lt;p&gt;如果应用直接发包过来，不带目标地址 → 隧道不知道往哪里转发，无法工作；&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;所以这种模式一般搭配两种上层方案：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;tun2socks&lt;&#x2F;strong&gt;：创建 TUN 虚拟网卡，接管系统全部流量，tun2socks 从 IP 包中提取目的地址，再转发给隧道；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;专用客户端&lt;&#x2F;strong&gt;：客户端预先把目标 IP:port 写进 UDP 载荷，再发给隧道本地监听端口。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;✅ 优点：封装极简，开销最小，延迟最低；没有 SOCKS5 额外控制连接。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;❌ 缺点：无法直接对接普通应用，必须搭配 TUN 网卡或者专用客户端。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;blockquote&gt;
+&lt;p&gt;一句话区分：SOCKS5 包头自带目标地址，通用性强；原生 UDP 监听隧道裸包转发，追求极致低延迟，依赖上层提供目的地址。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h3 id=&quot;2-zhu-ge-dui-bi-sui-dao-shi-xian&quot;&gt;2. 逐个对比隧道实现&lt;&#x2F;h3&gt;
+&lt;h4 id=&quot;quic-tunnel-quictun&quot;&gt;① quic-tunnel（quictun）&lt;&#x2F;h4&gt;
+&lt;p&gt;底层：标准 &lt;code&gt;quic-go&lt;&#x2F;code&gt;，支持 RFC 9221 &lt;strong&gt;DATAGRAM 帧&lt;&#x2F;strong&gt;，两种工作模式：&lt;&#x2F;p&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;Datagram 模式（✅ 推荐 UDP 透传）&lt;&#x2F;strong&gt;：内部 UDP 报文映射 QUIC DATAGRAM 帧，&lt;strong&gt;不重传、不排序&lt;&#x2F;strong&gt;；QUIC 底层本身跑在 UDP 之上，内层 UDP 语义完整保留；加密由 QUIC TLS 1.3 完成；丢包不会阻塞后续报文，不会出现 TCP 式延迟暴涨。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;Stream 模式（❌ 禁止用于 UDP 实时流量）&lt;&#x2F;strong&gt;：UDP 包塞进 QUIC 可靠 Stream；Stream 自带重传、有序，一旦丢包，流会等待重传，出现&lt;strong&gt;和 TCP 一模一样的队头阻塞&lt;&#x2F;strong&gt;，抖动环境延迟雪崩。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;重要：quic-tunnel 默认&lt;strong&gt;不是 SOCKS5 入口&lt;&#x2F;strong&gt;；如果需要 SOCKS5，需要外挂一层 socks 服务。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h4 id=&quot;udp2raw&quot;&gt;② udp2raw&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;定位：裸 UDP 隧道封装工具，&lt;strong&gt;不是 QUIC&lt;&#x2F;strong&gt;，可把 UDP 包伪装成 TCP&#x2F;ICMP 报文，用来绕过 UDP 封锁；&lt;&#x2F;li&gt;
+&lt;li&gt;底层：没有 QUIC、没有内置 TLS；加密是自己实现的；&lt;&#x2F;li&gt;
+&lt;li&gt;会话识别：依赖五元组；&lt;&#x2F;li&gt;
+&lt;li&gt;⚠️ 短板：NAT 刷新、源端口变更 → 会话断开；没有 ConnectionID 漫游能力；&lt;&#x2F;li&gt;
+&lt;li&gt;适用场景：网络限制严格、UDP 容易被 QoS 封禁的环境；不适合网络频繁切换场景。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h4 id=&quot;tun2socks&quot;&gt;③ tun2socks&lt;&#x2F;h4&gt;
+&lt;ul&gt;
+&lt;li&gt;本身&lt;strong&gt;不是隧道&lt;&#x2F;strong&gt;，是流量转发中间件；&lt;&#x2F;li&gt;
+&lt;li&gt;工作方式：创建 TUN 虚拟网卡，捕获本机 IP 数据包，解析五元组，然后转发给后端（SOCKS5 或者 UDP 隧道）；&lt;&#x2F;li&gt;
+&lt;li&gt;常组合使用：&lt;code&gt;tun2socks + quic-tunnel&lt;&#x2F;code&gt;，实现全局系统 UDP 流量走 QUIC Datagram 隧道；&lt;&#x2F;li&gt;
+&lt;li&gt;优势：接管整机流量，不用逐个应用配置；&lt;&#x2F;li&gt;
+&lt;li&gt;代价：增加一层 IP 包解析，带来少量 CPU 开销。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;3-cuo-wu-udp-sui-dao-fang-an-cai-keng-hui-gu-zhong-dian-bi-keng&quot;&gt;3. 错误 UDP 隧道方案踩坑回顾（重点避坑）&lt;&#x2F;h3&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;UDP over TCP&lt;&#x2F;strong&gt;：把 UDP 报文放到 TCP 流里传输。TCP 强制重传、有序、拥塞控制，一旦链路丢包，TCP 等待重传，所有 UDP 报文卡住，游戏&#x2F;语音实时流量直接不可用。❌ 强烈不推荐实时 UDP。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;UDP over QUIC Stream&lt;&#x2F;strong&gt;：很多 QUIC 隧道新手容易踩的大坑：选用 Stream 可靠流承载 UDP。Stream 等价 TCP，有重传 + 有序，队头阻塞问题完全复刻 TCP。哪怕底层是 UDP 承载 QUIC，性能照样崩。❌ 实时 UDP 禁止使用 Stream。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;裸 UDP 隧道（无加密，只做包转发）&lt;&#x2F;strong&gt;：✅ 延迟最低；❌ 明文传输、五元组绑定会话，NAT 端口变化会话断裂，容易被检测、篡改。适合内网，公网慎用。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;正确方案：UDP over QUIC Datagram（RFC 9221）&lt;&#x2F;strong&gt;：保留 UDP 不可靠语义 + TLS 加密 + ConnectionID 会话漫游 + 无队头阻塞。✅&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h2 id=&quot;shi-er-udp-dai-li-gong-cheng-xuan-xing-dui-zhao-biao&quot;&gt;十二、UDP 代理工程选型对照表&lt;&#x2F;h2&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;方案&lt;&#x2F;th&gt;&lt;th&gt;承载方式&lt;&#x2F;th&gt;&lt;th&gt;会话标识&lt;&#x2F;th&gt;&lt;th&gt;是否重传&lt;&#x2F;th&gt;&lt;th&gt;优点&lt;&#x2F;th&gt;&lt;th&gt;致命缺点&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;UDP over TCP&lt;&#x2F;td&gt;&lt;td&gt;TCP 流&lt;&#x2F;td&gt;&lt;td&gt;五元组&lt;&#x2F;td&gt;&lt;td&gt;✅ 强制重传&lt;&#x2F;td&gt;&lt;td&gt;兼容性好&lt;&#x2F;td&gt;&lt;td&gt;队头阻塞，丢包延迟爆炸&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;UDP over QUIC Stream&lt;&#x2F;td&gt;&lt;td&gt;QUIC 可靠流&lt;&#x2F;td&gt;&lt;td&gt;Connection ID&lt;&#x2F;td&gt;&lt;td&gt;✅ 强制重传&lt;&#x2F;td&gt;&lt;td&gt;加密，多流复用&lt;&#x2F;td&gt;&lt;td&gt;依然存在队头阻塞，不适合实时 UDP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;裸 UDP 隧道（udp2raw）&lt;&#x2F;td&gt;&lt;td&gt;UDP&lt;&#x2F;td&gt;&lt;td&gt;五元组&lt;&#x2F;td&gt;&lt;td&gt;❌ 不重传&lt;&#x2F;td&gt;&lt;td&gt;低延迟，可伪装报文&lt;&#x2F;td&gt;&lt;td&gt;明文&#x2F;自研加密；NAT 端口变化会话断连&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;UDP over QUIC Datagram（RFC 9221）&lt;&#x2F;td&gt;&lt;td&gt;QUIC Datagram 帧&lt;&#x2F;td&gt;&lt;td&gt;Connection ID&lt;&#x2F;td&gt;&lt;td&gt;❌ 不重传&lt;&#x2F;td&gt;&lt;td&gt;原生 UDP 语义、TLS 加密、网络漫游、无队头阻塞&lt;&#x2F;td&gt;&lt;td&gt;协议实现门槛略高&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h2 id=&quot;shi-san-wu-yuan-zu-connectionid-de-gong-cheng-shi-jian-yao-dian&quot;&gt;十三、五元组&#x2F;ConnectionID 的工程实践要点&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;五元组&lt;&#x2F;strong&gt;：适合 IP 黑名单、IP 并发限制、IP QoS；&lt;strong&gt;不能单独作为用户会话标识&lt;&#x2F;strong&gt;，NAT 会改变源端口。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;ConnectionID（QUIC）&lt;&#x2F;strong&gt;：适合识别客户端隧道会话，单连接限速、会话时长统计；&lt;strong&gt;不能单独用来封禁 IP&lt;&#x2F;strong&gt;。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;blockquote&gt;
+&lt;p&gt;工程标准做法：双层管理——底层五元组做 IP 层风控，上层 ConnectionID 做隧道用户会话管理。&lt;&#x2F;p&gt;
+&lt;&#x2F;blockquote&gt;
+&lt;h2 id=&quot;shi-si-zui-zhong-zong-jie&quot;&gt;十四、最终总结&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;UDP &lt;code&gt;bind()&lt;&#x2F;code&gt; 管&lt;strong&gt;本地端口与收包能力&lt;&#x2F;strong&gt;，&lt;code&gt;connect()&lt;&#x2F;code&gt; 管&lt;strong&gt;内核远端地址过滤&lt;&#x2F;strong&gt;，均为纯本地行为，不会发出任何报文；&lt;&#x2F;li&gt;
+&lt;li&gt;原生 UDP 致命短板：无加密、无会话、依赖五元组、网络抖动即断连；&lt;&#x2F;li&gt;
+&lt;li&gt;QUIC 通过 ConnectionID + Datagram 帧，&lt;strong&gt;完美修复 UDP 所有缺陷，同时保留 UDP 高性能特性&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;做实时 UDP 代理：&lt;strong&gt;禁用 TCP、禁用 QUIC Stream，只使用 QUIC Datagram&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;SOCKS5 和原生 UDP 监听只是&lt;strong&gt;隧道的入口实现&lt;&#x2F;strong&gt;，不是隧道本身；专业隧道默认不用 SOCKS5，需要 TUN（tun2socks）或专用客户端提供目标地址；&lt;&#x2F;li&gt;
+&lt;li&gt;服务端流量管理：五元组做 IP 层风控，ConnectionID 做真实用户会话，双层架构最稳。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>NO_PROXY 漏了 0.0.0.0：opencode 只在一个 tmux 窗口启动失败的真凶</title>
+        <published>2026-10-09T16:20:00+08:00</published>
+        <updated>2026-10-09T16:20:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2026/10/opencode-noproxy-0000-port-conflict/"/>
+        <id>https://blog.juzhong.asia/2026/10/opencode-noproxy-0000-port-conflict/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2026/10/opencode-noproxy-0000-port-conflict/">&lt;h2 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h2&gt;
+&lt;p&gt;tmux index7 窗口里 &lt;code&gt;opencode -c&lt;&#x2F;code&gt; 启动失败：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;Starting background server...
+Error: Server process exited with code 1
+Error: Managed service port 4096 on 0.0.0.0 is already in use by another process.
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;strong&gt;其他窗口全部正常&lt;&#x2F;strong&gt;。daemon 明明活着（&lt;code&gt;&#x2F;api&#x2F;info&lt;&#x2F;code&gt; 1ms 应答 200），客户端却判定服务不存在，
+spawn 新进程撞端口。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;pai-cha-san-ceng-fan-zhuan&quot;&gt;排查：三层反转&lt;&#x2F;h2&gt;
+&lt;p&gt;&lt;strong&gt;第一层：daemon 没病。&lt;&#x2F;strong&gt; 进程活着、监听 4096、探测秒回；版本一致排除 replace 链。
+日志里确实有 219 条 &amp;gt;2s 的慢请求（多会话并发），最大 8.1s——差点当成&quot;高负载踩穿探测超时&quot;，
+但它解释不了&quot;只有 index7 失败&quot;的确定性。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;第二层：环境对比扑空。&lt;&#x2F;strong&gt; diff 两个窗口 pane 的 &lt;code&gt;&#x2F;proc&#x2F;&amp;lt;pid&amp;gt;&#x2F;environ&lt;&#x2F;code&gt;，只剩
+DISPLAY&#x2F;SSH_CONNECTION 这类 SSH 会话的正常差异。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;第三层：换观测点，实锤。&lt;&#x2F;strong&gt; 关键动作是直接在 index7 里跑诊断：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$ opencode service status
+stopped                      ← 同一个 daemon，这个窗口认为服务不存在！
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;而 &lt;code&gt;&#x2F;proc&#x2F;pid&#x2F;environ&lt;&#x2F;code&gt; 是&lt;strong&gt;进程启动时的快照&lt;&#x2F;strong&gt;，shell 事后 &lt;code&gt;export&lt;&#x2F;code&gt; 的变量根本不在里面。
+直接问 shell 本体：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$ echo ${http_proxy:-none}
+http:&amp;#x2F;&amp;#x2F;192.168.5.244:10808              ← 这个窗口在调试 vless 代理
+$ echo $NO_PROXY
+localhost,127.0.0.1,::1,127.0.0.0&amp;#x2F;8,10.0.0.0&amp;#x2F;8,172.16.0.0&amp;#x2F;12,192.168.0.0&amp;#x2F;16,100.64.0.0&amp;#x2F;10
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;&lt;code&gt;NO_PROXY&lt;&#x2F;code&gt; 覆盖了 localhost 和一整圈内网段，&lt;strong&gt;唯独没有 &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt;&lt;&#x2F;strong&gt;——而 daemon 注册文件里
+的 url 恰恰是 &lt;code&gt;http:&#x2F;&#x2F;0.0.0.0:4096&lt;&#x2F;code&gt;（监听地址配了 0.0.0.0 以便 LAN 访问）。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;yin-guo-lian&quot;&gt;因果链&lt;&#x2F;h2&gt;
+&lt;pre&gt;&lt;code&gt;probe fetch http:&amp;#x2F;&amp;#x2F;0.0.0.0:4096&amp;#x2F;api&amp;#x2F;info
+  → Bun fetch 尊重 http_proxy，目标主机 &amp;quot;0.0.0.0&amp;quot; 不匹配 NO_PROXY 任何一项
+  → 请求丢给 192.168.5.244:10808 的代理入口 → 代理连不了 &amp;quot;0.0.0.0&amp;quot; → 失败
+  → ensure 判定服务 missing（daemon 活得好好的）
+  → spawn contender → 绑 4096 → EADDRINUSE（撞上健康 daemon）
+  → 15s 在位者等待，探测同样走代理失败 → 报错退出
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;修复验证一行搞定：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;$ export no_proxy=&amp;quot;0.0.0.0,$no_proxy&amp;quot; NO_PROXY=&amp;quot;0.0.0.0,$NO_PROXY&amp;quot;
+$ opencode service status
+http:&amp;#x2F;&amp;#x2F;0.0.0.0:4096              ← stopped → 健康
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;jiao-xun&quot;&gt;教训&lt;&#x2F;h2&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;&#x2F;proc&#x2F;pid&#x2F;environ&lt;&#x2F;code&gt; 是启动快照&lt;&#x2F;strong&gt;——排查&quot;同机不同 shell 行为不一致&quot;，env diff 之外必须
+问 shell 本体要当前值。这次差点被它带进死胡同。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;NO_PROXY 是精确字符串匹配，不是网段直觉&lt;&#x2F;strong&gt;——写了一堆 CIDR，偏偏漏了 &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt;
+这个特殊地址。代理变量一 export，所有尊重它的 HTTP 客户端（Bun fetch、curl）
+都会中招。&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;opencode 的一个小坑&lt;&#x2F;strong&gt;：服务注册 url 用的是&lt;strong&gt;绑定地址&lt;&#x2F;strong&gt; &lt;code&gt;0.0.0.0&lt;&#x2F;code&gt;，客户端探测时原样
+fetch。归一化成 &lt;code&gt;127.0.0.1&lt;&#x2F;code&gt; 能让所有&quot;localhost 直连&quot;的默认 NO_PROXY 天然免疫——
+值得报个 issue。&lt;&#x2F;li&gt;
+&lt;li&gt;排查顺序的教训：先验证&quot;故障是否可复现、是否确定性&quot;，再找机制。日志里的 8s 慢请求
+是真实存在的干扰项，但&quot;只在一个窗口失败&quot;这个确定性特征从一开始就指向了本地环境。&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>sing-box 分流 WARP 出口访问 ChatGPT：告别 Cloudflare 验证</title>
+        <published>2026-08-26T22:37:16+08:00</published>
+        <updated>2026-08-31T00:00:00+00:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2026/08/cloudflare-warp-singbox-outbound/"/>
+        <id>https://blog.juzhong.asia/2026/08/cloudflare-warp-singbox-outbound/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2026/08/cloudflare-warp-singbox-outbound/">&lt;h1 id=&quot;xian-xiang&quot;&gt;现象&lt;&#x2F;h1&gt;
+&lt;p&gt;自己 VPS（机房 IP）上跑 sing-box 代理，访问 ChatGPT 时经常弹出 Cloudflare 的&quot;确认你是真人&quot;验证页（Turnstile）。换不同节点偶有缓解，但始终频繁。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;yuan-yin&quot;&gt;原因&lt;&#x2F;h1&gt;
+&lt;p&gt;ChatGPT 背后是 Cloudflare 的 WAF + DDoS 防护。Cloudflare 会对每个访问 IP 评估信誉度，而 VPS 的机房 IP（ASN 类型为 Hosting&#x2F;Data Center）天然处于低信誉档：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;机房 IP 连坐&lt;&#x2F;strong&gt;：大量爬虫、自动化脚本都从机房 IP 发出，同一个 IP 段里的&quot;坏邻居&quot;会拉低整个段的信誉；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;地理行为突变&lt;&#x2F;strong&gt;：账号短时间内跨多个国家 IP 登录，会触发风控。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;所以对 Cloudflare 来说，机房 IP 访问 ChatGPT ≈ 疑似机器人 → 弹验证。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;si-lu-rang-chatgpt-liu-liang-zou-warp-chu-kou&quot;&gt;思路：让 ChatGPT 流量走 WARP 出口&lt;&#x2F;h1&gt;
+&lt;p&gt;与其反复换 VPS 的 IP（不一定干净，还可能收费），不如用 Cloudflare 官方的 &lt;strong&gt;WARP&lt;&#x2F;strong&gt; 作为 ChatGPT 流量的出口。&lt;&#x2F;p&gt;
+&lt;p&gt;WARP 是 Cloudflare 官方出品的网络客户端（本质是基于 WireGuard 协议的隧道），它的出口 IP 由 Cloudflare 管理，信誉度远高于普通机房 IP。社区普遍反馈：WARP 出口访问 ChatGPT 基本不弹验证。&lt;&#x2F;p&gt;
+&lt;p&gt;关键决策：&lt;strong&gt;不要把整个 VPS 全局走 WARP&lt;&#x2F;strong&gt;（会连带 SSH、更新、其他服务全部改出口，还容易踩路由循环），而是把 WARP 注册成 sing-box 的一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound，只让 OpenAI 相关域名走它。&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;客户端 → sing-box(VPS)
+          ├── direct ─────────→ VPS 原生 IP（其余流量）
+          └── wireguard:warp ─→ Cloudflare WARP → ChatGPT（openai.com 等）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;cheng-qing-bu-shi-cloudflared-ye-bu-shi-warp-cli-quan-ju&quot;&gt;澄清：不是 cloudflared，也不是 warp-cli 全局&lt;&#x2F;h1&gt;
+&lt;p&gt;先区分三个容易混淆的东西：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;程序&lt;&#x2F;th&gt;&lt;th&gt;方向&lt;&#x2F;th&gt;&lt;th&gt;用途&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;cloudflared&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;入站&lt;&#x2F;td&gt;&lt;td&gt;Cloudflare Tunnel，把外部请求带进你的服务器（反向代理）&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;&lt;code&gt;warp-cli&lt;&#x2F;code&gt;&lt;&#x2F;td&gt;&lt;td&gt;出站全局&lt;&#x2F;td&gt;&lt;td&gt;系统级客户端，默认把整台机器的流量都走 WARP&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;WARP WireGuard 参数&lt;&#x2F;td&gt;&lt;td&gt;出站按需&lt;&#x2F;td&gt;&lt;td&gt;直接把 WARP 当作一个 WireGuard 端点，由 sing-box 按规则选用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;前两种都不适合&quot;只让 ChatGPT 流量走 WARP&quot;这个目标。我们只需要拿到 WARP 的 WireGuard 连接参数，交给 sing-box 即可。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-yi-bu-yong-wgcf-zhu-ce-na-dao-wireguard-can-shu&quot;&gt;第一步：用 wgcf 注册，拿到 WireGuard 参数&lt;&#x2F;h1&gt;
+&lt;p&gt;WARP 底层就是 WireGuard，但参数不能随便编：&lt;code&gt;private_key&lt;&#x2F;code&gt;、&lt;code&gt;local_address&lt;&#x2F;code&gt;（WARP 分配的 172.16.x.x &#x2F; fd01:5ca1:ab1e 段）、&lt;code&gt;peer_public_key&lt;&#x2F;code&gt;（WARP 服务端公钥）、&lt;code&gt;reserved&lt;&#x2F;code&gt;（WARP 特有字段）都来自 Cloudflare 的注册流程。&lt;&#x2F;p&gt;
+&lt;p&gt;社区标准做法是用 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;ViRb3&#x2F;wgcf&quot;&gt;wgcf&lt;&#x2F;a&gt; 模拟注册，在 VPS 上执行：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;curl -L -o wgcf https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;ViRb3&amp;#x2F;wgcf&amp;#x2F;releases&amp;#x2F;download&amp;#x2F;v2.2.22&amp;#x2F;wgcf_2.2.22_linux_amd64
+chmod +x wgcf
+.&amp;#x2F;wgcf register --accept-tos   # 生成 wgcf-account.toml
+.&amp;#x2F;wgcf generate                # 生成 wgcf-profile.conf
+cat wgcf-profile.conf
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;生成的 &lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 类似：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;ini&quot; class=&quot;language-ini &quot;&gt;&lt;code class=&quot;language-ini&quot; data-lang=&quot;ini&quot;&gt;[Interface]
+PrivateKey = &amp;lt;WARP_PRIVATE_KEY&amp;gt;
+Address = 172.16.0.2&amp;#x2F;32, fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128
+DNS = 1.1.1.1, 2606:4700:4700::1111
+MTU = 1280
+
+[Peer]
+PublicKey = bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=
+AllowedIPs = 0.0.0.0&amp;#x2F;0, ::&amp;#x2F;0
+Endpoint = 162.159.192.1:2408
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;注意：&lt;code&gt;wgcf-profile.conf&lt;&#x2F;code&gt; 里没有 &lt;code&gt;reserved&lt;&#x2F;code&gt;，但 WARP 的握手必须带 reserved 字段。sing-box 支持配置，生成方法见下文。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;di-er-bu-sing-box-pei-zhi-warp-outbound&quot;&gt;第二步：sing-box 配置 WARP outbound&lt;&#x2F;h1&gt;
+&lt;p&gt;把上面的参数填进 sing-box 的 &lt;code&gt;outbounds&lt;&#x2F;code&gt;（&lt;code&gt;config.json&lt;&#x2F;code&gt; 里）：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;outbounds&amp;quot;: [
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;direct&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;direct&amp;quot;
+    },
+    {
+      &amp;quot;type&amp;quot;: &amp;quot;wireguard&amp;quot;,
+      &amp;quot;tag&amp;quot;: &amp;quot;warp&amp;quot;,
+      &amp;quot;server&amp;quot;: &amp;quot;162.159.192.1&amp;quot;,
+      &amp;quot;server_port&amp;quot;: 2408,
+      &amp;quot;local_address&amp;quot;: [
+        &amp;quot;172.16.0.2&amp;#x2F;32&amp;quot;,
+        &amp;quot;fd01:5ca1:ab1e:xxxx:xxxx:xxxx:xxxx:xxxx&amp;#x2F;128&amp;quot;
+      ],
+      &amp;quot;private_key&amp;quot;: &amp;quot;WARP_PRIVATE_KEY&amp;quot;,
+      &amp;quot;peer_public_key&amp;quot;: &amp;quot;bmXOC+F1FxEMF9dyiK2H5&amp;#x2F;1SUtzH0JuVo51h2wPfgyo=&amp;quot;,
+      &amp;quot;reserved&amp;quot;: [0, 0, 0],
+      &amp;quot;mtu&amp;quot;: 1280
+    }
+  ]
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;其中：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;peer_public_key&lt;&#x2F;code&gt; 是 WARP 的固定公钥 &lt;code&gt;bmXOC+F1FxEMF9dyiK2H5&#x2F;1SUtzH0JuVo51h2wPfgyo=&lt;&#x2F;code&gt;，人人相同；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;reserved&lt;&#x2F;code&gt; 是 WARP 三字节保留位，wgcf 生成配置后可用 &lt;code&gt;.&#x2F;wgcf generate --profile &amp;lt;(cat wgcf-account.toml) --reserved&lt;&#x2F;code&gt; 打印实际值，或直接尝试 &lt;code&gt;[0, 0, 0]&lt;&#x2F;code&gt;（多数情况下可用）；&lt;&#x2F;li&gt;
+&lt;li&gt;免费版 WARP 注册即可用，无需 license key（WARP+ 才需要）。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;di-san-bu-lu-you-gui-ze-zhi-rang-openai-yu-ming-zou-warp&quot;&gt;第三步：路由规则，只让 OpenAI 域名走 WARP&lt;&#x2F;h1&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;route&amp;quot;: {
+    &amp;quot;rules&amp;quot;: [
+      {
+        &amp;quot;domain_suffix&amp;quot;: [
+          &amp;quot;chatgpt.com&amp;quot;,
+          &amp;quot;openai.com&amp;quot;,
+          &amp;quot;oaistatic.com&amp;quot;,
+          &amp;quot;oaiusercontent.com&amp;quot;,
+          &amp;quot;auth0.com&amp;quot;
+        ],
+        &amp;quot;outbound&amp;quot;: &amp;quot;warp&amp;quot;
+      }
+    ]
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;ChatGPT 实际涉及的域名不止 &lt;code&gt;chatgpt.com&lt;&#x2F;code&gt;：登录走 &lt;code&gt;auth.openai.com&lt;&#x2F;code&gt;（auth0），静态资源走 &lt;code&gt;oaistatic.com&lt;&#x2F;code&gt;，图片走 &lt;code&gt;oaiusercontent.com&lt;&#x2F;code&gt;。上面的列表覆盖了主要部分。&lt;&#x2F;p&gt;
+&lt;p&gt;改完 &lt;code&gt;config.json&lt;&#x2F;code&gt; 重启 sing-box：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;systemctl restart sing-box
+journalctl -u sing-box -f   # 看有没有报错
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h1 id=&quot;yan-zheng&quot;&gt;验证&lt;&#x2F;h1&gt;
+&lt;ol&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口确认&lt;&#x2F;strong&gt;：让 sing-box 的 DNS&#x2F;测试流量走 warp 后，检查出口：&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 在客户端通过代理访问
+curl https:&amp;#x2F;&amp;#x2F;www.cloudflare.com&amp;#x2F;cdn-cgi&amp;#x2F;trace
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;输出里 &lt;code&gt;warp=on&lt;&#x2F;code&gt; 说明确实从 WARP 出口出去：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;ip=&amp;lt;WARP出口IP&amp;gt;
+warp=on
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ol start=&quot;2&quot;&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;对比验证频率&lt;&#x2F;strong&gt;：分别用 direct 出口和 warp 出口访问 ChatGPT，观察验证页出现频率。多刷新几次、退出登录状态再试，才更接近真实风控场景。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;li&gt;
+&lt;p&gt;&lt;strong&gt;其余流量不受影响&lt;&#x2F;strong&gt;：&lt;code&gt;curl ifconfig.me&lt;&#x2F;code&gt; 看到的应该是 VPS 原生 IP，说明只有 OpenAI 域名走了 WARP。&lt;&#x2F;p&gt;
+&lt;&#x2F;li&gt;
+&lt;&#x2F;ol&gt;
+&lt;h1 id=&quot;zhu-yi-shi-xiang&quot;&gt;注意事项&lt;&#x2F;h1&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;WARP 不是保证&lt;&#x2F;strong&gt;：WARP 出口 IP 同样可能被大量用户共享，只是信誉比机房 IP 好得多，能大幅减少但未必 100% 消除验证；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;WARP 出口 IP ≠ Cloudflare CDN IP&lt;&#x2F;strong&gt;：Cloudflare 不公开 WARP 出口地址池，它和 Worker 禁止 &lt;code&gt;connect()&lt;&#x2F;code&gt; 的 CDN IP ranges 是两回事。WARP 用户访问套了 Cloudflare CDN 的网站是官方支持的正常路径，不会&quot;循环丢弃&quot;；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;别全局开 warp-cli&lt;&#x2F;strong&gt;：系统级全局 WARP 会改变 VPS 上所有出站流量的出口（SSH 回程、apt 更新、Docker 等都可能受影响），排查问题更难。sing-box outbound 方式完全不动系统路由，SSH 和其余服务照旧；&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;免费 WARP 出口不固定&lt;&#x2F;strong&gt;：免费版出口 IP 可能变化；WARP+（付费）有固定 IP 支持，一般没必要。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h1 id=&quot;shi-ce-geng-xin-2026-08-28-warp-chu-kou-duan-bei-openai-feng-jin-de-qing-kuang&quot;&gt;实测更新（2026-08-28）：WARP 出口段被 OpenAI 封禁的情况&lt;&#x2F;h1&gt;
+&lt;p&gt;用官方 &lt;code&gt;cloudflare-warp&lt;&#x2F;code&gt; 客户端（warp-svc + &lt;code&gt;warp-cli mode proxy&lt;&#x2F;code&gt;，SOCKS5 &lt;code&gt;127.0.0.1:40000&lt;&#x2F;code&gt;）在 VPS 上部署后，把 sing-box 的 OpenAI 域名分流指向它。路由规则确认生效（服务端日志 &lt;code&gt;inbound&#x2F;vless → outbound&#x2F;socks[warp]&lt;&#x2F;code&gt;），但实测结果是&lt;strong&gt;完全打不开&lt;&#x2F;strong&gt;：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;chatgpt.com        → 403 Unable to load site [IP:104.28.215.69 | Ray ID:...]
+openai.com         → 403
+auth.openai.com    → 403
+platform.openai.com→ 403
+api.openai.com     → 403
+google.com（对照）   → 200（隧道本身健康）
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;排查过程摘要：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;原生 VPS IP（UCloud 香港机房）、WARP IPv4 出口（&lt;code&gt;104.28.215.69&lt;&#x2F;code&gt;）、WARP IPv6 出口（&lt;code&gt;2a09:bac1::&lt;&#x2F;code&gt; &#x2F; 重连换段后 &lt;code&gt;2a09:bac5::&lt;&#x2F;code&gt;）&lt;strong&gt;全部 403&lt;&#x2F;strong&gt;；&lt;&#x2F;li&gt;
+&lt;li&gt;强制 IPv4&#x2F;IPv6 目标、带浏览器 UA、重连换出口段，均无效；&lt;&#x2F;li&gt;
+&lt;li&gt;错误页是 Cloudflare WAF 的&lt;strong&gt;自定义错误页&lt;&#x2F;strong&gt;（&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; + Ray ID），不是本文主场景的 Turnstile 真人验证页。&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;结论：这属于 &lt;strong&gt;OpenAI WAF 对 WARP 出口段（&lt;code&gt;104.28.x.x&lt;&#x2F;code&gt; &#x2F; &lt;code&gt;2a09:bacx::&lt;&#x2F;code&gt;）的 IP 级封禁&lt;&#x2F;strong&gt;（社区已知现象，WARP 用户访问 ChatGPT 普遍报此错误），与本文&quot;机房低信誉→弹验证&quot;是两个不同的失败模式：&lt;&#x2F;p&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;失败模式&lt;&#x2F;th&gt;&lt;th&gt;页面表现&lt;&#x2F;th&gt;&lt;th&gt;WARP 是否有效&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;IP 信誉低（机房段）&lt;&#x2F;td&gt;&lt;td&gt;频繁弹 Turnstile 真人验证&lt;&#x2F;td&gt;&lt;td&gt;有效，大幅减少验证&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;IP 被拉黑（WARP 出口段）&lt;&#x2F;td&gt;&lt;td&gt;&lt;code&gt;Unable to load site&lt;&#x2F;code&gt; 自定义错误页&lt;&#x2F;td&gt;&lt;td&gt;无效，换段也没用&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;p&gt;&lt;strong&gt;经验&lt;&#x2F;strong&gt;：部署前先确认目标站点在候选出口上的可用性（&lt;code&gt;curl --socks5-hostname &amp;lt;出口&amp;gt; https:&#x2F;&#x2F;chatgpt.com&lt;&#x2F;code&gt; 看是验证页还是错误页），避免白部署；若 WARP 出口被封，只能换 VPS 商家&#x2F;机场节点碰运气拿干净 IP，或家庭宽带直连。&lt;&#x2F;p&gt;
+&lt;h1 id=&quot;zong-jie&quot;&gt;总结&lt;&#x2F;h1&gt;
+&lt;p&gt;机房 IP 访问 ChatGPT 频繁弹 Cloudflare 验证，根因是 IP 信誉，不是账号或浏览器问题。用 wgcf 把 WARP 注册成 WireGuard 参数、在 sing-box 里加一个 &lt;code&gt;wireguard&lt;&#x2F;code&gt; outbound、按域名分流 OpenAI 流量——改动小、不动系统路由，是当前成本最低且有效的方案。如果 WARP 后仍频繁验证，再考虑换原生 IP（ISP 类型）的 VPS 商家，但这是最后一步。注意 2026-08-28 实测补充：WARP 出口段本身可能已被 OpenAI 封禁，部署前务必先验证出口可用性。&lt;&#x2F;p&gt;
+</content>
+        
+    </entry>
+    <entry xml:lang="en">
+        <title>代理协议与网络穿透</title>
+        <published>2025-07-18T12:00:00+08:00</published>
+        <updated>2025-07-18T12:00:00+08:00</updated>
+        
+        <author>
+          <name>
+            
+              moxuetianya
+            
+          </name>
+        </author>
+        
+        <link rel="alternate" type="text/html" href="https://blog.juzhong.asia/2025/07/proxy-network/"/>
+        <id>https://blog.juzhong.asia/2025/07/proxy-network/</id>
+        
+        <content type="html" xml:base="https://blog.juzhong.asia/2025/07/proxy-network/">&lt;h1 id=&quot;dai-li-xie-yi-yu-wang-luo-chuan-tou&quot;&gt;代理协议与网络穿透&lt;&#x2F;h1&gt;
+&lt;h2 id=&quot;dai-li-xie-yi-dui-bi&quot;&gt;代理协议对比&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;ji-chu-dai-li-xie-yi&quot;&gt;基础代理协议&lt;&#x2F;h3&gt;
+&lt;table&gt;&lt;thead&gt;&lt;tr&gt;&lt;th&gt;协议&lt;&#x2F;th&gt;&lt;th&gt;特点&lt;&#x2F;th&gt;&lt;th&gt;现状&lt;&#x2F;th&gt;&lt;&#x2F;tr&gt;&lt;&#x2F;thead&gt;&lt;tbody&gt;
+&lt;tr&gt;&lt;td&gt;Shadowsocks&lt;&#x2F;td&gt;&lt;td&gt;经典加密代理&lt;&#x2F;td&gt;&lt;td&gt;极易被识别封禁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VMess + WebSocket&lt;&#x2F;td&gt;&lt;td&gt;伪装 HTTP 流量&lt;&#x2F;td&gt;&lt;td&gt;端口被封频繁&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision&lt;&#x2F;td&gt;&lt;td&gt;消除 TLS in TLS 特征&lt;&#x2F;td&gt;&lt;td&gt;须配合有效证书域名&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;tr&gt;&lt;td&gt;VLESS + Vision + REALITY&lt;&#x2F;td&gt;&lt;td&gt;偷取大厂 TLS 证书&lt;&#x2F;td&gt;&lt;td&gt;&lt;strong&gt;当前最稳定&lt;&#x2F;strong&gt;&lt;&#x2F;td&gt;&lt;&#x2F;tr&gt;
+&lt;&#x2F;tbody&gt;&lt;&#x2F;table&gt;
+&lt;h3 id=&quot;tls-wei-zhuang-xie-yi-yan-jin&quot;&gt;TLS 伪装协议演进&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;shadow-tls&lt;&#x2F;strong&gt;：偷白名单域名证书，仅支持 TLS 1.3，不处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;restls&lt;&#x2F;strong&gt;：支持 TLS 1.2&#x2F;1.3，处理 TLS in TLS 特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：使用 ECDHE 算法，即使客户端配置泄露也不影响数据安全。ShadowTLS 使用对称 PSK，配置泄露可能导致流量解密&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;anytls&lt;&#x2F;strong&gt;：消除 TLS in TLS 特征，支持自定义填充包数量和长度&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xtls-he-xin-ji-shu&quot;&gt;XTLS 核心技术&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;XTLS splice&lt;&#x2F;strong&gt;：将内层 TLS 数据直接嵌入外层 TLS 流，减少重复加解密，降低 CPU 开销&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;VISION&lt;&#x2F;strong&gt;：模拟时延与消息交换顺序，抹平 多层TLS 握手的不自然时序特征&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;REALITY&lt;&#x2F;strong&gt;：在 TLS 握手阶段返回真网站的证书，使连接与普通 HTTPS 访问外观一致&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;XHTTP&lt;&#x2F;strong&gt;：在应用层进一步伪装，上行拆分为多个 POST 请求，下行伪装为流式下载或 SSE，消除&quot;稳定长时间加密流&quot;的特征&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;xie-yi-an-quan-ping-gu&quot;&gt;协议安全评估&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;SS 节点搭建后次日即可能被封 IP&lt;&#x2F;li&gt;
+&lt;li&gt;VMess+WS 易被封端口（非封 IP）&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision 目前稳定，需关注域名是否被阻断&lt;&#x2F;li&gt;
+&lt;li&gt;VLESS+Vision+REALITY 堪称最稳方案&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;cloudflare-dai-li&quot;&gt;Cloudflare 代理&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;zhi-chi-de-duan-kou&quot;&gt;支持的端口&lt;&#x2F;h3&gt;
+&lt;p&gt;HTTP 端口：80, 8080, 8880, 2052, 2082, 2086, 2095&lt;&#x2F;p&gt;
+&lt;p&gt;HTTPS 端口：443, 2053, 2083, 2087, 2096, 8443&lt;&#x2F;p&gt;
+&lt;p&gt;仅 80 和 443 支持缓存、Cloudflare Apps、中国网络等全部功能。通过 WAF 规则可阻止非 80&#x2F;443 端口的流量。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;cloudflare-ip-duan&quot;&gt;Cloudflare IP 段&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;173.245.48.0&amp;#x2F;20, 103.21.244.0&amp;#x2F;22, 103.22.200.0&amp;#x2F;22, 103.31.4.0&amp;#x2F;22
+141.101.64.0&amp;#x2F;18, 108.162.192.0&amp;#x2F;18, 190.93.240.0&amp;#x2F;20, 188.114.96.0&amp;#x2F;20
+197.234.240.0&amp;#x2F;22, 198.41.128.0&amp;#x2F;17, 162.158.0.0&amp;#x2F;15, 104.16.0.0&amp;#x2F;13
+104.24.0.0&amp;#x2F;14, 172.64.0.0&amp;#x2F;13, 131.0.72.0&amp;#x2F;22
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;cf-worker-vless-proxyip-yuan-li&quot;&gt;CF Worker VLESS proxyIP 原理&lt;&#x2F;h3&gt;
+&lt;p&gt;CF Worker 不能直接访问 Cloudflare 自家的 IP 地址（&lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;developers.cloudflare.com&#x2F;workers&#x2F;runtime-apis&#x2F;tcp-sockets&#x2F;#considerations&quot;&gt;官方确认&lt;&#x2F;a&gt;）。当远程 TCP 无数据返回时触发 &lt;code&gt;retry()&lt;&#x2F;code&gt;，通过 proxyIP（&quot;神奇的 IP&quot;）中转数据包到 CF 目的 IP。&lt;&#x2F;p&gt;
+&lt;p&gt;这不是每次转发都用，只作 failsafe。非 Cloudflare 部署的网站（如 AWS Cloudfront、Google）可直接访问，不经过 proxyIP。&lt;&#x2F;p&gt;
+&lt;p&gt;&lt;strong&gt;proxyIP 的隐患&lt;&#x2F;strong&gt;：安全性（数据转给第三方）、速度受限于单个 IP、可用性不确定。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;fan-dai-cf-ip&quot;&gt;反代 CF IP&lt;&#x2F;h3&gt;
+&lt;p&gt;链路：用户 → 自己的 VPS → Cloudflare CDN → 源站&lt;&#x2F;p&gt;
+&lt;p&gt;通过 iptables 将 VPS 端口转发到 Cloudflare 对应端口，实现加速的同时享受 CF 的防护功能。&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 使用 arloor 的 iptables 转发脚本
+# 原理：将 VPS 的 80 端口流量转发到 Cloudflare CDN IP:80
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h2 id=&quot;sing-box-xray-v2ray-bu-shu&quot;&gt;sing-box &#x2F; Xray &#x2F; v2ray 部署&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;fu-wu-duan-an-zhuang&quot;&gt;服务端安装&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# sing-box
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;sing-box&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+
+# Xray
+bash &amp;lt;(wget -qO- https:&amp;#x2F;&amp;#x2F;github.com&amp;#x2F;233boy&amp;#x2F;xray&amp;#x2F;raw&amp;#x2F;main&amp;#x2F;install.sh)
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;mian-ban-guan-li&quot;&gt;面板管理&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;bash&quot; class=&quot;language-bash &quot;&gt;&lt;code class=&quot;language-bash&quot; data-lang=&quot;bash&quot;&gt;# 3x-ui（Xray 管理面板）
+bash &amp;lt;(curl -Ls https:&amp;#x2F;&amp;#x2F;raw.githubusercontent.com&amp;#x2F;MHSanaei&amp;#x2F;3x-ui&amp;#x2F;refs&amp;#x2F;tags&amp;#x2F;v2.6.0&amp;#x2F;install.sh)
+x-ui  # TUI 配置界面
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ding-yue-zhuan-huan&quot;&gt;订阅转换&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 不直接兼容大多数机场的订阅格式，需 &lt;a rel=&quot;noopener&quot; target=&quot;_blank&quot; href=&quot;https:&#x2F;&#x2F;github.com&#x2F;Toperlock&#x2F;sing-box-subscribe&quot;&gt;sing-box-subscribe&lt;&#x2F;a&gt; 转换：&lt;&#x2F;p&gt;
+&lt;pre&gt;&lt;code&gt;&amp;lt;URL&amp;gt;&amp;#x2F;url=&amp;lt;subscription_url&amp;gt;&amp;#x2F;&amp;amp;file=&amp;lt;sing-box_template_url&amp;gt;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;clash-api-jian-rong&quot;&gt;Clash API 兼容&lt;&#x2F;h3&gt;
+&lt;p&gt;sing-box 兼容 Clash API，可使用 metacubexd dashboard：&lt;&#x2F;p&gt;
+&lt;pre data-lang=&quot;json&quot; class=&quot;language-json &quot;&gt;&lt;code class=&quot;language-json&quot; data-lang=&quot;json&quot;&gt;{
+  &amp;quot;experimental&amp;quot;: {
+    &amp;quot;clash_api&amp;quot;: {
+      &amp;quot;external_controller&amp;quot;: &amp;quot;0.0.0.0:9090&amp;quot;,
+      &amp;quot;external_ui&amp;quot;: &amp;quot;metacubexd&amp;quot;,
+      &amp;quot;default_mode&amp;quot;: &amp;quot;rule&amp;quot;
+    }
+  }
+}
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;h3 id=&quot;ke-hu-duan-ruan-jian&quot;&gt;客户端软件&lt;&#x2F;h3&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;mihomo&lt;&#x2F;strong&gt; &#x2F; &lt;strong&gt;clash verge&lt;&#x2F;strong&gt; — Clash 系客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2rayN&lt;&#x2F;strong&gt; — Windows 客户端&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;v2raya&lt;&#x2F;strong&gt; — 透明代理&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;strong&gt;hiddify-app&lt;&#x2F;strong&gt; — sing-box 前端&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h3 id=&quot;tou-ming-wang-guan&quot;&gt;透明网关&lt;&#x2F;h3&gt;
+&lt;p&gt;在网关上运行 sing-box，其他机器将网关指向该机器即可智能分流。注意：&lt;&#x2F;p&gt;
+&lt;ul&gt;
+&lt;li&gt;其他机器的 DNS 必须是公网 DNS&lt;&#x2F;li&gt;
+&lt;li&gt;或配置特定入站端口接管 DNS 请求&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;h2 id=&quot;nginx-dai-li-pei-zhi&quot;&gt;Nginx 代理配置&lt;&#x2F;h2&gt;
+&lt;h3 id=&quot;proxy-set-header-host&quot;&gt;proxy_set_header Host&lt;&#x2F;h3&gt;
+&lt;pre data-lang=&quot;nginx&quot; class=&quot;language-nginx &quot;&gt;&lt;code class=&quot;language-nginx&quot; data-lang=&quot;nginx&quot;&gt;proxy_set_header Host $host;
+proxy_set_header X-Forwarded-For $remote_addr;
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;$proxy_host&lt;&#x2F;code&gt;：upstream 服务器的 IP&#x2F;域名（默认值）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时取虚拟主机名（推荐）&lt;&#x2F;li&gt;
+&lt;li&gt;&lt;code&gt;$http_host&lt;&#x2F;code&gt;：客户端请求头中的 Host，缺失时为空&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+&lt;p&gt;推荐使用 &lt;code&gt;$host&lt;&#x2F;code&gt; 避免 Host 头部丢失的情况。&lt;&#x2F;p&gt;
+&lt;h3 id=&quot;x-forwarded-for&quot;&gt;X-Forwarded-For&lt;&#x2F;h3&gt;
+&lt;pre&gt;&lt;code&gt;X-Forwarded-For: client, proxy1, proxy2
+&lt;&#x2F;code&gt;&lt;&#x2F;pre&gt;
+&lt;p&gt;每经过一层代理，将请求来源 IP 追加到右侧。最左边的 IP 是原始客户端。该字段易被伪造，应谨慎使用。&lt;&#x2F;p&gt;
+&lt;h2 id=&quot;gong-ju-yu-can-kao&quot;&gt;工具与参考&lt;&#x2F;h2&gt;
+&lt;ul&gt;
+&lt;li&gt;Cloudflare 优选 IP：&lt;code&gt;CloudflareSpeedTest&lt;&#x2F;code&gt;、&lt;code&gt;better-cloudflare-ip&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;CF 中转 IP 获取：&lt;code&gt;zip.baipiao.eu.org&lt;&#x2F;code&gt;、电报 &lt;code&gt;@cf_push&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;IP 纯净度查询：&lt;code&gt;scamalytics.com&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;在线测速：&lt;code&gt;speedtest.net&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;li&gt;FOFA 搜索 CF IP：&lt;code&gt;server=&quot;cloudflare&quot; &amp;amp;&amp;amp; country=&quot;US&quot; &amp;amp;&amp;amp; port=&quot;443&quot;&lt;&#x2F;code&gt;&lt;&#x2F;li&gt;
+&lt;&#x2F;ul&gt;
+</content>
+        
+    </entry>
+</feed>
